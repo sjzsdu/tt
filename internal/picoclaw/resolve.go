@@ -57,7 +57,7 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 		return ResolvedRunOptions{}, fmt.Errorf("no model specified and no default model configured")
 	}
 
-	if opt.Model == "" {
+	if opt.Model == "" && strings.TrimSpace(opt.Agent) == "" {
 		resolved.Model = rt.safeModelForAgent(resolved.Model)
 	}
 
@@ -121,12 +121,9 @@ func defaultAgentConfig(cfg *pcconfig.Config) *pcconfig.AgentConfig {
 		return nil
 	}
 	for i := range cfg.Agents.List {
-		if cfg.Agents.List[i].Default {
+		if strings.EqualFold(strings.TrimSpace(cfg.Agents.List[i].ID), DefaultAgent(cfg)) {
 			return &cfg.Agents.List[i]
 		}
-	}
-	if len(cfg.Agents.List) > 0 {
-		return &cfg.Agents.List[0]
 	}
 	return nil
 }

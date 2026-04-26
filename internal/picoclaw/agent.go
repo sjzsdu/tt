@@ -53,7 +53,12 @@ func (rt *Runtime) Run(opt RunOptions) error {
 	defer loop.Close()
 
 	if text := strings.TrimSpace(resolved.Message); text != "" {
-		resp, err := loop.ProcessDirect(context.Background(), text, resolved.Session)
+		var resp string
+		if strings.TrimSpace(resolved.Agent) != "" && !strings.EqualFold(strings.TrimSpace(resolved.Agent), DefaultAgent(cfg)) {
+			resp, err = loop.ProcessDirectForAgent(context.Background(), text, resolved.Session, resolved.Agent)
+		} else {
+			resp, err = loop.ProcessDirect(context.Background(), text, resolved.Session)
+		}
 		if err != nil {
 			return fmt.Errorf("process picoclaw message failed: %w", err)
 		}
@@ -86,7 +91,7 @@ func prepareConfigForRun(cfg *pcconfig.Config, opt ResolvedRunOptions) *pcconfig
 	if selected == "" {
 		selected = DefaultAgent(cfg)
 	}
-	if selected == "" {
+	if strings.EqualFold(selected, DefaultAgent(cfg)) {
 		return cfg
 	}
 	for i := range cfg.Agents.List {

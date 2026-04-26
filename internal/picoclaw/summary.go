@@ -37,18 +37,8 @@ func (rt *Runtime) Summary() Summary {
 }
 
 func DefaultAgent(cfg *pcconfig.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	for _, item := range cfg.Agents.List {
-		if item.Default {
-			return strings.TrimSpace(item.ID)
-		}
-	}
-	if len(cfg.Agents.List) > 0 {
-		return strings.TrimSpace(cfg.Agents.List[0].ID)
-	}
-	return ""
+	_ = cfg
+	return "main"
 }
 
 func (rt *Runtime) ResolveModel(name string) (*pcconfig.ModelConfig, error) {
@@ -91,7 +81,9 @@ func agentNames(cfg *pcconfig.Config) []string {
 		return nil
 	}
 	seen := make(map[string]struct{})
-	out := make([]string, 0, len(cfg.Agents.List))
+	out := make([]string, 0, len(cfg.Agents.List)+1)
+	seen[DefaultAgent(cfg)] = struct{}{}
+	out = append(out, DefaultAgent(cfg))
 	for _, item := range cfg.Agents.List {
 		name := strings.TrimSpace(item.ID)
 		if name == "" {
