@@ -21,3 +21,4 @@ vendor/
 
 # Local AI/config state
 .picoclaw/
+.tt/

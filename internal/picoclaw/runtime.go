@@ -9,11 +9,14 @@ import (
 	pcpkg "github.com/sipeed/picoclaw/pkg"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pcskills "github.com/sipeed/picoclaw/pkg/skills"
+	ttconfig "tt/internal/ttconfig"
 )
 
 type Options struct {
-	Home   string
-	Config string
+	Home      string
+	Config    string
+	TTConfig  ttconfig.Config
+	TTSources ttconfig.Sources
 }
 
 type Runtime struct {
@@ -21,6 +24,8 @@ type Runtime struct {
 	ConfigPath string
 	Config     *pcconfig.Config
 	Skills     []pcskills.SkillInfo
+	TTConfig   ttconfig.Config
+	TTSources  ttconfig.Sources
 }
 
 func Load(opt Options) (*Runtime, error) {
@@ -44,6 +49,8 @@ func Load(opt Options) (*Runtime, error) {
 		ConfigPath: cfgPath,
 		Config:     cfg,
 		Skills:     loadSkills(cfg, home),
+		TTConfig:   opt.TTConfig,
+		TTSources:  opt.TTSources,
 	}
 	return rt, nil
 }

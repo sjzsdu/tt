@@ -43,14 +43,32 @@ var markdownCmd = &cobra.Command{
 	Short: "Browse markdown files in a local web UI",
 	Long:  "Start a local web service for browsing markdown files in the current working tree.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mdRoot = getwd()
+		loaded, err := loadTTConfig()
+		if err != nil {
+			return err
+		}
+		merged := loaded.Merged
+		if !cmd.Flags().Changed("port") && merged.Markdown.Port != nil {
+			mdPort = *merged.Markdown.Port
+		}
+		if !cmd.Flags().Changed("content") && strings.TrimSpace(merged.Markdown.Content) != "" {
+			mdContent = merged.Markdown.Content
+		}
+		if !cmd.Flags().Changed("content-only") && merged.Markdown.ContentOnly != nil {
+			mdContentOnly = *merged.Markdown.ContentOnly
+		}
+
+		mdRoot = projectRootFromConfig(loaded)
 
 		flagPatterns, _ := cmd.Flags().GetStringSlice("pattern")
 		mdPatterns = append([]string{}, flagPatterns...)
+		if !cmd.Flags().Changed("pattern") && len(merged.Markdown.Patterns) > 0 {
+			mdPatterns = append(mdPatterns, merged.Markdown.Patterns...)
+		}
 		if len(args) > 0 {
 			if len(mdPatterns) > 0 {
-				merged := append([]string{mdPatterns[0]}, args...)
-				mdPatterns = merged
+				mergedPatterns := append([]string{mdPatterns[0]}, args...)
+				mdPatterns = mergedPatterns
 			} else {
 				mdPatterns = append([]string{}, args...)
 			}

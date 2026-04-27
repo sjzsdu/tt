@@ -6,19 +6,22 @@ import (
 	"strings"
 
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
+	ttconfig "tt/internal/ttconfig"
 )
 
 type Summary struct {
-	Home                   string   `json:"home"`
-	ConfigPath             string   `json:"config_path"`
-	Workspace              string   `json:"workspace"`
-	DefaultAgent           string   `json:"default_agent,omitempty"`
-	DefaultModel           string   `json:"default_model"`
-	ConfiguredMainModel    string   `json:"configured_main_model,omitempty"`
-	ConfiguredDefaultModel string   `json:"configured_default_model,omitempty"`
-	Agents                 []string `json:"agents,omitempty"`
-	Models                 []string `json:"models"`
-	Skills                 []string `json:"skills"`
+	Home                   string           `json:"home"`
+	ConfigPath             string           `json:"config_path"`
+	Workspace              string           `json:"workspace"`
+	DefaultAgent           string           `json:"default_agent,omitempty"`
+	DefaultModel           string           `json:"default_model"`
+	ConfiguredMainModel    string           `json:"configured_main_model,omitempty"`
+	ConfiguredDefaultModel string           `json:"configured_default_model,omitempty"`
+	Agents                 []string         `json:"agents,omitempty"`
+	Models                 []string         `json:"models"`
+	Skills                 []string         `json:"skills"`
+	TTConfigSources        ttconfig.Sources `json:"tt_config_sources"`
+	TTConfig               ttconfig.Config  `json:"tt_config"`
 }
 
 func (rt *Runtime) Summary() Summary {
@@ -33,11 +36,20 @@ func (rt *Runtime) Summary() Summary {
 		Agents:                 agentNames(rt.Config),
 		Models:                 availableModelNames(rt.Config),
 		Skills:                 skillNames(rt),
+		TTConfigSources:        rt.TTSources,
+		TTConfig:               rt.TTConfig,
 	}
 }
 
 func DefaultAgent(cfg *pcconfig.Config) string {
-	_ = cfg
+	if cfg == nil {
+		return "main"
+	}
+	for _, item := range cfg.Agents.List {
+		if item.Default {
+			return strings.TrimSpace(item.ID)
+		}
+	}
 	return "main"
 }
 

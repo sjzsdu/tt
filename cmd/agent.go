@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	pcwrap "tt/internal/picoclaw"
+	ttconfig "tt/internal/ttconfig"
 )
 
 var (
@@ -30,7 +31,7 @@ tt agent "explain the current directory"
 tt agent --session cli:tt --model gpt-5.4 -m "review this idea"
 tt agent --picoclaw-home ~/.picoclaw-dev -m "list available skills"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runAgent(args)
+		return runAgent(cmd, args)
 	},
 }
 
@@ -45,25 +46,62 @@ func init() {
 	agentCmd.Flags().StringVar(&agentConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 }
 
-func runAgent(args []string) error {
+func runAgent(cmd *cobra.Command, args []string) error {
+	_ = cmd
 	msg := strings.TrimSpace(agentMessage)
 	if msg == "" && len(args) > 0 {
 		msg = strings.TrimSpace(strings.Join(args, " "))
 	}
 
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return err
+	}
+	merged := loaded.Merged
+	cli := ttconfig.Config{}
+	if msg != "" {
+		// message remains CLI-only and is not persisted in tt config.
+	}
+	if cmd.Flags().Changed("session") {
+		cli.Agent.Session = agentSession
+	}
+	if cmd.Flags().Changed("agent") {
+		cli.Agent.Agent = agentName
+	}
+	if cmd.Flags().Changed("model") {
+		cli.Agent.Model = agentModel
+	}
+	if cmd.Flags().Changed("debug") {
+		cli.Agent.Debug = ttconfig.BoolPtr(agentDebug)
+	}
+	if cmd.Flags().Changed("picoclaw-home") {
+		cli.Picoclaw.Home = agentHome
+	}
+	if cmd.Flags().Changed("picoclaw-config") {
+		cli.Picoclaw.Config = agentConfig
+	}
+	merged = ttconfig.Merge(merged, cli)
+
 	rt, err := pcwrap.Load(pcwrap.Options{
-		Home:   agentHome,
-		Config: agentConfig,
+		Home:      merged.Picoclaw.Home,
+		Config:    merged.Picoclaw.Config,
+		TTConfig:  merged,
+		TTSources: loaded.Sources,
 	})
 	if err != nil {
 		return err
 	}
 
+	debug := agentDebug
+	if merged.Agent.Debug != nil {
+		debug = *merged.Agent.Debug
+	}
+
 	return rt.Run(pcwrap.RunOptions{
 		Message: msg,
-		Session: agentSession,
-		Agent:   agentName,
-		Model:   agentModel,
-		Debug:   agentDebug,
+		Session: merged.Agent.Session,
+		Agent:   merged.Agent.Agent,
+		Model:   merged.Agent.Model,
+		Debug:   debug,
 	})
 }
