@@ -17,9 +17,10 @@ const (
 )
 
 type Config struct {
-	Picoclaw PicoclawConfig `json:"picoclaw,omitempty"`
-	Agent    AgentConfig    `json:"agent,omitempty"`
-	Markdown MarkdownConfig `json:"markdown,omitempty"`
+	Picoclaw     PicoclawConfig     `json:"picoclaw,omitempty"`
+	Agent        AgentConfig        `json:"agent,omitempty"`
+	Markdown     MarkdownConfig     `json:"markdown,omitempty"`
+	Conversation ConversationConfig `json:"conversation,omitempty"`
 }
 
 type PicoclawConfig struct {
@@ -39,6 +40,12 @@ type MarkdownConfig struct {
 	Content     string   `json:"content,omitempty"`
 	ContentOnly *bool    `json:"content_only,omitempty"`
 	Patterns    []string `json:"patterns,omitempty"`
+}
+
+type ConversationConfig struct {
+	Port     *int     `json:"port,omitempty"`
+	File     string   `json:"file,omitempty"`
+	Patterns []string `json:"patterns,omitempty"`
 }
 
 type Sources struct {
@@ -118,6 +125,16 @@ func Merge(base Config, overlay Config) Config {
 	}
 	if len(overlay.Markdown.Patterns) > 0 {
 		out.Markdown.Patterns = append([]string(nil), overlay.Markdown.Patterns...)
+	}
+	if overlay.Conversation.Port != nil {
+		v := *overlay.Conversation.Port
+		out.Conversation.Port = &v
+	}
+	if v := strings.TrimSpace(overlay.Conversation.File); v != "" {
+		out.Conversation.File = v
+	}
+	if len(overlay.Conversation.Patterns) > 0 {
+		out.Conversation.Patterns = append([]string(nil), overlay.Conversation.Patterns...)
 	}
 	return out
 }
