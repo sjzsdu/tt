@@ -653,14 +653,14 @@ const skillViewHTML = `<!DOCTYPE html>
       --shadow: 0 10px 30px rgba(15,23,42,.08);
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); }
-    .layout { display:grid; grid-template-columns: 280px minmax(0,1fr); gap: 20px; padding: 20px; min-height: 100vh; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+    .layout { display:grid; grid-template-columns: 280px minmax(0,1fr); gap: 20px; padding: 20px; height: 100vh; overflow: hidden; }
+    .layout { display:grid; grid-template-columns: 280px minmax(0,1fr); gap: 20px; padding: 20px; height: 100vh; overflow: hidden; }
     .side, .main { min-height: 0; }
-    .side { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: auto; padding: 18px; }
+    .side { position: sticky; top: 20px; height: calc(100vh - 40px); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; padding: 18px; }
     .main { overflow: auto; }
     .main-inner { max-width: 1040px; margin: 0 auto; }
     .hero, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 24px; margin-bottom: 18px; }
-    .title { margin: 0; font-size: 22px; }
     .subtitle { color: var(--subtle); font-size: 13px; margin-top: 8px; word-break: break-all; }
     .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
     .btn { display:inline-flex; align-items:center; justify-content:center; padding:10px 14px; border-radius:12px; text-decoration:none; font-weight:600; border:1px solid var(--line); color: var(--text); background:#fff; cursor:pointer; }
@@ -710,7 +710,7 @@ const skillViewHTML = `<!DOCTYPE html>
     .mode-view .btn[data-mode="view"] { background: var(--green); color: #fff; border-color: var(--green); }
     @media (max-width: 960px) {
       .layout { grid-template-columns: 1fr; }
-      .side { order: 2; }
+      .side { position: static; top: auto; height: auto; }
     }
   </style>
 </head>

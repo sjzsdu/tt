@@ -930,12 +930,12 @@ const viewHTML = `<!DOCTYPE html>
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     body { overflow: hidden; }
     a { color: inherit; }
-    .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr) 260px; height: 100vh; }
-    .pane { min-height: 0; overflow-y: auto; }
-    .files-pane, .toc-pane { background: var(--panel); }
+    .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr) 260px; height: 100vh; overflow: hidden; }
+    .pane { min-height: 0; }
+    .files-pane, .toc-pane { background: var(--panel); height: 100vh; overflow-y: auto; position: sticky; top: 0; }
     .files-pane { border-right: 1px solid var(--line); }
     .toc-pane { border-left: 1px solid var(--line); }
-    .content-pane { background: var(--bg); }
+    .content-pane { background: var(--bg); overflow-y: auto; height: 100vh; }
     .files-pane::-webkit-scrollbar, .toc-pane::-webkit-scrollbar, .content-pane::-webkit-scrollbar { width: 10px; }
     .files-pane::-webkit-scrollbar-thumb, .toc-pane::-webkit-scrollbar-thumb, .content-pane::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
     .files-pane::-webkit-scrollbar-track, .toc-pane::-webkit-scrollbar-track, .content-pane::-webkit-scrollbar-track { background: transparent; }
@@ -1084,7 +1084,8 @@ const viewHTML = `<!DOCTYPE html>
       body { overflow: auto; }
       .layout { grid-template-columns: 1fr; height: auto; }
       .pane { overflow: visible; }
-      .files-pane, .toc-pane { border: 0; border-bottom: 1px solid var(--line); }
+      .files-pane, .toc-pane { border: 0; border-bottom: 1px solid var(--line); height: auto; overflow: visible; }
+      .content-pane { overflow: visible; }
       .toolbar { flex-direction: column; align-items: flex-start; }
       .toolbar-actions { justify-content: flex-start; }
       .doc-wrap { padding: 16px; }
