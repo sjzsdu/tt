@@ -38,12 +38,12 @@ var skillCmd = &cobra.Command{
 	tt skill create-cmd
 	tt skill --file .forge/skills/create-cmd/SKILL.md --edit`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		loaded, err := loadTTConfig()
+		cwd, err := os.Getwd()
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve skill cwd failed: %w", err)
 		}
 
-		root := projectRootFromConfig(loaded)
+		root := cwd
 		if strings.TrimSpace(skillRootFlag) != "" {
 			root = skillRootFlag
 		}
@@ -59,7 +59,7 @@ var skillCmd = &cobra.Command{
 		if len(args) > 0 && strings.TrimSpace(skillFile) == "" {
 			candidate := args[0]
 			if !filepath.IsAbs(candidate) {
-				candidate = filepath.Join(skillRoot, candidate)
+				candidate = filepath.Join(cwd, candidate)
 			}
 			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 				absDir, err := filepath.Abs(candidate)

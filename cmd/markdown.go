@@ -58,7 +58,11 @@ var markdownCmd = &cobra.Command{
 			mdContentOnly = *merged.Markdown.ContentOnly
 		}
 
-		mdRoot = projectRootFromConfig(loaded)
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve markdown cwd failed: %w", err)
+		}
+		mdRoot = cwd
 
 		flagPatterns, _ := cmd.Flags().GetStringSlice("pattern")
 		mdPatterns = append([]string{}, flagPatterns...)
@@ -68,7 +72,7 @@ var markdownCmd = &cobra.Command{
 		if len(args) == 1 {
 			candidate := args[0]
 			if !filepath.IsAbs(candidate) {
-				candidate = filepath.Join(mdRoot, candidate)
+				candidate = filepath.Join(cwd, candidate)
 			}
 			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 				absRoot, err := filepath.Abs(candidate)
