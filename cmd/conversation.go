@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	mdutil "tt/internal/mdutil"
 )
 
 type convDump struct {
@@ -493,18 +494,7 @@ func summarizePrompt(content string) string {
 }
 
 func renderTextBlock(content string) template.HTML {
-	escaped := html.EscapeString(strings.TrimSpace(content))
-	if escaped == "" {
-		return template.HTML("<div class=\"empty\">No content</div>")
-	}
-	return template.HTML(`
-<div class="md-block">
-  <div class="md-actions">
-    <button type="button" class="copy-btn" data-copy-source>⧉</button>
-  </div>
-  <div class="markdown-body md-render"></div>
-  <script type="text/plain" class="md-source">` + escaped + `</script>
-</div>`)
+	return mdutil.RenderMarkdownBlock(content)
 }
 
 func renderToolCalls(calls []convToolCall) template.HTML {
@@ -1052,7 +1042,7 @@ func renderMarkupBlock(value string, markdownText bool) string {
 	if strings.TrimSpace(inner) != "" {
 		b.WriteString("<div class=\"markup-content\">")
 		if markdownText {
-			b.WriteString(string(renderTextBlock(inner)))
+			b.WriteString(string(mdutil.RenderMarkdownBlock(inner)))
 		} else {
 			b.WriteString(renderCodeBlock(inner))
 		}

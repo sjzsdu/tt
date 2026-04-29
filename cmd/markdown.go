@@ -65,6 +65,21 @@ var markdownCmd = &cobra.Command{
 		if !cmd.Flags().Changed("pattern") && len(merged.Markdown.Patterns) > 0 {
 			mdPatterns = append(mdPatterns, merged.Markdown.Patterns...)
 		}
+		if len(args) == 1 {
+			candidate := args[0]
+			if !filepath.IsAbs(candidate) {
+				candidate = filepath.Join(mdRoot, candidate)
+			}
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				absRoot, err := filepath.Abs(candidate)
+				if err != nil {
+					return fmt.Errorf("resolve markdown root failed: %w", err)
+				}
+				mdRoot = absRoot
+				mdPatterns = nil
+				return runMarkdownServer()
+			}
+		}
 		if len(args) > 0 {
 			if len(mdPatterns) > 0 {
 				mergedPatterns := append([]string{mdPatterns[0]}, args...)
@@ -98,6 +113,8 @@ func runMarkdownServer() error {
 	mux.HandleFunc("/", handleIndex)
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/view/", handleView)
+	mux.HandleFunc("/edit/", handleEdit)
+	mux.HandleFunc("/save/", handleSave)
 	mux.HandleFunc("/raw/", handleRaw)
 	mux.HandleFunc("/raw-content", handleRawContent)
 	mux.HandleFunc("/images/", handleImages)
@@ -185,42 +202,89 @@ func handleView(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+	if err := renderMarkdownPage(w, relPath, false); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+	}
+}
 
+func handleEdit(w http.ResponseWriter, r *http.Request) {
+	relPath := strings.TrimPrefix(r.URL.Path, "/edit")
+	if relPath == "" || relPath == "/" {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	if err := renderMarkdownPage(w, relPath, true); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+	}
+}
+
+func handleSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	relPath := strings.TrimPrefix(r.URL.Path, "/save")
+	if relPath == "" || relPath == "/" {
+		http.Error(w, "file path is required", http.StatusBadRequest)
+		return
+	}
+	absPath, err := safeJoin(mdRoot, relPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if mdContent != "" {
+		http.Error(w, "editing direct markdown content is not supported", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, fmt.Sprintf("parse form failed: %v", err), http.StatusBadRequest)
+		return
+	}
+	content := r.FormValue("content")
+	if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
+		http.Error(w, fmt.Sprintf("save markdown failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	broadcastReload(filepath.Base(absPath) + " saved")
+	http.Redirect(w, r, "/view"+relPath, http.StatusSeeOther)
+}
+
+func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) error {
 	content, viewPath, err := resolveViewContent(relPath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
+		return err
 	}
-
 	files, err := collectFiles()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("collect markdown files failed: %v", err), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("collect markdown files failed: %w", err)
 	}
-
 	currentDir := filepath.Dir(viewPath)
 	if currentDir == "." {
 		currentDir = "/"
 	}
 	processed := sanitizeMermaid(content)
 	processed = rewriteLocalImages(processed, currentDir)
-
 	data := struct {
-		FilePath string
-		RawPath  string
-		Content  template.HTML
-		Files    []mdFile
+		FilePath    string
+		RawPath     string
+		ContentHTML template.HTML
+		ContentText string
+		Files       []mdFile
+		Editing     bool
 	}{
-		FilePath: viewPath,
-		RawPath:  "/raw" + viewPath,
-		Content:  template.HTML(processed),
-		Files:    files,
+		FilePath:    viewPath,
+		RawPath:     "/raw" + viewPath,
+		ContentHTML: template.HTML(processed),
+		ContentText: content,
+		Files:       files,
+		Editing:     editing,
 	}
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := template.Must(template.New("view").Parse(viewHTML)).Execute(w, data); err != nil {
-		http.Error(w, fmt.Sprintf("render view failed: %v", err), http.StatusInternalServerError)
+		return fmt.Errorf("render view failed: %w", err)
 	}
+	return nil
 }
 
 func handleRaw(w http.ResponseWriter, r *http.Request) {
@@ -938,6 +1002,46 @@ const viewHTML = `<!DOCTYPE html>
     .btn-outline { color: #475467; background: #fff; border-color: var(--line-strong); }
     .btn-outline:hover { background: #f8fafc; border-color: #94a3b8; color: #111827; }
     .doc-wrap { padding: 24px; }
+    .editor-form {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .editor-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .editor-textarea {
+      width: 100%;
+      min-height: 72vh;
+      resize: vertical;
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      padding: 20px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text);
+      background: #fbfdff;
+      outline: none;
+    }
+    .editor-textarea:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+    }
+    .editor-hint {
+      margin-top: 10px;
+      color: var(--subtle);
+      font-size: 12px;
+      line-height: 1.6;
+    }
     .markdown-body {
       max-width: 960px;
       margin: 0 auto;
@@ -950,6 +1054,7 @@ const viewHTML = `<!DOCTYPE html>
     .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { scroll-margin-top: 24px; }
     .markdown-body img { max-width: 100%; height: auto; }
     .markdown-body pre, .mermaid { overflow-x: auto; }
+    .markdown-body table { display: block; overflow-x: auto; }
     .mermaid { display: flex; justify-content: center; padding: 8px 0; }
     .toc-item.level-3 { padding-left: 12px; }
     .toc-item.level-4 { padding-left: 24px; }
@@ -1002,13 +1107,24 @@ const viewHTML = `<!DOCTYPE html>
       <div class="toolbar">
         <div class="toolbar-title">
           <strong>{{.FilePath}}</strong>
-          <span>Markdown preview with Mermaid support</span>
+          <span>{{if .Editing}}Editing markdown source{{else}}Markdown preview with Mermaid support{{end}}</span>
         </div>
         <div class="toolbar-actions">
           <a class="btn btn-secondary" href="/list">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
             <span>File list</span>
           </a>
+          {{if .Editing}}
+          <a class="btn btn-outline" href="/view{{.FilePath}}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8l-4 4 4 4M3 12h18"/></svg>
+            <span>Preview</span>
+          </a>
+          {{else}}
+          <a class="btn btn-outline" href="/edit{{.FilePath}}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 1 1 2.97 2.97L7.5 18.789 3 20l1.211-4.5L16.862 3.487Z"/></svg>
+            <span>Edit</span>
+          </a>
+          {{end}}
           <a class="btn btn-outline" href="{{.RawPath}}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4"/><path stroke-linecap="round" stroke-linejoin="round" d="M5 21h14"/></svg>
             <span>Download raw</span>
@@ -1016,9 +1132,20 @@ const viewHTML = `<!DOCTYPE html>
         </div>
       </div>
       <div class="doc-wrap">
+        {{if .Editing}}
+        <form class="editor-form" method="post" action="/save{{.FilePath}}">
+          <div class="editor-actions">
+            <a class="btn btn-outline" href="/view{{.FilePath}}">Cancel</a>
+            <button class="btn btn-secondary" type="submit">Save</button>
+          </div>
+          <textarea class="editor-textarea" name="content" spellcheck="false">{{.ContentText}}</textarea>
+          <div class="editor-hint">保存后会直接写回原文件，并刷新页面列表。</div>
+        </form>
+        {{else}}
         <article id="content" class="markdown-body"></article>
+        <script type="text/plain" id="markdown-content">{{.ContentText}}</script>
+        {{end}}
       </div>
-      <script type="text/plain" id="markdown-content">{{.Content}}</script>
     </main>
     <aside class="pane toc-pane">
       <div class="section">
@@ -1030,7 +1157,8 @@ const viewHTML = `<!DOCTYPE html>
     </aside>
   </div>
   <script>
-    const source = document.getElementById('markdown-content').textContent;
+    const sourceEl = document.getElementById('markdown-content');
+    const source = sourceEl ? sourceEl.textContent : '';
     const content = document.getElementById('content');
     const tocList = document.getElementById('toc-list');
     const tocEmpty = document.getElementById('toc-empty');
@@ -1121,6 +1249,7 @@ const viewHTML = `<!DOCTYPE html>
     }
 
     function renderMarkdown() {
+      if (!content) return;
       content.innerHTML = marked.parse(source);
       const headings = Array.from(decorateHeadings());
       buildTOC(headings);
@@ -1161,6 +1290,7 @@ const viewHTML = `<!DOCTYPE html>
     }
 
     async function render() {
+      if (!content) return;
       renderMarkdown();
       await renderMermaid();
     }
