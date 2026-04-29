@@ -19,6 +19,7 @@ const (
 type Config struct {
 	Picoclaw     PicoclawConfig     `json:"picoclaw,omitempty"`
 	Agent        AgentConfig        `json:"agent,omitempty"`
+	Debate       DebateConfig       `json:"debate,omitempty"`
 	Markdown     MarkdownConfig     `json:"markdown,omitempty"`
 	Conversation ConversationConfig `json:"conversation,omitempty"`
 }
@@ -33,6 +34,13 @@ type AgentConfig struct {
 	Agent   string `json:"agent,omitempty"`
 	Model   string `json:"model,omitempty"`
 	Debug   *bool  `json:"debug,omitempty"`
+}
+
+type DebateConfig struct {
+	Agents []string `json:"agents,omitempty"`
+	Judge  string   `json:"judge,omitempty"`
+	Rounds *int     `json:"rounds,omitempty"`
+	Output string   `json:"output,omitempty"`
 }
 
 type MarkdownConfig struct {
@@ -111,6 +119,19 @@ func Merge(base Config, overlay Config) Config {
 	if overlay.Agent.Debug != nil {
 		b := *overlay.Agent.Debug
 		out.Agent.Debug = &b
+	}
+	if len(overlay.Debate.Agents) > 0 {
+		out.Debate.Agents = append([]string(nil), overlay.Debate.Agents...)
+	}
+	if v := strings.TrimSpace(overlay.Debate.Judge); v != "" {
+		out.Debate.Judge = v
+	}
+	if overlay.Debate.Rounds != nil {
+		v := *overlay.Debate.Rounds
+		out.Debate.Rounds = &v
+	}
+	if v := strings.TrimSpace(overlay.Debate.Output); v != "" {
+		out.Debate.Output = v
 	}
 	if overlay.Markdown.Port != nil {
 		v := *overlay.Markdown.Port

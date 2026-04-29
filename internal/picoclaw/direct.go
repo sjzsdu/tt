@@ -1,0 +1,112 @@
+package picoclaw
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	pcagent "github.com/sipeed/picoclaw/pkg/agent"
+	pcbus "github.com/sipeed/picoclaw/pkg/bus"
+	pclogger "github.com/sipeed/picoclaw/pkg/logger"
+	pcproviders "github.com/sipeed/picoclaw/pkg/providers"
+)
+
+type DirectRunner struct {
+	rt            *Runtime
+	defaultAgent  string
+	modelOverride string
+	msgBus        *pcbus.MessageBus
+	loop          *pcagent.AgentLoop
+	closeProvider func()
+}
+
+func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
+	if rt == nil || rt.Config == nil {
+		return nil, fmt.Errorf("picoclaw runtime not loaded")
+	}
+
+	resolved, err := rt.ResolveRunOptions(opt)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := cloneConfig(rt.Config)
+	cfg = prepareConfigForRun(cfg, resolved)
+	pclogger.ConfigureFromEnv()
+	if opt.Debug {
+		pclogger.SetLevel(pclogger.DEBUG)
+	}
+	if strings.TrimSpace(resolved.Model) != "" {
+		cfg.Agents.Defaults.ModelName = strings.TrimSpace(resolved.Model)
+	}
+
+	provider, modelID, err := pcproviders.CreateProvider(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create picoclaw provider failed: %w", err)
+	}
+	closeProvider := func() {}
+	if stateful, ok := provider.(pcproviders.StatefulProvider); ok {
+		closeProvider = stateful.Close
+	}
+	if modelID != "" {
+		cfg.Agents.Defaults.ModelName = modelID
+	}
+
+	msgBus := pcbus.NewMessageBus()
+	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
+
+	return &DirectRunner{
+		rt:            rt,
+		defaultAgent:  DefaultAgent(cfg),
+		modelOverride: strings.TrimSpace(opt.Model),
+		msgBus:        msgBus,
+		loop:          loop,
+		closeProvider: closeProvider,
+	}, nil
+}
+
+func (dr *DirectRunner) Close() {
+	if dr == nil {
+		return
+	}
+	if dr.loop != nil {
+		dr.loop.Close()
+		dr.loop = nil
+	}
+	if dr.msgBus != nil {
+		dr.msgBus.Close()
+		dr.msgBus = nil
+	}
+	if dr.closeProvider != nil {
+		dr.closeProvider()
+		dr.closeProvider = nil
+	}
+}
+
+func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
+	if dr == nil || dr.rt == nil || dr.loop == nil {
+		return "", fmt.Errorf("picoclaw direct runner not initialized")
+	}
+
+	if strings.TrimSpace(opt.Model) == "" {
+		opt.Model = dr.modelOverride
+	}
+	resolved, err := dr.rt.ResolveRunOptions(opt)
+	if err != nil {
+		return "", err
+	}
+
+	if strings.TrimSpace(resolved.Agent) != "" && !strings.EqualFold(strings.TrimSpace(resolved.Agent), dr.defaultAgent) {
+		resp, err := dr.loop.ProcessDirectForAgent(context.Background(), resolved.Message, resolved.Session, resolved.Agent)
+		if err != nil {
+			return "", fmt.Errorf("process picoclaw message failed: %w", err)
+		}
+		return resp, nil
+	}
+
+	resp, err := dr.loop.ProcessDirect(context.Background(), resolved.Message, resolved.Session)
+	if err != nil {
+		return "", fmt.Errorf("process picoclaw message failed: %w", err)
+	}
+	return resp, nil
+}
