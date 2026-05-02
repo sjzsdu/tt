@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -34,6 +36,7 @@ var (
 	debateSession string
 	debateModel   string
 	debateDebug   bool
+	debateOut     string
 	debateHome    string
 	debateConfig  string
 	debateFieldRE = regexp.MustCompile(`(?im)^([A-Z_]+):\s*(.*)$`)
@@ -46,6 +49,7 @@ type DebateRequest struct {
 	Judge   string   `json:"judge"`
 	Rounds  int      `json:"rounds"`
 	Output  string   `json:"output"`
+	Out     string   `json:"out,omitempty"`
 	Session string   `json:"session"`
 	Model   string   `json:"model,omitempty"`
 	Debug   bool     `json:"debug"`
@@ -60,18 +64,19 @@ type DebateTurn struct {
 }
 
 type JudgeDecision struct {
-	Round           int    `json:"round"`
-	Opening         bool   `json:"opening,omitempty"`
-	Decision        string `json:"decision"`
-	NextSpeaker     string `json:"next_speaker,omitempty"`
-	Focus           string `json:"focus,omitempty"`
-	Reason          string `json:"reason,omitempty"`
-	Verdict         string `json:"verdict,omitempty"`
-	Summary         string `json:"summary,omitempty"`
-	Raw             string `json:"raw"`
-	Parsed          bool   `json:"parsed"`
-	FallbackApplied bool   `json:"fallback_applied,omitempty"`
-	FallbackReason  string `json:"fallback_reason,omitempty"`
+	Round              int    `json:"round"`
+	Opening            bool   `json:"opening,omitempty"`
+	Decision           string `json:"decision"`
+	NextSpeaker        string `json:"next_speaker,omitempty"`
+	Focus              string `json:"focus,omitempty"`
+	Reason             string `json:"reason,omitempty"`
+	Verdict            string `json:"verdict,omitempty"`
+	Summary            string `json:"summary,omitempty"`
+	Raw                string `json:"raw"`
+	Parsed             bool   `json:"parsed"`
+	JSONParseAttempted bool   `json:"json_parse_attempted,omitempty"`
+	FallbackApplied    bool   `json:"fallback_applied,omitempty"`
+	FallbackReason     string `json:"fallback_reason,omitempty"`
 }
 
 type DebateMetadata struct {
@@ -93,12 +98,13 @@ type DebateResult struct {
 var debateCmd = &cobra.Command{
 	Use:   "debate [topic]",
 	Short: "Run a structured multi-agent debate on a topic",
-	Long:  "Run two debater agents and one judge agent through multiple rounds, then render the transcript as text or JSON.",
+	Long:  "Run two debater agents and one judge agent through multiple rounds, then render the transcript as text or JSON. JSON output can be written to a file explicitly with --out or auto-saved under ./debates.",
 	Args:  cobra.ArbitraryArgs,
 	Example: `tt debate "Remote work improves team productivity"
 tt debate --topic "AI should replace code review" --agents alpha,beta --judge referee
 tt debate --topic "AI should replace code review" --agents alpha --agents beta --judge referee
-tt debate "Should startups stay fully remote" --rounds 4 --output json --session cli:debate`,
+	tt debate "Should startups stay fully remote" --rounds 4 --output json --session cli:debate
+	tt debate "AI should replace code review" --output json --out debates/review.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDebate(cmd, args)
 	},
@@ -111,6 +117,7 @@ func init() {
 	debateCmd.Flags().StringVar(&debateJudge, "judge", "", "agent id or name for the judge")
 	debateCmd.Flags().IntVarP(&debateRounds, "rounds", "r", debateDefaultRounds, "maximum number of debate rounds")
 	debateCmd.Flags().StringVarP(&debateOutput, "output", "o", debateDefaultOutput, "output format: text or json")
+	debateCmd.Flags().StringVar(&debateOut, "out", "", "write debate result to a file; json output also auto-saves to ./debates when omitted")
 	debateCmd.Flags().StringVarP(&debateSession, "session", "s", "", "session key prefix; defaults to cli:debate")
 	debateCmd.Flags().StringVar(&debateModel, "model", "", "model override for all participants")
 	debateCmd.Flags().BoolVarP(&debateDebug, "debug", "d", false, "enable debug logging")
@@ -239,6 +246,7 @@ func buildDebateRequest(topic string, merged ttconfig.Config, rt *pcwrap.Runtime
 		Judge:   strings.TrimSpace(judge),
 		Rounds:  rounds,
 		Output:  output,
+		Out:     strings.TrimSpace(debateOut),
 		Session: session,
 		Model:   strings.TrimSpace(merged.Agent.Model),
 		Debug:   debug,
@@ -283,9 +291,10 @@ func validateDebateRequest(req DebateRequest, rt *pcwrap.Runtime) error {
 		return fmt.Errorf("debate judge must be different from the debaters")
 	}
 	participants := []string{req.Agents[0], req.Agents[1], req.Judge}
+	availableAgents := uniqueNonEmpty(rt.Summary().Agents)
 	for _, name := range participants {
 		if _, err := rt.ResolveRunOptions(pcwrap.RunOptions{Session: req.Session, Agent: name, Model: req.Model}); err != nil {
-			return err
+			return fmt.Errorf("agent %q not found; available agents: %v", name, availableAgents)
 		}
 	}
 	return nil
@@ -305,14 +314,7 @@ func executeDebate(runner *pcwrap.DirectRunner, req DebateRequest) (DebateResult
 	openingReply, err := runJudgeOpening(runner, req)
 	if err != nil {
 		runErr = fmt.Errorf("judge opening %s failed: %w", req.Judge, err)
-		result.Metadata.EndReason = "error-stop"
-		result.Turns = turns
-		result.JudgeDecisions = decisions
-		result.FinalVerdict = finalVerdict(decisions)
-		result.Summary = finalSummary(decisions, runErr)
-		result.Metadata.CompletedRounds = 0
-		result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-		return result, runErr
+		return finalizeResult(result, turns, decisions, "error-stop", 0, runErr), runErr
 	}
 	openingDecision := parseJudgeDecision(0, openingReply)
 	openingDecision.Opening = true
@@ -327,14 +329,7 @@ func executeDebate(runner *pcwrap.DirectRunner, req DebateRequest) (DebateResult
 	focus = openingDecision.Focus
 	nextSpeaker = openingDecision.NextSpeaker
 	if openingDecision.Decision == debateDecisionStop {
-		result.Metadata.EndReason = "judge-stop"
-		result.Turns = turns
-		result.JudgeDecisions = decisions
-		result.FinalVerdict = finalVerdict(decisions)
-		result.Summary = finalSummary(decisions, nil)
-		result.Metadata.CompletedRounds = 0
-		result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-		return result, nil
+		return finalizeResult(result, turns, decisions, "judge-stop", 0, nil), nil
 	}
 
 	for round := 1; round <= req.Rounds; round++ {
@@ -346,14 +341,7 @@ func executeDebate(runner *pcwrap.DirectRunner, req DebateRequest) (DebateResult
 		message, err := runDebateTurn(runner, req, turns, decisions, speaker, stance, round, focus)
 		if err != nil {
 			runErr = fmt.Errorf("round %d speaker %s failed: %w", round, speaker, err)
-			result.Metadata.EndReason = "error-stop"
-			result.Turns = turns
-			result.JudgeDecisions = decisions
-			result.FinalVerdict = finalVerdict(decisions)
-			result.Summary = finalSummary(decisions, runErr)
-			result.Metadata.CompletedRounds = round - 1
-			result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-			return result, runErr
+			return finalizeResult(result, turns, decisions, "error-stop", round-1, runErr), runErr
 		}
 		turns = append(turns, DebateTurn{
 			Round:   round,
@@ -366,14 +354,7 @@ func executeDebate(runner *pcwrap.DirectRunner, req DebateRequest) (DebateResult
 		judgeReply, err := runJudgeTurn(runner, req, turns, decisions, round)
 		if err != nil {
 			runErr = fmt.Errorf("round %d judge %s failed: %w", round, req.Judge, err)
-			result.Metadata.EndReason = "error-stop"
-			result.Turns = turns
-			result.JudgeDecisions = decisions
-			result.FinalVerdict = finalVerdict(decisions)
-			result.Summary = finalSummary(decisions, runErr)
-			result.Metadata.CompletedRounds = round - 1
-			result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-			return result, runErr
+			return finalizeResult(result, turns, decisions, "error-stop", round-1, runErr), runErr
 		}
 		decision := parseJudgeDecision(round, judgeReply)
 		decision.NextSpeaker = resolveNextSpeaker(req, &decision, speaker)
@@ -388,35 +369,25 @@ func executeDebate(runner *pcwrap.DirectRunner, req DebateRequest) (DebateResult
 		nextSpeaker = decision.NextSpeaker
 
 		if decision.Decision == debateDecisionStop && round < req.Rounds {
-			result.Metadata.EndReason = "judge-stop"
-			result.Turns = turns
-			result.JudgeDecisions = decisions
-			result.FinalVerdict = finalVerdict(decisions)
-			result.Summary = finalSummary(decisions, nil)
-			result.Metadata.CompletedRounds = round
-			result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-			return result, nil
+			return finalizeResult(result, turns, decisions, "judge-stop", round, nil), nil
 		}
 		if round >= req.Rounds {
-			result.Metadata.EndReason = "round-limit"
-			result.Turns = turns
-			result.JudgeDecisions = decisions
-			result.FinalVerdict = finalVerdict(decisions)
-			result.Summary = finalSummary(decisions, nil)
-			result.Metadata.CompletedRounds = round
-			result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-			return result, nil
+			return finalizeResult(result, turns, decisions, "round-limit", round, nil), nil
 		}
 	}
 
-	result.Metadata.EndReason = "round-limit"
+	return finalizeResult(result, turns, decisions, "round-limit", req.Rounds, nil), nil
+}
+
+func finalizeResult(result DebateResult, turns []DebateTurn, decisions []JudgeDecision, endReason string, completedRounds int, runErr error) DebateResult {
+	result.Metadata.EndReason = endReason
 	result.Turns = turns
 	result.JudgeDecisions = decisions
 	result.FinalVerdict = finalVerdict(decisions)
-	result.Summary = finalSummary(decisions, nil)
-	result.Metadata.CompletedRounds = req.Rounds
+	result.Summary = finalSummary(decisions, runErr)
+	result.Metadata.CompletedRounds = completedRounds
 	result.Metadata.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-	return result, nil
+	return result
 }
 
 func runDebateTurn(runner *pcwrap.DirectRunner, req DebateRequest, turns []DebateTurn, decisions []JudgeDecision, speaker, stance string, round int, focus string) (string, error) {
@@ -426,7 +397,7 @@ func runDebateTurn(runner *pcwrap.DirectRunner, req DebateRequest, turns []Debat
 		Session: debateSessionKey(req.Session, speaker),
 		Agent:   speaker,
 		Model:   req.Model,
-	}, debateRetryLimit)
+	}, debateRetryLimit, req.Debug)
 }
 
 func runJudgeOpening(runner *pcwrap.DirectRunner, req DebateRequest) (string, error) {
@@ -436,7 +407,7 @@ func runJudgeOpening(runner *pcwrap.DirectRunner, req DebateRequest) (string, er
 		Session: debateSessionKey(req.Session, req.Judge),
 		Agent:   req.Judge,
 		Model:   req.Model,
-	}, debateRetryLimit)
+	}, debateRetryLimit, req.Debug)
 }
 
 func runJudgeTurn(runner *pcwrap.DirectRunner, req DebateRequest, turns []DebateTurn, decisions []JudgeDecision, round int) (string, error) {
@@ -446,15 +417,21 @@ func runJudgeTurn(runner *pcwrap.DirectRunner, req DebateRequest, turns []Debate
 		Session: debateSessionKey(req.Session, req.Judge),
 		Agent:   req.Judge,
 		Model:   req.Model,
-	}, debateRetryLimit)
+	}, debateRetryLimit, req.Debug)
 }
 
-func processWithRetry(runner *pcwrap.DirectRunner, opt pcwrap.RunOptions, retries int) (string, error) {
+func processWithRetry(runner *pcwrap.DirectRunner, opt pcwrap.RunOptions, retries int, debug bool) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= retries; attempt++ {
+		if debug {
+			fmt.Fprintf(os.Stderr, "[debug] processWithRetry attempt=%d agent=%s\n", attempt, opt.Agent)
+		}
 		resp, err := runner.ProcessDirect(opt)
 		if err == nil {
 			return strings.TrimSpace(resp), nil
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[debug] processWithRetry attempt=%d error=%v\n", attempt, err)
 		}
 		lastErr = err
 	}
@@ -504,15 +481,17 @@ Debater B: %s (%s)
 
 Start the debate with a short opening statement that frames the issue, states the first focus, and chooses which debater should speak first.
 
-Return exactly these fields and keep each field on its own line:
-DECISION: CONTINUE
-NEXT_SPEAKER: <%s or %s>
-FOCUS: <the first issue the first speaker should address>
-REASON: <why this speaker should go first>
-VERDICT: Debate has just started.
-SUMMARY: <one short moderator opening sentence>
+Return your response as a JSON code block with these fields:
+{
+  "DECISION": "CONTINUE",
+  "NEXT_SPEAKER": "<%s or %s>",
+  "FOCUS": "<the first issue the first speaker should address>",
+  "REASON": "<why this speaker should go first>",
+  "VERDICT": "Debate has just started.",
+  "SUMMARY": "<one short moderator opening sentence>"
+}
 
-After the fields, add a plain-text opening statement for the audience.`, req.Topic, req.Rounds, req.Agents[0], debateStanceLabel(0), req.Agents[1], debateStanceLabel(1), req.Agents[0], req.Agents[1]))
+After the JSON, add a plain-text opening statement for the audience.`, req.Topic, req.Rounds, req.Agents[0], debateStanceLabel(0), req.Agents[1], debateStanceLabel(1), req.Agents[0], req.Agents[1]))
 }
 
 func buildJudgePrompt(req DebateRequest, turns []DebateTurn, decisions []JudgeDecision, round int) string {
@@ -533,13 +512,15 @@ Last speaker: %s
 Recent transcript:
 %s
 
-Return exactly these fields and keep each field on its own line:
-DECISION: %s
-NEXT_SPEAKER: <%s or %s; leave blank only if DECISION is STOP>
-FOCUS: <what both debaters should address next; if stopping, write the core deciding issue>
-REASON: <why the round should continue or stop>
-VERDICT: <who is currently stronger or the final winner and why>
-SUMMARY: <one short summary sentence for the audience>
+Return your response as a JSON code block with these fields:
+{
+  "DECISION": "%s",
+  "NEXT_SPEAKER": "<%s or %s; leave blank only if DECISION is STOP>",
+  "FOCUS": "<what both debaters should address next; if stopping, write the core deciding issue>",
+  "REASON": "<why the round should continue or stop>",
+  "VERDICT": "<who is currently stronger or the final winner and why>",
+  "SUMMARY": "<one short summary sentence for the audience>"
+}
 
 Allowed DECISION values: CONTINUE or STOP.
 If the debate has already reached the maximum round count, DECISION must be STOP.
@@ -548,37 +529,89 @@ When continuing, choose the next speaker explicitly. Prefer switching to the oth
 
 func parseJudgeDecision(round int, raw string) JudgeDecision {
 	decision := JudgeDecision{Round: round, Decision: debateDecisionGoOn, Raw: strings.TrimSpace(raw)}
-	fields := make(map[string]string)
-	for _, match := range debateFieldRE.FindAllStringSubmatch(raw, -1) {
-		if len(match) != 3 {
-			continue
-		}
-		fields[strings.ToUpper(strings.TrimSpace(match[1]))] = strings.TrimSpace(match[2])
+	decision.JSONParseAttempted = true
+
+	if fields, ok := parseStructuredFields(raw); ok {
+		decision.Parsed = true
+		decision.Decision = normalizeDecision(fields["DECISION"], &decision)
+		decision.NextSpeaker = strings.TrimSpace(fields["NEXT_SPEAKER"])
+		decision.Focus = strings.TrimSpace(fields["FOCUS"])
+		decision.Reason = strings.TrimSpace(fields["REASON"])
+		decision.Verdict = strings.TrimSpace(fields["VERDICT"])
+		decision.Summary = strings.TrimSpace(fields["SUMMARY"])
+		fillFallbackFields(&decision, raw)
+		return decision
 	}
-	if len(fields) > 0 {
+
+	decision.JSONParseAttempted = false
+	fieldMap := make(map[string]string)
+	for _, match := range debateFieldRE.FindAllStringSubmatch(raw, -1) {
+		if len(match) == 3 {
+			fieldMap[strings.ToUpper(strings.TrimSpace(match[1]))] = strings.TrimSpace(match[2])
+		}
+	}
+	if len(fieldMap) > 0 {
 		decision.Parsed = true
 	} else {
 		decision.FallbackApplied = true
 		decision.FallbackReason = "judge response was unstructured; defaulted decision to CONTINUE"
 	}
-	parsedDecision := strings.ToUpper(strings.TrimSpace(fields["DECISION"]))
-	switch parsedDecision {
+	decision.Decision = normalizeDecision(fieldMap["DECISION"], &decision)
+	decision.NextSpeaker = strings.TrimSpace(fieldMap["NEXT_SPEAKER"])
+	decision.Focus = strings.TrimSpace(fieldMap["FOCUS"])
+	decision.Reason = strings.TrimSpace(fieldMap["REASON"])
+	decision.Verdict = strings.TrimSpace(fieldMap["VERDICT"])
+	decision.Summary = strings.TrimSpace(fieldMap["SUMMARY"])
+	fillFallbackFields(&decision, raw)
+	return decision
+}
+
+func parseStructuredFields(raw string) (map[string]string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, false
+	}
+	for _, prefix := range []string{"```json", "```JSON", "```"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			trimmed = strings.TrimPrefix(trimmed, prefix)
+			if idx := strings.Index(trimmed, "```"); idx > 0 {
+				trimmed = trimmed[:idx]
+			}
+			trimmed = strings.TrimSpace(trimmed)
+			break
+		}
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+		return nil, false
+	}
+	result := make(map[string]string)
+	for k, v := range obj {
+		if sv, ok := v.(string); ok {
+			result[strings.ToUpper(k)] = sv
+		}
+	}
+	return result, len(result) > 0
+}
+
+func normalizeDecision(raw string, decision *JudgeDecision) string {
+	upper := strings.ToUpper(strings.TrimSpace(raw))
+	switch upper {
 	case debateDecisionGoOn, debateDecisionStop:
-		decision.Decision = parsedDecision
+		return upper
 	case "":
-		if decision.FallbackReason == "" {
+		if !decision.FallbackApplied {
 			decision.FallbackApplied = true
 			decision.FallbackReason = "judge response omitted DECISION; defaulted decision to CONTINUE"
 		}
 	default:
 		decision.FallbackApplied = true
-		decision.FallbackReason = fmt.Sprintf("judge response used invalid DECISION %q; defaulted to CONTINUE", parsedDecision)
+		decision.FallbackReason = fmt.Sprintf("judge response used invalid DECISION %q; defaulted to CONTINUE", upper)
 	}
-	decision.NextSpeaker = strings.TrimSpace(fields["NEXT_SPEAKER"])
-	decision.Focus = strings.TrimSpace(fields["FOCUS"])
-	decision.Reason = strings.TrimSpace(fields["REASON"])
-	decision.Verdict = strings.TrimSpace(fields["VERDICT"])
-	decision.Summary = strings.TrimSpace(fields["SUMMARY"])
+	return debateDecisionGoOn
+}
+
+func fillFallbackFields(decision *JudgeDecision, raw string) {
 	if decision.Verdict == "" {
 		decision.Verdict = compactText(raw)
 	}
@@ -591,22 +624,95 @@ func parseJudgeDecision(round int, raw string) JudgeDecision {
 	if decision.FallbackApplied && decision.Summary == "" {
 		decision.Summary = fallbackText(decision.FallbackReason, compactText(raw))
 	}
-	return decision
 }
 
 func renderDebateResult(cmd *cobra.Command, result DebateResult) error {
+	payload, err := debateOutputPayload(result)
+	if err != nil {
+		return err
+	}
+	if path, err := saveDebateResult(result, payload); err != nil {
+		return err
+	} else if path != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Debate result saved: %s\n", path)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), payload)
+	return nil
+}
+
+func debateOutputPayload(result DebateResult) (string, error) {
 	switch result.Request.Output {
 	case debateOutputJSON:
 		payload, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
-			return fmt.Errorf("marshal debate result failed: %w", err)
+			return "", fmt.Errorf("marshal debate result failed: %w", err)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), string(payload))
-		return nil
+		return string(payload), nil
 	default:
-		fmt.Fprintln(cmd.OutOrStdout(), renderDebateText(result))
-		return nil
+		return renderDebateText(result), nil
 	}
+}
+
+func saveDebateResult(result DebateResult, payload string) (string, error) {
+	outPath := strings.TrimSpace(result.Request.Out)
+	if outPath == "" && result.Request.Output != debateOutputJSON {
+		return "", nil
+	}
+	if outPath == "" {
+		outPath = debateAutoOutputPath(result)
+	}
+	if outPath == "" {
+		return "", nil
+	}
+	resolved, err := filepath.Abs(outPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve debate output path failed: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+		return "", fmt.Errorf("create debate output directory failed: %w", err)
+	}
+	if err := os.WriteFile(resolved, []byte(payload+"\n"), 0o644); err != nil {
+		return "", fmt.Errorf("write debate result failed: %w", err)
+	}
+	return resolved, nil
+}
+
+func debateAutoOutputPath(result DebateResult) string {
+	baseDir := "debates"
+	name := debateFileSlug(result.Request.Topic)
+	if name == "" {
+		name = "debate"
+	}
+	stamp := time.Now().UTC().Format("20060102-150405")
+	return filepath.Join(baseDir, name+"-"+stamp+debateOutputExt(result.Request.Output))
+}
+
+func debateOutputExt(output string) string {
+	if output == debateOutputJSON {
+		return ".json"
+	}
+	return ".txt"
+}
+
+func debateFileSlug(input string) string {
+	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range input {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			lastDash = false
+		case !lastDash:
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func renderDebateText(result DebateResult) string {

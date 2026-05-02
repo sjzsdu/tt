@@ -78,6 +78,25 @@ type convUsageMetric struct {
 	Actual int `json:"actual"`
 }
 
+type convDocument struct {
+	Title          string
+	ConversationID string
+	DetectedPath   string
+	TotalMessages  int
+	Entries        []convEntry
+}
+
+type convAnalysisState struct {
+	UserRound int
+	LastRound int
+}
+
+type convArrayCandidate struct {
+	Path  string
+	Items []map[string]any
+	Score int
+}
+
 type convListItem struct {
 	Name         string
 	Path         string
@@ -106,6 +125,7 @@ type convViewData struct {
 	FilePath       string
 	Title          string
 	ConversationID string
+	Detection      string
 	TotalMessages  int
 	Entries        []convEntry
 	Files          []convListItem
@@ -126,8 +146,8 @@ var (
 
 var conversationCmd = &cobra.Command{
 	Use:   "conversation [files...]",
-	Short: "Browse conversation dump JSON in a local web UI",
-	Long:  "Start a local web service for browsing conversation dump JSON files in the current working tree.",
+	Short: "Browse conversation-like JSON in a local web UI",
+	Long:  "Start a local web service for browsing JSON files that contain conversation-style message flows in the current working tree.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		loaded, err := loadTTConfig()
 		if err != nil {
@@ -156,8 +176,8 @@ var conversationCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(conversationCmd)
 	conversationCmd.Flags().IntVarP(&convPort, "port", "p", 9680, "service port")
-	conversationCmd.Flags().StringVarP(&convFile, "file", "f", "", "open a specific conversation dump JSON file")
-	conversationCmd.Flags().StringSliceVar(&convPatterns, "pattern", []string{}, "filter conversation dump files by glob patterns")
+	conversationCmd.Flags().StringVarP(&convFile, "file", "f", "", "open a specific JSON file")
+	conversationCmd.Flags().StringSliceVar(&convPatterns, "pattern", []string{}, "filter JSON files by glob patterns")
 }
 
 func runConversationServer() error {
@@ -258,9 +278,9 @@ func handleConversationView(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dump, err := loadConversationDump(filePath)
+	doc, err := loadConversationDocument(filePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("load conversation dump failed: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("load conversation JSON failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 	files, err := collectConversationFiles()
@@ -271,10 +291,11 @@ func handleConversationView(w http.ResponseWriter, r *http.Request) {
 	rel, _ := filepath.Rel(convRoot, filePath)
 	data := convViewData{
 		FilePath:       "/" + filepath.ToSlash(rel),
-		Title:          conversationTitle(dump),
-		ConversationID: dump.Conversation.ID,
-		TotalMessages:  len(dump.Conversation.Context.Messages),
-		Entries:        flattenConversationEntries(dump),
+		Title:          doc.Title,
+		ConversationID: doc.ConversationID,
+		Detection:      doc.DetectedPath,
+		TotalMessages:  doc.TotalMessages,
+		Entries:        doc.Entries,
 		Files:          files,
 		RawPath:        "/raw/" + filepath.ToSlash(rel),
 	}
@@ -324,7 +345,7 @@ func collectConversationFiles() ([]convListItem, error) {
 		if !matchesConversationPatterns(rel, d.Name()) {
 			return nil
 		}
-		dump, err := loadConversationDump(path)
+		doc, err := loadConversationDocument(path)
 		if err != nil {
 			return nil
 		}
@@ -332,9 +353,9 @@ func collectConversationFiles() ([]convListItem, error) {
 			Name:         d.Name(),
 			Path:         path,
 			Relative:     "/" + rel,
-			Title:        conversationTitle(dump),
-			Messages:     len(dump.Conversation.Context.Messages),
-			Conversation: dump.Conversation.ID,
+			Title:        doc.Title,
+			Messages:     doc.TotalMessages,
+			Conversation: fallbackText(doc.ConversationID, doc.DetectedPath),
 		})
 		return nil
 	})
@@ -369,6 +390,132 @@ func loadConversationDump(path string) (convDump, error) {
 	return dump, nil
 }
 
+func loadConversationDocument(path string) (convDocument, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return convDocument{}, err
+	}
+
+	var dump convDump
+	if err := json.Unmarshal(data, &dump); err == nil && isLegacyConversationDump(dump) {
+		return convertLegacyConversation(dump), nil
+	}
+
+	var root any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return convDocument{}, err
+	}
+
+	doc, ok := analyzeConversationDocument(root, filepath.Base(path))
+	if !ok {
+		return convDocument{}, fmt.Errorf("no conversation-like message flow detected")
+	}
+	return doc, nil
+}
+
+func isLegacyConversationDump(dump convDump) bool {
+	if len(dump.Conversation.Context.Messages) > 0 {
+		return true
+	}
+	return strings.TrimSpace(dump.Conversation.ID) != "" || strings.TrimSpace(dump.Conversation.Title) != ""
+}
+
+func convertLegacyConversation(dump convDump) convDocument {
+	return convDocument{
+		Title:          conversationTitle(dump),
+		ConversationID: strings.TrimSpace(dump.Conversation.ID),
+		DetectedPath:   "conversation.context.messages",
+		TotalMessages:  len(dump.Conversation.Context.Messages),
+		Entries:        flattenConversationEntries(dump),
+	}
+}
+
+func analyzeConversationDocument(root any, fallbackTitle string) (convDocument, bool) {
+	rootObj, _ := root.(map[string]any)
+	best, ok := findBestConversationArray(root)
+	if !ok || len(best.Items) == 0 {
+		return convDocument{}, false
+	}
+	if rootObj != nil {
+		best = enrichDebateCandidate(rootObj, best)
+	}
+
+	state := convAnalysisState{}
+	entries := make([]convEntry, 0, len(best.Items))
+	for i, item := range best.Items {
+		entries = append(entries, buildGenericEntry(i, item, &state))
+	}
+
+	if len(entries) == 0 {
+		return convDocument{}, false
+	}
+
+	title := detectConversationTitle(root, best, fallbackTitle)
+	id := detectConversationID(root, best)
+	if strings.TrimSpace(id) == "" {
+		id = best.Path
+	}
+	return convDocument{
+		Title:          title,
+		ConversationID: id,
+		DetectedPath:   best.Path,
+		TotalMessages:  len(entries),
+		Entries:        entries,
+	}, true
+}
+
+func enrichDebateCandidate(root map[string]any, candidate convArrayCandidate) convArrayCandidate {
+	if candidate.Path != "$.turns" {
+		return candidate
+	}
+	decisionsRaw, ok := root["judge_decisions"].([]any)
+	if !ok || len(decisionsRaw) == 0 {
+		return candidate
+	}
+	byRound := make(map[int]map[string]any, len(decisionsRaw))
+	for _, item := range decisionsRaw {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		round, ok := numericField(obj, []string{"round"})
+		if !ok {
+			continue
+		}
+		byRound[round] = obj
+	}
+	if len(byRound) == 0 {
+		return candidate
+	}
+	enriched := make([]map[string]any, 0, len(candidate.Items))
+	for _, item := range candidate.Items {
+		copied := cloneObject(item)
+		if role, _ := detectConversationRole(copied); normalizeConversationRole(role) == "system" {
+			if round, ok := numericField(copied, []string{"round"}); ok {
+				if decision, ok := byRound[round]; ok {
+					for key, value := range decision {
+						if _, exists := copied[key]; exists {
+							continue
+						}
+						copied[key] = value
+					}
+				}
+			}
+		}
+		enriched = append(enriched, copied)
+	}
+	candidate.Items = enriched
+	return candidate
+}
+
+func cloneObject(input map[string]any) map[string]any {
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
+}
+
 func conversationTitle(dump convDump) string {
 	if v := strings.TrimSpace(dump.Conversation.Title); v != "" {
 		return v
@@ -394,6 +541,446 @@ func flattenConversationEntries(dump convDump) []convEntry {
 		}
 	}
 	return entries
+}
+
+func findBestConversationArray(root any) (convArrayCandidate, bool) {
+	best := convArrayCandidate{}
+	visitConversationArrays(root, "$", &best)
+	if len(best.Items) == 0 || best.Score <= 0 {
+		return convArrayCandidate{}, false
+	}
+	return best, true
+}
+
+func visitConversationArrays(node any, path string, best *convArrayCandidate) {
+	switch v := node.(type) {
+	case map[string]any:
+		for key, child := range v {
+			visitConversationArrays(child, path+"."+key, best)
+		}
+	case []any:
+		candidate, ok := scoreConversationArray(v, path)
+		if ok && candidate.Score > best.Score {
+			*best = candidate
+		}
+		for i, child := range v {
+			visitConversationArrays(child, fmt.Sprintf("%s[%d]", path, i), best)
+		}
+	}
+}
+
+func scoreConversationArray(list []any, path string) (convArrayCandidate, bool) {
+	items := make([]map[string]any, 0, len(list))
+	score := 0
+	for _, item := range list {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		items = append(items, obj)
+		score += scoreConversationObject(obj)
+	}
+	if len(items) == 0 {
+		return convArrayCandidate{}, false
+	}
+	if score == 0 {
+		score = len(items)
+	}
+	return convArrayCandidate{Path: path, Items: items, Score: score}, true
+}
+
+func scoreConversationObject(obj map[string]any) int {
+	score := 0
+	if field, value, ok := detectConversationBodyField(obj); ok {
+		score += 6
+		if strings.TrimSpace(field) == "message" || strings.TrimSpace(field) == "content" {
+			score += 2
+		}
+		if strings.Contains(value, "\n") {
+			score++
+		}
+	}
+	if role, ok := detectConversationRole(obj); ok {
+		score += 5
+		if role == "user" || role == "assistant" || role == "system" || role == "tool" || role == "judge" || role == "debater" {
+			score += 2
+		}
+	}
+	if _, ok := scalarField(obj, []string{"speaker", "author", "name"}); ok {
+		score += 3
+	}
+	if _, ok := numericField(obj, []string{"round", "turn", "index", "sequence"}); ok {
+		score += 2
+	}
+	if _, ok := scalarField(obj, []string{"created_at", "timestamp", "time"}); ok {
+		score++
+	}
+	if nested, ok := obj["text"].(map[string]any); ok {
+		if _, _, nestedOK := detectConversationBodyField(nested); nestedOK {
+			score += 3
+		}
+	}
+	return score
+}
+
+func buildGenericEntry(i int, item map[string]any, state *convAnalysisState) convEntry {
+	role, _ := detectConversationRole(item)
+	canonicalRole := normalizeConversationRole(role)
+	title := detectConversationEntryTitle(item, canonicalRole)
+	contentKey, content, hasContent := detectConversationBodyField(item)
+	metaKeys := detectConversationMetaKeys(item)
+
+	meta := make([]string, 0, len(metaKeys))
+	for _, key := range metaKeys {
+		if value, ok := item[key]; ok {
+			if text := scalarSummary(value); text != "" {
+				meta = append(meta, key+": "+text)
+			}
+		}
+	}
+
+	subtitle := fmt.Sprintf("Entry %d", i+1)
+	roundAnchor := ""
+	anchorLabel := ""
+	if round, ok := numericField(item, []string{"round", "turn", "sequence", "index"}); ok && round > 0 {
+		subtitle = fmt.Sprintf("Round %d", round)
+		if round != state.LastRound {
+			roundAnchor = fmt.Sprintf("round-%d", round)
+			anchorLabel = buildGenericRoundLabel(round, title, content)
+			state.LastRound = round
+		}
+	} else if canonicalRole == "user" {
+		state.UserRound++
+		roundAnchor = fmt.Sprintf("round-%d", state.UserRound)
+		anchorLabel = roundLabel(canonicalRole, state.UserRound, content)
+	}
+
+	body := renderGenericEntryBody(item, contentKey, content, hasContent)
+	if strings.TrimSpace(subtitle) == "" {
+		subtitle = fmt.Sprintf("Entry %d", i+1)
+	}
+
+	return convEntry{
+		ID:          fmt.Sprintf("entry-%d", i+1),
+		Kind:        "message",
+		Role:        canonicalRole,
+		Title:       title,
+		Subtitle:    subtitle,
+		Body:        body,
+		Meta:        meta,
+		Accent:      roleAccent(canonicalRole),
+		RoundLabel:  roundLabelOrFallback(anchorLabel, title),
+		RoundAnchor: roundAnchor,
+	}
+}
+
+func buildGenericRoundLabel(round int, title, content string) string {
+	if summary := summarizePrompt(content); summary != "" {
+		return fmt.Sprintf("第 %d 轮 · %s", round, summary)
+	}
+	if strings.TrimSpace(title) != "" {
+		return fmt.Sprintf("第 %d 轮 · %s", round, title)
+	}
+	return fmt.Sprintf("第 %d 轮", round)
+}
+
+func roundLabelOrFallback(label, fallback string) string {
+	if strings.TrimSpace(label) != "" {
+		return label
+	}
+	return fallback
+}
+
+func renderGenericEntryBody(item map[string]any, contentKey, content string, hasContent bool) template.HTML {
+	if body, ok := renderStructuredDecisionBody(item); ok {
+		return body
+	}
+
+	var b strings.Builder
+	if hasContent && strings.TrimSpace(content) != "" {
+		b.WriteString(string(renderTextBlock(content)))
+	}
+
+	extra := make(map[string]any)
+	excluded := map[string]struct{}{
+		contentKey: {},
+	}
+	if strings.HasPrefix(contentKey, "text.") {
+		excluded["text"] = struct{}{}
+	}
+	for _, key := range append(detectConversationMetaKeys(item), detectConversationTitleKeys()...) {
+		excluded[key] = struct{}{}
+	}
+	for _, key := range []string{"role", "speaker", "author", "actor", "name", "kind", "type"} {
+		excluded[key] = struct{}{}
+	}
+	for key, value := range item {
+		if _, skip := excluded[key]; skip || strings.TrimSpace(key) == "" {
+			continue
+		}
+		extra[key] = value
+	}
+	if len(extra) > 0 {
+		if b.Len() > 0 {
+			b.WriteString(`<div style="height:12px"></div>`)
+		}
+		b.WriteString(renderToolObjectGeneric(extra, true, ""))
+	}
+	if b.Len() == 0 {
+		b.WriteString(renderToolObjectGeneric(item, true, ""))
+	}
+	return template.HTML(b.String())
+}
+
+func renderStructuredDecisionBody(item map[string]any) (template.HTML, bool) {
+	decision, hasDecision := stringField(item, "decision")
+	verdict, hasVerdict := stringField(item, "verdict")
+	focus, hasFocus := stringField(item, "focus")
+	reason, hasReason := stringField(item, "reason")
+	summary, hasSummary := stringField(item, "summary")
+	if !hasDecision && !hasVerdict && !hasFocus && !hasReason && !hasSummary {
+		return "", false
+	}
+
+	var b strings.Builder
+	b.WriteString(`<div class="tool-field-grid">`)
+	for _, field := range []struct {
+		Key   string
+		Value string
+		Show  bool
+	}{
+		{Key: "decision", Value: decision, Show: hasDecision},
+		{Key: "next_speaker", Value: scalarValue(item, "next_speaker"), Show: strings.TrimSpace(scalarValue(item, "next_speaker")) != ""},
+		{Key: "focus", Value: focus, Show: hasFocus},
+		{Key: "reason", Value: reason, Show: hasReason},
+		{Key: "verdict", Value: verdict, Show: hasVerdict},
+		{Key: "summary", Value: summary, Show: hasSummary},
+	} {
+		if !field.Show {
+			continue
+		}
+		className := "tool-field"
+		if len([]rune(strings.TrimSpace(field.Value))) > 48 {
+			className += " wide"
+		}
+		b.WriteString(`<section class="` + className + `">`)
+		b.WriteString(`<div class="tool-field-key">` + html.EscapeString(field.Key) + `</div>`)
+		b.WriteString(renderStringField(field.Key, field.Value, true))
+		b.WriteString(`</section>`)
+	}
+	b.WriteString(`</div>`)
+
+	narration := detectDecisionNarration(item)
+	if strings.TrimSpace(narration) != "" {
+		b.WriteString(`<div style="height:12px"></div>`)
+		b.WriteString(string(renderTextBlock(narration)))
+	}
+	return template.HTML(b.String()), true
+}
+
+func detectDecisionNarration(item map[string]any) string {
+	for _, key := range []string{"message", "raw"} {
+		text, ok := stringField(item, key)
+		if !ok {
+			continue
+		}
+		if parsed := stripLeadingJSONBlock(text); strings.TrimSpace(parsed) != "" {
+			return parsed
+		}
+	}
+	return ""
+}
+
+func stripLeadingJSONBlock(input string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return ""
+	}
+	for _, prefix := range []string{"```json", "```JSON", "```"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+			if idx := strings.Index(rest, "```"); idx >= 0 {
+				return strings.TrimSpace(rest[idx+3:])
+			}
+			return ""
+		}
+	}
+	return trimmed
+}
+
+func scalarValue(obj map[string]any, key string) string {
+	value, ok := obj[key]
+	if !ok {
+		return ""
+	}
+	return scalarSummary(value)
+}
+
+func detectConversationBodyField(obj map[string]any) (string, string, bool) {
+	for _, key := range []string{"content", "message", "text", "body", "summary", "verdict", "reason", "raw"} {
+		if text, ok := stringField(obj, key); ok {
+			return key, text, true
+		}
+	}
+	if nested, ok := obj["text"].(map[string]any); ok {
+		for _, key := range []string{"content", "message", "body"} {
+			if text, ok := stringField(nested, key); ok {
+				return "text." + key, text, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func detectConversationRole(obj map[string]any) (string, bool) {
+	for _, key := range []string{"role", "speaker", "author", "actor", "type", "kind"} {
+		if text, ok := stringField(obj, key); ok {
+			return strings.ToLower(strings.TrimSpace(text)), true
+		}
+	}
+	if nested, ok := obj["text"].(map[string]any); ok {
+		if text, ok := stringField(nested, "role"); ok {
+			return strings.ToLower(strings.TrimSpace(text)), true
+		}
+	}
+	return "", false
+}
+
+func normalizeConversationRole(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "user", "human", "prompt":
+		return "user"
+	case "assistant", "model", "ai", "agent", "debater":
+		return "assistant"
+	case "system", "judge", "moderator", "referee":
+		return "system"
+	case "tool", "function":
+		return "tool"
+	default:
+		return strings.ToLower(strings.TrimSpace(role))
+	}
+}
+
+func detectConversationEntryTitle(obj map[string]any, role string) string {
+	if text, ok := scalarField(obj, []string{"speaker", "author", "name", "title"}); ok {
+		return text
+	}
+	if strings.TrimSpace(role) != "" {
+		return strings.Title(role)
+	}
+	if text, ok := scalarField(obj, []string{"kind", "type"}); ok {
+		return text
+	}
+	return "Message"
+}
+
+func detectConversationMetaKeys(obj map[string]any) []string {
+	keys := make([]string, 0, 8)
+	for _, key := range []string{"round", "turn", "sequence", "index", "stance", "decision", "next_speaker", "focus", "model", "id", "call_id", "timestamp", "created_at", "opening", "parsed", "json_parse_attempted", "fallback_applied"} {
+		if _, ok := obj[key]; ok {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+func detectConversationTitle(root any, best convArrayCandidate, fallbackTitle string) string {
+	if obj, ok := root.(map[string]any); ok {
+		if text, ok := scalarField(obj, []string{"title", "topic", "subject", "name"}); ok {
+			return text
+		}
+		if request, ok := obj["request"].(map[string]any); ok {
+			if text, ok := scalarField(request, []string{"title", "topic", "subject", "name"}); ok {
+				return text
+			}
+		}
+		if conv, ok := obj["conversation"].(map[string]any); ok {
+			if text, ok := scalarField(conv, []string{"title", "id"}); ok {
+				return text
+			}
+		}
+	}
+	if strings.TrimSpace(best.Path) != "" {
+		return fallbackText(strings.TrimSpace(fallbackTitle), best.Path)
+	}
+	return fallbackText(strings.TrimSpace(fallbackTitle), "Conversation")
+}
+
+func detectConversationID(root any, best convArrayCandidate) string {
+	if obj, ok := root.(map[string]any); ok {
+		if text, ok := scalarField(obj, []string{"id", "session", "conversation_id"}); ok {
+			return text
+		}
+		if request, ok := obj["request"].(map[string]any); ok {
+			if text, ok := scalarField(request, []string{"session", "id", "conversation_id"}); ok {
+				return text
+			}
+		}
+		if conv, ok := obj["conversation"].(map[string]any); ok {
+			if text, ok := scalarField(conv, []string{"id", "conversation_id"}); ok {
+				return text
+			}
+		}
+	}
+	return best.Path
+}
+
+func scalarField(obj map[string]any, keys []string) (string, bool) {
+	for _, key := range keys {
+		if text, ok := stringField(obj, key); ok {
+			return text, true
+		}
+		if value, ok := obj[key]; ok {
+			if text := scalarSummary(value); text != "" {
+				return text, true
+			}
+		}
+	}
+	return "", false
+}
+
+func stringField(obj map[string]any, key string) (string, bool) {
+	value, ok := obj[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+func numericField(obj map[string]any, keys []string) (int, bool) {
+	for _, key := range keys {
+		value, ok := obj[key]
+		if !ok {
+			continue
+		}
+		switch v := value.(type) {
+		case float64:
+			return int(v), true
+		case int:
+			return v, true
+		case int64:
+			return int(v), true
+		}
+		if text, ok := value.(string); ok {
+			var parsed int
+			if _, err := fmt.Sscanf(strings.TrimSpace(text), "%d", &parsed); err == nil {
+				return parsed, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func detectConversationTitleKeys() []string {
+	return []string{"round", "turn", "sequence", "index", "stance", "decision", "next_speaker", "focus", "model", "id", "call_id", "timestamp", "created_at", "speaker", "author", "name", "title", "role", "actor", "kind", "type"}
 }
 
 func buildTextEntry(i int, text convText, usage *convUsage, round int) convEntry {
@@ -1114,6 +1701,8 @@ func roleAccent(role string) string {
 		return "assistant"
 	case "system":
 		return "system"
+	case "tool":
+		return "tool"
 	default:
 		return "neutral"
 	}
@@ -1154,7 +1743,7 @@ func skipConversationDir(path, name string) bool {
 
 func isConversationFile(name string) bool {
 	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, ".json") && strings.Contains(lower, "dump")
+	return strings.HasSuffix(lower, ".json")
 }
 
 func matchesConversationPatterns(relPath, fileName string) bool {
@@ -1191,7 +1780,7 @@ const conversationListHTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Conversation</title>
+  <title>Conversation JSON</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f6f8fb; color: #1f2937; }
     .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px; }
@@ -1208,7 +1797,7 @@ const conversationListHTML = `<!DOCTYPE html>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Conversation Dumps</h1>
+      <h1>Conversation JSON</h1>
       <p>Total: {{.Total}}</p>
       {{range .Files}}
       <div class="item">
@@ -1221,7 +1810,7 @@ const conversationListHTML = `<!DOCTYPE html>
         </div>
       </div>
       {{else}}
-      <p>No conversation dumps found.</p>
+      <p>No conversation-style JSON files found.</p>
       {{end}}
     </div>
   </div>
@@ -1528,20 +2117,20 @@ const conversationViewHTML = `<!DOCTYPE html>
 <body>
   <div class="layout">
     <aside class="side">
-      <h2 style="margin-top:0">Conversation Files</h2>
+      <h2 style="margin-top:0">Conversation JSON</h2>
       {{range .Files}}
       <a class="file-link" href="/view{{.Relative}}">
         <div class="file-title">{{.Title}}</div>
         <div class="file-meta">{{.Messages}} messages · {{.Relative}}</div>
       </a>
       {{else}}
-      <div class="empty">No conversation dumps found.</div>
+      <div class="empty">No conversation-style JSON files found.</div>
       {{end}}
     </aside>
     <main class="main" id="conversation-main">
       <div class="main-inner">
       <section class="hero">
-        <div class="eyebrow">Conversation</div>
+        <div class="eyebrow">Conversation View</div>
         <h1 class="title">{{.Title}}</h1>
         <div class="subtitle">{{.FilePath}}</div>
         <div class="toolbar">
@@ -1551,6 +2140,7 @@ const conversationViewHTML = `<!DOCTYPE html>
         <div class="meta" style="justify-content:flex-start; margin-top:14px;">
           <span class="chip">messages: {{.TotalMessages}}</span>
           <span class="chip">conversation: {{.ConversationID}}</span>
+          {{if .Detection}}<span class="chip">detected: {{.Detection}}</span>{{end}}
         </div>
       </section>
       <section class="cards">
@@ -1582,8 +2172,8 @@ const conversationViewHTML = `<!DOCTYPE html>
       </div>
     </main>
     <aside class="toc-pane">
-      <h2 class="toc-title">User turns</h2>
-      <p class="toc-subtitle">Jump between each user question round to review the conversation flow in the order it happened.</p>
+      <h2 class="toc-title">Conversation Flow</h2>
+      <p class="toc-subtitle">Jump between detected rounds or key turns to review the conversation flow in the order it happened.</p>
       <ul class="toc-list" id="toc-list"></ul>
       <div class="toc-empty" id="toc-empty">No headings detected yet.</div>
     </aside>
@@ -1661,7 +2251,7 @@ const conversationViewHTML = `<!DOCTYPE html>
 
       tocList.innerHTML = '';
       if (!items.length) {
-        tocEmpty.textContent = 'No user turns detected yet.';
+          tocEmpty.textContent = 'No conversation turns detected yet.';
         tocEmpty.style.display = 'block';
         return;
       }
