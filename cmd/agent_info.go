@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	pcwrap "tt/internal/picoclaw"
-	ttconfig "tt/internal/ttconfig"
+	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
+	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
 
 var agentInfoCmd = &cobra.Command{

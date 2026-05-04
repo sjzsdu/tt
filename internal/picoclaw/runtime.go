@@ -9,7 +9,7 @@ import (
 	pcpkg "github.com/sipeed/picoclaw/pkg"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pcskills "github.com/sipeed/picoclaw/pkg/skills"
-	ttconfig "tt/internal/ttconfig"
+	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
 
 type Options struct {

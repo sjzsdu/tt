@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
-	ttconfig "tt/internal/ttconfig"
+	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
 
 type Summary struct {

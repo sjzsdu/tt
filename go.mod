@@ -1,4 +1,4 @@
-module tt
+module github.com/sjzsdu/tt
 
 go 1.25.9
 

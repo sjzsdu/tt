@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	ttconfig "tt/internal/ttconfig"
+	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
 
 func loadTTConfig() (ttconfig.Loaded, error) {

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	mdutil "tt/internal/mdutil"
+	mdutil "github.com/sjzsdu/tt/internal/mdutil"
 )
 
 type convDump struct {
