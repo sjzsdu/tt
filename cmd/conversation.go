@@ -1825,7 +1825,7 @@ const conversationViewHTML = `<!DOCTYPE html>
   <title>{{.Title}}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.2.0/github-markdown.min.css">
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.2/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.7.0/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.14.0/dist/mermaid.min.js"></script>
   <style>
     :root {
       --bg: #f6f8fb;

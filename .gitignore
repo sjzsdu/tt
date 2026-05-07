@@ -22,3 +22,5 @@ vendor/
 # Local AI/config state
 .picoclaw/
 .tt/
+.code-context
+.opencode/
