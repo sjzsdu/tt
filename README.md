@@ -282,6 +282,10 @@ tt config --init-global
 tt config --init-project
 ```
 
+## Releases
+
+When `cmd/version.go` changes on `main`, GitHub Actions builds Linux, macOS, and Windows binaries for `amd64` and `arm64`, then publishes them to a GitHub Release tagged with the version, for example `v0.1.0`.
+
 ## Development
 
 Common targets:
