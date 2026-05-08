@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
 	mdutil "github.com/sjzsdu/tt/internal/mdutil"
+	"github.com/spf13/cobra"
 )
 
 type convDump struct {
@@ -1879,13 +1879,92 @@ const conversationViewHTML = `<!DOCTYPE html>
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    .markdown-body.md-render pre, .tool-json, .markdown-body.md-render .mermaid {
+    .markdown-body.md-render pre, .tool-json {
       overflow-x: auto;
+    }
+    .markdown-body.md-render .mermaid-figure {
+      margin: 18px 0;
+      border: 1px solid rgba(148, 163, 184, .22);
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, .08);
+      overflow: hidden;
+    }
+    .markdown-body.md-render .mermaid-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, .22);
+      background: rgba(255, 255, 255, .82);
+      backdrop-filter: blur(12px);
+    }
+    .markdown-body.md-render .mermaid-toolbar-text {
+      font-size: 12px;
+      color: #475467;
+      letter-spacing: .01em;
+    }
+    .markdown-body.md-render .mermaid-toolbar-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .markdown-body.md-render .mermaid-tool-btn {
+      appearance: none;
+      border: 1px solid rgba(37, 99, 235, .18);
+      background: rgba(255, 255, 255, .96);
+      color: #1d4ed8;
+      border-radius: 999px;
+      min-width: 34px;
+      height: 34px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+      box-shadow: 0 6px 14px rgba(37, 99, 235, .10);
+    }
+    .markdown-body.md-render .mermaid-tool-btn:hover {
+      transform: translateY(-1px);
+      background: #eff6ff;
+      box-shadow: 0 10px 18px rgba(37, 99, 235, .14);
+    }
+    .markdown-body.md-render .mermaid-tool-btn:active { transform: translateY(0); }
+    .markdown-body.md-render .mermaid-viewport {
+      position: relative;
+      min-height: 300px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(circle at top, rgba(255,255,255,.92), rgba(239,244,255,.72) 55%, rgba(226,232,240,.68)),
+        linear-gradient(90deg, rgba(148,163,184,.12) 1px, transparent 1px),
+        linear-gradient(rgba(148,163,184,.12) 1px, transparent 1px);
+      background-size: auto, 24px 24px, 24px 24px;
+      background-position: center, center, center;
     }
     .markdown-body.md-render .mermaid {
       display: flex;
+      align-items: center;
       justify-content: center;
-      padding: 8px 0;
+      padding: 20px;
+      min-height: 100%;
+      width: 100%;
+      overflow: hidden;
+    }
+    .markdown-body.md-render .mermaid svg {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      transform-origin: center center;
+      user-select: none;
+      touch-action: none;
     }
     .markdown-body.md-render > :first-child { margin-top: 0; }
     .markdown-body.md-render > :last-child { margin-bottom: 0; }
@@ -2196,7 +2275,7 @@ const conversationViewHTML = `<!DOCTYPE html>
         const sourceEl = block.querySelector('.md-source');
         const targetEl = block.querySelector('.md-render');
         if (!sourceEl || !targetEl) continue;
-        const sourceText = sourceEl.textContent || '';
+        const sourceText = sourceEl.value || '';
         targetEl.innerHTML = marked.parse(sourceText);
       }
 
@@ -2213,21 +2292,132 @@ const conversationViewHTML = `<!DOCTYPE html>
         pie: { useMaxWidth: true },
       });
 
-      const blocksWithMermaid = document.querySelectorAll('.md-render code.language-mermaid');
-      for (const [index, mermaidBlock] of blocksWithMermaid.entries()) {
-        const parent = mermaidBlock.parentElement;
+      const makeMermaidFigure = (sourceText, index) => {
+        const shell = document.createElement('section');
+        shell.className = 'mermaid-figure';
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'mermaid-toolbar';
+
+        const label = document.createElement('div');
+        label.className = 'mermaid-toolbar-text';
+        label.textContent = 'Drag to move · Use controls to zoom';
+
+        const actions = document.createElement('div');
+        actions.className = 'mermaid-toolbar-actions';
+
+        const zoomOut = document.createElement('button');
+        zoomOut.type = 'button';
+        zoomOut.className = 'mermaid-tool-btn';
+        zoomOut.setAttribute('aria-label', 'Zoom out Mermaid diagram');
+        zoomOut.textContent = '−';
+
+        const reset = document.createElement('button');
+        reset.type = 'button';
+        reset.className = 'mermaid-tool-btn';
+        reset.setAttribute('aria-label', 'Reset Mermaid diagram position and zoom');
+        reset.textContent = 'Reset';
+
+        const zoomIn = document.createElement('button');
+        zoomIn.type = 'button';
+        zoomIn.className = 'mermaid-tool-btn';
+        zoomIn.setAttribute('aria-label', 'Zoom in Mermaid diagram');
+        zoomIn.textContent = '+';
+
+        actions.append(zoomOut, reset, zoomIn);
+        toolbar.append(label, actions);
+
+        const viewport = document.createElement('div');
+        viewport.className = 'mermaid-viewport';
+
         const graph = document.createElement('div');
         graph.className = 'mermaid';
         graph.setAttribute('data-chart-index', index);
-        graph.textContent = mermaidBlock.textContent;
-        parent.replaceWith(graph);
+        graph.textContent = sourceText;
+
+        viewport.appendChild(graph);
+        shell.append(toolbar, viewport);
+
+        return { shell, viewport, graph, zoomOut, zoomIn, reset };
+      };
+
+      const bindPanZoom = ({ viewport, graph, zoomOut, zoomIn, reset }) => {
+        const svg = graph.querySelector('svg');
+        if (!svg) return;
+        const state = { scale: 1, x: 0, y: 0, dragging: false, pointerId: null, startX: 0, startY: 0 };
+        const minScale = 0.7;
+        const maxScale = 2.5;
+        const step = 0.2;
+        const apply = () => {
+          svg.style.transform = 'translate(' + state.x + 'px, ' + state.y + 'px) scale(' + state.scale + ')';
+        };
+        const setScale = (next) => {
+          state.scale = Math.min(maxScale, Math.max(minScale, next));
+          apply();
+        };
+
+        zoomOut.addEventListener('click', () => setScale(state.scale - step));
+        zoomIn.addEventListener('click', () => setScale(state.scale + step));
+        reset.addEventListener('click', () => {
+          state.scale = 1;
+          state.x = 0;
+          state.y = 0;
+          apply();
+        });
+
+        svg.style.cursor = 'grab';
+        svg.style.transition = 'transform 0.1s ease-out';
+
+        svg.addEventListener('pointerdown', (event) => {
+          state.dragging = true;
+          state.pointerId = event.pointerId;
+          state.startX = event.clientX - state.x;
+          state.startY = event.clientY - state.y;
+          svg.style.cursor = 'grabbing';
+          svg.setPointerCapture(event.pointerId);
+          event.preventDefault();
+        });
+
+        document.addEventListener('pointermove', (event) => {
+          if (!state.dragging || state.pointerId !== event.pointerId) return;
+          state.x = event.clientX - state.startX;
+          state.y = event.clientY - state.startY;
+          apply();
+        });
+
+        const stopDrag = (event) => {
+          if (state.pointerId !== null && event.pointerId !== undefined && state.pointerId !== event.pointerId) return;
+          state.dragging = false;
+          state.pointerId = null;
+          svg.style.cursor = 'grab';
+        };
+
+        document.addEventListener('pointerup', stopDrag);
+        document.addEventListener('pointercancel', stopDrag);
+
+        apply();
+      };
+
+      const blocksWithMermaid = document.querySelectorAll('.md-render code.language-mermaid');
+      for (const [index, mermaidBlock] of blocksWithMermaid.entries()) {
+        const parent = mermaidBlock.parentElement;
+        const figure = makeMermaidFigure(mermaidBlock.textContent, index);
+        parent.replaceWith(figure.shell);
       }
 
-      const graphs = document.querySelectorAll('.md-render .mermaid');
-      await Promise.all(Array.from(graphs).map(async (graph, index) => {
+      const figures = Array.from(document.querySelectorAll('.md-render .mermaid-figure'));
+      await Promise.all(figures.map(async (figure, index) => {
+        const graph = figure.querySelector('.mermaid');
         try {
           const result = await mermaid.render('conversation-mermaid-' + index, graph.textContent);
           graph.innerHTML = result.svg;
+          bindPanZoom({
+            viewport: figure.querySelector('.mermaid-viewport'),
+            graph,
+            zoomOut: figure.querySelector('.mermaid-tool-btn:nth-child(1)'),
+            reset: figure.querySelector('.mermaid-tool-btn:nth-child(2)'),
+            zoomIn: figure.querySelector('.mermaid-tool-btn:nth-child(3)'),
+          });
         } catch (err) {
           graph.innerHTML = '<pre style="color:#b42318;white-space:pre-wrap;">' + String(err) + '</pre>';
         }
@@ -2305,7 +2495,7 @@ const conversationViewHTML = `<!DOCTYPE html>
         button.addEventListener('click', async () => {
           const block = button.closest('.md-block');
           const sourceEl = block ? block.querySelector('.md-source') : null;
-          const sourceText = sourceEl ? (sourceEl.textContent || '') : '';
+          const sourceText = sourceEl ? (sourceEl.value || '') : '';
           if (!sourceText) return;
           try {
             await navigator.clipboard.writeText(sourceText);

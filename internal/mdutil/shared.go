@@ -59,6 +59,6 @@ func RenderMarkdownBlock(content string) template.HTML {
     <button type="button" class="copy-btn" data-copy-source>⧉</button>
   </div>
   <div class="markdown-body md-render"></div>
-  <script type="text/plain" class="md-source">` + escaped + `</script>
+  <textarea hidden class="md-source">` + escaped + `</textarea>
 </div>`)
 }
