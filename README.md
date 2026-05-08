@@ -49,7 +49,7 @@ go run . --help
 > replace github.com/sipeed/picoclaw => ../picoclaw
 > ```
 >
-> Make sure the sibling `../picoclaw` checkout exists, or adjust the `replace` directive before building in a fresh environment.
+> Make sure the sibling `../picoclaw` checkout exists. The CI workflow checks out <https://github.com/sjzsdu/picoclaw> at that sibling path so the local replacement resolves consistently.
 
 ## Usage
 

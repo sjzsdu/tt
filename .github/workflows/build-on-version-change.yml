@@ -87,7 +87,7 @@ jobs:
       - name: Checkout picoclaw sibling module
         uses: actions/checkout@v4
         with:
-          repository: sipeed/picoclaw
+          repository: sjzsdu/picoclaw
           path: picoclaw
 
       - name: Set up Go
