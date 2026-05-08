@@ -1,0 +1,136 @@
+name: Build on version change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - cmd/version.go
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    name: Check version change
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout tt
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check cmd/version.go value
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_version="$(sed -nE 's/^[[:space:]]*var[[:space:]]+version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' cmd/version.go | head -n1)"
+          if [[ -z "${current_version}" ]]; then
+            echo "Unable to parse version from cmd/version.go" >&2
+            exit 1
+          fi
+
+          previous_version=""
+          if [[ "${{ github.event_name }}" == "push" && -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            previous_version="$(git show '${{ github.event.before }}:cmd/version.go' 2>/dev/null \
+              | sed -nE 's/^[[:space:]]*var[[:space:]]+version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+              | head -n1 || true)"
+          fi
+
+          changed="false"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            changed="true"
+          elif [[ -z "${previous_version}" || "${current_version}" != "${previous_version}" ]]; then
+            changed="true"
+          fi
+
+          echo "version=${current_version}" >> "${GITHUB_OUTPUT}"
+          echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
+          echo "Current version: ${current_version}"
+          echo "Previous version: ${previous_version:-<none>}"
+          echo "Version changed: ${changed}"
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Checkout tt
+        uses: actions/checkout@v4
+        with:
+          path: tt
+
+      - name: Checkout picoclaw sibling module
+        uses: actions/checkout@v4
+        with:
+          repository: sipeed/picoclaw
+          path: picoclaw
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tt/go.mod
+          cache-dependency-path: tt/go.sum
+
+      - name: Run tests
+        working-directory: tt
+        run: go test ./...
+
+      - name: Build binary
+        working-directory: tt
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          if [[ "${GOOS}" == "windows" ]]; then
+            ext=".exe"
+          fi
+          artifact="tt_${VERSION}_${GOOS}_${GOARCH}"
+          binary="${artifact}${ext}"
+          GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w -X github.com/sjzsdu/tt/cmd.version=${VERSION}" \
+            -o "dist/${binary}" .
+          cd dist
+          if [[ "${GOOS}" == "windows" ]]; then
+            zip "${artifact}.zip" "${binary}"
+          else
+            tar -czf "${artifact}.tar.gz" "${binary}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt-${{ needs.check-version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            tt/dist/*.tar.gz
+            tt/dist/*.zip
+          if-no-files-found: error
