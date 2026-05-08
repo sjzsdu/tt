@@ -22,6 +22,7 @@ type Config struct {
 	Debate       DebateConfig       `json:"debate,omitempty"`
 	Markdown     MarkdownConfig     `json:"markdown,omitempty"`
 	Conversation ConversationConfig `json:"conversation,omitempty"`
+	Mirror       MirrorConfig       `json:"mirror,omitempty"`
 }
 
 type PicoclawConfig struct {
@@ -54,6 +55,12 @@ type ConversationConfig struct {
 	Port     *int     `json:"port,omitempty"`
 	File     string   `json:"file,omitempty"`
 	Patterns []string `json:"patterns,omitempty"`
+}
+
+type MirrorConfig struct {
+	SourceDir  string `json:"source_dir,omitempty"`
+	TargetDir  string `json:"target_dir,omitempty"`
+	ConfigFile string `json:"config_file,omitempty"`
 }
 
 type Sources struct {
@@ -156,6 +163,15 @@ func Merge(base Config, overlay Config) Config {
 	}
 	if len(overlay.Conversation.Patterns) > 0 {
 		out.Conversation.Patterns = append([]string(nil), overlay.Conversation.Patterns...)
+	}
+	if v := strings.TrimSpace(overlay.Mirror.SourceDir); v != "" {
+		out.Mirror.SourceDir = v
+	}
+	if v := strings.TrimSpace(overlay.Mirror.TargetDir); v != "" {
+		out.Mirror.TargetDir = v
+	}
+	if v := strings.TrimSpace(overlay.Mirror.ConfigFile); v != "" {
+		out.Mirror.ConfigFile = v
 	}
 	return out
 }
