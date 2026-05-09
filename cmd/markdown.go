@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -118,7 +119,7 @@ func runMarkdownServer() error {
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/view/", handleView)
 	mux.HandleFunc("/edit/", handleEdit)
-	mux.HandleFunc("/save/", handleSave)
+	mux.HandleFunc("/delete/", handleDelete)
 	mux.HandleFunc("/raw/", handleRaw)
 	mux.HandleFunc("/raw-content", handleRawContent)
 	mux.HandleFunc("/images/", handleImages)
@@ -190,9 +191,13 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Files []mdFile
-		Total int
+		Files       []mdFile
+		FilesJSON   template.JS
+		Total       int
 	}{Files: files, Total: len(files)}
+	if filesJSON, err := json.Marshal(files); err == nil {
+		data.FilesJSON = template.JS(filesJSON)
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := template.Must(template.New("list").Parse(listHTML)).Execute(w, data); err != nil {
@@ -220,6 +225,33 @@ func handleEdit(w http.ResponseWriter, r *http.Request) {
 	if err := renderMarkdownPage(w, relPath, true); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 	}
+}
+
+func handleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	relPath := strings.TrimPrefix(r.URL.Path, "/delete")
+	if relPath == "" || relPath == "/" {
+		http.Error(w, "file path is required", http.StatusBadRequest)
+		return
+	}
+	if mdContent != "" {
+		http.Error(w, "deleting direct markdown content is not supported", http.StatusBadRequest)
+		return
+	}
+	absPath, err := safeJoin(mdRoot, relPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := os.Remove(absPath); err != nil {
+		http.Error(w, fmt.Sprintf("delete markdown failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	broadcastReload(filepath.Base(absPath) + " deleted")
+	http.Redirect(w, r, "/list", http.StatusSeeOther)
 }
 
 func handleSave(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +286,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/view"+relPath, http.StatusSeeOther)
 }
 
+
 func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) error {
 	content, viewPath, err := resolveViewContent(relPath)
 	if err != nil {
@@ -263,6 +296,7 @@ func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) err
 	if err != nil {
 		return fmt.Errorf("collect markdown files failed: %w", err)
 	}
+	filesJSON, _ := json.Marshal(files)
 	currentDir := filepath.Dir(viewPath)
 	if currentDir == "." {
 		currentDir = "/"
@@ -275,6 +309,7 @@ func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) err
 		ContentHTML template.HTML
 		ContentText string
 		Files       []mdFile
+		FilesJSON   template.JS
 		Editing     bool
 	}{
 		FilePath:    viewPath,
@@ -282,7 +317,7 @@ func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) err
 		ContentHTML: template.HTML(processed),
 		ContentText: content,
 		Files:       files,
-		Editing:     editing,
+		FilesJSON:   template.JS(filesJSON),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := template.Must(template.New("view").Parse(viewHTML)).Execute(w, data); err != nil {
@@ -909,6 +944,7 @@ const viewHTML = `<!DOCTYPE html>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.2.0/github-markdown.min.css">
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.2/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11.14.0/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvg@4.0.1/lib/umd.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -942,7 +978,114 @@ const viewHTML = `<!DOCTYPE html>
     .section { padding: 20px 18px; }
     .section-title, .toc-title { margin: 0; font-size: 15px; font-weight: 700; }
     .section-subtitle, .toc-empty { margin: 8px 0 0; color: var(--subtle); font-size: 12px; line-height: 1.6; }
-    .file-list, .toc-list { list-style: none; padding: 0; margin: 18px 0 0; }
+    .file-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 14px 0 12px;
+    }
+    .file-view-toggle {
+      display: inline-flex;
+      padding: 2px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
+      overflow: hidden;
+    }
+    .file-view-toggle .btn {
+      padding: 6px 11px;
+      font-size: 12px;
+      box-shadow: none;
+      border-radius: 10px;
+      border-color: transparent;
+      background: transparent;
+      color: #475467;
+      min-width: 52px;
+    }
+    .file-view-toggle .btn:hover {
+      background: rgba(255,255,255,.72);
+      color: #111827;
+    }
+    .file-view-toggle .btn.active {
+      background: #fff;
+      color: var(--brand-strong);
+      border-color: #dbeafe;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    }
+    .file-list, .toc-list { list-style: none; padding: 0; margin: 16px 0 0; }
+    .file-item { margin: 6px 0; }
+    .tree-list {
+      list-style: none;
+      padding: 0;
+      margin: 14px 0 0;
+      border-top: 1px solid #edf2f7;
+    }
+    .tree-node { margin: 0; }
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 0 10px 0 12px;
+      border-bottom: 1px solid #f3f6fb;
+      color: #334155;
+    }
+    .tree-row.folder-row {
+      background: #fff;
+      font-weight: 600;
+    }
+    .tree-row.folder-row:hover { background: #f8fafc; }
+    .tree-spacer { width: 14px; flex: none; }
+    .tree-toggle {
+      width: 18px;
+      height: 18px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 0;
+      font-size: 12px;
+      line-height: 1;
+      border-radius: 999px;
+    }
+    .tree-toggle:hover { background: #eef2ff; color: #334155; }
+    .tree-folder-name { font-weight: 500; }
+    .tree-folder-name::before {
+      content: '';
+      display: none;
+    }
+    .tree-file-name { padding-left: 2px; }
+    .tree-file-name::before {
+      content: '';
+      display: none;
+    }
+    .tree-file-name:hover {
+      background: #f8fafc;
+      color: var(--green);
+    }
+    .tree-file-name.active {
+      background: var(--green-soft);
+      color: var(--green);
+      font-weight: 600;
+    }
+    .tree-children {
+      list-style: none;
+      margin: 0;
+      padding: 0 0 0 18px;
+      border-left: 1px solid #edf2f7;
+      background: #fff;
+      overflow: hidden;
+      max-height: 2000px;
+      opacity: 1;
+      transition: max-height .22s ease, opacity .18s ease;
+    }
+    .tree-children.collapsed {
+      max-height: 0;
+      opacity: 0;
+    }
+    .tree-children .tree-row { min-height: 34px; }
     .file-item, .toc-item { margin: 6px 0; }
     .file-link {
       display: block;
@@ -985,26 +1128,43 @@ const viewHTML = `<!DOCTYPE html>
     .toolbar-title { min-width: 0; }
     .toolbar-title strong { display: block; font-size: 16px; line-height: 1.4; word-break: break-word; }
     .toolbar-title span { display: block; margin-top: 4px; color: var(--subtle); font-size: 12px; }
-    .toolbar-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .toolbar-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      flex-wrap: wrap;
+      padding: 3px;
+      border: 1px solid #e5e7eb;
+      border-radius: 13px;
+      background: rgba(255,255,255,.78);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 2px rgba(15,23,42,.03);
+    }
+    .toolbar-actions > * { flex: none; }
+    .toolbar-actions form { display: inline-flex; margin: 0; align-items: center; }
+    .toolbar-actions form .btn { margin: 0; }
     .btn {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      border-radius: 999px;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 10px;
       text-decoration: none;
       font-size: 13px;
       font-weight: 600;
       border: 1px solid transparent;
-      transition: .2s ease;
+      transition: background .18s ease, border-color .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease;
       white-space: nowrap;
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      box-shadow: none;
     }
-    .btn svg { width: 16px; height: 16px; flex: none; }
-    .btn-secondary { color: var(--brand); background: var(--brand-soft); border-color: #bfdbfe; }
-    .btn-secondary:hover { background: #dbeafe; border-color: #93c5fd; color: var(--brand-strong); }
-    .btn-outline { color: #475467; background: #fff; border-color: var(--line-strong); }
-    .btn-outline:hover { background: #f8fafc; border-color: #94a3b8; color: #111827; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn svg { width: 14px; height: 14px; flex: none; }
+    .btn-secondary { color: #0f172a; background: #fff; border-color: transparent; }
+    .btn-secondary:hover { background: #f8fafc; border-color: #e2e8f0; color: #0f172a; }
+    .btn-outline { color: #475467; background: transparent; border-color: transparent; }
+    .btn-outline:hover { background: #fff; border-color: #e5e7eb; color: #111827; }
+    .btn-danger { color: #b42318; background: transparent; border-color: transparent; }
+    .btn-danger:hover { background: #fff5f5; border-color: #fecaca; color: #7f1d1d; }
     .doc-wrap { padding: 24px; }
     .editor-form {
       max-width: 960px;
@@ -1071,8 +1231,8 @@ const viewHTML = `<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 10px 14px;
+      gap: 10px;
+      padding: 8px 12px;
       border-bottom: 1px solid rgba(148, 163, 184, .22);
       background: rgba(255, 255, 255, .82);
       backdrop-filter: blur(12px);
@@ -1081,12 +1241,17 @@ const viewHTML = `<!DOCTYPE html>
       font-size: 12px;
       color: #475467;
       letter-spacing: .01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 42%;
     }
     .mermaid-toolbar-actions {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .mermaid-tool-btn {
       appearance: none;
@@ -1094,13 +1259,13 @@ const viewHTML = `<!DOCTYPE html>
       background: rgba(255, 255, 255, .96);
       color: #1d4ed8;
       border-radius: 999px;
-      min-width: 34px;
-      height: 34px;
-      padding: 0 12px;
+      min-width: 30px;
+      height: 30px;
+      padding: 0 10px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
@@ -1114,11 +1279,12 @@ const viewHTML = `<!DOCTYPE html>
     .mermaid-tool-btn:active { transform: translateY(0); }
     .mermaid-viewport {
       position: relative;
-      min-height: 320px;
+      min-height: 180px;
       overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
+      cursor: grab;
       background:
         radial-gradient(circle at top, rgba(255,255,255,.92), rgba(239,244,255,.72) 55%, rgba(226,232,240,.68)),
         linear-gradient(90deg, rgba(148,163,184,.12) 1px, transparent 1px),
@@ -1130,8 +1296,8 @@ const viewHTML = `<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
-      min-height: 100%;
+      padding: 14px;
+      min-height: 0;
       width: 100%;
       overflow: hidden;
     }
@@ -1182,13 +1348,15 @@ const viewHTML = `<!DOCTYPE html>
       <div class="section">
         <h3 class="section-title">Markdown Files</h3>
         <p class="section-subtitle">File list and document content scroll independently, so the file tree stays visible while reading.</p>
-        <ul class="file-list">
-          {{range .Files}}
-          <li class="file-item"><a href="/view{{.Relative}}" class="file-link {{if eq $.FilePath .Relative}}active{{end}}">{{if .Title}}{{.Title}}{{else}}{{.Relative}}{{end}}</a></li>
-          {{else}}
-          <li class="toc-empty">No markdown files</li>
-          {{end}}
-        </ul>
+        <div class="file-toolbar">
+          <div></div>
+          <div class="file-view-toggle">
+            <button type="button" class="btn btn-outline active" id="flat-view-btn">Flat</button>
+            <button type="button" class="btn btn-outline" id="tree-view-btn">Tree</button>
+          </div>
+        </div>
+        <ul class="file-list" id="file-list"></ul>
+        <script id="files-data" type="application/json">{{.FilesJSON}}</script>
       </div>
     </aside>
     <main class="pane content-pane" id="content-pane">
@@ -1212,11 +1380,10 @@ const viewHTML = `<!DOCTYPE html>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 1 1 2.97 2.97L7.5 18.789 3 20l1.211-4.5L16.862 3.487Z"/></svg>
             <span>Edit</span>
           </a>
+          <form method="post" action="/delete{{.FilePath}}" onsubmit="return confirm('Delete this markdown file? This cannot be undone.')">
+            <button class="btn btn-danger" type="submit">Delete</button>
+          </form>
           {{end}}
-          <a class="btn btn-outline" href="{{.RawPath}}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4"/><path stroke-linecap="round" stroke-linejoin="round" d="M5 21h14"/></svg>
-            <span>Download raw</span>
-          </a>
         </div>
       </div>
       <div class="doc-wrap">
@@ -1225,6 +1392,7 @@ const viewHTML = `<!DOCTYPE html>
           <div class="editor-actions">
             <a class="btn btn-outline" href="/view{{.FilePath}}">Cancel</a>
             <button class="btn btn-secondary" type="submit">Save</button>
+            <button class="btn btn-danger" type="submit" formaction="/delete{{.FilePath}}" formmethod="post" onclick="return confirm('Delete this markdown file? This cannot be undone.')">Delete</button>
           </div>
           <textarea class="editor-textarea" name="content" spellcheck="false">{{.ContentText}}</textarea>
           <div class="editor-hint">保存后会直接写回原文件，并刷新页面列表。</div>
@@ -1245,9 +1413,134 @@ const viewHTML = `<!DOCTYPE html>
     </aside>
   </div>
   <script>
+    const filesData = JSON.parse(document.getElementById('files-data')?.textContent || '[]');
+    const fileList = document.getElementById('file-list');
+    const flatViewBtn = document.getElementById('flat-view-btn');
+    const treeViewBtn = document.getElementById('tree-view-btn');
+    const treeStateKey = 'md-tree-expanded';
+    const expandedPaths = new Set(JSON.parse(localStorage.getItem(treeStateKey) || '[]'));
+    const currentPagePath = '{{.FilePath}}';
+    let fileViewMode = localStorage.getItem('md-file-view-mode') || 'flat';
+    function fileDisplayName(file) {
+      return file.Title || file.Relative || file.Name || 'Untitled';
+    }
+
+    function renderFlatFiles() {
+      fileList.innerHTML = '';
+      if (!filesData.length) {
+        fileList.innerHTML = '<li class="toc-empty">No markdown files</li>';
+        return;
+      }
+      filesData.forEach((file) => {
+        const li = document.createElement('li');
+        li.className = 'file-item';
+        const a = document.createElement('a');
+        a.className = 'file-link' + (file.Relative === '{{.FilePath}}' ? ' active' : '');
+        a.href = '/view' + file.Relative;
+        a.textContent = fileDisplayName(file);
+        li.appendChild(a);
+        fileList.appendChild(li);
+      });
+    }
+
+
+    function buildTree(files) {
+      const root = { name: '', children: new Map(), files: [] };
+      for (const file of files) {
+        const parts = String(file.Relative || '').replace(/^\//, '').split('/').filter(Boolean);
+        let node = root;
+        parts.forEach((part, index) => {
+          if (index === parts.length - 1) {
+            node.files.push(file);
+            return;
+          }
+          if (!node.children.has(part)) {
+            node.children.set(part, { name: part, children: new Map(), files: [] });
+          }
+          node = node.children.get(part);
+        });
+      }
+      return root;
+    }
+
+    function renderTreeNode(node, depth = 0, parentPath = '') {
+      const ul = document.createElement('ul');
+      ul.className = depth === 0 ? 'tree-list' : 'tree-children';
+      [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name)).forEach((child) => {
+        const childPath = parentPath ? parentPath + '/' + child.name : child.name;
+        const isExpanded = expandedPaths.has(childPath) || child.files.length > 0;
+        const li = document.createElement('li');
+        li.className = 'tree-node';
+        const row = document.createElement('div');
+        row.className = 'tree-row folder-row';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'tree-toggle';
+        toggle.textContent = isExpanded ? '▾' : '▸';
+        toggle.setAttribute('aria-label', (isExpanded ? 'Collapse ' : 'Expand ') + child.name);
+        const label = document.createElement('span');
+        label.className = 'tree-folder-name';
+        label.textContent = child.name;
+        row.append(toggle, label);
+        li.appendChild(row);
+        const childList = renderTreeNode(child, depth + 1, childPath);
+        if (!isExpanded) childList.classList.add('collapsed');
+        li.appendChild(childList);
+        const persist = () => {
+          localStorage.setItem(treeStateKey, JSON.stringify(Array.from(expandedPaths)));
+        };
+        toggle.addEventListener('click', () => {
+          const collapsed = childList.classList.toggle('collapsed');
+          if (collapsed) expandedPaths.delete(childPath);
+          else expandedPaths.add(childPath);
+          toggle.textContent = collapsed ? '▸' : '▾';
+          toggle.setAttribute('aria-label', (collapsed ? 'Expand ' : 'Collapse ') + child.name);
+          persist();
+        });
+        ul.appendChild(li);
+      });
+      node.files.sort((a, b) => fileDisplayName(a).localeCompare(fileDisplayName(b))).forEach((file) => {
+        const li = document.createElement('li');
+        li.className = 'tree-node';
+        const row = document.createElement('div');
+        row.className = 'tree-row';
+        const spacer = document.createElement('span');
+        spacer.className = 'tree-spacer';
+        const a = document.createElement('a');
+        a.className = 'file-link tree-file-name' + (file.Relative === currentPagePath ? ' active' : '');
+        a.href = '/view' + file.Relative;
+        a.textContent = fileDisplayName(file);
+        row.append(spacer, a);
+        li.appendChild(row);
+        ul.appendChild(li);
+      });
+      return ul;
+    }
+
+    function renderTreeFiles() {
+      fileList.innerHTML = '';
+      if (!filesData.length) {
+        fileList.innerHTML = '<li class="toc-empty">No markdown files</li>';
+        return;
+      }
+      const tree = buildTree(filesData);
+      fileList.appendChild(renderTreeNode(tree));
+    }
+
+    function setFileViewMode(mode) {
+      fileViewMode = mode;
+      localStorage.setItem('md-file-view-mode', mode);
+      flatViewBtn.classList.toggle('active', mode === 'flat');
+      treeViewBtn.classList.toggle('active', mode === 'tree');
+      if (mode === 'tree') renderTreeFiles();
+      else renderFlatFiles();
+    }
+
+    flatViewBtn.addEventListener('click', () => setFileViewMode('flat'));
+    treeViewBtn.addEventListener('click', () => setFileViewMode('tree'));
+    setFileViewMode(fileViewMode);
     const sourceEl = document.getElementById('markdown-content');
     const source = sourceEl ? (sourceEl.value || '') : '';
-    const content = document.getElementById('content');
     const tocList = document.getElementById('toc-list');
     const tocEmpty = document.getElementById('toc-empty');
     const contentPane = document.getElementById('content-pane');
@@ -1346,14 +1639,37 @@ const viewHTML = `<!DOCTYPE html>
       activateTOC();
     }
 
+    async function ensureMermaidLoaded() {
+      if (window.mermaid) return window.mermaid;
+      const urls = [
+        'https://cdn.jsdelivr.net/npm/mermaid@11.14.0/dist/mermaid.min.js',
+        'https://unpkg.com/mermaid@11.14.0/dist/mermaid.min.js'
+      ];
+      for (const url of urls) {
+        try {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = url;
+            script.async = true;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+          if (window.mermaid) return window.mermaid;
+        } catch (_) {}
+      }
+      return null;
+    }
+
     async function renderMermaid() {
-      if (typeof mermaid === 'undefined') return;
-      mermaid.initialize({
+      const mermaidApi = await ensureMermaidLoaded();
+      if (!mermaidApi) return;
+      mermaidApi.initialize({
         startOnLoad: false,
         theme: 'default',
         securityLevel: 'loose',
         logLevel: 'error',
-        flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+        flowchart: { useMaxWidth: true, htmlLabels: false, curve: 'basis' },
         sequence: { useMaxWidth: true },
         journey: { useMaxWidth: true },
         er: { useMaxWidth: true },
@@ -1368,7 +1684,7 @@ const viewHTML = `<!DOCTYPE html>
 
         const label = document.createElement('div');
         label.className = 'mermaid-toolbar-text';
-        label.textContent = 'Drag to move · Use controls to zoom';
+        label.textContent = 'Drag to move';
 
         const actions = document.createElement('div');
         actions.className = 'mermaid-toolbar-actions';
@@ -1383,7 +1699,7 @@ const viewHTML = `<!DOCTYPE html>
         reset.type = 'button';
         reset.className = 'mermaid-tool-btn';
         reset.setAttribute('aria-label', 'Reset Mermaid diagram position and zoom');
-        reset.textContent = 'Reset';
+        reset.textContent = 'R';
 
         const zoomIn = document.createElement('button');
         zoomIn.type = 'button';
@@ -1391,7 +1707,25 @@ const viewHTML = `<!DOCTYPE html>
         zoomIn.setAttribute('aria-label', 'Zoom in Mermaid diagram');
         zoomIn.textContent = '+';
 
-        actions.append(zoomOut, reset, zoomIn);
+        const exportSvg = document.createElement('button');
+        exportSvg.type = 'button';
+        exportSvg.className = 'mermaid-tool-btn';
+        exportSvg.setAttribute('aria-label', 'Export Mermaid diagram as SVG');
+        exportSvg.textContent = 'SVG';
+
+        const downloadPng = document.createElement('button');
+        downloadPng.type = 'button';
+        downloadPng.className = 'mermaid-tool-btn';
+        downloadPng.setAttribute('aria-label', 'Download Mermaid diagram as PNG');
+        downloadPng.textContent = 'PNG';
+
+        const copyPng = document.createElement('button');
+        copyPng.type = 'button';
+        copyPng.className = 'mermaid-tool-btn';
+        copyPng.setAttribute('aria-label', 'Copy Mermaid diagram as PNG to clipboard');
+        copyPng.textContent = 'Copy';
+
+        actions.append(zoomOut, reset, zoomIn, exportSvg, downloadPng, copyPng);
         toolbar.append(label, actions);
 
         const viewport = document.createElement('div');
@@ -1405,12 +1739,146 @@ const viewHTML = `<!DOCTYPE html>
         viewport.appendChild(graph);
         shell.append(toolbar, viewport);
 
-        return { shell, viewport, graph, zoomOut, zoomIn, reset };
+        shell.__mermaidRefs = { shell, viewport, graph, zoomOut, zoomIn, reset, exportSvg, downloadPng, copyPng };
+        return shell;
       };
 
-      const bindPanZoom = ({ viewport, graph, zoomOut, zoomIn, reset }) => {
+      const downloadBlob = (blob, filename) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+
+      const svgToBlob = (svgEl) => {
+        const clone = svgEl.cloneNode(true);
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+        const css = '\n          svg { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }\n        ';
+        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+        style.textContent = css;
+        clone.insertBefore(style, clone.firstChild);
+        const source = new XMLSerializer().serializeToString(clone);
+        return new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      };
+
+      const ensureCanvgLoaded = async () => {
+        const existing = window.Canvg || (window.canvg && window.canvg.Canvg);
+        if (existing) return existing;
+        const urls = [
+          'https://esm.sh/canvg@4.0.2',
+          'https://cdn.skypack.dev/canvg@4.0.2'
+        ];
+        for (const url of urls) {
+          try {
+            const mod = await import(url);
+            const CanvgClass = mod.Canvg || (mod.default && mod.default.Canvg);
+            if (CanvgClass) {
+              window.Canvg = CanvgClass;
+              return CanvgClass;
+            }
+          } catch (_) {}
+        }
+        throw new Error('canvg is not loaded');
+      };
+
+      const prepareSvgForExport = (svgEl) => {
+        const clone = svgEl.cloneNode(true);
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+        clone.removeAttribute('style');
+        const exportStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+        exportStyle.textContent = [
+          'text, tspan { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Arial, sans-serif !important; fill: #111827; }',
+          '.label, .nodeLabel, .edgeLabel { color: #111827; fill: #111827; }',
+          'foreignObject * { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Arial, sans-serif !important; color: #111827; }'
+        ].join('\n');
+        clone.insertBefore(exportStyle, clone.firstChild);
+        const rect = svgEl.getBoundingClientRect();
+        const viewBox = clone.getAttribute('viewBox');
+        let width = Math.max(1, Math.ceil(rect.width));
+        let height = Math.max(1, Math.ceil(rect.height));
+        if ((!width || !height) && viewBox) {
+          const parts = viewBox.split(/\s+/).map(Number);
+          if (parts.length === 4) {
+            width = Math.max(1, Math.ceil(parts[2]));
+            height = Math.max(1, Math.ceil(parts[3]));
+          }
+        }
+        clone.setAttribute('width', String(width));
+        clone.setAttribute('height', String(height));
+        const serialized = new XMLSerializer().serializeToString(clone);
+        return { serialized, width, height };
+      };
+
+      const svgToPngViaImage = async (serialized, width, height) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width * 2;
+        canvas.height = height * 2;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(2, 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        const img = new Image();
+        img.decoding = 'async';
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
+        });
+        ctx.drawImage(img, 0, 0, width, height);
+        return new Promise((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (!blob) reject(new Error('PNG export failed'));
+            else resolve(blob);
+          }, 'image/png');
+        });
+      };
+
+      const svgToPngViaCanvg = async (serialized, width, height) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width * 2;
+        canvas.height = height * 2;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(2, 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        const CanvgClass = await ensureCanvgLoaded();
+        const v = await CanvgClass.from(ctx, serialized, { DOMParser });
+        await v.render();
+        return new Promise((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (!blob) reject(new Error('PNG export failed'));
+            else resolve(blob);
+          }, 'image/png');
+        });
+      };
+
+      const svgToPngBlob = async (svgEl) => {
+        const { serialized, width, height } = prepareSvgForExport(svgEl);
+        try {
+          return await svgToPngViaImage(serialized, width, height);
+        } catch (err) {
+          console.warn('native SVG PNG export failed, falling back to canvg', err);
+          return await svgToPngViaCanvg(serialized, width, height);
+        }
+      };
+
+      const copyBlobToClipboard = async (blob) => {
+        if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
+          throw new Error('Clipboard PNG copy is not supported in this browser');
+        }
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+      };
+
+      const bindPanZoom = ({ viewport, graph, zoomOut, zoomIn, reset, exportSvg, downloadPng, copyPng }) => {
+        if (!graph) return;
         const svg = graph.querySelector('svg');
-        if (!svg) return;
+        if (!svg || !zoomOut || !zoomIn || !reset || !exportSvg || !downloadPng || !copyPng) return;
         const state = { scale: 1, x: 0, y: 0, dragging: false, pointerId: null, startX: 0, startY: 0 };
         const minScale = 0.7;
         const maxScale = 2.5;
@@ -1423,6 +1891,14 @@ const viewHTML = `<!DOCTYPE html>
           apply();
         };
 
+        const fitViewportHeight = () => {
+          const rect = svg.getBoundingClientRect();
+          const naturalHeight = Math.max(180, Math.ceil(rect.height + 36));
+          viewport.style.height = 'auto';
+          viewport.style.minHeight = naturalHeight + 'px';
+        };
+        fitViewportHeight();
+
         zoomOut.addEventListener('click', () => setScale(state.scale - step));
         zoomIn.addEventListener('click', () => setScale(state.scale + step));
         reset.addEventListener('click', () => {
@@ -1431,19 +1907,59 @@ const viewHTML = `<!DOCTYPE html>
           state.y = 0;
           apply();
         });
+        exportSvg.addEventListener('click', () => {
+          const svg = graph.querySelector('svg');
+          if (!svg) return;
+          downloadBlob(svgToBlob(svg), 'mermaid-diagram.svg');
+        });
+
+        downloadPng.addEventListener('click', async () => {
+          const svg = graph.querySelector('svg');
+          if (!svg) return;
+          try {
+            const blob = await svgToPngBlob(svg);
+            if (blob) downloadBlob(blob, 'mermaid-diagram.png');
+          } catch (err) {
+            console.error('png export failed', err);
+            alert('PNG export failed: ' + String(err.message || err));
+          }
+        });
+
+        copyPng.addEventListener('click', async () => {
+          const svg = graph.querySelector('svg');
+          if (!svg) return;
+          try {
+            const blob = await svgToPngBlob(svg);
+            if (blob) await copyBlobToClipboard(blob);
+          } catch (err) {
+            console.error('png copy failed', err);
+            alert('PNG copy failed: ' + String(err.message || err));
+          }
+        });
+
+        viewport.addEventListener('wheel', (event) => {
+          event.preventDefault();
+          const factor = event.deltaY > 0 ? 0.95 : 1.05;
+          setScale(state.scale * factor);
+        }, { passive: false });
+
+        viewport.addEventListener('dblclick', () => setScale(state.scale * 1.2));
 
         svg.style.cursor = 'grab';
         svg.style.transition = 'transform 0.1s ease-out';
 
-        svg.addEventListener('pointerdown', (event) => {
+        const startDrag = (event) => {
           state.dragging = true;
           state.pointerId = event.pointerId;
           state.startX = event.clientX - state.x;
           state.startY = event.clientY - state.y;
+          viewport.style.cursor = 'grabbing';
           svg.style.cursor = 'grabbing';
-          svg.setPointerCapture(event.pointerId);
+          viewport.setPointerCapture(event.pointerId);
           event.preventDefault();
-        });
+        };
+
+        viewport.addEventListener('pointerdown', startDrag);
 
         document.addEventListener('pointermove', (event) => {
           if (!state.dragging || state.pointerId !== event.pointerId) return;
@@ -1457,6 +1973,7 @@ const viewHTML = `<!DOCTYPE html>
           state.dragging = false;
           state.pointerId = null;
           svg.style.cursor = 'grab';
+          viewport.style.cursor = 'grab';
         };
 
         document.addEventListener('pointerup', stopDrag);
@@ -1469,23 +1986,18 @@ const viewHTML = `<!DOCTYPE html>
       for (const [index, block] of blocks.entries()) {
         const parent = block.parentElement;
         const figure = makeMermaidFigure(block.textContent, index);
-        parent.replaceWith(figure.shell);
+        parent.replaceWith(figure);
       }
       const figures = Array.from(content.querySelectorAll('.mermaid-figure'));
       await Promise.all(figures.map(async (figure, index) => {
-        const graph = figure.querySelector('.mermaid');
+        const mermaidContainer = figure.querySelector('.mermaid');
         try {
-          const result = await mermaid.render('mermaid-svg-' + index, graph.textContent);
-          graph.innerHTML = result.svg;
-          bindPanZoom({
-            viewport: figure.querySelector('.mermaid-viewport'),
-            graph,
-            zoomOut: figure.querySelector('.mermaid-tool-btn:nth-child(1)'),
-            reset: figure.querySelector('.mermaid-tool-btn:nth-child(2)'),
-            zoomIn: figure.querySelector('.mermaid-tool-btn:nth-child(3)'),
-          });
+          const result = await mermaidApi.render('mermaid-svg-' + index, mermaidContainer.textContent);
+          mermaidContainer.innerHTML = result.svg;
+          const refs = figure.__mermaidRefs;
+          bindPanZoom(refs);
         } catch (err) {
-          graph.innerHTML = '<pre style="color:#b42318;white-space:pre-wrap;">' + String(err) + '</pre>';
+          mermaidContainer.innerHTML = '<pre style="color:#b42318;white-space:pre-wrap;">' + String(err) + '</pre>';
         }
       }));
     }
