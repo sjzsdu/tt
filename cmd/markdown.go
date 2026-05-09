@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	mdutil "github.com/sjzsdu/tt/internal/mdutil"
 	"github.com/spf13/cobra"
 	"nhooyr.io/websocket"
 )
@@ -119,6 +120,7 @@ func runMarkdownServer() error {
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/view/", handleView)
 	mux.HandleFunc("/edit/", handleEdit)
+	mux.HandleFunc("/save/", handleSave)
 	mux.HandleFunc("/delete/", handleDelete)
 	mux.HandleFunc("/raw/", handleRaw)
 	mux.HandleFunc("/raw-content", handleRawContent)
@@ -191,9 +193,9 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Files       []mdFile
-		FilesJSON   template.JS
-		Total       int
+		Files     []mdFile
+		FilesJSON template.JS
+		Total     int
 	}{Files: files, Total: len(files)}
 	if filesJSON, err := json.Marshal(files); err == nil {
 		data.FilesJSON = template.JS(filesJSON)
@@ -250,8 +252,13 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("delete markdown failed: %v", err), http.StatusInternalServerError)
 		return
 	}
-	broadcastReload(filepath.Base(absPath) + " deleted")
-	http.Redirect(w, r, "/list", http.StatusSeeOther)
+
+	files, _ := collectFiles()
+	if len(files) > 0 {
+		http.Redirect(w, r, "/view"+files[0].Relative+"?t="+fmt.Sprint(time.Now().Unix()), http.StatusFound)
+	} else {
+		http.Redirect(w, r, "/list?t="+fmt.Sprint(time.Now().Unix()), http.StatusFound)
+	}
 }
 
 func handleSave(w http.ResponseWriter, r *http.Request) {
@@ -277,15 +284,32 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("parse form failed: %v", err), http.StatusBadRequest)
 		return
 	}
-	content := r.FormValue("content")
-	if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
+
+	body := r.FormValue("content")
+	var fmLines []string
+	for key, vals := range r.Form {
+		if strings.HasPrefix(key, "fm_") {
+			fieldKey := strings.TrimPrefix(key, "fm_")
+			if len(vals) > 0 && strings.TrimSpace(vals[0]) != "" {
+				fmLines = append(fmLines, fmt.Sprintf("%s: %s", fieldKey, vals[0]))
+			}
+		}
+	}
+
+	var finalContent string
+	if len(fmLines) > 0 {
+		finalContent = "---\n" + strings.Join(fmLines, "\n") + "\n---\n" + body
+	} else {
+		finalContent = body
+	}
+
+	if err := os.WriteFile(absPath, []byte(finalContent), 0o644); err != nil {
 		http.Error(w, fmt.Sprintf("save markdown failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 	broadcastReload(filepath.Base(absPath) + " saved")
 	http.Redirect(w, r, "/view"+relPath, http.StatusSeeOther)
 }
-
 
 func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) error {
 	content, viewPath, err := resolveViewContent(relPath)
@@ -301,23 +325,36 @@ func renderMarkdownPage(w http.ResponseWriter, relPath string, editing bool) err
 	if currentDir == "." {
 		currentDir = "/"
 	}
-	processed := sanitizeMermaid(content)
-	processed = rewriteLocalImages(processed, currentDir)
+	doc := mdutil.SplitDocument(content)
+	bodyProcessed := sanitizeMermaid(doc.Body)
+	bodyProcessed = rewriteLocalImages(bodyProcessed, currentDir)
+
+	_, _, fmFields, hasFM := parseFrontmatter(content)
+
 	data := struct {
-		FilePath    string
-		RawPath     string
-		ContentHTML template.HTML
-		ContentText string
-		Files       []mdFile
-		FilesJSON   template.JS
-		Editing     bool
+		FilePath          string
+		RawPath           string
+		ContentHTML       template.HTML
+		ContentText       string
+		FullContent       string
+		Files             []mdFile
+		FilesJSON         template.JS
+		Editing           bool
+		HasFrontmatter    bool
+		FrontmatterFields []frontmatterField
+		FrontmatterRaw    string
 	}{
-		FilePath:    viewPath,
-		RawPath:     "/raw" + viewPath,
-		ContentHTML: template.HTML(processed),
-		ContentText: content,
-		Files:       files,
-		FilesJSON:   template.JS(filesJSON),
+		FilePath:          viewPath,
+		RawPath:           "/raw" + viewPath,
+		ContentHTML:       template.HTML(bodyProcessed),
+		ContentText:       doc.Body,
+		FullContent:       content,
+		Files:             files,
+		FilesJSON:         template.JS(filesJSON),
+		Editing:           editing,
+		HasFrontmatter:    hasFM,
+		FrontmatterFields: fmFields,
+		FrontmatterRaw:    doc.Frontmatter,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := template.Must(template.New("view").Parse(viewHTML)).Execute(w, data); err != nil {
@@ -406,12 +443,14 @@ func handleRawContent(w http.ResponseWriter, r *http.Request) {
 }
 
 type mdFile struct {
-	Path        string
-	Name        string
-	Size        int64
-	Relative    string
-	Title       string
-	Description string
+	Path           string
+	Name           string
+	Size           int64
+	Relative       string
+	Title          string
+	Description    string
+	HasFrontmatter bool
+	FrontmatterNum int
 }
 
 func collectFiles() ([]mdFile, error) {
@@ -438,19 +477,27 @@ func collectFiles() ([]mdFile, error) {
 			return nil
 		}
 		content, _ := os.ReadFile(path)
+		fmTitle, fmDesc, _, hasFM := parseFrontmatter(string(content))
 		title, desc := extractMeta(string(content))
+		if fmTitle != "" {
+			title = fmTitle
+		}
+		if fmDesc != "" {
+			desc = fmDesc
+		}
 		info, _ := d.Info()
 		size := int64(len(content))
 		if info != nil {
 			size = info.Size()
 		}
 		files = append(files, mdFile{
-			Path:        path,
-			Name:        d.Name(),
-			Size:        size,
-			Relative:    "/" + rel,
-			Title:       title,
-			Description: desc,
+			Path:           path,
+			Name:           d.Name(),
+			Size:           size,
+			Relative:       "/" + rel,
+			Title:          title,
+			Description:    desc,
+			HasFrontmatter: hasFM,
 		})
 		return nil
 	})
@@ -459,14 +506,22 @@ func collectFiles() ([]mdFile, error) {
 	}
 
 	if mdContent != "" {
+		fmTitle, fmDesc, _, hasFM := parseFrontmatter(mdContent)
 		title, desc := extractMeta(mdContent)
+		if fmTitle != "" {
+			title = fmTitle
+		}
+		if fmDesc != "" {
+			desc = fmDesc
+		}
 		files = append(files, mdFile{
-			Path:        "/" + contentFileName(),
-			Name:        contentFileName(),
-			Size:        int64(len(mdContent)),
-			Relative:    "/" + contentFileName(),
-			Title:       title,
-			Description: desc,
+			Path:           "/" + contentFileName(),
+			Name:           contentFileName(),
+			Size:           int64(len(mdContent)),
+			Relative:       "/" + contentFileName(),
+			Title:          title,
+			Description:    desc,
+			HasFrontmatter: hasFM,
 		})
 	}
 
@@ -552,6 +607,116 @@ func matchesAny(relPath, fileName string) bool {
 		}
 	}
 	return false
+}
+
+type frontmatterField struct {
+	Key   string
+	Value string
+}
+
+func parseFrontmatter(content string) (title, desc string, fields []frontmatterField, hasFM bool) {
+	doc := mdutil.SplitDocument(content)
+	if !doc.HasFrontmatter || strings.TrimSpace(doc.Frontmatter) == "" {
+		return "", "", nil, false
+	}
+	hasFM = true
+	raw, err := mdutil.ParseYAMLFrontmatter(doc.Frontmatter)
+	if err != nil {
+		return "", "", []frontmatterField{{Key: "error", Value: err.Error()}}, true
+	}
+	fields = flattenFrontmatter(raw)
+	// 提取title和description
+	for _, f := range fields {
+		if strings.EqualFold(f.Key, "name") || strings.EqualFold(f.Key, "title") {
+			if title == "" {
+				title = f.Value
+			}
+		}
+		if strings.EqualFold(f.Key, "description") || strings.EqualFold(f.Key, "summary") {
+			if desc == "" {
+				desc = f.Value
+			}
+		}
+	}
+	return title, desc, fields, hasFM
+}
+
+func flattenFrontmatter(value any) []frontmatterField {
+	fields := make([]frontmatterField, 0)
+	flattenFMInto("", value, func(key string, val any) {
+		fields = append(fields, frontmatterField{Key: key, Value: formatFMValue(val)})
+	})
+	sort.Slice(fields, func(i, j int) bool { return fields[i].Key < fields[j].Key })
+	return fields
+}
+
+func flattenFMInto(prefix string, value any, emit func(string, any)) {
+	switch v := value.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			next := key
+			if prefix != "" {
+				next = prefix + "." + key
+			}
+			flattenFMInto(next, v[key], emit)
+		}
+	case map[any]any:
+		keys := make([]string, 0, len(v))
+		lookup := make(map[string]any, len(v))
+		for key, val := range v {
+			s := fmt.Sprint(key)
+			keys = append(keys, s)
+			lookup[s] = val
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			next := key
+			if prefix != "" {
+				next = prefix + "." + key
+			}
+			flattenFMInto(next, lookup[key], emit)
+		}
+	case []any:
+		if len(v) == 0 {
+			if prefix == "" {
+				prefix = "value"
+			}
+			emit(prefix, "[]")
+			return
+		}
+		for i, item := range v {
+			next := fmt.Sprintf("%s[%d]", prefix, i)
+			if prefix == "" {
+				next = fmt.Sprintf("[%d]", i)
+			}
+			flattenFMInto(next, item, emit)
+		}
+	default:
+		if strings.TrimSpace(prefix) == "" {
+			prefix = "value"
+		}
+		emit(prefix, v)
+	}
+}
+
+func formatFMValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case string:
+		return v
+	case bool, int, int64, float64, uint, uint64:
+		return fmt.Sprint(v)
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 func extractMeta(content string) (string, string) {
@@ -922,7 +1087,7 @@ const listHTML = `<!DOCTYPE html>
       <p>Total: {{.Total}}</p>
       {{range .Files}}
       <div class="file">
-        <h2 class="title"><a href="/view{{.Relative}}">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</a></h2>
+        <h2 class="title"><a href="/view{{.Relative}}">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}{{if .HasFrontmatter}} <span style="font-size:12px;color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:4px;font-weight:600;">FM</span>{{end}}</a></h2>
         <div class="path">{{.Relative}}</div>
         <div class="desc">{{.Description}}</div>
         <div class="meta">{{.Size}} bytes · <a href="/raw{{.Relative}}">download raw</a></div>
@@ -1206,6 +1371,98 @@ const viewHTML = `<!DOCTYPE html>
       font-size: 12px;
       line-height: 1.6;
     }
+    .fm-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #fef3c7;
+      color: #92400e;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .fm-panel {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .fm-header {
+      padding: 10px 14px;
+      background: #fef3c7;
+      color: #92400e;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .fm-fields {
+      padding: 12px 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .fm-field {
+      display: flex;
+      gap: 12px;
+      font-size: 13px;
+    }
+    .fm-key {
+      font-weight: 600;
+      color: #78350f;
+      min-width: 100px;
+    }
+    .fm-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #451a03;
+      word-break: break-word;
+    }
+    .fm-edit-panel {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    .fm-edit-header {
+      padding: 10px 14px;
+      background: #fef3c7;
+      color: #92400e;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .fm-edit-fields {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .fm-edit-field {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .fm-edit-label {
+      min-width: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #78350f;
+    }
+    .fm-edit-input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #451a03;
+      background: #fff;
+    }
+    .fm-edit-input:focus {
+      outline: none;
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+    }
     .markdown-body {
       max-width: 960px;
       margin: 0 auto;
@@ -1363,7 +1620,7 @@ const viewHTML = `<!DOCTYPE html>
       <div class="toolbar">
         <div class="toolbar-title">
           <strong>{{.FilePath}}</strong>
-          <span>{{if .Editing}}Editing markdown source{{else}}Markdown preview with Mermaid support{{end}}</span>
+          <span>{{if .Editing}}Editing markdown source{{else}}Markdown preview with Mermaid support{{end}}{{if .HasFrontmatter}} · <span class="fm-badge">frontmatter: {{len .FrontmatterFields}}</span>{{end}}</span>
         </div>
         <div class="toolbar-actions">
           <a class="btn btn-secondary" href="/list">
@@ -1387,6 +1644,19 @@ const viewHTML = `<!DOCTYPE html>
         </div>
       </div>
       <div class="doc-wrap">
+        {{if and .HasFrontmatter (not .Editing)}}
+        <div class="fm-panel">
+          <div class="fm-header">Frontmatter</div>
+          <div class="fm-fields">
+            {{range .FrontmatterFields}}
+            <div class="fm-field">
+              <div class="fm-key">{{.Key}}</div>
+              <div class="fm-value">{{.Value}}</div>
+            </div>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
         {{if .Editing}}
         <form class="editor-form" method="post" action="/save{{.FilePath}}">
           <div class="editor-actions">
@@ -1394,6 +1664,17 @@ const viewHTML = `<!DOCTYPE html>
             <button class="btn btn-secondary" type="submit">Save</button>
             <button class="btn btn-danger" type="submit" formaction="/delete{{.FilePath}}" formmethod="post" onclick="return confirm('Delete this markdown file? This cannot be undone.')">Delete</button>
           </div>
+          {{if .HasFrontmatter}}
+          <div class="fm-edit-panel">
+            <div class="fm-edit-header">Frontmatter</div>
+            {{range .FrontmatterFields}}
+            <div class="fm-edit-field">
+              <label class="fm-edit-label">{{.Key}}</label>
+              <input class="fm-edit-input" type="text" name="fm_{{.Key}}" value="{{.Value}}" />
+            </div>
+            {{end}}
+          </div>
+          {{end}}
           <textarea class="editor-textarea" name="content" spellcheck="false">{{.ContentText}}</textarea>
           <div class="editor-hint">保存后会直接写回原文件，并刷新页面列表。</div>
         </form>
