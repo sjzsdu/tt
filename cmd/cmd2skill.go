@@ -36,7 +36,7 @@ tt cmd2skill kubectl --target-dir ./.forge/skills`,
 
 func init() {
 	rootCmd.AddCommand(cmd2skillCmd)
-	cmd2skillCmd.Flags().StringVar(&cmd2skillTargetDir, "target-dir", ".trae/skills", "directory to write skill files")
+	cmd2skillCmd.Flags().StringVar(&cmd2skillTargetDir, "target-dir", "~/.agents/skills", "directory to write skill files")
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillDryRun, "dry-run", false, "print skill content to stdout instead of writing files")
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillExamples, "examples", false, "fetch examples for subcommands")
 	cmd2skillCmd.Flags().IntVarP(&cmd2skillDepth, "depth", "d", 1, "recursion depth for subcommand help (0 = top-level only, 1+ = fetch subcommand help)")

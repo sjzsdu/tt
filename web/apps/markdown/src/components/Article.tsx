@@ -48,9 +48,10 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
 
     const update = () => {
       let active = items[0]?.id || '';
+      const paneTop = pane.getBoundingClientRect().top;
       for (const h of headings) {
-        const rect = h.getBoundingClientRect();
-        if (rect.top <= 140) active = h.id;
+        const top = h.getBoundingClientRect().top - paneTop;
+        if (top <= 140) active = h.id;
         else break;
       }
       setActiveToc(active);
@@ -65,9 +66,9 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
       requestAnimationFrame(() => {
         const el = headings.find(h => h.id === hash);
         if (el) {
-          const paneRect = pane.getBoundingClientRect();
-          const elRect = el.getBoundingClientRect();
-          pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'instant' });
+          const paneTop = pane.getBoundingClientRect().top;
+          const elTop = el.getBoundingClientRect().top - paneTop + pane.scrollTop - 20;
+          pane.scrollTo({ top: elTop, behavior: 'instant' });
         }
       });
     }

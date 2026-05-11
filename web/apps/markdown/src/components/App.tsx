@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, message } from 'antd';
 import { DeleteOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons';
 import type { DocumentResponse, ListResponse, Route, TocItem } from '../types';
@@ -29,7 +29,7 @@ export function App() {
     localStorage.getItem('md-file-view-mode') === 'flat' ? 'flat' : 'tree'
   );
   const [saving, setSaving] = useState(false);
-  const contentPaneRef = { current: null as HTMLElement | null };
+  const contentPaneRef = useRef<HTMLElement | null>(null);
 
   const save = async () => {
     setSaving(true);

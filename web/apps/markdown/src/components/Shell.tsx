@@ -23,18 +23,17 @@ export function Shell({
   setFileMode,
   toc,
   activeToc,
+  contentPaneRef,
   children,
 }: ShellProps) {
   const scrollToHeading = (id: string) => {
     const el = document.getElementById(id);
     if (!el) return;
-    const pane = document.querySelector<HTMLElement>('.content-pane');
+    const pane = contentPaneRef.current || document.querySelector('.content-pane');
     if (pane) {
       const paneRect = pane.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'smooth' });
-    } else {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     history.replaceState(null, '', '#' + id);
   };
@@ -59,7 +58,7 @@ export function Shell({
         <FileList files={files} current={current} navigate={navigate} mode={fileMode} />
       </aside>
 
-      <main className="content-pane">{children}</main>
+      <main className="content-pane" ref={contentPaneRef}>{children}</main>
 
       <aside className="toc-pane section">
         <h2 className="toc-title">On this page</h2>

@@ -27,7 +27,7 @@ tt cmd2skill [command] [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--target-dir` | string | `.trae/skills` | Directory to write skill files |
+| `--target-dir` | string | `~/.agents/skills` | Directory to write skill files |
 | `--dry-run` | bool | `false` | Print skill content to stdout instead of writing files |
 | `--examples` | bool | `false` | Fetch examples for subcommands |
 
