@@ -81,7 +81,7 @@ tt <command> --help
 
 ### `tt markdown`
 
-Start a local web service for browsing Markdown files in the current working tree.
+Start a local web service for browsing Markdown files in the current working tree. The UI is a React/Vite single-page app embedded into the Go binary at build time, while Go owns the local file APIs and websocket reloads.
 
 ```bash
 tt markdown
@@ -90,6 +90,8 @@ tt markdown docs --port 9595
 tt markdown --pattern "**/*.md"
 tt markdown --content "# Hello" --content-only
 ```
+
+For development, run `make web-build` to rebuild embedded web assets or `cd web && npm run dev:markdown` for the Vite dev server.
 
 Flags:
 

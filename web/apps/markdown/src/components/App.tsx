@@ -1,0 +1,143 @@
+import { useEffect, useState } from 'react';
+import { Button, message } from 'antd';
+import { DeleteOutlined, EditOutlined, FileTextOutlined } from '@ant-design/icons';
+import type { DocumentResponse, ListResponse, Route, TocItem } from '../types';
+import { api } from '../api';
+import { Shell } from './Shell';
+import { Article } from './Article';
+import { Editor } from './Editor';
+import { FileLanding } from './FileLanding';
+
+function currentRoute(): Route {
+  const path = window.location.pathname;
+  if (path.startsWith('/edit/')) return { mode: 'edit', file: path.slice('/edit'.length) };
+  if (path.startsWith('/view/')) return { mode: 'view', file: path.slice('/view'.length) };
+  return { mode: 'list', file: '' };
+}
+
+export function App() {
+  const [route, setRoute] = useState<Route>(currentRoute());
+  const [list, setList] = useState<ListResponse | null>(null);
+  const [doc, setDoc] = useState<DocumentResponse | null>(null);
+  const [content, setContent] = useState('');
+  const [fm, setFm] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const [toc, setToc] = useState<TocItem[]>([]);
+  const [activeToc, setActiveToc] = useState('');
+  const [fileMode, setFileModeState] = useState<'tree' | 'flat'>(() =>
+    localStorage.getItem('md-file-view-mode') === 'flat' ? 'flat' : 'tree'
+  );
+  const contentPaneRef = { current: null as HTMLElement | null };
+
+  const setFileMode = (m: 'tree' | 'flat') => {
+    localStorage.setItem('md-file-view-mode', m);
+    setFileModeState(m);
+  };
+
+  const navigate = (href: string) => {
+    history.pushState(null, '', href);
+    setRoute(currentRoute());
+  };
+
+  useEffect(() => {
+    const onPop = () => setRoute(currentRoute());
+    addEventListener('popstate', onPop);
+    return () => removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    api.list().then(setList).catch(e => setError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    setError('');
+    setToc([]);
+    const load = async () => {
+      if (list?.contentMode && route.mode !== 'edit') {
+        const next = await api.content();
+        setDoc(next);
+        setContent(next.contentText);
+        return;
+      }
+      if (route.file) {
+        const next = await api.document(route.file);
+        setDoc(next);
+        setContent(next.contentText);
+        setFm(Object.fromEntries((next.frontmatterFields || []).map(x => [x.Key, x.Value])));
+      } else {
+        setDoc(null);
+      }
+    };
+    load().catch(e => setError(String(e)));
+  }, [route, list?.contentMode]);
+
+  useEffect(() => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = () => {
+      api.list().then(setList).catch(() => undefined);
+      if (route.file && route.mode !== 'edit') {
+        api.document(route.file).then(next => {
+          setDoc(next);
+          setContent(next.contentText);
+        }).catch(() => undefined);
+      }
+    };
+    return () => ws.close();
+  }, [route.file, route.mode]);
+
+  const files = doc?.files || list?.files || [];
+  const shellProps = {
+    files,
+    current: doc?.filePath || route.file,
+    navigate,
+    fileMode,
+    setFileMode,
+    toc,
+    activeToc,
+    contentPaneRef,
+  };
+
+  if (error) return <Shell {...shellProps}><div className="empty error">{error}</div></Shell>;
+  if (!doc && route.mode === 'list') return <Shell {...shellProps}><FileLanding list={list} navigate={navigate} /></Shell>;
+  if (!doc) return <Shell {...shellProps}><div className="empty">Loading...</div></Shell>;
+
+  return (
+    <Shell {...shellProps}>
+      <div className="toolbar">
+        <div className="toolbar-title">
+          <strong>{doc.filePath}</strong>
+          <span>{route.mode === 'edit' ? 'Editing Markdown' : 'Preview'}</span>
+        </div>
+        <div className="toolbar-actions">
+          <Button icon={<FileTextOutlined />} onClick={() => navigate('/')}>Files</Button>
+          <Button href={doc.rawPath}>Raw</Button>
+          {!list?.contentMode && route.mode !== 'edit' && (
+            <Button icon={<EditOutlined />} onClick={() => navigate('/edit' + doc.filePath)}>Edit</Button>
+          )}
+          {!list?.contentMode && route.mode !== 'edit' && (
+            <Button danger icon={<DeleteOutlined />} onClick={() => deleteDoc(doc.filePath, navigate)}>Delete</Button>
+          )}
+          {route.mode === 'edit' && <Button onClick={() => navigate('/view' + doc.filePath)}>Preview</Button>}
+        </div>
+      </div>
+      {route.mode === 'edit' ? (
+        <Editor doc={doc} content={content} setContent={setContent} fm={fm} setFm={setFm} navigate={navigate} />
+      ) : (
+        <Article doc={doc} setToc={setToc} setActiveToc={setActiveToc} contentPaneRef={contentPaneRef} />
+      )}
+    </Shell>
+  );
+}
+
+async function deleteDoc(path: string, navigate: (href: string) => void) {
+  if (!confirm('Delete this markdown file? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/delete' + path, { method: 'POST', redirect: 'follow' });
+    if (!res.ok) throw new Error(await res.text());
+    message.success('Deleted');
+    navigate('/');
+  } catch (err) {
+    message.error('Delete failed: ' + String(err));
+  }
+}

@@ -2,22 +2,32 @@ APP := tt
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build install install-system clean run fmt tidy help
+.PHONY: build web-install web-build install install-system clean run fmt tidy help
 
-build:
+build: web-build
 	go build -o $(APP) .
 
-install:
+web-install:
+	cd web && npm install
+
+web-build:
+	cd web && npm install && npm run build:markdown
+	rm -rf internal/webui/markdown/dist
+	mkdir -p internal/webui/markdown
+	cp -R web/apps/markdown/dist internal/webui/markdown/dist
+
+install: web-build
 	mkdir -p $(BINDIR)
 	go build -o $(BINDIR)/$(APP) .
 	@printf "Installed to $(BINDIR)/$(APP)\n"
 
-install-system:
+install-system: web-build
 	mkdir -p /usr/local/bin
 	go build -o /usr/local/bin/$(APP) .
 
 clean:
 	rm -f $(APP)
+	rm -rf web/node_modules web/apps/markdown/dist internal/webui/markdown/dist
 
 run:
 	go run .
@@ -30,7 +40,8 @@ tidy:
 
 help:
 	@printf "Targets:\n"
-	@printf "  make build           Build ./$(APP)\n"
+	@printf "  make build           Build web UI and ./$(APP)\n"
+	@printf "  make web-build       Build React web UI into internal/webui\n"
 	@printf "  make install         Install to $(BINDIR)/$(APP)\n"
 	@printf "  make install-system  Install to /usr/local/bin/$(APP)\n"
 	@printf "  make clean           Remove local binary\n"

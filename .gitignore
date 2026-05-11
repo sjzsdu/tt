@@ -13,14 +13,35 @@ coverage.out
 
 # Dependency directories
 vendor/
+web/node_modules/
+
+# Frontend cache
+*.tsbuildinfo
 
 # IDE and OS files
 .DS_Store
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # Local AI/config state
 .picoclaw/
 .tt/
 .code-context
 .opencode/
+
+# Frontend build output
+web/apps/*/dist/
+internal/*/dist/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+/internal/webui/markdown/dist
