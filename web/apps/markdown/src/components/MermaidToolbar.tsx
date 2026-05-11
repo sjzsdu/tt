@@ -13,6 +13,7 @@ interface MermaidToolbarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
+  onScaleChange: (scale: number) => void;
   onExportSvg: () => void;
   onExportPng: () => void;
   onCopy: () => void;
@@ -23,6 +24,7 @@ export function MermaidToolbar({
   onZoomIn,
   onZoomOut,
   onReset,
+  onScaleChange,
   onExportSvg,
   onExportPng,
   onCopy,
@@ -35,7 +37,7 @@ export function MermaidToolbar({
         value={Math.round(scale * 100)}
         tooltip={{ formatter: v => `${v}%` }}
         style={{ width: 100 }}
-        disabled
+        onChange={v => onScaleChange(v / 100)}
       />
       <div className="mermaid-toolbar-actions">
         <Space>

@@ -1,6 +1,4 @@
-import { useState } from 'react';
-import { Button, Input, message } from 'antd';
-import { DeleteOutlined, SaveOutlined } from '@ant-design/icons';
+import { Input } from 'antd';
 import type { DocumentResponse } from '../types';
 
 interface EditorProps {
@@ -9,53 +7,11 @@ interface EditorProps {
   setContent: (s: string) => void;
   fm: Record<string, string>;
   setFm: (v: Record<string, string>) => void;
-  navigate: (href: string) => void;
 }
 
-export function Editor({ doc, content, setContent, fm, setFm, navigate }: EditorProps) {
-  const [saving, setSaving] = useState(false);
-
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const body = new URLSearchParams();
-      body.set('content', content);
-      for (const [key, value] of Object.entries(fm)) {
-        body.set('fm_' + key, value);
-      }
-      const res = await fetch('/save' + doc.filePath, {
-        method: 'POST',
-        body,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      message.success('Saved');
-      navigate('/view' + doc.filePath);
-    } catch (err) {
-      message.error('Save failed: ' + String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
+export function Editor({ doc, content, setContent, fm, setFm }: EditorProps) {
   return (
-    <form className="editor-form" onSubmit={submit}>
-      <div className="editor-actions">
-        <Button onClick={() => navigate('/view' + doc.filePath)}>Cancel</Button>
-        <Button type="primary" htmlType="submit" loading={saving} icon={<SaveOutlined />}>
-          Save
-        </Button>
-        <Button
-          danger
-          htmlType="button"
-          icon={<DeleteOutlined />}
-          onClick={() => deleteDoc(doc.filePath, navigate)}
-        >
-          Delete
-        </Button>
-      </div>
-
+    <form className="editor-form" onSubmit={e => e.preventDefault()}>
       {doc.frontmatterFields?.length ? (
         <div className="fm-edit-panel">
           <div className="fm-edit-header">Frontmatter</div>
@@ -85,16 +41,4 @@ export function Editor({ doc, content, setContent, fm, setFm, navigate }: Editor
       <div className="editor-hint">Editing body content. Frontmatter fields above are preserved when present.</div>
     </form>
   );
-}
-
-async function deleteDoc(path: string, navigate: (href: string) => void) {
-  if (!confirm('Delete this markdown file? This cannot be undone.')) return;
-  try {
-    const res = await fetch('/delete' + path, { method: 'POST', redirect: 'follow' });
-    if (!res.ok) throw new Error(await res.text());
-    message.success('Deleted');
-    navigate('/');
-  } catch (err) {
-    message.error('Delete failed: ' + String(err));
-  }
 }

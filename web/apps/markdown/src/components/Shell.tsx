@@ -25,6 +25,20 @@ export function Shell({
   activeToc,
   children,
 }: ShellProps) {
+  const scrollToHeading = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const pane = document.querySelector<HTMLElement>('.content-pane');
+    if (pane) {
+      const paneRect = pane.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'smooth' });
+    } else {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    history.replaceState(null, '', '#' + id);
+  };
+
   return (
     <div className="layout">
       <aside className="files-pane section">
@@ -57,12 +71,9 @@ export function Shell({
                   className={`toc-link ${activeToc === x.id ? 'active' : ''}`}
                   href={'#' + x.id}
                   onClick={e => {
-                    e.preventDefault();
-                    document
-                      .getElementById(x.id)
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    history.replaceState(null, '', '#' + x.id);
-                  }}
+                  e.preventDefault();
+                  scrollToHeading(x.id);
+                }}
                 >
                   {x.text}
                 </a>

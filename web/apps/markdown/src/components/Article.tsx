@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { DocumentResponse, TocItem } from '../types';
 import { useMarkdownParts } from '../hooks/useMarkdown';
 import { MarkdownContent } from './MarkdownContent';
@@ -59,6 +59,18 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
     pane.addEventListener('scroll', update, { passive: true });
     window.addEventListener('hashchange', update);
     update();
+
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      requestAnimationFrame(() => {
+        const el = headings.find(h => h.id === hash);
+        if (el) {
+          const paneRect = pane.getBoundingClientRect();
+          const elRect = el.getBoundingClientRect();
+          pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'instant' });
+        }
+      });
+    }
 
     return () => {
       pane.removeEventListener('scroll', update);

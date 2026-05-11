@@ -41,13 +41,11 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
 
   useEffect(() => {
     if (!svgEl) return;
-
     svgEl.addEventListener('wheel', panZoom.onWheel, { passive: false });
     svgEl.addEventListener('pointerdown', panZoom.onPointerDown);
     svgEl.addEventListener('pointermove', panZoom.onPointerMove);
     svgEl.addEventListener('pointerup', panZoom.onPointerUp);
     svgEl.addEventListener('pointercancel', panZoom.onPointerUp);
-
     return () => {
       svgEl.removeEventListener('wheel', panZoom.onWheel);
       svgEl.removeEventListener('pointerdown', panZoom.onPointerDown);
@@ -85,6 +83,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
         onZoomIn={panZoom.zoomIn}
         onZoomOut={panZoom.zoomOut}
         onReset={panZoom.reset}
+        onScaleChange={panZoom.setScale}
         onExportSvg={handleExportSvg}
         onExportPng={handleExportPng}
         onCopy={handleCopy}

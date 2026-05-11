@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, message } from 'antd';
-import { DeleteOutlined, EditOutlined, FileTextOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons';
 import type { DocumentResponse, ListResponse, Route, TocItem } from '../types';
 import { api } from '../api';
 import { Shell } from './Shell';
@@ -27,7 +27,31 @@ export function App() {
   const [fileMode, setFileModeState] = useState<'tree' | 'flat'>(() =>
     localStorage.getItem('md-file-view-mode') === 'flat' ? 'flat' : 'tree'
   );
+  const [saving, setSaving] = useState(false);
   const contentPaneRef = { current: null as HTMLElement | null };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const body = new URLSearchParams();
+      body.set('content', content);
+      for (const [key, value] of Object.entries(fm)) {
+        body.set('fm_' + key, value);
+      }
+      const res = await fetch('/save' + doc!.filePath, {
+        method: 'POST',
+        body,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      message.success('Saved');
+      navigate('/view' + doc!.filePath);
+    } catch (err) {
+      message.error('Save failed: ' + String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const setFileMode = (m: 'tree' | 'flat') => {
     localStorage.setItem('md-file-view-mode', m);
@@ -110,19 +134,22 @@ export function App() {
           <span>{route.mode === 'edit' ? 'Editing Markdown' : 'Preview'}</span>
         </div>
         <div className="toolbar-actions">
-          <Button icon={<FileTextOutlined />} onClick={() => navigate('/')}>Files</Button>
+          <Button onClick={() => navigate('/')}>Files</Button>
           <Button href={doc.rawPath}>Raw</Button>
+          {route.mode === 'edit' && (
+            <>
+              <Button onClick={() => navigate('/view' + doc.filePath)}>Preview</Button>
+              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>Save</Button>
+              <Button danger icon={<DeleteOutlined />} onClick={() => deleteDoc(doc.filePath, navigate)}>Delete</Button>
+            </>
+          )}
           {!list?.contentMode && route.mode !== 'edit' && (
             <Button icon={<EditOutlined />} onClick={() => navigate('/edit' + doc.filePath)}>Edit</Button>
           )}
-          {!list?.contentMode && route.mode !== 'edit' && (
-            <Button danger icon={<DeleteOutlined />} onClick={() => deleteDoc(doc.filePath, navigate)}>Delete</Button>
-          )}
-          {route.mode === 'edit' && <Button onClick={() => navigate('/view' + doc.filePath)}>Preview</Button>}
         </div>
       </div>
       {route.mode === 'edit' ? (
-        <Editor doc={doc} content={content} setContent={setContent} fm={fm} setFm={setFm} navigate={navigate} />
+        <Editor doc={doc} content={content} setContent={setContent} fm={fm} setFm={setFm} />
       ) : (
         <Article doc={doc} setToc={setToc} setActiveToc={setActiveToc} contentPaneRef={contentPaneRef} />
       )}
