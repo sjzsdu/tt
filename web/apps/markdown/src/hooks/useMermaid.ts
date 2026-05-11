@@ -12,24 +12,30 @@ mermaid.initialize({
 export function useMermaid(code: string, index: number) {
   const [svg, setSvg] = useState('');
   const [err, setErr] = useState('');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelledRef = useRef(false);
   const idRef = useRef(`mermaid-${index}-${Date.now()}`);
 
   useEffect(() => {
-    let cancelled = false;
-    idRef.current = `mermaid-${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    mermaid
-      .render(idRef.current, code)
-      .then(r => {
-        if (!cancelled) {
-          setSvg(r.svg);
-          setErr('');
-        }
-      })
-      .catch(e => {
-        if (!cancelled) setErr(String(e));
-      });
+    if (timerRef.current) clearTimeout(timerRef.current);
+    cancelledRef.current = false;
+    timerRef.current = setTimeout(() => {
+      idRef.current = `mermaid-${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      mermaid
+        .render(idRef.current, code)
+        .then(r => {
+          if (!cancelledRef.current) {
+            setSvg(r.svg);
+            setErr('');
+          }
+        })
+        .catch(e => {
+          if (!cancelledRef.current) setErr(String(e));
+        });
+    }, 150);
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [code, index]);
 

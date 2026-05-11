@@ -7,6 +7,7 @@ import { Shell } from './Shell';
 import { Article } from './Article';
 import { Editor } from './Editor';
 import { FileLanding } from './FileLanding';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 function currentRoute(): Route {
   const path = window.location.pathname;
@@ -63,6 +64,23 @@ export function App() {
     setRoute(currentRoute());
   };
 
+  const connectWs = () => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = () => {
+      api.list().then(setList).catch(e => console.error('[WS list]', e));
+      if (route.file && route.mode !== 'edit') {
+        api.document(route.file).then(next => {
+          setDoc(next);
+          setContent(next.contentText);
+        }).catch(e => console.error('[WS doc]', e));
+      }
+    };
+    ws.onclose = () => setTimeout(connectWs, 3000);
+    ws.onerror = e => console.error('[WS]', e);
+    return ws;
+  };
+
   useEffect(() => {
     const onPop = () => setRoute(currentRoute());
     addEventListener('popstate', onPop);
@@ -74,41 +92,33 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setError('');
-    setToc([]);
-    const load = async () => {
-      if (list?.contentMode && route.mode !== 'edit') {
-        const next = await api.content();
-        setDoc(next);
-        setContent(next.contentText);
-        return;
-      }
-      if (route.file) {
-        const next = await api.document(route.file);
-        setDoc(next);
-        setContent(next.contentText);
-        setFm(Object.fromEntries((next.frontmatterFields || []).map(x => [x.Key, x.Value])));
-      } else {
-        setDoc(null);
-      }
-    };
-    load().catch(e => setError(String(e)));
-  }, [route, list?.contentMode]);
-
-  useEffect(() => {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/ws`);
-    ws.onmessage = () => {
-      api.list().then(setList).catch(() => undefined);
-      if (route.file && route.mode !== 'edit') {
-        api.document(route.file).then(next => {
-          setDoc(next);
-          setContent(next.contentText);
-        }).catch(() => undefined);
-      }
-    };
+    const ws = connectWs();
     return () => ws.close();
   }, [route.file, route.mode]);
+
+  useKeyboardShortcuts({
+    onEdit: () => {
+      if (route.mode !== 'edit' && doc && !list?.contentMode) {
+        navigate('/edit' + doc.filePath);
+      }
+    },
+    onSave: () => {
+      if (route.mode === 'edit') save();
+    },
+    onEscape: () => {
+      if (route.mode === 'edit' && doc) {
+        navigate('/view' + doc.filePath);
+      }
+    },
+    onPrev: () => {
+      const idx = files.findIndex(f => f.Relative === doc?.filePath);
+      if (idx > 0) navigate('/view' + files[idx - 1].Relative);
+    },
+    onNext: () => {
+      const idx = files.findIndex(f => f.Relative === doc?.filePath);
+      if (idx >= 0 && idx < files.length - 1) navigate('/view' + files[idx + 1].Relative);
+    },
+  });
 
   const files = doc?.files || list?.files || [];
   const shellProps = {

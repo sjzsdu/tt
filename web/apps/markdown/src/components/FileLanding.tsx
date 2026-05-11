@@ -8,6 +8,18 @@ interface FileLandingProps {
 export function FileLanding({ list, navigate }: FileLandingProps) {
   if (!list) return <div className="empty">Loading...</div>;
 
+  if (!list.files.length) {
+    return (
+      <div className="doc-wrap">
+        <div className="card">
+          <h1>No Markdown Files</h1>
+          <p>No .md files found in the current directory.</p>
+          <p className="hint">Use <code>tt markdown</code> to open a specific file or folder.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="doc-wrap">
       <div className="card">
