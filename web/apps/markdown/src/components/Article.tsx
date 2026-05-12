@@ -19,9 +19,11 @@ function slugify(text: string): string {
     .replace(/-+/g, '-');
 }
 
-function headingTopInPane(heading: HTMLHeadingElement, pane: HTMLElement) {
+type TocMarker = { id: string; text: string; marker: HTMLElement; heading: HTMLHeadingElement };
+
+function topInPane(element: HTMLElement, pane: HTMLElement) {
   let top = 0;
-  let node: HTMLElement | null = heading;
+  let node: HTMLElement | null = element;
 
   while (node && node !== pane) {
     top += node.offsetTop;
@@ -31,33 +33,40 @@ function headingTopInPane(heading: HTMLHeadingElement, pane: HTMLElement) {
   return top;
 }
 
-function logHeadingDiagnostics(headings: HTMLHeadingElement[], pane: HTMLElement, active: string) {
+function logHeadingDiagnostics(markers: TocMarker[], pane: HTMLElement, active: string) {
   if (localStorage.getItem('md-toc-debug') !== '1') return;
   console.debug('[markdown toc]', {
     active,
     scrollTop: Math.round(pane.scrollTop),
     clientHeight: pane.clientHeight,
-    headings: headings.map(heading => {
-      const rect = heading.getBoundingClientRect();
-      const style = getComputedStyle(heading);
+    markers: markers.map(({ id, text, marker, heading }) => {
+      const markerRect = marker.getBoundingClientRect();
+      const headingRect = heading.getBoundingClientRect();
       return {
-        id: heading.id,
-        text: (heading.textContent || '').trim().slice(0, 60),
-        topInPane: Math.round(headingTopInPane(heading, pane)),
-        offsetTop: heading.offsetTop,
-        offsetParent: heading.offsetParent instanceof HTMLElement ? heading.offsetParent.className || heading.offsetParent.tagName : null,
-        rect: {
-          top: Math.round(rect.top),
-          bottom: Math.round(rect.bottom),
-          height: Math.round(rect.height),
-        },
-        offsetHeight: heading.offsetHeight,
-        clientRects: heading.getClientRects().length,
-        display: style.display,
-        visibility: style.visibility,
-        position: style.position,
+        id,
+        text: text.slice(0, 60),
+        topInPane: Math.round(topInPane(marker, pane)),
+        markerRect: { top: Math.round(markerRect.top), height: Math.round(markerRect.height) },
+        headingRect: { top: Math.round(headingRect.top), height: Math.round(headingRect.height) },
+        markerOffsetTop: marker.offsetTop,
+        markerOffsetParent: marker.offsetParent instanceof HTMLElement ? marker.offsetParent.className || marker.offsetParent.tagName : null,
       };
     }),
+  });
+}
+
+function createTocMarkers(headings: HTMLHeadingElement[], items: TocItem[]): TocMarker[] {
+  return headings.map((heading, index) => {
+    const item = items[index];
+    let marker = heading.previousElementSibling as HTMLElement | null;
+    if (!marker || marker.dataset.tocMarker !== item.id) {
+      marker = document.createElement('span');
+      marker.className = 'toc-scroll-marker';
+      marker.dataset.tocMarker = item.id;
+      marker.setAttribute('aria-hidden', 'true');
+      heading.before(marker);
+    }
+    return { id: item.id, text: item.text, marker, heading };
   });
 }
 
@@ -88,38 +97,27 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
     const pane = contentPaneRef.current;
     if (!pane) return;
 
+    const markers = createTocMarkers(headings, items);
+
     let activeId = items[0]?.id || '';
     const setActive = (id: string) => {
       if (!id || id === activeId) return;
       activeId = id;
       setActiveToc(id);
-      logHeadingDiagnostics(headings, pane, id);
+      logHeadingDiagnostics(markers, pane, id);
     };
 
     const updateByScrollPosition = () => {
-      if (!headings.length) return;
+      if (!markers.length) return;
       const target = pane.scrollTop + 96;
-      let next = headings[0].id;
-      for (const heading of headings) {
-        if (headingTopInPane(heading, pane) <= target) next = heading.id;
+      let next = markers[0].id;
+      for (const item of markers) {
+        if (topInPane(item.marker, pane) <= target) next = item.id;
         else break;
       }
       setActive(next);
     };
 
-    const observer = new IntersectionObserver(
-      entries => {
-        const visible = entries
-          .filter(entry => entry.isIntersecting)
-          .map(entry => entry.target as HTMLHeadingElement)
-          .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-        if (visible[0]) setActive(visible[0].id);
-        else updateByScrollPosition();
-      },
-      { root: pane, rootMargin: '-80px 0px -65% 0px', threshold: [0, 1] }
-    );
-
-    headings.forEach(heading => observer.observe(heading));
     pane.addEventListener('scroll', updateByScrollPosition, { passive: true });
     window.addEventListener('hashchange', updateByScrollPosition);
     requestAnimationFrame(updateByScrollPosition);
@@ -137,9 +135,9 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
     }
 
     return () => {
-      observer.disconnect();
       pane.removeEventListener('scroll', updateByScrollPosition);
       window.removeEventListener('hashchange', updateByScrollPosition);
+      markers.forEach(({ marker }) => marker.remove());
     };
   }, [parts, setToc, setActiveToc, contentPaneRef]);
 
