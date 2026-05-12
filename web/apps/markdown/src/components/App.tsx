@@ -96,6 +96,27 @@ export function App() {
     return () => ws.close();
   }, [route.file, route.mode]);
 
+  const loadedFileRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (route.mode === 'edit' && route.file) {
+      if (loadedFileRef.current !== route.file) {
+        loadedFileRef.current = route.file;
+        api.document(route.file).then(next => {
+          setDoc(next);
+          setContent(next.contentText);
+          const initial: Record<string, string> = {};
+          for (const f of next.frontmatterFields || []) {
+            initial[f.Key] = f.Value;
+          }
+          setFm(initial);
+        }).catch(e => setError(String(e)));
+      }
+    } else {
+      loadedFileRef.current = null;
+    }
+  }, [route.mode, route.file]);
+
   useKeyboardShortcuts({
     onEdit: () => {
       if (route.mode !== 'edit' && doc && !list?.contentMode) {

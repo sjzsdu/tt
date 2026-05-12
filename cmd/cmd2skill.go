@@ -516,6 +516,7 @@ func generateMainSkill(spec *CommandSpec, out *os.File) {
 		desc = spec.Name + " command"
 	}
 
+	out.WriteString("---\n")
 	out.WriteString(fmt.Sprintf("name: %s\n", spec.Name))
 	out.WriteString(fmt.Sprintf("description: %s\n", desc))
 	out.WriteString("---\n\n")
@@ -620,6 +621,7 @@ func groupSubcommandsForSkills(subcommands []SubcommandSpec) map[string][]Subcom
 func generateGroupSkill(mainCmd, groupName string, subcommands []SubcommandSpec, out *os.File) {
 	skillName := mainCmd + "-" + groupName
 
+	out.WriteString("---\n")
 	out.WriteString(fmt.Sprintf("name: %s\n", skillName))
 	out.WriteString(fmt.Sprintf("description: %s %s commands - %s\n", mainCmd, groupName, summarizeGroup(subcommands)))
 	out.WriteString("---\n\n")
@@ -725,6 +727,7 @@ func writeSkillFiles(spec *CommandSpec, skillDir string) error {
 func generateSingleSubcommandSkill(mainCmd string, spec *SubcommandSpec, out *os.File) {
 	skillName := mainCmd + "-" + spec.Name
 
+	out.WriteString("---\n")
 	out.WriteString(fmt.Sprintf("name: %s\n", skillName))
 	out.WriteString(fmt.Sprintf("description: %s\n", spec.Description))
 	out.WriteString("---\n\n")
