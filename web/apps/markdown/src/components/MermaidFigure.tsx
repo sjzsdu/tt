@@ -142,16 +142,24 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       <div
         className="mermaid-viewport"
         ref={viewportRef}
-        style={{ height: Math.max(80, Math.ceil(baseSize.height * panZoom.scale) + 36) }}
+        style={{ height: Math.max(80, baseSize.height + 36) }}
       >
-        <div className="mermaid" ref={containerRef}>
-          {err ? (
-            <pre className="mermaid-error">{err}</pre>
-          ) : svg ? (
-            <div dangerouslySetInnerHTML={{ __html: svg }} />
-          ) : (
-            'Rendering Mermaid...'
-          )}
+        <div
+          className="mermaid-stage"
+          style={{
+            width: Math.ceil(baseSize.width * panZoom.scale),
+            height: Math.ceil(baseSize.height * panZoom.scale),
+          }}
+        >
+          <div className="mermaid" ref={containerRef}>
+            {err ? (
+              <pre className="mermaid-error">{err}</pre>
+            ) : svg ? (
+              <div dangerouslySetInnerHTML={{ __html: svg }} />
+            ) : (
+              'Rendering Mermaid...'
+            )}
+          </div>
         </div>
       </div>
     </section>
