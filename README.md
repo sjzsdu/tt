@@ -1,15 +1,17 @@
 # tt
 
-`tt` is a collection-style CLI toolkit for local task workflows. It provides small, focused commands for browsing/editing structured files, rendering markdown, inspecting configuration, and running embedded Picoclaw agent workflows.
+`tt` is a collection-style CLI toolkit for local task workflows. It provides small, focused commands for browsing/editing structured files, rendering markdown, inspecting configuration, running embedded Picoclaw agent workflows, and converting CLI commands to skill files.
 
 ## Features
 
-- Local web UI for Markdown files.
+- Local web UI for Markdown files with live reload.
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
 - Local web UI for skill Markdown files with frontmatter support.
 - Embedded Picoclaw agent runtime command.
 - Structured multi-agent debate command.
+- CLI command to skill file conversion.
+- Directory mirroring for config sharing.
 - Global and project-level JSON configuration.
 
 ## Installation
@@ -62,11 +64,13 @@ Available commands:
 | Command | Description |
 | --- | --- |
 | `agent` | Run the embedded Picoclaw agent runtime. |
+| `cmd2skill` | Convert CLI commands into skill files. |
 | `config` | Inspect and initialize `tt` configuration. |
 | `conversation` | Browse conversation-like JSON in a local web UI. |
 | `debate` | Run a structured multi-agent debate on a topic. |
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
+| `mirror` | Mirror selected files from a source directory. |
 | `skill` | Browse and edit skill Markdown files. |
 | `version` | Print the `tt` version. |
 
@@ -213,6 +217,64 @@ Flags:
 - `--picoclaw-config string`: override `PICOCLAW_CONFIG` for this run.
 - `-d, --debug`: enable debug logging.
 
+### `tt cmd2skill`
+
+Parse a CLI command and its subcommands to generate comprehensive skill files. For each subcommand, detailed help including flags, options, and examples is fetched. Output is organized into multiple files for better maintainability.
+
+```bash
+tt cmd2skill git
+tt cmd2skill git --depth 2
+tt cmd2skill docker --examples
+tt cmd2skill kubectl --target-dir ./.forge/skills
+tt cmd2skill git --markdown
+```
+
+Flags:
+
+- `--target-dir string`: directory to write skill files, default `~/.agents/skills`.
+- `--dry-run`: print skill content to stdout instead of writing files.
+- `--examples`: fetch examples for subcommands.
+- `-d, --depth int`: recursion depth for subcommand help (0 = top-level only, 1+ = fetch subcommand help), default `1`.
+- `--markdown`: open generated skill content directly with markdown command instead of writing files.
+
+### `tt mirror`
+
+Mirror keeps a project-local directory in sync with a fuller source directory. It is useful for sharing and selectively importing tool configs such as opencode agents and commands.
+
+```bash
+tt mirror source
+tt mirror target
+tt mirror apply
+tt mirror apply agents.foo commands.bar
+tt mirror prune
+tt mirror config
+tt mirror config --set-source-dir ~/.config/opencode-full
+```
+
+Subcommands:
+
+| Subcommand | Description |
+| --- | --- |
+| `source` | Show source directory tree. |
+| `target` | Show target directory tree. |
+| `apply` | Mirror all or selected keys from source to target. |
+| `prune` | Remove mirrored target entries. |
+| `config` | Show or set mirror paths in project tt config. |
+
+Flags:
+
+- `--source-dir string`: source directory path (default `~/.config/opencode-full`).
+- `--target-dir string`: target directory path (default `.opencode`).
+- `--config-file string`: config file name (default `opencode.json`).
+
+`tt mirror source` / `tt mirror target`:
+- `-l, --level int`: show items up to this depth level, 0 for all.
+
+`tt mirror config`:
+- `--set-source-dir string`: set source directory path.
+- `--set-target-dir string`: set target directory path.
+- `--set-config-file string`: set config file name.
+
 ### `tt config`
 
 Inspect resolved configuration paths, initialize config files, or show merged configuration.
@@ -273,6 +335,11 @@ Example:
   "conversation": {
     "port": 9680,
     "patterns": ["**/*.json"]
+  },
+  "mirror": {
+    "source_dir": "~/.config/opencode-full",
+    "target_dir": ".opencode",
+    "config_file": "opencode.json"
   }
 }
 ```
@@ -313,10 +380,12 @@ go test ./...
 ```text
 .
 ├── cmd/                 # Cobra commands
+├── internal/dirmirror/  # Directory mirror utilities
 ├── internal/mdutil/     # Markdown utilities
 ├── internal/picoclaw/   # Embedded Picoclaw integration
 ├── internal/ttconfig/   # tt config loading and merging
-├── plans/               # Design and implementation plans
+├── internal/webui/      # Web UI templates
+├── web/                 # Web frontend assets
 ├── main.go              # CLI entrypoint
 ├── Makefile
 ├── go.mod
