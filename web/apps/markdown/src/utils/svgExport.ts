@@ -58,6 +58,20 @@ function getExportGeometry(svg: SVGSVGElement, padding = 0): ExportGeometry {
   }, padding);
 }
 
+function getLiveBBoxGeometry(svg: SVGSVGElement, padding = 0): ExportGeometry | null {
+  try {
+    const box = svg.getBBox();
+    if (box.width <= 0 || box.height <= 0) return null;
+    return {
+      viewBox: `${Math.floor(box.x - padding)} ${Math.floor(box.y - padding)} ${Math.ceil(box.width + padding * 2)} ${Math.ceil(box.height + padding * 2)}`,
+      width: Math.ceil(box.width + padding * 2),
+      height: Math.ceil(box.height + padding * 2),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function inlineComputedTextStyles(source: SVGSVGElement, clone: SVGSVGElement) {
   const sourceText = source.querySelectorAll<SVGTextElement | SVGTSpanElement>('text,tspan');
   const cloneText = clone.querySelectorAll<SVGTextElement | SVGTSpanElement>('text,tspan');
@@ -129,8 +143,14 @@ function replaceForeignObjectsWithText(source: SVGSVGElement, clone: SVGSVGEleme
   });
 }
 
-function cloneForExport(svg: SVGSVGElement, padding = 0): { clone: SVGSVGElement; geometry: ExportGeometry } {
-  const geometry = getExportGeometry(svg, padding);
+function cloneForExport(
+  svg: SVGSVGElement,
+  padding = 0,
+  options: { preferLiveBBox?: boolean } = {}
+): { clone: SVGSVGElement; geometry: ExportGeometry } {
+  const geometry = options.preferLiveBBox
+    ? getLiveBBoxGeometry(svg, padding) || getExportGeometry(svg, padding)
+    : getExportGeometry(svg, padding);
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('viewBox', geometry.viewBox);
@@ -203,7 +223,7 @@ async function renderPngWithCanvg(svgText: string, geometry: ExportGeometry): Pr
 }
 
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
-  const { clone, geometry } = cloneForExport(svg, 48);
+  const { clone, geometry } = cloneForExport(svg, 96, { preferLiveBBox: true });
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = [
     'svg { background: #ffffff; }',
