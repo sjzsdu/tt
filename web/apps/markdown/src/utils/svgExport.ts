@@ -12,18 +12,29 @@ function parsePositiveNumber(value: string | null): number | null {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function getExportGeometry(svg: SVGSVGElement): ExportGeometry {
+function paddedGeometry(geometry: ExportGeometry, padding: number): ExportGeometry {
+  if (padding <= 0) return geometry;
+  const parts = geometry.viewBox.trim().split(/[\s,]+/).map(Number);
+  if (parts.length !== 4 || !parts.every(Number.isFinite)) return geometry;
+  return {
+    viewBox: `${parts[0] - padding} ${parts[1] - padding} ${parts[2] + padding * 2} ${parts[3] + padding * 2}`,
+    width: geometry.width + padding * 2,
+    height: geometry.height + padding * 2,
+  };
+}
+
+function getExportGeometry(svg: SVGSVGElement, padding = 0): ExportGeometry {
   const dataWidth = parsePositiveNumber(svg.dataset.exportWidth ?? null);
   const dataHeight = parsePositiveNumber(svg.dataset.exportHeight ?? null);
   const originalViewBox = svg.dataset.originalViewBox || svg.getAttribute('viewBox') || '';
   const parts = originalViewBox.trim().split(/[\s,]+/).map(Number);
 
   if (parts.length === 4 && parts.every(Number.isFinite) && parts[2] > 0 && parts[3] > 0) {
-    return {
+    return paddedGeometry({
       viewBox: parts.join(' '),
       width: Math.ceil(dataWidth || parts[2]),
       height: Math.ceil(dataHeight || parts[3]),
-    };
+    }, padding);
   }
 
   const rect = svg.getBoundingClientRect();
@@ -40,11 +51,11 @@ function getExportGeometry(svg: SVGSVGElement): ExportGeometry {
     300
   );
 
-  return {
+  return paddedGeometry({
     viewBox: `0 0 ${width} ${height}`,
     width: Math.max(1, width),
     height: Math.max(1, height),
-  };
+  }, padding);
 }
 
 function inlineComputedTextStyles(source: SVGSVGElement, clone: SVGSVGElement) {
@@ -85,8 +96,41 @@ function inlineComputedSvgStyles(source: SVGSVGElement, clone: SVGSVGElement) {
   });
 }
 
-function cloneForExport(svg: SVGSVGElement): { clone: SVGSVGElement; geometry: ExportGeometry } {
-  const geometry = getExportGeometry(svg);
+function replaceForeignObjectsWithText(source: SVGSVGElement, clone: SVGSVGElement) {
+  const sourceObjects = source.querySelectorAll<SVGForeignObjectElement>('foreignObject');
+  const cloneObjects = clone.querySelectorAll<SVGForeignObjectElement>('foreignObject');
+  sourceObjects.forEach((sourceObject, index) => {
+    const cloneObject = cloneObjects[index];
+    if (!cloneObject) return;
+
+    const text = (sourceObject.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) {
+      cloneObject.remove();
+      return;
+    }
+
+    const x = parsePositiveNumber(sourceObject.getAttribute('x')) || 0;
+    const y = parsePositiveNumber(sourceObject.getAttribute('y')) || 0;
+    const width = parsePositiveNumber(sourceObject.getAttribute('width')) || 1;
+    const height = parsePositiveNumber(sourceObject.getAttribute('height')) || 16;
+    const style = getComputedStyle(sourceObject);
+
+    const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    textEl.textContent = text;
+    textEl.setAttribute('x', String(x + width / 2));
+    textEl.setAttribute('y', String(y + height / 2));
+    textEl.setAttribute('text-anchor', 'middle');
+    textEl.setAttribute('dominant-baseline', 'middle');
+    textEl.setAttribute('fill', style.color && style.color !== 'rgba(0, 0, 0, 0)' ? style.color : '#111827');
+    textEl.setAttribute('font-family', style.fontFamily || 'Arial, sans-serif');
+    textEl.setAttribute('font-size', style.fontSize || '16px');
+    textEl.setAttribute('font-weight', style.fontWeight || '400');
+    cloneObject.replaceWith(textEl);
+  });
+}
+
+function cloneForExport(svg: SVGSVGElement, padding = 0): { clone: SVGSVGElement; geometry: ExportGeometry } {
+  const geometry = getExportGeometry(svg, padding);
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('viewBox', geometry.viewBox);
@@ -103,6 +147,7 @@ function cloneForExport(svg: SVGSVGElement): { clone: SVGSVGElement; geometry: E
   clone.removeAttribute('data-export-height');
   inlineComputedSvgStyles(svg, clone);
   inlineComputedTextStyles(svg, clone);
+  replaceForeignObjectsWithText(svg, clone);
   return { clone, geometry };
 }
 
@@ -158,7 +203,7 @@ async function renderPngWithCanvg(svgText: string, geometry: ExportGeometry): Pr
 }
 
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
-  const { clone, geometry } = cloneForExport(svg);
+  const { clone, geometry } = cloneForExport(svg, 48);
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = [
     'svg { background: #ffffff; }',
