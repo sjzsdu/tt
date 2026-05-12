@@ -149,7 +149,7 @@ export function App() {
   };
 
   if (error) return <Shell {...shellProps}><div className="empty error">{error}</div></Shell>;
-  if (route.mode === 'list') return <Shell {...shellProps}><FileLanding list={list} navigate={navigate} /></Shell>;
+  if (route.mode === 'list') return <FileLanding list={list} navigate={navigate} />;
   if (!doc) return <Shell {...shellProps}><div className="empty">Loading...</div></Shell>;
 
   return (
