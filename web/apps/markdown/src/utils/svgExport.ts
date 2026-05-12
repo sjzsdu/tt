@@ -1,7 +1,17 @@
+import { initWasm, Resvg } from '@resvg/resvg-wasm';
+import resvgWasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url';
+
 interface ExportGeometry {
   viewBox: string;
   width: number;
   height: number;
+}
+
+let resvgInitPromise: Promise<void> | null = null;
+
+function ensureResvgReady() {
+  resvgInitPromise ||= initWasm(resvgWasmUrl);
+  return resvgInitPromise;
 }
 
 function parsePositiveNumber(value: string | null): number | null {
@@ -200,45 +210,6 @@ export function svgToBlob(svg: SVGSVGElement): Blob {
   });
 }
 
-function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(b =>
-      b ? resolve(b) : reject(new Error('PNG export failed')),
-      'image/png'
-    )
-  );
-}
-
-function createExportCanvas(geometry: ExportGeometry, scale = 2) {
-  const canvas = document.createElement('canvas');
-  canvas.width = geometry.width * scale;
-  canvas.height = geometry.height * scale;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas 2D context is unavailable');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  return { canvas, ctx, scale };
-}
-
-async function renderPngWithCanvg(svgText: string, geometry: ExportGeometry): Promise<Blob> {
-  const { Canvg } = await import('canvg');
-  const { canvas, ctx, scale } = createExportCanvas(geometry);
-  ctx.scale(scale, scale);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, geometry.width, geometry.height);
-  const renderer = await Canvg.from(ctx, svgText, {
-    DOMParser,
-    ignoreMouse: true,
-    ignoreAnimation: true,
-    fontBold: 'Arial',
-    fontNormal: 'Arial',
-    fontMono: 'Courier New',
-  });
-  await renderer.ready();
-  await renderer.render();
-  return canvasToPngBlob(canvas);
-}
-
 function addPngExportStyle(svg: SVGSVGElement) {
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = [
@@ -248,16 +219,76 @@ function addPngExportStyle(svg: SVGSVGElement) {
   svg.insertBefore(style, svg.firstChild);
 }
 
+function fitGeometryForPng(svgText: string, fallback: ExportGeometry): ExportGeometry {
+  const renderer = new Resvg(svgText, {
+    background: '#ffffff',
+    font: {
+      defaultFontFamily: 'Arial',
+      sansSerifFamily: 'Arial',
+      serifFamily: 'Arial',
+      monospaceFamily: 'Courier New',
+      loadSystemFonts: true,
+    },
+  });
+  try {
+    const bbox = renderer.innerBBox() || renderer.getBBox();
+    if (!bbox || bbox.width <= 0 || bbox.height <= 0) return fallback;
+    const padding = 32;
+    return {
+      viewBox: `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`,
+      width: Math.ceil(bbox.width + padding * 2),
+      height: Math.ceil(bbox.height + padding * 2),
+    };
+  } finally {
+    renderer.free();
+  }
+}
+
+async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Promise<Blob> {
+  await ensureResvgReady();
+  const targetWidth = Math.max(1600, Math.ceil(geometry.width * 2));
+  const renderer = new Resvg(svgText, {
+    background: '#ffffff',
+    fitTo: { mode: 'width', value: targetWidth },
+    textRendering: 1,
+    shapeRendering: 2,
+    imageRendering: 0,
+    font: {
+      defaultFontFamily: 'Arial',
+      sansSerifFamily: 'Arial',
+      serifFamily: 'Arial',
+      monospaceFamily: 'Courier New',
+      loadSystemFonts: true,
+    },
+  });
+  try {
+    const png = renderer.render().asPng();
+    return new Blob([png], { type: 'image/png' });
+  } finally {
+    renderer.free();
+  }
+}
+
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
+  await ensureResvgReady();
   const { clone, geometry } = cloneForExport(svg, 96);
   addPngExportStyle(clone);
-  return renderPngWithCanvg(serializedSvg(clone), geometry);
+  const svgText = serializedSvg(clone);
+  const fittedGeometry = fitGeometryForPng(svgText, geometry);
+  normalizeSvgForExport(clone, fittedGeometry);
+  addPngExportStyle(clone);
+  return renderPngWithResvg(serializedSvg(clone), fittedGeometry);
 }
 
 export async function svgMarkupToPngBlob(svgMarkup: string): Promise<Blob> {
+  await ensureResvgReady();
   const { clone, geometry } = prepareMarkupSvgForPng(svgMarkup);
   addPngExportStyle(clone);
-  return renderPngWithCanvg(serializedSvg(clone), geometry);
+  const svgText = serializedSvg(clone);
+  const fittedGeometry = fitGeometryForPng(svgText, geometry);
+  normalizeSvgForExport(clone, fittedGeometry);
+  addPngExportStyle(clone);
+  return renderPngWithResvg(serializedSvg(clone), fittedGeometry);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
