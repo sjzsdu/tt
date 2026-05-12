@@ -9,11 +9,18 @@ interface MermaidFigureProps {
   index: number;
 }
 
-function readSvgSize(svg: SVGSVGElement) {
+interface SvgSize {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+}
+
+function readSvgSize(svg: SVGSVGElement): SvgSize {
   try {
     const box = svg.getBBox();
     if (box.width > 0 && box.height > 0) {
-      const padding = 8;
+      const padding = 12;
       return {
         minX: Math.floor(box.x - padding),
         minY: Math.floor(box.y - padding),
@@ -22,7 +29,7 @@ function readSvgSize(svg: SVGSVGElement) {
       };
     }
   } catch {
-    // Fall back to viewBox/attributes below when the browser cannot measure yet.
+    // getBBox may fail for detached or not-yet-painted SVGs. Fall back below.
   }
 
   const viewBox = svg.viewBox?.baseVal;
@@ -30,8 +37,8 @@ function readSvgSize(svg: SVGSVGElement) {
     return {
       minX: viewBox.x,
       minY: viewBox.y,
-      width: viewBox.width,
-      height: viewBox.height,
+      width: Math.ceil(viewBox.width),
+      height: Math.ceil(viewBox.height),
     };
   }
 
@@ -47,11 +54,12 @@ function readSvgSize(svg: SVGSVGElement) {
 }
 
 export function MermaidFigure({ code, index }: MermaidFigureProps) {
+  const viewportRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const svgElRef = useRef<SVGSVGElement | null>(null);
   const { svg, err } = useMermaid(code, index);
-  const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
-  const [baseSize, setBaseSize] = useState({ minX: 0, minY: 0, width: 600, height: 300 });
+  const [panZoomTarget, setPanZoomTarget] = useState<HTMLDivElement | null>(null);
+  const [baseSize, setBaseSize] = useState<SvgSize>({ minX: 0, minY: 0, width: 600, height: 300 });
 
   useEffect(() => {
     if (!svg || !containerRef.current) return;
@@ -63,38 +71,40 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
 
     svgElRef.current = el;
     el.setAttribute('viewBox', originalViewBox);
-    el.setAttribute('width', String(Math.ceil(nextBaseSize.width)));
-    el.setAttribute('height', String(Math.ceil(nextBaseSize.height)));
+    el.setAttribute('width', String(nextBaseSize.width));
+    el.setAttribute('height', String(nextBaseSize.height));
     el.dataset.originalViewBox = originalViewBox;
-    el.dataset.exportWidth = String(Math.ceil(nextBaseSize.width));
-    el.dataset.exportHeight = String(Math.ceil(nextBaseSize.height));
-    el.style.cursor = 'grab';
-    el.style.transform = '';
-    el.style.transformOrigin = '';
+    el.dataset.exportWidth = String(nextBaseSize.width);
+    el.dataset.exportHeight = String(nextBaseSize.height);
+    el.style.width = `${nextBaseSize.width}px`;
+    el.style.height = `${nextBaseSize.height}px`;
+    el.style.maxWidth = 'none';
+    el.style.display = 'block';
 
     setBaseSize(nextBaseSize);
-    setSvgEl(el);
+    setPanZoomTarget(containerRef.current);
   }, [svg]);
 
-  const panZoom = usePanZoom(svgEl, baseSize);
+  const panZoom = usePanZoom(panZoomTarget);
 
   useEffect(() => {
-    if (!svgEl) return;
-    svgEl.addEventListener('wheel', panZoom.onWheel, { passive: false });
-    svgEl.addEventListener('pointerdown', panZoom.onPointerDown);
-    svgEl.addEventListener('pointermove', panZoom.onPointerMove);
-    svgEl.addEventListener('pointerup', panZoom.onPointerUp);
-    svgEl.addEventListener('pointercancel', panZoom.onPointerUp);
-    svgEl.addEventListener('lostpointercapture', panZoom.onPointerUp);
+    const eventTarget = viewportRef.current;
+    if (!eventTarget) return;
+    eventTarget.addEventListener('wheel', panZoom.onWheel, { passive: false });
+    eventTarget.addEventListener('pointerdown', panZoom.onPointerDown);
+    eventTarget.addEventListener('pointermove', panZoom.onPointerMove);
+    eventTarget.addEventListener('pointerup', panZoom.onPointerUp);
+    eventTarget.addEventListener('pointercancel', panZoom.onPointerUp);
+    eventTarget.addEventListener('lostpointercapture', panZoom.onPointerUp);
     return () => {
-      svgEl.removeEventListener('wheel', panZoom.onWheel);
-      svgEl.removeEventListener('pointerdown', panZoom.onPointerDown);
-      svgEl.removeEventListener('pointermove', panZoom.onPointerMove);
-      svgEl.removeEventListener('pointerup', panZoom.onPointerUp);
-      svgEl.removeEventListener('pointercancel', panZoom.onPointerUp);
-      svgEl.removeEventListener('lostpointercapture', panZoom.onPointerUp);
+      eventTarget.removeEventListener('wheel', panZoom.onWheel);
+      eventTarget.removeEventListener('pointerdown', panZoom.onPointerDown);
+      eventTarget.removeEventListener('pointermove', panZoom.onPointerMove);
+      eventTarget.removeEventListener('pointerup', panZoom.onPointerUp);
+      eventTarget.removeEventListener('pointercancel', panZoom.onPointerUp);
+      eventTarget.removeEventListener('lostpointercapture', panZoom.onPointerUp);
     };
-  }, [svgEl, panZoom]);
+  }, [panZoom]);
 
   const handleExportSvg = () => {
     if (svgElRef.current) {
@@ -131,6 +141,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       />
       <div
         className="mermaid-viewport"
+        ref={viewportRef}
         style={{ height: Math.max(80, Math.ceil(baseSize.height * panZoom.scale) + 36) }}
       >
         <div className="mermaid" ref={containerRef}>

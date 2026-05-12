@@ -1,5 +1,3 @@
-import { Canvg } from 'canvg';
-
 interface ExportGeometry {
   viewBox: string;
   width: number;
@@ -49,6 +47,22 @@ function getExportGeometry(svg: SVGSVGElement): ExportGeometry {
   };
 }
 
+function inlineComputedTextStyles(source: SVGSVGElement, clone: SVGSVGElement) {
+  const sourceText = source.querySelectorAll<SVGTextElement | SVGTSpanElement>('text,tspan');
+  const cloneText = clone.querySelectorAll<SVGTextElement | SVGTSpanElement>('text,tspan');
+  sourceText.forEach((node, index) => {
+    const target = cloneText[index];
+    if (!target) return;
+    const style = getComputedStyle(node);
+    target.style.fill = style.fill && style.fill !== 'none' ? style.fill : '#111827';
+    target.style.fontFamily = style.fontFamily || 'Arial, sans-serif';
+    target.style.fontSize = style.fontSize || target.getAttribute('font-size') || '16px';
+    target.style.fontWeight = style.fontWeight || target.getAttribute('font-weight') || '400';
+    target.style.fontStyle = style.fontStyle || 'normal';
+    target.style.opacity = style.opacity || '1';
+  });
+}
+
 function cloneForExport(svg: SVGSVGElement): { clone: SVGSVGElement; geometry: ExportGeometry } {
   const geometry = getExportGeometry(svg);
   const clone = svg.cloneNode(true) as SVGSVGElement;
@@ -56,61 +70,72 @@ function cloneForExport(svg: SVGSVGElement): { clone: SVGSVGElement; geometry: E
   clone.setAttribute('viewBox', geometry.viewBox);
   clone.setAttribute('width', String(geometry.width));
   clone.setAttribute('height', String(geometry.height));
+  clone.style.width = `${geometry.width}px`;
+  clone.style.height = `${geometry.height}px`;
+  clone.style.maxWidth = 'none';
   clone.style.transform = '';
   clone.style.transformOrigin = '';
   clone.style.cursor = '';
   clone.removeAttribute('data-original-view-box');
   clone.removeAttribute('data-export-width');
   clone.removeAttribute('data-export-height');
+  inlineComputedTextStyles(svg, clone);
   return { clone, geometry };
+}
+
+function serializedSvg(svg: SVGSVGElement): string {
+  const text = new XMLSerializer().serializeToString(svg);
+  return text.startsWith('<?xml') ? text : `<?xml version="1.0" encoding="UTF-8"?>\n${text}`;
 }
 
 export function svgToBlob(svg: SVGSVGElement): Blob {
   const { clone } = cloneForExport(svg);
-  return new Blob([new XMLSerializer().serializeToString(clone)], {
+  return new Blob([serializedSvg(clone)], {
     type: 'image/svg+xml;charset=utf-8',
+  });
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('PNG export failed: SVG image could not be loaded'));
+    image.src = url;
   });
 }
 
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
   const { clone, geometry } = cloneForExport(svg);
-
-  const exportStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-  exportStyle.textContent = [
+  const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+  style.textContent = [
     'svg { background: #ffffff; }',
-    'text, tspan { font-family: Arial, "Liberation Sans", sans-serif !important; }',
-    '.label, .nodeLabel, .edgeLabel, .clusterLabel { font-family: Arial, "Liberation Sans", sans-serif !important; }',
+    'text, tspan { fill: #111827; font-family: Arial, "Liberation Sans", sans-serif; }',
   ].join('\n');
-  clone.insertBefore(exportStyle, clone.firstChild);
+  clone.insertBefore(style, clone.firstChild);
 
-  const scale = 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = geometry.width * scale;
-  canvas.height = geometry.height * scale;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas 2D context is unavailable');
+  const svgBlob = new Blob([serializedSvg(clone)], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+  try {
+    const image = await loadImage(url);
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = geometry.width * scale;
+    canvas.height = geometry.height * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context is unavailable');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-  ctx.scale(scale, scale);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, geometry.width, geometry.height);
-
-  const v = await Canvg.from(ctx, new XMLSerializer().serializeToString(clone), {
-    DOMParser,
-    ignoreMouse: true,
-    ignoreAnimation: true,
-    fontBold: 'Arial',
-    fontNormal: 'Arial',
-    fontMono: 'Courier New',
-  });
-  await v.ready();
-  await v.render();
-
-  return new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(b =>
-      b ? resolve(b) : reject(new Error('PNG export failed')),
-      'image/png'
-    )
-  );
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(b =>
+        b ? resolve(b) : reject(new Error('PNG export failed')),
+        'image/png'
+      )
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

@@ -5,13 +5,6 @@ interface PanZoomState {
   position: { x: number; y: number };
 }
 
-interface SvgViewBox {
-  minX: number;
-  minY: number;
-  width: number;
-  height: number;
-}
-
 interface UsePanZoomOptions {
   minScale?: number;
   maxScale?: number;
@@ -21,18 +14,17 @@ interface UsePanZoomOptions {
 const initialState: PanZoomState = { scale: 1, position: { x: 0, y: 0 } };
 
 export function usePanZoom(
-  svgEl: SVGSVGElement | null,
-  baseViewBox: SvgViewBox,
+  targetEl: HTMLElement | null,
   options: UsePanZoomOptions = {}
 ) {
   const { minScale = 0.4, maxScale = 4, step = 0.2 } = options;
-  const svgRef = useRef(svgEl);
-  svgRef.current = svgEl;
+  const targetRef = useRef(targetEl);
+  targetRef.current = targetEl;
   const [state, setState] = useState<PanZoomState>(initialState);
 
   useEffect(() => {
     setState(initialState);
-  }, [svgEl, baseViewBox.minX, baseViewBox.minY, baseViewBox.width, baseViewBox.height]);
+  }, [targetEl]);
 
   const zoomIn = useCallback(() =>
     setState(s => ({ ...s, scale: Math.min(maxScale, s.scale + step) })), [maxScale, step]);
@@ -53,7 +45,7 @@ export function usePanZoom(
   }, [maxScale, minScale]);
 
   const onPointerDown = useCallback((e: PointerEvent) => {
-    const el = svgRef.current;
+    const el = e.currentTarget as HTMLElement | null;
     if (!el) return;
     el.style.cursor = 'grabbing';
     el.setPointerCapture(e.pointerId);
@@ -68,7 +60,7 @@ export function usePanZoom(
   }, []);
 
   const onPointerUp = useCallback((e: PointerEvent) => {
-    const el = svgRef.current;
+    const el = e.currentTarget as HTMLElement | null;
     if (!el) return;
     if (el.hasPointerCapture(e.pointerId)) {
       el.releasePointerCapture(e.pointerId);
@@ -77,17 +69,12 @@ export function usePanZoom(
   }, []);
 
   useEffect(() => {
-    const el = svgRef.current;
+    const el = targetRef.current;
     if (!el) return;
-
-    const width = Math.max(1, baseViewBox.width * state.scale);
-    const height = Math.max(1, baseViewBox.height * state.scale);
-    el.setAttribute('viewBox', `${baseViewBox.minX} ${baseViewBox.minY} ${baseViewBox.width} ${baseViewBox.height}`);
-    el.setAttribute('width', String(width));
-    el.setAttribute('height', String(height));
-    el.style.transform = `translate(${state.position.x}px, ${state.position.y}px)`;
+    el.style.transform = `translate(${state.position.x}px, ${state.position.y}px) scale(${state.scale})`;
     el.style.transformOrigin = '0 0';
-  }, [baseViewBox, state]);
+    el.style.cursor = 'grab';
+  }, [state]);
 
   return {
     scale: state.scale,
