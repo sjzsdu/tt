@@ -19,54 +19,93 @@ function slugify(text: string): string {
     .replace(/-+/g, '-');
 }
 
-type TocMarker = { id: string; text: string; marker: HTMLElement; heading: HTMLHeadingElement };
-
-function topInPane(element: HTMLElement, pane: HTMLElement) {
-  let top = 0;
-  let node: HTMLElement | null = element;
-
-  while (node && node !== pane) {
-    top += node.offsetTop;
-    node = node.offsetParent as HTMLElement | null;
-  }
-
-  return top;
+function isHeading(element: Element): element is HTMLHeadingElement {
+  return /H[1-4]/.test(element.tagName);
 }
 
-function logHeadingDiagnostics(markers: TocMarker[], pane: HTMLElement, active: string) {
+function headingForElement(element: Element, headings: HTMLHeadingElement[]) {
+  const ownHeading = element.closest('h1,h2,h3,h4') as HTMLHeadingElement | null;
+  if (ownHeading?.id) return ownHeading.id;
+
+  let active = headings[0]?.id || '';
+  for (const heading of headings) {
+    if (heading === element || heading.contains(element)) return heading.id;
+    const position = heading.compareDocumentPosition(element);
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) active = heading.id;
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) break;
+  }
+  return active;
+}
+
+function firstVisibleContentElement(article: HTMLElement, pane: HTMLElement) {
+  const paneRect = pane.getBoundingClientRect();
+  const topLimit = paneRect.top + 96;
+  const bottomLimit = paneRect.bottom - 24;
+  const elements = Array.from(article.querySelectorAll<HTMLElement>('*'));
+
+  for (const element of elements) {
+    if (element.classList.contains('toc-scroll-marker')) continue;
+    const style = getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+    const rects = Array.from(element.getClientRects());
+    const visibleRect = rects.find(rect =>
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.bottom >= topLimit &&
+      rect.top <= bottomLimit
+    );
+    if (visibleRect) return { element, rect: visibleRect };
+  }
+
+  return null;
+}
+
+function logTocDebug(params: {
+  article: HTMLElement;
+  pane: HTMLElement;
+  headings: HTMLHeadingElement[];
+  active: string;
+  visible: { element: HTMLElement; rect: DOMRect } | null;
+}) {
   if (localStorage.getItem('md-toc-debug') !== '1') return;
+  const { article, pane, headings, active, visible } = params;
+  const paneRect = pane.getBoundingClientRect();
   console.debug('[markdown toc]', {
     active,
     scrollTop: Math.round(pane.scrollTop),
     clientHeight: pane.clientHeight,
-    markers: markers.map(({ id, text, marker, heading }) => {
-      const markerRect = marker.getBoundingClientRect();
-      const headingRect = heading.getBoundingClientRect();
+    paneRect: {
+      top: Math.round(paneRect.top),
+      bottom: Math.round(paneRect.bottom),
+      height: Math.round(paneRect.height),
+    },
+    articleConnected: article.isConnected,
+    visible: visible ? {
+      tag: visible.element.tagName.toLowerCase(),
+      id: visible.element.id,
+      className: visible.element.className,
+      text: (visible.element.textContent || '').trim().slice(0, 80),
+      rect: {
+        top: Math.round(visible.rect.top),
+        bottom: Math.round(visible.rect.bottom),
+        height: Math.round(visible.rect.height),
+      },
+    } : null,
+    headings: headings.map(heading => {
+      const rect = heading.getBoundingClientRect();
       return {
-        id,
-        text: text.slice(0, 60),
-        topInPane: Math.round(topInPane(marker, pane)),
-        markerRect: { top: Math.round(markerRect.top), height: Math.round(markerRect.height) },
-        headingRect: { top: Math.round(headingRect.top), height: Math.round(headingRect.height) },
-        markerOffsetTop: marker.offsetTop,
-        markerOffsetParent: marker.offsetParent instanceof HTMLElement ? marker.offsetParent.className || marker.offsetParent.tagName : null,
+        id: heading.id,
+        text: (heading.textContent || '').trim().slice(0, 60),
+        connected: heading.isConnected,
+        rect: {
+          top: Math.round(rect.top),
+          bottom: Math.round(rect.bottom),
+          height: Math.round(rect.height),
+        },
+        offsetParent: heading.offsetParent instanceof HTMLElement ? heading.offsetParent.className || heading.offsetParent.tagName : null,
       };
     }),
-  });
-}
-
-function createTocMarkers(headings: HTMLHeadingElement[], items: TocItem[]): TocMarker[] {
-  return headings.map((heading, index) => {
-    const item = items[index];
-    let marker = heading.previousElementSibling as HTMLElement | null;
-    if (!marker || marker.dataset.tocMarker !== item.id) {
-      marker = document.createElement('span');
-      marker.className = 'toc-scroll-marker';
-      marker.dataset.tocMarker = item.id;
-      marker.setAttribute('aria-hidden', 'true');
-      heading.before(marker);
-    }
-    return { id: item.id, text: item.text, marker, heading };
   });
 }
 
@@ -97,30 +136,35 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
     const pane = contentPaneRef.current;
     if (!pane) return;
 
-    const markers = createTocMarkers(headings, items);
-
     let activeId = items[0]?.id || '';
-    const setActive = (id: string) => {
-      if (!id || id === activeId) return;
-      activeId = id;
-      setActiveToc(id);
-      logHeadingDiagnostics(markers, pane, id);
-    };
+    let raf = 0;
 
-    const updateByScrollPosition = () => {
-      if (!markers.length) return;
-      const target = pane.scrollTop + 96;
-      let next = markers[0].id;
-      for (const item of markers) {
-        if (topInPane(item.marker, pane) <= target) next = item.id;
-        else break;
+    const updateActive = () => {
+      raf = 0;
+      if (!headings.length) return;
+
+      const visible = firstVisibleContentElement(article, pane);
+      let next = visible ? headingForElement(visible.element, headings) : activeId || headings[0].id;
+
+      if (!next && visible && isHeading(visible.element)) next = visible.element.id;
+      if (!next) next = headings[0].id;
+
+      logTocDebug({ article, pane, headings, active: next, visible });
+
+      if (next && next !== activeId) {
+        activeId = next;
+        setActiveToc(next);
       }
-      setActive(next);
     };
 
-    pane.addEventListener('scroll', updateByScrollPosition, { passive: true });
-    window.addEventListener('hashchange', updateByScrollPosition);
-    requestAnimationFrame(updateByScrollPosition);
+    const scheduleUpdate = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(updateActive);
+    };
+
+    pane.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('hashchange', scheduleUpdate);
+    requestAnimationFrame(updateActive);
 
     const hash = window.location.hash.slice(1);
     if (hash) {
@@ -135,9 +179,9 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
     }
 
     return () => {
-      pane.removeEventListener('scroll', updateByScrollPosition);
-      window.removeEventListener('hashchange', updateByScrollPosition);
-      markers.forEach(({ marker }) => marker.remove());
+      if (raf) cancelAnimationFrame(raf);
+      pane.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('hashchange', scheduleUpdate);
     };
   }, [parts, setToc, setActiveToc, contentPaneRef]);
 
