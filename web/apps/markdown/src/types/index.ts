@@ -16,6 +16,7 @@ export type ListResponse = {
   total: number;
   contentMode: boolean;
   contentOnly: boolean;
+  workspaceName?: string;
 };
 
 export type DocumentResponse = {

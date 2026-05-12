@@ -198,7 +198,22 @@ func handleListAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("collect markdown files failed: %v", err), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"files": files, "total": len(files), "contentMode": mdContent != "", "contentOnly": mdContentOnly})
+	writeJSON(w, map[string]any{"files": files, "total": len(files), "contentMode": mdContent != "", "contentOnly": mdContentOnly, "workspaceName": markdownWorkspaceName()})
+}
+
+func markdownWorkspaceName() string {
+	if mdContent != "" && mdContentOnly {
+		return "Markdown Content"
+	}
+	root := strings.TrimSpace(mdRoot)
+	if root == "" {
+		return "Markdown Files"
+	}
+	name := filepath.Base(filepath.Clean(root))
+	if name == "." || name == string(filepath.Separator) {
+		return root
+	}
+	return name
 }
 
 func handleView(w http.ResponseWriter, r *http.Request) {

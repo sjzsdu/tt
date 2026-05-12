@@ -49,12 +49,11 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
     const update = () => {
       let active = '';
       const paneTop = pane.getBoundingClientRect().top;
-      const paneScrollTop = pane.scrollTop;
       for (const h of headings) {
-        const relTop = h.getBoundingClientRect().top - paneTop + paneScrollTop;
+        const relTop = h.getBoundingClientRect().top - paneTop;
         if (relTop <= 140) active = h.id;
       }
-      if (!active && headings.length) active = headings[headings.length - 1].id;
+      if (!active && headings.length) active = headings[0].id;
       if (active) setActiveToc(active);
     };
 

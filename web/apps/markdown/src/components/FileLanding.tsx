@@ -53,7 +53,7 @@ export function FileLanding({ list, navigate, query, setQuery }: FileLandingProp
       <section className="files-home-hero">
         <div>
           <p className="files-home-eyebrow">Markdown workspace</p>
-          <h1>Files</h1>
+          <h1>{list.workspaceName || 'Files'}</h1>
           <p>{list.total ? `${list.total} markdown files found` : 'No .md files found in the current directory.'}</p>
         </div>
         <div className="files-home-actions">
