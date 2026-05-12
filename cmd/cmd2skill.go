@@ -87,6 +87,19 @@ func runCmd2Skill(cmd *cobra.Command, args []string) error {
 	}
 
 	skillDir := filepath.Join(cmd2skillTargetDir, spec.Name)
+	if cmd2skillTargetDir == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home dir: %w", err)
+		}
+		skillDir = filepath.Join(home, "skills", spec.Name)
+	} else if strings.HasPrefix(cmd2skillTargetDir, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("get home dir: %w", err)
+		}
+		skillDir = filepath.Join(home, strings.TrimPrefix(cmd2skillTargetDir, "~/"), spec.Name)
+	}
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		return fmt.Errorf("create skill dir: %w", err)
 	}
