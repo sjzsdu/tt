@@ -232,13 +232,18 @@ function fitGeometryForPng(svgText: string, fallback: ExportGeometry): ExportGeo
   });
   try {
     const bbox = renderer.innerBBox() || renderer.getBBox();
-    if (!bbox || bbox.width <= 0 || bbox.height <= 0) return fallback;
-    const padding = 32;
-    return {
-      viewBox: `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`,
-      width: Math.ceil(bbox.width + padding * 2),
-      height: Math.ceil(bbox.height + padding * 2),
-    };
+    try {
+      if (!bbox || bbox.width <= 0 || bbox.height <= 0) return fallback;
+      const { x, y, width, height } = bbox;
+      const padding = 32;
+      return {
+        viewBox: `${x - padding} ${y - padding} ${width + padding * 2} ${height + padding * 2}`,
+        width: Math.ceil(width + padding * 2),
+        height: Math.ceil(height + padding * 2),
+      };
+    } finally {
+      bbox?.free();
+    }
   } finally {
     renderer.free();
   }
@@ -262,8 +267,13 @@ async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Pr
     },
   });
   try {
-    const png = renderer.render().asPng();
-    return new Blob([png], { type: 'image/png' });
+    const image = renderer.render();
+    try {
+      const png = image.asPng();
+      return new Blob([png], { type: 'image/png' });
+    } finally {
+      image.free();
+    }
   } finally {
     renderer.free();
   }
