@@ -16,14 +16,43 @@ interface SvgSize {
   height: number;
 }
 
+function transformedBox(el: SVGGraphicsElement): SvgSize | null {
+  const box = el.getBBox();
+  const matrix = el.getCTM();
+  if (!matrix || box.width <= 0 || box.height <= 0) return null;
+
+  const points = [
+    new DOMPoint(box.x, box.y),
+    new DOMPoint(box.x + box.width, box.y),
+    new DOMPoint(box.x, box.y + box.height),
+    new DOMPoint(box.x + box.width, box.y + box.height),
+  ].map(point => point.matrixTransform(matrix));
+
+  const xs = points.map(point => point.x);
+  const ys = points.map(point => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  if (maxX <= minX || maxY <= minY) return null;
+
+  return {
+    minX,
+    minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
 function readSvgSize(svg: SVGSVGElement): SvgSize {
   try {
-    const box = svg.getBBox();
-    if (box.width > 0 && box.height > 0) {
+    const contentEl = svg.querySelector<SVGGraphicsElement>('g') || svg;
+    const box = transformedBox(contentEl);
+    if (box) {
       const padding = 12;
       return {
-        minX: Math.floor(box.x - padding),
-        minY: Math.floor(box.y - padding),
+        minX: Math.floor(box.minX - padding),
+        minY: Math.floor(box.minY - padding),
         width: Math.ceil(box.width + padding * 2),
         height: Math.ceil(box.height + padding * 2),
       };
