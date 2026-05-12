@@ -10,6 +10,21 @@ interface MermaidFigureProps {
 }
 
 function readSvgSize(svg: SVGSVGElement) {
+  try {
+    const box = svg.getBBox();
+    if (box.width > 0 && box.height > 0) {
+      const padding = 8;
+      return {
+        minX: Math.floor(box.x - padding),
+        minY: Math.floor(box.y - padding),
+        width: Math.ceil(box.width + padding * 2),
+        height: Math.ceil(box.height + padding * 2),
+      };
+    }
+  } catch {
+    // Fall back to viewBox/attributes below when the browser cannot measure yet.
+  }
+
   const viewBox = svg.viewBox?.baseVal;
   if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
     return {
@@ -48,6 +63,8 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
 
     svgElRef.current = el;
     el.setAttribute('viewBox', originalViewBox);
+    el.setAttribute('width', String(Math.ceil(nextBaseSize.width)));
+    el.setAttribute('height', String(Math.ceil(nextBaseSize.height)));
     el.dataset.originalViewBox = originalViewBox;
     el.dataset.exportWidth = String(Math.ceil(nextBaseSize.width));
     el.dataset.exportHeight = String(Math.ceil(nextBaseSize.height));
@@ -114,7 +131,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       />
       <div
         className="mermaid-viewport"
-        style={{ minHeight: Math.max(180, baseSize.height + 36) }}
+        style={{ height: Math.max(80, Math.ceil(baseSize.height * panZoom.scale) + 36) }}
       >
         <div className="mermaid" ref={containerRef}>
           {err ? (

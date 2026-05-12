@@ -80,13 +80,13 @@ export function usePanZoom(
     const el = svgRef.current;
     if (!el) return;
 
-    const width = baseViewBox.width / state.scale;
-    const height = baseViewBox.height / state.scale;
-    const minX = baseViewBox.minX - state.position.x / state.scale;
-    const minY = baseViewBox.minY - state.position.y / state.scale;
-    el.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
-    el.style.transform = '';
-    el.style.transformOrigin = '';
+    const width = Math.max(1, baseViewBox.width * state.scale);
+    const height = Math.max(1, baseViewBox.height * state.scale);
+    el.setAttribute('viewBox', `${baseViewBox.minX} ${baseViewBox.minY} ${baseViewBox.width} ${baseViewBox.height}`);
+    el.setAttribute('width', String(width));
+    el.setAttribute('height', String(height));
+    el.style.transform = `translate(${state.position.x}px, ${state.position.y}px)`;
+    el.style.transformOrigin = '0 0';
   }, [baseViewBox, state]);
 
   return {
