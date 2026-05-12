@@ -60,6 +60,28 @@ function inlineComputedTextStyles(source: SVGSVGElement, clone: SVGSVGElement) {
     target.style.fontWeight = style.fontWeight || target.getAttribute('font-weight') || '400';
     target.style.fontStyle = style.fontStyle || 'normal';
     target.style.opacity = style.opacity || '1';
+    target.setAttribute('fill', target.style.fill || '#111827');
+    target.setAttribute('font-family', target.style.fontFamily || 'Arial, sans-serif');
+    target.setAttribute('font-size', target.style.fontSize || '16px');
+    target.setAttribute('font-weight', target.style.fontWeight || '400');
+  });
+}
+
+function inlineComputedSvgStyles(source: SVGSVGElement, clone: SVGSVGElement) {
+  const sourceNodes = [source, ...Array.from(source.querySelectorAll<SVGElement>('*'))];
+  const cloneNodes = [clone, ...Array.from(clone.querySelectorAll<SVGElement>('*'))];
+  sourceNodes.forEach((node, index) => {
+    const target = cloneNodes[index];
+    if (!target) return;
+    const style = getComputedStyle(node);
+    target.style.fill = style.fill || target.style.fill;
+    target.style.stroke = style.stroke || target.style.stroke;
+    target.style.strokeWidth = style.strokeWidth || target.style.strokeWidth;
+    target.style.strokeLinecap = style.strokeLinecap || target.style.strokeLinecap;
+    target.style.strokeLinejoin = style.strokeLinejoin || target.style.strokeLinejoin;
+    target.style.opacity = style.opacity || target.style.opacity;
+    target.style.display = style.display || target.style.display;
+    target.style.visibility = style.visibility || target.style.visibility;
   });
 }
 
@@ -79,6 +101,7 @@ function cloneForExport(svg: SVGSVGElement): { clone: SVGSVGElement; geometry: E
   clone.removeAttribute('data-original-view-box');
   clone.removeAttribute('data-export-width');
   clone.removeAttribute('data-export-height');
+  inlineComputedSvgStyles(svg, clone);
   inlineComputedTextStyles(svg, clone);
   return { clone, geometry };
 }
@@ -92,15 +115,6 @@ export function svgToBlob(svg: SVGSVGElement): Blob {
   const { clone } = cloneForExport(svg);
   return new Blob([serializedSvg(clone)], {
     type: 'image/svg+xml;charset=utf-8',
-  });
-}
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('PNG export failed: SVG image could not be loaded'));
-    image.src = url;
   });
 }
 
@@ -148,24 +162,12 @@ export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = [
     'svg { background: #ffffff; }',
-    'text, tspan { fill: #111827; font-family: Arial, "Liberation Sans", sans-serif; }',
+    'text, tspan { fill: #111827 !important; font-family: Arial, "Liberation Sans", sans-serif !important; }',
   ].join('\n');
   clone.insertBefore(style, clone.firstChild);
 
   const svgText = serializedSvg(clone);
-  const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(svgBlob);
-  try {
-    const image = await loadImage(url);
-    const { canvas, ctx } = createExportCanvas(geometry);
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return await canvasToPngBlob(canvas);
-  } catch (error) {
-    console.warn('[Mermaid PNG export] Browser SVG rasterization failed, falling back to canvg.', error);
-    return renderPngWithCanvg(svgText, geometry);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  return renderPngWithCanvg(svgText, geometry);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
