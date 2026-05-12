@@ -104,6 +104,45 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(b =>
+      b ? resolve(b) : reject(new Error('PNG export failed')),
+      'image/png'
+    )
+  );
+}
+
+function createExportCanvas(geometry: ExportGeometry, scale = 2) {
+  const canvas = document.createElement('canvas');
+  canvas.width = geometry.width * scale;
+  canvas.height = geometry.height * scale;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context is unavailable');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  return { canvas, ctx, scale };
+}
+
+async function renderPngWithCanvg(svgText: string, geometry: ExportGeometry): Promise<Blob> {
+  const { Canvg } = await import('canvg');
+  const { canvas, ctx, scale } = createExportCanvas(geometry);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, geometry.width, geometry.height);
+  const renderer = await Canvg.from(ctx, svgText, {
+    DOMParser,
+    ignoreMouse: true,
+    ignoreAnimation: true,
+    fontBold: 'Arial',
+    fontNormal: 'Arial',
+    fontMono: 'Courier New',
+  });
+  await renderer.ready();
+  await renderer.render();
+  return canvasToPngBlob(canvas);
+}
+
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
   const { clone, geometry } = cloneForExport(svg);
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
@@ -113,26 +152,17 @@ export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
   ].join('\n');
   clone.insertBefore(style, clone.firstChild);
 
-  const svgBlob = new Blob([serializedSvg(clone)], { type: 'image/svg+xml;charset=utf-8' });
+  const svgText = serializedSvg(clone);
+  const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svgBlob);
   try {
     const image = await loadImage(url);
-    const scale = 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = geometry.width * scale;
-    canvas.height = geometry.height * scale;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D context is unavailable');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const { canvas, ctx } = createExportCanvas(geometry);
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-    return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(b =>
-        b ? resolve(b) : reject(new Error('PNG export failed')),
-        'image/png'
-      )
-    );
+    return await canvasToPngBlob(canvas);
+  } catch (error) {
+    console.warn('[Mermaid PNG export] Browser SVG rasterization failed, falling back to canvg.', error);
+    return renderPngWithCanvg(svgText, geometry);
   } finally {
     URL.revokeObjectURL(url);
   }
