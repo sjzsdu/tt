@@ -19,6 +19,10 @@ function slugify(text: string): string {
     .replace(/-+/g, '-');
 }
 
+function topWithinScrollPane(element: HTMLElement, pane: HTMLElement) {
+  return element.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
+}
+
 export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticleProps) {
   const articleRef = useRef<HTMLElement | null>(null);
   const parts = useMarkdownParts(doc.contentText);
@@ -48,21 +52,36 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
 
     const update = () => {
       let active = '';
-      const paneRect = pane.getBoundingClientRect();
-      const visibleTop = paneRect.top + 20;
-      const visibleBottom = paneRect.bottom - 20;
+      const visibleTop = pane.scrollTop + 20;
+      const visibleBottom = pane.scrollTop + pane.clientHeight - 20;
       let lastPassed = '';
+      const debugRows: Array<{ id: string; top: number; bottom: number; visible: boolean }> = [];
 
       for (const h of headings) {
-        const rect = h.getBoundingClientRect();
-        if (rect.top < visibleTop) lastPassed = h.id;
-        if (rect.bottom >= visibleTop && rect.top <= visibleBottom) {
+        const top = topWithinScrollPane(h, pane);
+        const bottom = top + h.offsetHeight;
+        const visible = bottom >= visibleTop && top <= visibleBottom;
+        if (localStorage.getItem('md-toc-debug') === '1') {
+          debugRows.push({ id: h.id, top: Math.round(top), bottom: Math.round(bottom), visible });
+        }
+        if (top < visibleTop) lastPassed = h.id;
+        if (visible) {
           active = h.id;
           break;
         }
       }
 
       if (!active) active = lastPassed || headings[0]?.id || '';
+      if (localStorage.getItem('md-toc-debug') === '1') {
+        console.debug('[markdown toc]', {
+          active,
+          scrollTop: Math.round(pane.scrollTop),
+          clientHeight: pane.clientHeight,
+          visibleTop: Math.round(visibleTop),
+          visibleBottom: Math.round(visibleBottom),
+          headings: debugRows,
+        });
+      }
       if (active) setActiveToc(active);
     };
 
