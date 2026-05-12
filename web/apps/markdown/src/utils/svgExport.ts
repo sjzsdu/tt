@@ -220,33 +220,59 @@ function addPngExportStyle(svg: SVGSVGElement) {
   svg.insertBefore(style, svg.firstChild);
 }
 
-function measureContentGeometry(svgText: string, fallback: ExportGeometry, padding = 8): ExportGeometry {
-  const renderer = new Resvg(svgText, {
-    background: '#ffffff',
-    font: {
-      defaultFontFamily: 'Arial',
-      sansSerifFamily: 'Arial',
-      serifFamily: 'Arial',
-      monospaceFamily: 'Courier New',
-      loadSystemFonts: true,
-    },
-  });
-  try {
-    const bbox = renderer.innerBBox() || renderer.getBBox();
-    try {
-      if (!bbox || bbox.width <= 0 || bbox.height <= 0) return fallback;
-      const { x, y, width, height } = bbox;
-      return {
-        viewBox: `${x - padding} ${y - padding} ${width + padding * 2} ${height + padding * 2}`,
-        width: Math.ceil(width + padding * 2),
-        height: Math.ceil(height + padding * 2),
-      };
-    } finally {
-      bbox?.free();
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(blob =>
+      blob ? resolve(blob) : reject(new Error('PNG export failed')),
+      'image/png'
+    )
+  );
+}
+
+function cropRenderedImageToContent(image: ReturnType<ReturnType<typeof Resvg.prototype.render>>, padding = 24): Promise<Blob> {
+  const { width, height, pixels } = image;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+      if (a > 8 && (r < 248 || g < 248 || b < 248)) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
     }
-  } finally {
-    renderer.free();
   }
+
+  if (maxX < minX || maxY < minY) {
+    return new Blob([image.asPng()], { type: 'image/png' }) as unknown as Promise<Blob>;
+  }
+
+  minX = Math.max(0, minX - padding);
+  minY = Math.max(0, minY - padding);
+  maxX = Math.min(width - 1, maxX + padding);
+  maxY = Math.min(height - 1, maxY + padding);
+
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+  const source = new ImageData(new Uint8ClampedArray(pixels), width, height);
+  const canvas = document.createElement('canvas');
+  canvas.width = cropWidth;
+  canvas.height = cropHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context is unavailable');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, cropWidth, cropHeight);
+  ctx.putImageData(source, -minX, -minY);
+  return canvasToPngBlob(canvas);
 }
 
 async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Promise<Blob> {
@@ -269,8 +295,7 @@ async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Pr
   try {
     const image = renderer.render();
     try {
-      const png = image.asPng();
-      return new Blob([png], { type: 'image/png' });
+      return await cropRenderedImageToContent(image);
     } finally {
       image.free();
     }
@@ -281,22 +306,16 @@ async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Pr
 
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
   await ensureResvgReady();
-  const { clone, geometry } = cloneForExport(svg, 0);
+  const { clone, geometry } = cloneForExport(svg, 96);
   addPngExportStyle(clone);
-  const contentGeometry = measureContentGeometry(serializedSvg(clone), geometry);
-  normalizeSvgForExport(clone, contentGeometry);
-  addPngExportStyle(clone);
-  return renderPngWithResvg(serializedSvg(clone), contentGeometry);
+  return renderPngWithResvg(serializedSvg(clone), geometry);
 }
 
 export async function svgMarkupToPngBlob(svgMarkup: string): Promise<Blob> {
   await ensureResvgReady();
   const { clone, geometry } = prepareMarkupSvgForPng(svgMarkup);
   addPngExportStyle(clone);
-  const contentGeometry = measureContentGeometry(serializedSvg(clone), geometry);
-  normalizeSvgForExport(clone, contentGeometry);
-  addPngExportStyle(clone);
-  return renderPngWithResvg(serializedSvg(clone), contentGeometry);
+  return renderPngWithResvg(serializedSvg(clone), geometry);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
