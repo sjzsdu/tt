@@ -12,6 +12,7 @@ interface FileListProps {
   files: MdFile[];
   current: string;
   navigate: (href: string) => void;
+  searchActive?: boolean;
 }
 
 interface FileTreeNode {
@@ -75,12 +76,26 @@ function buildTree(files: MdFile[]): DataNode[] {
   return convert(root);
 }
 
-export function FileTree({ files, current, navigate }: FileListProps) {
+function dirKeysForFiles(files: MdFile[]) {
+  const keys = new Set<string>();
+  for (const file of files) {
+    const parts = file.Relative.replace(/^\//, '').split('/').filter(Boolean);
+    let prefix = '';
+    parts.slice(0, -1).forEach(part => {
+      keys.add(`dir:${prefix}${part}`);
+      prefix += part + '/';
+    });
+  }
+  return [...keys];
+}
+
+export function FileTree({ files, current, navigate, searchActive }: FileListProps) {
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(() =>
     JSON.parse(localStorage.getItem('md-tree-expanded') || '[]')
   );
 
   const treeData = useMemo(() => buildTree(files), [files]);
+  const searchExpandedKeys = useMemo(() => dirKeysForFiles(files), [files]);
 
   return (
     <Tree
@@ -88,7 +103,7 @@ export function FileTree({ files, current, navigate }: FileListProps) {
       blockNode
       treeData={treeData}
       selectedKeys={current ? [current] : []}
-      expandedKeys={expandedKeys}
+      expandedKeys={searchActive ? searchExpandedKeys : expandedKeys}
       onExpand={keys => {
         setExpandedKeys(keys);
         localStorage.setItem('md-tree-expanded', JSON.stringify(keys));
@@ -101,7 +116,7 @@ export function FileTree({ files, current, navigate }: FileListProps) {
   );
 }
 
-export function FileList({ files, current, navigate, mode }: FileListProps & { mode: 'tree' | 'flat' }) {
+export function FileList({ files, current, navigate, mode, searchActive }: FileListProps & { mode: 'tree' | 'flat' }) {
   if (!files.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No markdown files" />;
 
   if (mode === 'flat') {
@@ -124,5 +139,5 @@ export function FileList({ files, current, navigate, mode }: FileListProps & { m
     );
   }
 
-  return <FileTree files={files} current={current} navigate={navigate} />;
+  return <FileTree files={files} current={current} navigate={navigate} searchActive={searchActive} />;
 }

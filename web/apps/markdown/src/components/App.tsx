@@ -28,6 +28,7 @@ export function App() {
   const [fileMode, setFileModeState] = useState<'tree' | 'flat'>(() =>
     localStorage.getItem('md-file-view-mode') === 'flat' ? 'flat' : 'tree'
   );
+  const [fileQuery, setFileQueryState] = useState(() => localStorage.getItem('md-file-query') || '');
   const [saving, setSaving] = useState(false);
   const contentPaneRef = useRef<HTMLElement | null>(null);
 
@@ -57,6 +58,11 @@ export function App() {
   const setFileMode = (m: 'tree' | 'flat') => {
     localStorage.setItem('md-file-view-mode', m);
     setFileModeState(m);
+  };
+
+  const setFileQuery = (q: string) => {
+    localStorage.setItem('md-file-query', q);
+    setFileQueryState(q);
   };
 
   const navigate = (href: string) => {
@@ -143,13 +149,17 @@ export function App() {
     navigate,
     fileMode,
     setFileMode,
+    fileQuery,
+    setFileQuery,
     toc,
     activeToc,
     contentPaneRef,
   };
 
   if (error) return <Shell {...shellProps}><div className="empty error">{error}</div></Shell>;
-  if (route.mode === 'list') return <FileLanding list={list} navigate={navigate} />;
+  if (route.mode === 'list') {
+    return <FileLanding list={list} navigate={navigate} query={fileQuery} setQuery={setFileQuery} />;
+  }
   if (!doc) return <Shell {...shellProps}><div className="empty">Loading...</div></Shell>;
 
   return (

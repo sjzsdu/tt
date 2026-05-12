@@ -1,8 +1,9 @@
-import { Segmented } from 'antd';
+import { Input, Segmented } from 'antd';
 import type { ReactNode } from 'react';
 import { useRef, useEffect } from 'react';
 import type { MdFile, TocItem } from '../types';
 import { FileList } from './FileList';
+import { filterFiles } from '../utils/fileSearch';
 
 interface ShellProps {
   files: MdFile[];
@@ -10,6 +11,8 @@ interface ShellProps {
   navigate: (href: string) => void;
   fileMode: 'tree' | 'flat';
   setFileMode: (m: 'tree' | 'flat') => void;
+  fileQuery: string;
+  setFileQuery: (q: string) => void;
   toc: TocItem[];
   activeToc: string;
   contentPaneRef: React.RefObject<HTMLElement | null>;
@@ -22,6 +25,8 @@ export function Shell({
   navigate,
   fileMode,
   setFileMode,
+  fileQuery,
+  setFileQuery,
   toc,
   activeToc,
   contentPaneRef,
@@ -49,13 +54,23 @@ export function Shell({
     }
   }, [activeToc, toc]);
 
+  const filteredFiles = filterFiles(files, fileQuery);
+
   return (
     <div className="layout">
       <aside className="files-pane section">
         <h1 className="section-title">Markdown Files</h1>
         <p className="section-subtitle">Browse and edit local Markdown files.</p>
+        <Input.Search
+          className="file-search"
+          allowClear
+          size="small"
+          placeholder="Search files"
+          value={fileQuery}
+          onChange={event => setFileQuery(event.target.value)}
+        />
         <div className="file-toolbar">
-          <span>{files.length} files</span>
+          <span>{filteredFiles.length}/{files.length} files</span>
           <Segmented
             size="small"
             value={fileMode}
@@ -66,7 +81,7 @@ export function Shell({
             ]}
           />
         </div>
-        <FileList files={files} current={current} navigate={navigate} mode={fileMode} />
+        <FileList files={filteredFiles} current={current} navigate={navigate} mode={fileMode} searchActive={Boolean(fileQuery.trim())} />
       </aside>
 
       <main className="content-pane" ref={contentPaneRef}>{children}</main>
