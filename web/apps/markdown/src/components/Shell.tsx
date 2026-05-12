@@ -38,7 +38,7 @@ export function Shell({
 
   return (
     <Splitter className="layout">
-      <Splitter.Panel defaultSize="280px" min="200px" max="400px">
+      <Splitter.Panel defaultSize={280} min={200}>
         <aside className="files-pane section">
           <h1 className="section-title">Markdown Files</h1>
           <p className="section-subtitle">Browse and edit local Markdown files.</p>
@@ -66,11 +66,11 @@ export function Shell({
         </aside>
       </Splitter.Panel>
 
-      <Splitter.Panel min="400px">
+      <Splitter.Panel min={400}>
         <main className="content-pane" ref={contentPaneRef}>{children}</main>
       </Splitter.Panel>
 
-      <Splitter.Panel defaultSize="260px" min="180px" max="350px">
+      <Splitter.Panel defaultSize={260} min={180} max={350}>
         <aside className="toc-pane section">
           <h2 className="toc-title">On this page</h2>
           {toc.length ? (

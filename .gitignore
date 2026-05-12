@@ -14,7 +14,7 @@ coverage.out
 # Dependency directories
 vendor/
 web/node_modules/
-
+web/apps/markdown/node_modules/
 # Frontend cache
 *.tsbuildinfo
 
