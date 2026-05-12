@@ -220,6 +220,35 @@ function addPngExportStyle(svg: SVGSVGElement) {
   svg.insertBefore(style, svg.firstChild);
 }
 
+function measureContentGeometry(svgText: string, fallback: ExportGeometry, padding = 8): ExportGeometry {
+  const renderer = new Resvg(svgText, {
+    background: '#ffffff',
+    font: {
+      defaultFontFamily: 'Arial',
+      sansSerifFamily: 'Arial',
+      serifFamily: 'Arial',
+      monospaceFamily: 'Courier New',
+      loadSystemFonts: true,
+    },
+  });
+  try {
+    const bbox = renderer.innerBBox() || renderer.getBBox();
+    try {
+      if (!bbox || bbox.width <= 0 || bbox.height <= 0) return fallback;
+      const { x, y, width, height } = bbox;
+      return {
+        viewBox: `${x - padding} ${y - padding} ${width + padding * 2} ${height + padding * 2}`,
+        width: Math.ceil(width + padding * 2),
+        height: Math.ceil(height + padding * 2),
+      };
+    } finally {
+      bbox?.free();
+    }
+  } finally {
+    renderer.free();
+  }
+}
+
 async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Promise<Blob> {
   await ensureResvgReady();
   const targetWidth = Math.max(2400, Math.ceil(geometry.width * 3));
@@ -252,16 +281,22 @@ async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Pr
 
 export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
   await ensureResvgReady();
-  const { clone, geometry } = cloneForExport(svg, 160);
+  const { clone, geometry } = cloneForExport(svg, 0);
   addPngExportStyle(clone);
-  return renderPngWithResvg(serializedSvg(clone), geometry);
+  const contentGeometry = measureContentGeometry(serializedSvg(clone), geometry);
+  normalizeSvgForExport(clone, contentGeometry);
+  addPngExportStyle(clone);
+  return renderPngWithResvg(serializedSvg(clone), contentGeometry);
 }
 
 export async function svgMarkupToPngBlob(svgMarkup: string): Promise<Blob> {
   await ensureResvgReady();
   const { clone, geometry } = prepareMarkupSvgForPng(svgMarkup);
   addPngExportStyle(clone);
-  return renderPngWithResvg(serializedSvg(clone), geometry);
+  const contentGeometry = measureContentGeometry(serializedSvg(clone), geometry);
+  normalizeSvgForExport(clone, contentGeometry);
+  addPngExportStyle(clone);
+  return renderPngWithResvg(serializedSvg(clone), contentGeometry);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
