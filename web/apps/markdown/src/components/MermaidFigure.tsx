@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMermaid } from '../hooks/useMermaid';
 import { usePanZoom } from '../hooks/usePanZoom';
-import { svgToBlob, svgToPngBlob, downloadBlob } from '../utils/svgExport';
+import { svgToBlob, svgMarkupToPngBlob, downloadBlob } from '../utils/svgExport';
 import { MermaidToolbar } from './MermaidToolbar';
 
 interface MermaidFigureProps {
@@ -142,14 +142,14 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
   };
 
   const handleExportPng = async () => {
-    if (svgElRef.current) {
-      downloadBlob(await svgToPngBlob(svgElRef.current), 'mermaid-diagram.png');
+    if (svg) {
+      downloadBlob(await svgMarkupToPngBlob(svg), 'mermaid-diagram.png');
     }
   };
 
   const handleCopy = async () => {
-    if (svgElRef.current) {
-      const blob = await svgToPngBlob(svgElRef.current);
+    if (svg) {
+      const blob = await svgMarkupToPngBlob(svg);
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob }),
       ]);

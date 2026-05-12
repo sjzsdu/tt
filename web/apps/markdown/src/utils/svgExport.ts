@@ -58,18 +58,20 @@ function getExportGeometry(svg: SVGSVGElement, padding = 0): ExportGeometry {
   }, padding);
 }
 
-function getLiveBBoxGeometry(svg: SVGSVGElement, padding = 0): ExportGeometry | null {
-  try {
-    const box = svg.getBBox();
-    if (box.width <= 0 || box.height <= 0) return null;
-    return {
-      viewBox: `${Math.floor(box.x - padding)} ${Math.floor(box.y - padding)} ${Math.ceil(box.width + padding * 2)} ${Math.ceil(box.height + padding * 2)}`,
-      width: Math.ceil(box.width + padding * 2),
-      height: Math.ceil(box.height + padding * 2),
-    };
-  } catch {
-    return null;
+function getMarkupGeometry(svg: SVGSVGElement, padding = 0): ExportGeometry {
+  const viewBox = svg.getAttribute('viewBox') || '';
+  const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+  if (parts.length === 4 && parts.every(Number.isFinite) && parts[2] > 0 && parts[3] > 0) {
+    return paddedGeometry({
+      viewBox: parts.join(' '),
+      width: Math.ceil(parsePositiveNumber(svg.getAttribute('width')) || parts[2]),
+      height: Math.ceil(parsePositiveNumber(svg.getAttribute('height')) || parts[3]),
+    }, padding);
   }
+
+  const width = Math.ceil(parsePositiveNumber(svg.getAttribute('width')) || 600);
+  const height = Math.ceil(parsePositiveNumber(svg.getAttribute('height')) || 300);
+  return paddedGeometry({ viewBox: `0 0 ${width} ${height}`, width, height }, padding);
 }
 
 function inlineComputedTextStyles(source: SVGSVGElement, clone: SVGSVGElement) {
@@ -143,31 +145,46 @@ function replaceForeignObjectsWithText(source: SVGSVGElement, clone: SVGSVGEleme
   });
 }
 
-function cloneForExport(
-  svg: SVGSVGElement,
-  padding = 0,
-  options: { preferLiveBBox?: boolean } = {}
-): { clone: SVGSVGElement; geometry: ExportGeometry } {
-  const geometry = options.preferLiveBBox
-    ? getLiveBBoxGeometry(svg, padding) || getExportGeometry(svg, padding)
-    : getExportGeometry(svg, padding);
+function normalizeSvgForExport(svg: SVGSVGElement, geometry: ExportGeometry) {
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  svg.setAttribute('viewBox', geometry.viewBox);
+  svg.setAttribute('width', String(geometry.width));
+  svg.setAttribute('height', String(geometry.height));
+  svg.style.width = `${geometry.width}px`;
+  svg.style.height = `${geometry.height}px`;
+  svg.style.maxWidth = 'none';
+  svg.style.transform = '';
+  svg.style.transformOrigin = '';
+  svg.style.cursor = '';
+  svg.removeAttribute('data-original-view-box');
+  svg.removeAttribute('data-export-width');
+  svg.removeAttribute('data-export-height');
+}
+
+function cloneForExport(svg: SVGSVGElement, padding = 0): { clone: SVGSVGElement; geometry: ExportGeometry } {
+  const geometry = getExportGeometry(svg, padding);
   const clone = svg.cloneNode(true) as SVGSVGElement;
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  clone.setAttribute('viewBox', geometry.viewBox);
-  clone.setAttribute('width', String(geometry.width));
-  clone.setAttribute('height', String(geometry.height));
-  clone.style.width = `${geometry.width}px`;
-  clone.style.height = `${geometry.height}px`;
-  clone.style.maxWidth = 'none';
-  clone.style.transform = '';
-  clone.style.transformOrigin = '';
-  clone.style.cursor = '';
-  clone.removeAttribute('data-original-view-box');
-  clone.removeAttribute('data-export-width');
-  clone.removeAttribute('data-export-height');
+  normalizeSvgForExport(clone, geometry);
   inlineComputedSvgStyles(svg, clone);
   inlineComputedTextStyles(svg, clone);
   replaceForeignObjectsWithText(svg, clone);
+  return { clone, geometry };
+}
+
+function parseSvgMarkup(svgMarkup: string): SVGSVGElement {
+  const doc = new DOMParser().parseFromString(svgMarkup, 'image/svg+xml');
+  const parseError = doc.querySelector('parsererror');
+  if (parseError) throw new Error(`SVG parse failed: ${parseError.textContent || 'unknown parser error'}`);
+  const svg = doc.querySelector('svg');
+  if (!svg) throw new Error('SVG parse failed: missing <svg> root');
+  return svg as unknown as SVGSVGElement;
+}
+
+function prepareMarkupSvgForPng(svgMarkup: string): { clone: SVGSVGElement; geometry: ExportGeometry } {
+  const clone = parseSvgMarkup(svgMarkup);
+  const geometry = getMarkupGeometry(clone, 96);
+  normalizeSvgForExport(clone, geometry);
+  replaceForeignObjectsWithText(clone, clone);
   return { clone, geometry };
 }
 
@@ -222,17 +239,25 @@ async function renderPngWithCanvg(svgText: string, geometry: ExportGeometry): Pr
   return canvasToPngBlob(canvas);
 }
 
-export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
-  const { clone, geometry } = cloneForExport(svg, 96, { preferLiveBBox: true });
+function addPngExportStyle(svg: SVGSVGElement) {
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = [
     'svg { background: #ffffff; }',
     'text, tspan { fill: #111827 !important; font-family: Arial, "Liberation Sans", sans-serif !important; }',
   ].join('\n');
-  clone.insertBefore(style, clone.firstChild);
+  svg.insertBefore(style, svg.firstChild);
+}
 
-  const svgText = serializedSvg(clone);
-  return renderPngWithCanvg(svgText, geometry);
+export async function svgToPngBlob(svg: SVGSVGElement): Promise<Blob> {
+  const { clone, geometry } = cloneForExport(svg, 96);
+  addPngExportStyle(clone);
+  return renderPngWithCanvg(serializedSvg(clone), geometry);
+}
+
+export async function svgMarkupToPngBlob(svgMarkup: string): Promise<Blob> {
+  const { clone, geometry } = prepareMarkupSvgForPng(svgMarkup);
+  addPngExportStyle(clone);
+  return renderPngWithCanvg(serializedSvg(clone), geometry);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
