@@ -48,12 +48,21 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
 
     const update = () => {
       let active = '';
-      const paneTop = pane.getBoundingClientRect().top;
+      const paneRect = pane.getBoundingClientRect();
+      const visibleTop = paneRect.top + 20;
+      const visibleBottom = paneRect.bottom - 20;
+      let lastPassed = '';
+
       for (const h of headings) {
-        const relTop = h.getBoundingClientRect().top - paneTop;
-        if (relTop <= 140) active = h.id;
+        const rect = h.getBoundingClientRect();
+        if (rect.top < visibleTop) lastPassed = h.id;
+        if (rect.bottom >= visibleTop && rect.top <= visibleBottom) {
+          active = h.id;
+          break;
+        }
       }
-      if (!active && headings.length) active = headings[0].id;
+
+      if (!active) active = lastPassed || headings[0]?.id || '';
       if (active) setActiveToc(active);
     };
 
