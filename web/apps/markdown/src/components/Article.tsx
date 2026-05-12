@@ -19,8 +19,18 @@ function slugify(text: string): string {
     .replace(/-+/g, '-');
 }
 
-function topWithinScrollPane(element: HTMLElement, pane: HTMLElement) {
-  return element.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
+function closestHeadingForVisibleElement(element: Element, headings: HTMLHeadingElement[]) {
+  const ownHeading = element.closest('h1,h2,h3,h4') as HTMLHeadingElement | null;
+  if (ownHeading?.id) return ownHeading.id;
+
+  let active = headings[0]?.id || '';
+  for (const heading of headings) {
+    if (heading === element || heading.contains(element)) return heading.id;
+    const position = heading.compareDocumentPosition(element);
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) active = heading.id;
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) break;
+  }
+  return active;
 }
 
 export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticleProps) {
@@ -52,34 +62,35 @@ export function Article({ doc, setToc, setActiveToc, contentPaneRef }: ArticlePr
 
     const update = () => {
       let active = '';
-      const visibleTop = pane.scrollTop + 20;
-      const visibleBottom = pane.scrollTop + pane.clientHeight - 20;
-      let lastPassed = '';
-      const debugRows: Array<{ id: string; top: number; bottom: number; visible: boolean }> = [];
+      const paneRect = pane.getBoundingClientRect();
+      const sampleXs = [0.5, 0.35, 0.65].map(ratio => paneRect.left + paneRect.width * ratio);
+      const sampleRows: Array<{ x: number; y: number; tag: string; text: string; active: string }> = [];
 
-      for (const h of headings) {
-        const top = topWithinScrollPane(h, pane);
-        const bottom = top + h.offsetHeight;
-        const visible = bottom >= visibleTop && top <= visibleBottom;
-        if (localStorage.getItem('md-toc-debug') === '1') {
-          debugRows.push({ id: h.id, top: Math.round(top), bottom: Math.round(bottom), visible });
-        }
-        if (top < visibleTop) lastPassed = h.id;
-        if (visible) {
-          active = h.id;
+      for (let y = paneRect.top + 24; y <= paneRect.bottom - 24 && !active; y += 48) {
+        for (const x of sampleXs) {
+          const element = document.elementFromPoint(x, y);
+          if (!element || !article.contains(element)) continue;
+          active = closestHeadingForVisibleElement(element, headings);
+          if (localStorage.getItem('md-toc-debug') === '1') {
+            sampleRows.push({
+              x: Math.round(x),
+              y: Math.round(y),
+              tag: element.tagName.toLowerCase(),
+              text: (element.textContent || '').trim().slice(0, 60),
+              active,
+            });
+          }
           break;
         }
       }
 
-      if (!active) active = lastPassed || headings[0]?.id || '';
+      if (!active) active = headings[0]?.id || '';
       if (localStorage.getItem('md-toc-debug') === '1') {
         console.debug('[markdown toc]', {
           active,
           scrollTop: Math.round(pane.scrollTop),
           clientHeight: pane.clientHeight,
-          visibleTop: Math.round(visibleTop),
-          visibleBottom: Math.round(visibleBottom),
-          headings: debugRows,
+          samples: sampleRows,
         });
       }
       if (active) setActiveToc(active);
