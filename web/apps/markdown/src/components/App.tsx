@@ -24,7 +24,6 @@ export function App() {
   const [fm, setFm] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [toc, setToc] = useState<TocItem[]>([]);
-  const [activeToc, setActiveToc] = useState('');
   const [fileMode, setFileModeState] = useState<'tree' | 'flat'>(() =>
     localStorage.getItem('md-file-view-mode') === 'flat' ? 'flat' : 'tree'
   );
@@ -152,7 +151,6 @@ export function App() {
     fileQuery,
     setFileQuery,
     toc,
-    activeToc,
     contentPaneRef,
   };
 
@@ -187,7 +185,7 @@ export function App() {
       {route.mode === 'edit' ? (
         <Editor doc={doc} content={content} setContent={setContent} fm={fm} setFm={setFm} />
       ) : (
-        <Article doc={doc} setToc={setToc} setActiveToc={setActiveToc} contentPaneRef={contentPaneRef} />
+        <Article doc={doc} setToc={setToc} contentPaneRef={contentPaneRef} />
       )}
     </Shell>
   );

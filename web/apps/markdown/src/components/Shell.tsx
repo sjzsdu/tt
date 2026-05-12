@@ -1,6 +1,5 @@
-import { Input, Segmented } from 'antd';
+import { Anchor, Input, Segmented, Splitter } from 'antd';
 import type { ReactNode } from 'react';
-import { useRef, useEffect } from 'react';
 import type { MdFile, TocItem } from '../types';
 import { FileList } from './FileList';
 import { filterFiles } from '../utils/fileSearch';
@@ -14,7 +13,6 @@ interface ShellProps {
   fileQuery: string;
   setFileQuery: (q: string) => void;
   toc: TocItem[];
-  activeToc: string;
   contentPaneRef: React.RefObject<HTMLElement | null>;
   children: ReactNode;
 }
@@ -28,87 +26,77 @@ export function Shell({
   fileQuery,
   setFileQuery,
   toc,
-  activeToc,
   contentPaneRef,
   children,
 }: ShellProps) {
-  const scrollToHeading = (id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const pane = contentPaneRef.current || document.querySelector('.content-pane');
-    if (pane) {
-      const paneRect = pane.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'smooth' });
-    }
-    history.replaceState(null, '', '#' + id);
-  };
-
-  const tocListRef = useRef<HTMLUListElement | null>(null);
-
-  useEffect(() => {
-    if (!activeToc || !toc.find(x => x.id === activeToc)) return;
-    const activeEl = tocListRef.current?.querySelector('.toc-link.active') as HTMLElement | null;
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-  }, [activeToc, toc]);
-
   const filteredFiles = filterFiles(files, fileQuery);
+  const anchorItems = toc.map(item => ({
+    key: item.id,
+    href: `#${item.id}`,
+    title: <span className={`toc-anchor-title level-${item.level}`}>{item.text}</span>,
+  }));
 
   return (
-    <div className="layout">
-      <aside className="files-pane section">
-        <h1 className="section-title">Markdown Files</h1>
-        <p className="section-subtitle">Browse and edit local Markdown files.</p>
-        <Input.Search
-          className="file-search"
-          allowClear
-          size="small"
-          placeholder="Search files"
-          value={fileQuery}
-          onChange={event => setFileQuery(event.target.value)}
-        />
-        <div className="file-toolbar">
-          <span>{filteredFiles.length}/{files.length} files</span>
-          <Segmented
+    <Splitter className="layout">
+      <Splitter.Panel defaultSize="280px" min="200px" max="400px">
+        <aside className="files-pane section">
+          <h1 className="section-title">Markdown Files</h1>
+          <p className="section-subtitle">Browse and edit local Markdown files.</p>
+          <Input.Search
+            className="file-search"
+            allowClear
             size="small"
-            value={fileMode}
-            onChange={v => setFileMode(v as 'tree' | 'flat')}
-            options={[
-              { label: 'Tree', value: 'tree' },
-              { label: 'List', value: 'flat' },
-            ]}
+            placeholder="Search files"
+            value={fileQuery}
+            onChange={event => setFileQuery(event.target.value)}
           />
-        </div>
-        <FileList files={filteredFiles} current={current} navigate={navigate} mode={fileMode} searchActive={Boolean(fileQuery.trim())} />
-      </aside>
+          <div className="file-toolbar">
+            <span>{filteredFiles.length}/{files.length} files</span>
+            <Segmented
+              size="small"
+              value={fileMode}
+              onChange={v => setFileMode(v as 'tree' | 'flat')}
+              options={[
+                { label: 'Tree', value: 'tree' },
+                { label: 'List', value: 'flat' },
+              ]}
+            />
+          </div>
+          <FileList files={filteredFiles} current={current} navigate={navigate} mode={fileMode} searchActive={Boolean(fileQuery.trim())} />
+        </aside>
+      </Splitter.Panel>
 
-      <main className="content-pane" ref={contentPaneRef}>{children}</main>
+      <Splitter.Panel min="400px">
+        <main className="content-pane" ref={contentPaneRef}>{children}</main>
+      </Splitter.Panel>
 
-      <aside className="toc-pane section">
-        <h2 className="toc-title">On this page</h2>
-        {toc.length ? (
-          <ul className="toc-list" ref={tocListRef}>
-            {toc.map(x => (
-              <li key={x.id} className={`toc-item level-${x.level}`}>
-                <a
-                  className={`toc-link ${activeToc === x.id ? 'active' : ''}`}
-                  href={'#' + x.id}
-                  onClick={e => {
-                  e.preventDefault();
-                  scrollToHeading(x.id);
-                }}
-                >
-                  {x.text}
-                </a>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="toc-empty">No headings found.</p>
-        )}
-      </aside>
-    </div>
+      <Splitter.Panel defaultSize="260px" min="180px" max="350px">
+        <aside className="toc-pane section">
+          <h2 className="toc-title">On this page</h2>
+          {toc.length ? (
+            <Anchor
+              affix={false}
+              className="toc-anchor"
+              getContainer={() => contentPaneRef.current || window}
+              items={anchorItems}
+              targetOffset={80}
+              onClick={(event, link) => {
+                event.preventDefault();
+                const id = link.href.replace(/^#/, '');
+                const el = document.getElementById(id);
+                const pane = contentPaneRef.current;
+                if (!el || !pane) return;
+                const paneRect = pane.getBoundingClientRect();
+                const elRect = el.getBoundingClientRect();
+                pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'smooth' });
+                history.replaceState(null, '', link.href);
+              }}
+            />
+          ) : (
+            <p className="toc-empty">No headings found.</p>
+          )}
+        </aside>
+      </Splitter.Panel>
+    </Splitter>
   );
 }
