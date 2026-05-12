@@ -139,7 +139,7 @@ export function App() {
   const files = doc?.files || list?.files || [];
   const shellProps = {
     files,
-    current: doc?.filePath || route.file,
+    current: route.mode === 'list' ? '' : doc?.filePath || route.file,
     navigate,
     fileMode,
     setFileMode,
@@ -149,7 +149,7 @@ export function App() {
   };
 
   if (error) return <Shell {...shellProps}><div className="empty error">{error}</div></Shell>;
-  if (!doc && route.mode === 'list') return <Shell {...shellProps}><FileLanding list={list} navigate={navigate} /></Shell>;
+  if (route.mode === 'list') return <Shell {...shellProps}><FileLanding list={list} navigate={navigate} /></Shell>;
   if (!doc) return <Shell {...shellProps}><div className="empty">Loading...</div></Shell>;
 
   return (
