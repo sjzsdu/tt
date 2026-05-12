@@ -142,7 +142,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       <div
         className="mermaid-viewport"
         ref={viewportRef}
-        style={{ height: Math.max(80, baseSize.height + 36) }}
+        style={{ height: Math.max(80, baseSize.height) }}
       >
         <div
           className="mermaid-stage"
