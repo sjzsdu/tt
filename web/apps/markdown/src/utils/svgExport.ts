@@ -16,6 +16,7 @@ function ensureResvgReady() {
 
 function parsePositiveNumber(value: string | null): number | null {
   if (!value) return null;
+  if (value.trim().endsWith('%')) return null;
   const match = value.trim().match(/^([0-9]*\.?[0-9]+)/);
   if (!match) return null;
   const number = Number(match[1]);
