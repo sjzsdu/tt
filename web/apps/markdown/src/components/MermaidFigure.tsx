@@ -9,35 +9,57 @@ interface MermaidFigureProps {
   index: number;
 }
 
+function readSvgSize(svg: SVGSVGElement) {
+  const viewBox = svg.viewBox?.baseVal;
+  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+    return {
+      minX: viewBox.x,
+      minY: viewBox.y,
+      width: viewBox.width,
+      height: viewBox.height,
+    };
+  }
+
+  const rect = svg.getBoundingClientRect();
+  const width = Number(svg.getAttribute('width')) || rect.width || 600;
+  const height = Number(svg.getAttribute('height')) || rect.height || 300;
+  return {
+    minX: 0,
+    minY: 0,
+    width: Math.max(1, Math.ceil(width)),
+    height: Math.max(1, Math.ceil(height)),
+  };
+}
+
 export function MermaidFigure({ code, index }: MermaidFigureProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgElRef = useRef<SVGSVGElement | null>(null);
-  const baseSizeRef = useRef({ width: 600, height: 300 });
   const { svg, err } = useMermaid(code, index);
   const [svgEl, setSvgEl] = useState<SVGSVGElement | null>(null);
+  const [baseSize, setBaseSize] = useState({ minX: 0, minY: 0, width: 600, height: 300 });
 
   useEffect(() => {
     if (!svg || !containerRef.current) return;
     const el = containerRef.current.querySelector<SVGSVGElement>('svg');
     if (!el) return;
 
-    svgElRef.current = el;
-    const rect = el.getBoundingClientRect();
-    baseSizeRef.current = {
-      width: Math.max(1, Math.ceil(rect.width || Number(el.getAttribute('width')) || 600)),
-      height: Math.max(1, Math.ceil(rect.height || Number(el.getAttribute('height')) || 300)),
-    };
+    const nextBaseSize = readSvgSize(el);
+    const originalViewBox = `${nextBaseSize.minX} ${nextBaseSize.minY} ${nextBaseSize.width} ${nextBaseSize.height}`;
 
-    const viewBox = el.getAttribute('viewBox');
-    if (!viewBox) {
-      el.setAttribute('viewBox', `0 0 ${baseSizeRef.current.width} ${baseSizeRef.current.height}`);
-    }
+    svgElRef.current = el;
+    el.setAttribute('viewBox', originalViewBox);
+    el.dataset.originalViewBox = originalViewBox;
+    el.dataset.exportWidth = String(Math.ceil(nextBaseSize.width));
+    el.dataset.exportHeight = String(Math.ceil(nextBaseSize.height));
     el.style.cursor = 'grab';
-    el.removeAttribute('style');
+    el.style.transform = '';
+    el.style.transformOrigin = '';
+
+    setBaseSize(nextBaseSize);
     setSvgEl(el);
   }, [svg]);
 
-  const panZoom = usePanZoom(svgEl, baseSizeRef.current.width, baseSizeRef.current.height);
+  const panZoom = usePanZoom(svgEl, baseSize);
 
   useEffect(() => {
     if (!svgEl) return;
@@ -46,12 +68,14 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     svgEl.addEventListener('pointermove', panZoom.onPointerMove);
     svgEl.addEventListener('pointerup', panZoom.onPointerUp);
     svgEl.addEventListener('pointercancel', panZoom.onPointerUp);
+    svgEl.addEventListener('lostpointercapture', panZoom.onPointerUp);
     return () => {
       svgEl.removeEventListener('wheel', panZoom.onWheel);
       svgEl.removeEventListener('pointerdown', panZoom.onPointerDown);
       svgEl.removeEventListener('pointermove', panZoom.onPointerMove);
       svgEl.removeEventListener('pointerup', panZoom.onPointerUp);
       svgEl.removeEventListener('pointercancel', panZoom.onPointerUp);
+      svgEl.removeEventListener('lostpointercapture', panZoom.onPointerUp);
     };
   }, [svgEl, panZoom]);
 
@@ -90,7 +114,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       />
       <div
         className="mermaid-viewport"
-        style={{ minHeight: Math.max(180, baseSizeRef.current.height + 36) }}
+        style={{ minHeight: Math.max(180, baseSize.height + 36) }}
       >
         <div className="mermaid" ref={containerRef}>
           {err ? (
