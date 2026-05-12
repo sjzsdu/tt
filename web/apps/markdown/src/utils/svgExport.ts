@@ -1,4 +1,5 @@
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
+import notoSansUrl from '@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff?url';
 import resvgWasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url';
 
 interface ExportGeometry {
@@ -8,10 +9,21 @@ interface ExportGeometry {
 }
 
 let resvgInitPromise: Promise<void> | null = null;
+let fontBuffersPromise: Promise<Uint8Array[]> | null = null;
 
 function ensureResvgReady() {
   resvgInitPromise ||= initWasm(resvgWasmUrl);
   return resvgInitPromise;
+}
+
+function ensureFontBuffers() {
+  fontBuffersPromise ||= fetch(notoSansUrl)
+    .then(response => {
+      if (!response.ok) throw new Error(`Font load failed: ${response.status}`);
+      return response.arrayBuffer();
+    })
+    .then(buffer => [new Uint8Array(buffer)]);
+  return fontBuffersPromise;
 }
 
 function parsePositiveNumber(value: string | null): number | null {
@@ -215,7 +227,7 @@ function addPngExportStyle(svg: SVGSVGElement) {
   const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.textContent = [
     'svg { background: #ffffff; }',
-    'text, tspan { fill: #111827 !important; font-family: Arial, "Liberation Sans", sans-serif !important; }',
+    'text, tspan { fill: #111827 !important; font-family: "Noto Sans", Arial, "Liberation Sans", sans-serif !important; }',
   ].join('\n');
   svg.insertBefore(style, svg.firstChild);
 }
@@ -277,6 +289,7 @@ function cropRenderedImageToContent(image: ReturnType<ReturnType<typeof Resvg.pr
 
 async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Promise<Blob> {
   await ensureResvgReady();
+  const fontBuffers = await ensureFontBuffers();
   const targetWidth = Math.max(2400, Math.ceil(geometry.width * 3));
   const renderer = new Resvg(svgText, {
     background: '#ffffff',
@@ -285,11 +298,11 @@ async function renderPngWithResvg(svgText: string, geometry: ExportGeometry): Pr
     shapeRendering: 2,
     imageRendering: 0,
     font: {
-      defaultFontFamily: 'Arial',
-      sansSerifFamily: 'Arial',
-      serifFamily: 'Arial',
+      fontBuffers,
+      defaultFontFamily: 'Noto Sans',
+      sansSerifFamily: 'Noto Sans',
+      serifFamily: 'Noto Sans',
       monospaceFamily: 'Courier New',
-      loadSystemFonts: true,
     },
   });
   try {
