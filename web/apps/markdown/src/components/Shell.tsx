@@ -1,5 +1,6 @@
 import { Segmented } from 'antd';
 import type { ReactNode } from 'react';
+import { useRef, useEffect } from 'react';
 import type { MdFile, TocItem } from '../types';
 import { FileList } from './FileList';
 
@@ -38,6 +39,16 @@ export function Shell({
     history.replaceState(null, '', '#' + id);
   };
 
+  const tocListRef = useRef<HTMLUListElement | null>(null);
+
+  useEffect(() => {
+    if (!activeToc || !toc.find(x => x.id === activeToc)) return;
+    const activeEl = tocListRef.current?.querySelector('.toc-link.active') as HTMLElement | null;
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [activeToc, toc]);
+
   return (
     <div className="layout">
       <aside className="files-pane section">
@@ -63,7 +74,7 @@ export function Shell({
       <aside className="toc-pane section">
         <h2 className="toc-title">On this page</h2>
         {toc.length ? (
-          <ul className="toc-list">
+          <ul className="toc-list" ref={tocListRef}>
             {toc.map(x => (
               <li key={x.id} className={`toc-item level-${x.level}`}>
                 <a

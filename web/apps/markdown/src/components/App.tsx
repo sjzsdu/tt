@@ -69,12 +69,6 @@ export function App() {
     const ws = new WebSocket(`${proto}//${location.host}/ws`);
     ws.onmessage = () => {
       api.list().then(setList).catch(e => console.error('[WS list]', e));
-      if (route.file && route.mode !== 'edit') {
-        api.document(route.file).then(next => {
-          setDoc(next);
-          setContent(next.contentText);
-        }).catch(e => console.error('[WS doc]', e));
-      }
     };
     ws.onclose = () => setTimeout(connectWs, 3000);
     ws.onerror = e => console.error('[WS]', e);
@@ -99,23 +93,24 @@ export function App() {
   const loadedFileRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (route.mode === 'edit' && route.file) {
-      if (loadedFileRef.current !== route.file) {
-        loadedFileRef.current = route.file;
-        api.document(route.file).then(next => {
+    if (!route.file) return;
+    if (loadedFileRef.current !== route.file) {
+      loadedFileRef.current = route.file;
+      api.document(route.file).then(next => {
+        if (loadedFileRef.current === route.file) {
           setDoc(next);
           setContent(next.contentText);
-          const initial: Record<string, string> = {};
-          for (const f of next.frontmatterFields || []) {
-            initial[f.Key] = f.Value;
+          if (route.mode === 'edit') {
+            const initial: Record<string, string> = {};
+            for (const f of next.frontmatterFields || []) {
+              initial[f.Key] = f.Value;
+            }
+            setFm(initial);
           }
-          setFm(initial);
-        }).catch(e => setError(String(e)));
-      }
-    } else {
-      loadedFileRef.current = null;
+        }
+      }).catch(e => setError(String(e)));
     }
-  }, [route.mode, route.file]);
+  }, [route.file, route.mode]);
 
   useKeyboardShortcuts({
     onEdit: () => {
