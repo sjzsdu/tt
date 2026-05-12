@@ -17,6 +17,7 @@ var (
 	cmd2skillDryRun    bool
 	cmd2skillExamples  bool
 	cmd2skillDepth     int
+	cmd2skillMarkdown  bool
 )
 
 var cmd2skillCmd = &cobra.Command{
@@ -28,7 +29,8 @@ Output is organized into multiple files for better maintainability.`,
 	Example: `tt cmd2skill git
 tt cmd2skill git --depth 2
 tt cmd2skill docker --examples
-tt cmd2skill kubectl --target-dir ./.forge/skills`,
+tt cmd2skill kubectl --target-dir ./.forge/skills
+tt cmd2skill git --markdown`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runCmd2Skill(cmd, args)
 	},
@@ -40,6 +42,7 @@ func init() {
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillDryRun, "dry-run", false, "print skill content to stdout instead of writing files")
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillExamples, "examples", false, "fetch examples for subcommands")
 	cmd2skillCmd.Flags().IntVarP(&cmd2skillDepth, "depth", "d", 1, "recursion depth for subcommand help (0 = top-level only, 1+ = fetch subcommand help)")
+	cmd2skillCmd.Flags().BoolVar(&cmd2skillMarkdown, "markdown", false, "open generated skill content directly with markdown command instead of writing files")
 }
 
 type CommandSpec struct {
@@ -83,6 +86,26 @@ func runCmd2Skill(cmd *cobra.Command, args []string) error {
 
 	if cmd2skillDryRun {
 		generateAllSkills(spec, os.Stdout)
+		return nil
+	}
+
+	if cmd2skillMarkdown {
+		tempDir, err := os.MkdirTemp("", "cmd2skill-*")
+		if err != nil {
+			return fmt.Errorf("create temp dir: %w", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		if err := writeSkillFiles(spec, tempDir); err != nil {
+			return err
+		}
+
+		openCmd := exec.Command(os.Args[0], "markdown", tempDir)
+		openCmd.Stdout = os.Stdout
+		openCmd.Stderr = os.Stderr
+		if err := openCmd.Run(); err != nil {
+			return fmt.Errorf("run markdown command: %w", err)
+		}
 		return nil
 	}
 
