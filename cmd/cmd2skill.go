@@ -41,7 +41,7 @@ func init() {
 	cmd2skillCmd.Flags().StringVar(&cmd2skillTargetDir, "target-dir", "~/.agents/skills", "directory to write skill files")
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillDryRun, "dry-run", false, "print skill content to stdout instead of writing files")
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillExamples, "examples", false, "include examples extracted from help output")
-	cmd2skillCmd.Flags().IntVarP(&cmd2skillDepth, "depth", "d", 1, "recursion depth for subcommand help (0 = top-level only)")
+	cmd2skillCmd.Flags().IntVarP(&cmd2skillDepth, "depth", "d", 2, "recursion depth for subcommand help (0 = top-level only)")
 	cmd2skillCmd.Flags().BoolVar(&cmd2skillMarkdown, "markdown", false, "open generated skill content directly with markdown command instead of writing files")
 	cmd2skillCmd.Flags().DurationVar(&cmd2skillTimeout, "timeout", 5*time.Second, "timeout for each help command")
 	cmd2skillCmd.Flags().IntVar(&cmd2skillMaxCommands, "max-commands", 200, "maximum number of command help pages to discover")

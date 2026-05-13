@@ -234,7 +234,7 @@ Flags:
 - `--target-dir string`: directory to write skill files, default `~/.agents/skills`.
 - `--dry-run`: print skill content to stdout instead of writing files.
 - `--examples`: include examples extracted from help output.
-- `-d, --depth int`: recursion depth for subcommand help (0 = top-level only), default `1`.
+- `-d, --depth int`: recursion depth for subcommand help (0 = top-level only), default `2`. This keeps output files at the second command level while embedding discovered deeper command help inside the parent reference.
 - `--timeout duration`: timeout for each help command, default `5s`.
 - `--max-commands int`: maximum number of command help pages to discover, default `200`.
 - `--markdown`: open generated skill content directly with markdown command instead of writing files.
