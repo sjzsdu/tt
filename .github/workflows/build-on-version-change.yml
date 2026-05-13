@@ -104,6 +104,17 @@ jobs:
           go-version-file: tt/go.mod
           cache-dependency-path: tt/go.sum
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tt/web/package-lock.json
+
+      - name: Build web assets
+        working-directory: tt
+        run: make web-build
+
       - name: Run tests
         working-directory: tt
         run: go test ./...
