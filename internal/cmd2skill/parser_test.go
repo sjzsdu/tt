@@ -42,7 +42,7 @@ func TestRenderMainSkillIncludesAgentGuidance(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"## Agent operating guidance", "Prefer non-mutating commands", "description: Use demo."} {
+	for _, want := range []string{"## Agent operating guidance", "Prefer non-mutating commands", "description: Use demo. Demo CLI."} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("render missing %q in:\n%s", want, out)
 		}

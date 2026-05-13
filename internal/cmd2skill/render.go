@@ -113,11 +113,8 @@ func RenderAll(model *CLIModel, out io.Writer) error {
 
 func RenderMainSkill(model *CLIModel, out io.Writer) error {
 	root := model.Root
-	desc := root.Description
-	if desc == "" {
-		desc = model.Name + " command line tool"
-	}
-	fmt.Fprintf(out, "---\nname: %s\ndescription: Use %s. %s\n---\n\n", sanitizeSkillName(model.Name), model.Name, escapeYAMLLine(desc))
+	desc := SkillDescription(model)
+	fmt.Fprintf(out, "---\nname: %s\ndescription: %s\n---\n\n", sanitizeSkillName(model.Name), escapeYAMLLine(desc))
 	fmt.Fprintf(out, "# %s\n\n", model.Name)
 	fmt.Fprintf(out, "Use this skill when you need to operate the `%s` CLI. Prefer read-only discovery commands first, inspect available options, and use dry-run or confirmation flags before destructive changes when the CLI supports them.\n\n", model.Name)
 	if root.Usage != "" {
@@ -166,10 +163,7 @@ func RenderMainSkill(model *CLIModel, out io.Writer) error {
 }
 
 func RenderCommandReference(main string, n *CommandNode, out io.Writer) error {
-	desc := n.Description
-	if desc == "" {
-		desc = strings.Join(n.Path, " ") + " command"
-	}
+	desc := CommandDescription(n)
 	fmt.Fprintf(out, "---\nname: %s\ndescription: %s\n---\n\n", sanitizeSkillName(strings.Join(n.Path, "-")), escapeYAMLLine(desc))
 	fmt.Fprintf(out, "# %s\n\n", strings.Join(n.Path, " "))
 	if n.Description != "" {
