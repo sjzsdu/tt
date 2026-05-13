@@ -219,7 +219,7 @@ Flags:
 
 ### `tt cmd2skill`
 
-Parse a CLI command and its subcommands to generate comprehensive skill files. For each subcommand, detailed help including flags, options, and examples is fetched. Output is organized into multiple files for better maintainability.
+Parse a CLI command and its subcommands into a structured command tree, then generate agent-oriented skill files with usage, command references, safety guidance, and deterministic output.
 
 ```bash
 tt cmd2skill git
@@ -233,8 +233,10 @@ Flags:
 
 - `--target-dir string`: directory to write skill files, default `~/.agents/skills`.
 - `--dry-run`: print skill content to stdout instead of writing files.
-- `--examples`: fetch examples for subcommands.
-- `-d, --depth int`: recursion depth for subcommand help (0 = top-level only, 1+ = fetch subcommand help), default `1`.
+- `--examples`: include examples extracted from help output.
+- `-d, --depth int`: recursion depth for subcommand help (0 = top-level only), default `1`.
+- `--timeout duration`: timeout for each help command, default `5s`.
+- `--max-commands int`: maximum number of command help pages to discover, default `200`.
 - `--markdown`: open generated skill content directly with markdown command instead of writing files.
 
 ### `tt mirror`
