@@ -119,3 +119,52 @@ DESCRIPTION
 		t.Fatalf("description = %q", got)
 	}
 }
+
+func TestParseUppercaseCommandSections(t *testing.T) {
+	help := `Work seamlessly with a service from the command line.
+
+USAGE
+  tool <command> <subcommand> [flags]
+
+CORE COMMANDS
+  auth:          Authenticate with the service
+  repo:          Manage repositories
+
+ADDITIONAL COMMANDS
+  api:           Make an authenticated API request
+  config:        Manage configuration
+
+HELP TOPICS
+  formatting:    Formatting options
+
+FLAGS
+  --help      Show help for command
+  --version   Show version
+
+EXAMPLES
+  $ tool repo list
+`
+	n := parseHelp(help, []string{"tool"})
+	if n.Usage != "USAGE\n  tool <command> <subcommand> [flags]" {
+		t.Fatalf("usage = %q", n.Usage)
+	}
+	if len(n.Children) != 4 {
+		t.Fatalf("children = %d: %#v", len(n.Children), n.Children)
+	}
+	if n.Children[0].Name != "api" || n.Children[0].Description != "Make an authenticated API request" {
+		t.Fatalf("unexpected first child: %#v", n.Children[0])
+	}
+	if len(n.Flags) != 1 || n.Flags[0].Name != "version" {
+		t.Fatalf("flags = %#v", n.Flags)
+	}
+}
+
+func TestParseFlagLineDoesNotMatchHyphenatedDescriptionWords(t *testing.T) {
+	flag := parseFlagLine("  -c, --clipboard                  Copy one-time OAuth device code to clipboard")
+	if flag.Name != "clipboard" || flag.Shorthand != "c" {
+		t.Fatalf("flag = %#v", flag)
+	}
+	if strings.Contains(formatFlag(flag), "time") {
+		t.Fatalf("hyphenated description word was parsed as flag: %#v", flag)
+	}
+}
