@@ -82,7 +82,7 @@ func WriteSkillFiles(model *CLIModel, dir string, log io.Writer) error {
 	if err := os.MkdirAll(refDir, 0o755); err != nil {
 		return fmt.Errorf("create references dir: %w", err)
 	}
-	for _, n := range flattenChildren(model.Root) {
+	for _, n := range referenceNodes(model.Root) {
 		file := filepath.Join(refDir, filenameFor(n)+".md")
 		f, err := os.Create(file)
 		if err != nil {
@@ -102,7 +102,7 @@ func RenderAll(model *CLIModel, out io.Writer) error {
 	if err := RenderMainSkill(model, out); err != nil {
 		return err
 	}
-	for _, n := range flattenChildren(model.Root) {
+	for _, n := range referenceNodes(model.Root) {
 		fmt.Fprint(out, "\n---\n\n")
 		if err := RenderCommandReference(model.Name, n, out); err != nil {
 			return err
@@ -146,7 +146,7 @@ func RenderMainSkill(model *CLIModel, out io.Writer) error {
 	fmt.Fprintln(out, "- Use explicit paths, namespaces, projects, or targets instead of relying on ambient defaults when possible.")
 	fmt.Fprintln(out, "- After running a mutating command, verify the result with the closest read-only status/list/show command.")
 	fmt.Fprintln(out)
-	refs := flattenChildren(root)
+	refs := referenceNodes(root)
 	if len(refs) > 0 {
 		fmt.Fprintln(out, "## References")
 		fmt.Fprintln(out)
@@ -198,11 +198,29 @@ func RenderCommandReference(main string, n *CommandNode, out io.Writer) error {
 	if len(n.Children) > 0 {
 		fmt.Fprintln(out, "## Subcommands")
 		fmt.Fprintln(out)
-		for _, c := range n.Children {
-			fmt.Fprintf(out, "- `%s`: %s\n", strings.Join(c.Path, " "), c.Description)
-		}
+		renderNestedSubcommands(out, n.Children, 3)
 	}
 	return nil
+}
+
+func renderNestedSubcommands(out io.Writer, nodes []*CommandNode, headingLevel int) {
+	kids := sortedNodes(nodes)
+	for _, c := range kids {
+		fmt.Fprintf(out, "%s %s\n\n", strings.Repeat("#", headingLevel), strings.Join(c.Path, " "))
+		if c.Description != "" {
+			fmt.Fprintf(out, "%s\n\n", c.Description)
+		}
+		if c.Usage != "" {
+			fmt.Fprintf(out, "```bash\n%s\n```\n\n", c.Usage)
+		}
+		if len(c.Flags) > 0 {
+			renderFlags(out, c.Flags)
+			fmt.Fprintln(out)
+		}
+		if len(c.Children) > 0 {
+			renderNestedSubcommands(out, c.Children, headingLevel+1)
+		}
+	}
 }
 
 func renderFlags(out io.Writer, flags []Flag) {
@@ -217,21 +235,19 @@ func renderFlags(out io.Writer, flags []Flag) {
 	}
 }
 
-func flattenChildren(root *CommandNode) []*CommandNode {
-	var out []*CommandNode
-	var walk func(*CommandNode)
-	walk = func(n *CommandNode) {
-		kids := append([]*CommandNode{}, n.Children...)
-		sort.SliceStable(kids, func(i, j int) bool { return strings.Join(kids[i].Path, " ") < strings.Join(kids[j].Path, " ") })
-		for _, c := range kids {
-			out = append(out, c)
-			walk(c)
-		}
+func referenceNodes(root *CommandNode) []*CommandNode {
+	if root == nil {
+		return nil
 	}
-	if root != nil {
-		walk(root)
-	}
-	return out
+	return sortedNodes(root.Children)
+}
+
+func sortedNodes(nodes []*CommandNode) []*CommandNode {
+	sorted := append([]*CommandNode{}, nodes...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return strings.Join(sorted[i].Path, " ") < strings.Join(sorted[j].Path, " ")
+	})
+	return sorted
 }
 func formatFlag(f Flag) string {
 	if f.Shorthand != "" && f.Name != f.Shorthand {

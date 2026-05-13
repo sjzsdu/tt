@@ -48,3 +48,28 @@ func TestRenderMainSkillIncludesAgentGuidance(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderAllOnlyEmitsTopLevelReferenceFiles(t *testing.T) {
+	model := &CLIModel{
+		Name: "demo",
+		Root: &CommandNode{Name: "demo", Path: []string{"demo"}, Children: []*CommandNode{
+			{Name: "parent", Path: []string{"demo", "parent"}, Description: "Parent command", Children: []*CommandNode{
+				{Name: "child", Path: []string{"demo", "parent", "child"}, Description: "Child command"},
+			}},
+		}},
+	}
+	var buf bytes.Buffer
+	if err := RenderAll(model, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "references/parent-child.md") {
+		t.Fatalf("unexpected third-level reference link in:\n%s", out)
+	}
+	if !strings.Contains(out, "references/parent.md") {
+		t.Fatalf("missing second-level reference link in:\n%s", out)
+	}
+	if !strings.Contains(out, "### demo parent child") {
+		t.Fatalf("third-level command should be embedded in parent reference:\n%s", out)
+	}
+}
