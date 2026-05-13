@@ -32,6 +32,9 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 
 	cfg := cloneConfig(rt.Config)
 	cfg = prepareConfigForRun(cfg, resolved)
+	if err := applyEmbeddedAgentConfig(cfg, opt.EmbeddedAgent, resolved.Model); err != nil {
+		return nil, err
+	}
 	pclogger.ConfigureFromEnv()
 	if opt.Debug {
 		pclogger.SetLevel(pclogger.DEBUG)
@@ -54,6 +57,12 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 
 	msgBus := pcbus.NewMessageBus()
 	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
+	if err := registerEmbeddedAgentPrompt(loop, opt.EmbeddedAgent); err != nil {
+		loop.Close()
+		msgBus.Close()
+		closeProvider()
+		return nil, err
+	}
 
 	return &DirectRunner{
 		rt:            rt,

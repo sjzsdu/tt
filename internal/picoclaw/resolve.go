@@ -9,11 +9,20 @@ import (
 )
 
 type RunOptions struct {
-	Message string
-	Session string
-	Agent   string
-	Model   string
-	Debug   bool
+	Message       string
+	Session       string
+	Agent         string
+	Model         string
+	Debug         bool
+	EmbeddedAgent *EmbeddedAgent
+}
+
+type EmbeddedAgent struct {
+	ID        string
+	Name      string
+	Prompt    string
+	Soul      string
+	NoHistory bool
 }
 
 type ResolvedRunOptions struct {
@@ -39,12 +48,18 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 		resolved.Session = "cli:default"
 	}
 
-	agentCfg, err := rt.resolveAgentConfig(resolved.Agent)
-	if err != nil {
-		return ResolvedRunOptions{}, err
-	}
-	if agentCfg != nil {
-		resolved.Agent = strings.TrimSpace(agentCfg.ID)
+	var agentCfg *pcconfig.AgentConfig
+	if opt.EmbeddedAgent != nil && strings.EqualFold(strings.TrimSpace(opt.EmbeddedAgent.ID), resolved.Agent) {
+		resolved.Agent = strings.TrimSpace(opt.EmbeddedAgent.ID)
+	} else {
+		var err error
+		agentCfg, err = rt.resolveAgentConfig(resolved.Agent)
+		if err != nil {
+			return ResolvedRunOptions{}, err
+		}
+		if agentCfg != nil {
+			resolved.Agent = strings.TrimSpace(agentCfg.ID)
+		}
 	}
 
 	if resolved.Model == "" && agentCfg != nil && agentCfg.Model != nil {

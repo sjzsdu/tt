@@ -27,6 +27,9 @@ func (rt *Runtime) Run(opt RunOptions) error {
 
 	cfg := cloneConfig(rt.Config)
 	cfg = prepareConfigForRun(cfg, resolved)
+	if err := applyEmbeddedAgentConfig(cfg, opt.EmbeddedAgent, resolved.Model); err != nil {
+		return err
+	}
 	pclogger.ConfigureFromEnv()
 	if opt.Debug {
 		pclogger.SetLevel(pclogger.DEBUG)
@@ -51,6 +54,9 @@ func (rt *Runtime) Run(opt RunOptions) error {
 
 	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
 	defer loop.Close()
+	if err := registerEmbeddedAgentPrompt(loop, opt.EmbeddedAgent); err != nil {
+		return err
+	}
 
 	if text := strings.TrimSpace(resolved.Message); text != "" {
 		var resp string
