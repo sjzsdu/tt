@@ -73,3 +73,49 @@ func TestRenderAllOnlyEmitsTopLevelReferenceFiles(t *testing.T) {
 		t.Fatalf("third-level command should be embedded in parent reference:\n%s", out)
 	}
 }
+
+func TestParseDoltStyleHelp(t *testing.T) {
+	help := `Valid commands for dolt are
+                init - Create an empty Dolt data repository.
+              status - Show the working tree status.
+                 add - Add table changes to the list of staged table changes.
+
+Dolt subcommands are in transition to using the flags listed below as global flags.
+
+usage: dolt <--data-dir=<path>> subcommand <subcommand arguments>
+
+Specific dolt options
+    --profile=<profile>
+      The name of the profile to use when executing SQL queries.
+    -u <user>, --user=<user>
+      Defines the local superuser.
+`
+	n := parseHelp(help, []string{"dolt"})
+	if len(n.Children) != 3 {
+		t.Fatalf("children = %d", len(n.Children))
+	}
+	if n.Children[0].Name != "add" || n.Children[0].Description != "Add table changes to the list of staged table changes." {
+		t.Fatalf("unexpected first child: %#v", n.Children[0])
+	}
+	if len(n.Flags) != 2 {
+		t.Fatalf("flags = %d", len(n.Flags))
+	}
+	if n.Flags[1].Name != "user" || n.Flags[1].Shorthand != "u" || n.Flags[1].Type != "user" {
+		t.Fatalf("unexpected user flag: %#v", n.Flags[1])
+	}
+}
+
+func TestExtractDoltManStyleDescription(t *testing.T) {
+	help := `NAME
+	dolt add - Add table contents to the list of staged tables
+
+SYNOPSIS
+	dolt add [<table>...]
+
+DESCRIPTION
+	This command updates the list of tables.
+`
+	if got := extractDescriptionFromHelp(help); got != "Add table contents to the list of staged tables" {
+		t.Fatalf("description = %q", got)
+	}
+}

@@ -26,12 +26,61 @@ func parseHelp(output string, path []string) *CommandNode {
 }
 
 func extractDescriptionFromHelp(output string) string {
+	inName := false
+	inDescription := false
+	inCommands := false
+	inOptions := false
 	for _, line := range strings.Split(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
+			if inCommands {
+				inCommands = false
+			}
 			continue
 		}
 		lower := strings.ToLower(trimmed)
+		if isCommandHeader(lower) {
+			inCommands = true
+			continue
+		}
+		if isFlagHeader(lower) || isGlobalHeader(lower) {
+			inOptions = true
+			inDescription = false
+			continue
+		}
+		if inOptions {
+			continue
+		}
+		if inCommands {
+			continue
+		}
+		if lower == "name" {
+			inName = true
+			inDescription = false
+			continue
+		}
+		if lower == "description" {
+			inDescription = true
+			inName = false
+			continue
+		}
+		if lower == "synopsis" || lower == "options" {
+			inName = false
+			inDescription = false
+			continue
+		}
+		if inName {
+			if idx := strings.Index(trimmed, " - "); idx >= 0 {
+				return cleanDescription(trimmed[idx+3:])
+			}
+			continue
+		}
+		if inDescription {
+			return cleanDescription(trimmed)
+		}
+		if strings.Contains(lower, "subcommands are in transition") || strings.Contains(lower, "not all subcommands use these flags") {
+			continue
+		}
 		if strings.HasPrefix(lower, "usage:") || strings.HasPrefix(lower, "用法：") || isSectionHeader(lower) {
 			continue
 		}
@@ -75,6 +124,9 @@ func extractSubcommandsFromHelp(output string) []*CommandNode {
 	for _, line := range strings.Split(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
+			if inCommands && len(subcommands) > 0 {
+				break
+			}
 			continue
 		}
 		lower := strings.ToLower(trimmed)
@@ -95,6 +147,7 @@ func extractSubcommandsFromHelp(output string) []*CommandNode {
 		}
 		name := strings.TrimSuffix(strings.TrimSuffix(parts[0], ":"), "：")
 		desc := strings.Join(parts[1:], " ")
+		desc = strings.TrimSpace(strings.TrimPrefix(desc, "-"))
 		if !validCommandName(name) || seen[name] || strings.HasPrefix(strings.ToLower(desc), "help") {
 			continue
 		}
@@ -168,7 +221,7 @@ func extractFlagsFromHelp(output string) []Flag {
 	return unique
 }
 
-var flagLinePattern = regexp.MustCompile(`^\s*((?:-[A-Za-z0-9](?:,\s*)?)?(?:--[A-Za-z0-9][A-Za-z0-9_.-]*)?)\s*([^\s]+)?\s*(.*)$`)
+var flagTokenPattern = regexp.MustCompile(`-{1,2}[A-Za-z0-9][A-Za-z0-9_.-]*(?:[= ]<[^>]+>)?`)
 
 func parseFlagLine(line string) Flag {
 	flag := Flag{}
@@ -176,29 +229,51 @@ func parseFlagLine(line string) Flag {
 	if !strings.HasPrefix(trimmed, "-") {
 		return flag
 	}
-	match := flagLinePattern.FindStringSubmatch(trimmed)
-	if len(match) == 0 {
+	tokens := flagTokenPattern.FindAllString(trimmed, -1)
+	if len(tokens) == 0 {
 		return flag
 	}
-	flagPart := strings.ReplaceAll(match[1], " ", "")
-	for _, part := range strings.Split(flagPart, ",") {
-		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "--") {
-			flag.Name = strings.TrimPrefix(part, "--")
-		} else if strings.HasPrefix(part, "-") {
-			flag.Shorthand = strings.TrimPrefix(part, "-")
+	lastEnd := 0
+	for _, loc := range flagTokenPattern.FindAllStringIndex(trimmed, -1) {
+		lastEnd = loc[1]
+	}
+	for _, token := range tokens {
+		name, typ := splitFlagToken(token)
+		if typ != "" {
+			flag.Type = typ
+		}
+		if strings.HasPrefix(name, "--") {
+			flag.Name = strings.TrimPrefix(name, "--")
+		} else if strings.HasPrefix(name, "-") {
+			flag.Shorthand = strings.TrimPrefix(name, "-")
 		}
 	}
 	if flag.Name == "" && flag.Shorthand != "" {
 		flag.Name = flag.Shorthand
 	}
-	if isTypeKeyword(match[2]) {
-		flag.Type = match[2]
-		flag.Description = strings.TrimSpace(match[3])
-	} else {
-		flag.Description = strings.TrimSpace(match[2] + " " + match[3])
+	flag.Description = strings.TrimSpace(strings.TrimLeft(trimmed[lastEnd:], ", "))
+	if flag.Description == "" {
+		fields := strings.Fields(trimmed[lastEnd:])
+		if len(fields) > 0 && isTypeKeyword(fields[0]) {
+			flag.Type = fields[0]
+			flag.Description = strings.Join(fields[1:], " ")
+		}
 	}
 	return flag
+}
+
+func splitFlagToken(token string) (name string, typ string) {
+	if idx := strings.Index(token, "="); idx >= 0 {
+		name = token[:idx]
+		typ = strings.Trim(token[idx+1:], "<>")
+		return name, typ
+	}
+	parts := strings.Fields(token)
+	name = parts[0]
+	if len(parts) > 1 {
+		typ = strings.Trim(parts[1], "<>")
+	}
+	return name, typ
 }
 
 func isTypeKeyword(s string) bool {
@@ -253,7 +328,7 @@ func isSectionHeader(lower string) bool {
 	return isCommandHeader(lower) || isFlagHeader(lower) || isGlobalHeader(lower) || strings.HasPrefix(lower, "examples") || strings.HasPrefix(lower, "see also")
 }
 func isCommandHeader(lower string) bool {
-	for _, h := range []string{"available commands", "common commands", "management commands", "subcommands", "commands:", "子命令", "常用命令", "命令："} {
+	for _, h := range []string{"valid commands", "available commands", "common commands", "management commands", "subcommands", "commands:", "子命令", "常用命令", "命令："} {
 		if strings.HasPrefix(lower, h) {
 			return true
 		}
@@ -261,7 +336,7 @@ func isCommandHeader(lower string) bool {
 	return false
 }
 func isFlagHeader(lower string) bool {
-	for _, h := range []string{"flags:", "options:", "选项：", "flags (available"} {
+	for _, h := range []string{"specific dolt options", "flags:", "options:", "选项：", "flags (available"} {
 		if strings.HasPrefix(lower, h) {
 			return true
 		}
