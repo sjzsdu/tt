@@ -14,6 +14,7 @@ type RunOptions struct {
 	Agent         string
 	Model         string
 	Debug         bool
+	Quiet         bool
 	EmbeddedAgent *EmbeddedAgent
 }
 

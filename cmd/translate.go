@@ -128,6 +128,7 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 		Agent:   translateMasterAgentID,
 		Model:   translateModel,
 		Debug:   translateDebug,
+		Quiet:   !translateDebug,
 		EmbeddedAgent: &pcwrap.EmbeddedAgent{
 			ID:        translateMasterAgentID,
 			Name:      "翻译大师",

@@ -31,6 +31,9 @@ func (rt *Runtime) Run(opt RunOptions) error {
 		return err
 	}
 	pclogger.ConfigureFromEnv()
+	if opt.Quiet && !opt.Debug {
+		pclogger.DisableConsole()
+	}
 	if opt.Debug {
 		pclogger.SetLevel(pclogger.DEBUG)
 	}

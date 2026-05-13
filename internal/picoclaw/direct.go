@@ -36,6 +36,9 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 		return nil, err
 	}
 	pclogger.ConfigureFromEnv()
+	if opt.Quiet && !opt.Debug {
+		pclogger.DisableConsole()
+	}
 	if opt.Debug {
 		pclogger.SetLevel(pclogger.DEBUG)
 	}
