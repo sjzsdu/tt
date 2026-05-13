@@ -52,6 +52,7 @@ type CommandSpec struct {
 	Usage       string
 	Subcommands []SubcommandSpec
 	Flags       []FlagSpec
+	RawHelp     string
 }
 
 type SubcommandSpec struct {
@@ -60,6 +61,7 @@ type SubcommandSpec struct {
 	Usage       string
 	Flags       []FlagSpec
 	Examples    []ExampleSpec
+	RawHelp     string
 }
 
 type FlagSpec struct {
@@ -150,6 +152,7 @@ func parseCommandDeep(name string, depth int) (*CommandSpec, error) {
 		helpOutput = manOutput
 	}
 
+	spec.RawHelp = helpOutput
 	spec.Description = extractDescriptionFromHelp(helpOutput, name)
 	spec.Usage = extractUsage(helpOutput)
 	spec.Flags = extractFlagsFromHelp(helpOutput)
@@ -162,6 +165,7 @@ func parseCommandDeep(name string, depth int) (*CommandSpec, error) {
 			if err != nil {
 				continue
 			}
+			sc.RawHelp = subHelp
 			sc.Usage = extractUsage(subHelp)
 			sc.Flags = extractFlagsFromHelp(subHelp)
 			sc.Examples = extractExamplesFromHelp(subHelp)
@@ -177,9 +181,8 @@ func parseCommandDeep(name string, depth int) (*CommandSpec, error) {
 func extractDescriptionFromHelp(output, cmdName string) string {
 	lines := strings.Split(output, "\n")
 
-	descLines := []string{}
-	inUsage := false
-	afterUsage := false
+	afterCmdName := false
+	foundDesc := ""
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -190,56 +193,47 @@ func extractDescriptionFromHelp(output, cmdName string) string {
 		lower := strings.ToLower(trimmed)
 
 		if strings.HasPrefix(lower, "usage:") || strings.HasPrefix(lower, "用法：") {
-			inUsage = true
+			break
+		}
+
+		if strings.HasPrefix(lower, "available commands") ||
+			strings.HasPrefix(lower, "common commands") ||
+			strings.HasPrefix(lower, "subcommands") ||
+			strings.HasPrefix(lower, "commands:") ||
+			strings.HasPrefix(lower, "子命令") ||
+			strings.HasPrefix(lower, "常用命令") ||
+			strings.HasPrefix(lower, "命令：") ||
+			strings.HasPrefix(lower, "flags:") ||
+			strings.HasPrefix(lower, "options:") ||
+			strings.HasPrefix(lower, "global flags:") ||
+			strings.HasPrefix(lower, "see also") ||
+			strings.HasPrefix(lower, "（参见：") {
+			break
+		}
+
+		if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "--") {
 			continue
 		}
 
-		if inUsage {
-			if strings.HasPrefix(trimmed, " ") && !strings.HasPrefix(trimmed, "   ") {
-				continue
-			}
-			if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "--") {
-				continue
-			}
-			if strings.HasPrefix(trimmed, "[") && !strings.HasPrefix(trimmed, "[<") {
-				continue
-			}
-			if len(trimmed) > 3 {
-				afterUsage = true
-				inUsage = false
-			}
+		if strings.Contains(trimmed, "--help") {
+			afterCmdName = true
+			continue
 		}
 
-		if afterUsage {
-			if strings.HasPrefix(lower, "available commands") ||
-				strings.HasPrefix(lower, "common commands") ||
-				strings.HasPrefix(lower, "subcommands") ||
-				strings.HasPrefix(lower, "commands:") ||
-				strings.HasPrefix(lower, "子命令") ||
-				strings.HasPrefix(lower, "常用命令") ||
-				strings.HasPrefix(lower, "命令：") ||
-				strings.HasPrefix(lower, "flags:") ||
-				strings.HasPrefix(lower, "options:") ||
-				strings.HasPrefix(lower, "see also") ||
-				strings.HasPrefix(lower, "（参见：") {
-				break
-			}
+		if afterCmdName || len(trimmed) > 10 {
+			foundDesc = trimmed
+			break
+		}
 
-			if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "--") {
-				continue
-			}
-
-			if len(trimmed) > 5 {
-				descLines = append(descLines, trimmed)
-				if len(descLines) >= 2 {
-					break
-				}
+		if len(trimmed) > 3 && !strings.Contains(trimmed, "--help") {
+			if foundDesc == "" {
+				foundDesc = trimmed
 			}
 		}
 	}
 
-	if len(descLines) > 0 {
-		return cleanDescription(strings.Join(descLines, " "))
+	if foundDesc != "" {
+		return cleanDescription(foundDesc)
 	}
 	return ""
 }
@@ -247,34 +241,33 @@ func extractDescriptionFromHelp(output, cmdName string) string {
 func extractUsage(output string) string {
 	lines := strings.Split(output, "\n")
 	var usageLines []string
+	inUsage := false
 
-	for i, line := range lines {
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
 
 		lower := strings.ToLower(trimmed)
 		if strings.HasPrefix(lower, "usage:") || strings.HasPrefix(lower, "用法：") {
-			usageLines = append(usageLines, strings.TrimPrefix(trimmed, lower[:len("usage:")]))
-			for j := i + 1; j < len(lines); j++ {
-				next := strings.TrimSpace(lines[j])
-				if next == "" {
-					break
-				}
-				if strings.HasPrefix(next, " ") && !strings.HasPrefix(next, "   ") {
-					usageLines = append(usageLines, next)
-				} else {
-					break
-				}
+			inUsage = true
+			usageLines = append(usageLines, trimmed)
+			continue
+		}
+
+		if inUsage {
+			if trimmed == "" {
+				break
 			}
-			break
+			usageLines = append(usageLines, line)
+			if strings.HasPrefix(trimmed, "Available Commands") ||
+				strings.HasPrefix(trimmed, "Flags:") ||
+				strings.HasPrefix(trimmed, "Options:") {
+				break
+			}
 		}
 	}
 
 	if len(usageLines) > 0 {
-		usage := strings.Join(usageLines, " ")
-		usage = regexp.MustCompile(`\s+`).ReplaceAllString(usage, " ")
+		usage := strings.Join(usageLines, "\n")
 		return strings.TrimSpace(usage)
 	}
 	return ""
@@ -300,6 +293,16 @@ func extractSubcommandsFromHelp(output string) []SubcommandSpec {
 		"扩展、标记和调校",
 	}
 
+	stopHeaders := []string{
+		"flags:",
+		"options:",
+		"global flags:",
+		"global options:",
+		"use \"",
+		"examples:",
+		"示例:",
+	}
+
 	seen := make(map[string]bool)
 
 	for _, line := range strings.Split(output, "\n") {
@@ -309,6 +312,18 @@ func extractSubcommandsFromHelp(output string) []SubcommandSpec {
 		}
 
 		lower := strings.ToLower(trimmed)
+
+		isStopHeader := false
+		for _, header := range stopHeaders {
+			if strings.HasPrefix(lower, header) {
+				isStopHeader = true
+				break
+			}
+		}
+
+		if isStopHeader {
+			break
+		}
 
 		isHeader := false
 		for _, header := range commandHeaders {
@@ -381,8 +396,10 @@ func extractFlagsFromHelp(output string) []FlagSpec {
 
 	lines := strings.Split(output, "\n")
 	inOptions := false
+	inGlobalFlags := false
 
-	skipHeaders := []string{"flags:", "options:", "选项：", "flags (available", "global options"}
+	flagHeaders := []string{"flags:", "options:", "选项：", "flags (available"}
+	globalHeaders := []string{"global flags:", "global options:", "全局选项："}
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -392,33 +409,55 @@ func extractFlagsFromHelp(output string) []FlagSpec {
 
 		lower := strings.ToLower(trimmed)
 
-		isSkipHeader := false
-		for _, header := range skipHeaders {
+		isFlagHeader := false
+		for _, header := range flagHeaders {
 			if strings.HasPrefix(lower, header) {
-				isSkipHeader = true
+				isFlagHeader = true
 				break
 			}
 		}
 
-		if isSkipHeader && !strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "--") {
+		isGlobalHeader := false
+		for _, header := range globalHeaders {
+			if strings.HasPrefix(lower, header) {
+				isGlobalHeader = true
+				break
+			}
+		}
+
+		if isFlagHeader {
 			inOptions = true
+			inGlobalFlags = false
 			continue
 		}
 
-		if inOptions && trimmed == "" {
-			break
+		if isGlobalHeader {
+			inOptions = true
+			inGlobalFlags = true
+			continue
 		}
 
 		if inOptions {
+			if trimmed == "" {
+				break
+			}
+
+			if strings.HasPrefix(trimmed, "Available Commands") ||
+				strings.HasPrefix(trimmed, "Use \"") ||
+				strings.HasPrefix(lower, "examples") {
+				break
+			}
+
 			if strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "--") {
 				flag := parseFlagLine(trimmed)
 				if flag.Name != "" && flag.Name != "help" {
+					if inGlobalFlags {
+						flag.Description += " (global)"
+					}
 					flags = append(flags, flag)
 				}
-			} else if !strings.HasPrefix(trimmed, "[") && len(trimmed) > 0 {
-				if len(flags) > 0 {
-					flags[len(flags)-1].Description += " " + trimmed
-				}
+			} else if len(flags) > 0 {
+				flags[len(flags)-1].Description += " " + trimmed
 			}
 		}
 	}
@@ -440,25 +479,28 @@ func parseFlagLine(line string) FlagSpec {
 	flag := FlagSpec{}
 
 	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, "--") {
-		parts := strings.SplitN(line, "=", 2)
-		name := strings.TrimPrefix(parts[0], "--")
-		flag.Name = name
-		if len(parts) > 1 {
-			flag.Description = strings.TrimSpace(parts[1])
-		}
 
-		if idx := strings.Index(name, " "); idx > 0 {
-			parts := strings.Fields(name)
-			if len(parts) >= 2 {
-				flag.Name = parts[0]
-				flag.Description = strings.Join(parts[1:], " ") + " " + flag.Description
-			}
-		}
-	} else if strings.HasPrefix(line, "-") {
+	if strings.HasPrefix(line, "-") {
 		parts := strings.Fields(line)
 		if len(parts) >= 1 {
-			flag.Name = strings.TrimPrefix(parts[0], "-")
+			firstPart := parts[0]
+
+			if strings.Contains(firstPart, ",") {
+				shortAndLong := strings.Split(firstPart, ",")
+				if len(shortAndLong) >= 2 {
+					flag.Shorthand = strings.TrimSpace(strings.TrimPrefix(shortAndLong[0], "-"))
+					flag.Name = strings.TrimSpace(strings.TrimPrefix(shortAndLong[1], "--"))
+				} else {
+					flag.Name = strings.TrimSpace(strings.TrimPrefix(firstPart, "-"))
+				}
+			} else {
+				if strings.HasPrefix(firstPart, "--") {
+					flag.Name = strings.TrimPrefix(firstPart, "--")
+				} else {
+					flag.Name = strings.TrimPrefix(firstPart, "-")
+				}
+			}
+
 			if len(parts) > 1 {
 				flag.Description = strings.Join(parts[1:], " ")
 			}
@@ -546,24 +588,13 @@ func generateMainSkill(spec *CommandSpec, out *os.File) {
 
 	out.WriteString(fmt.Sprintf("# %s\n\n", spec.Name))
 
-	if spec.Usage != "" {
-		out.WriteString(fmt.Sprintf("**Usage**: `%s`\n\n", spec.Usage))
-	}
-
-	out.WriteString(fmt.Sprintf("**Description**: %s\n\n", desc))
-
-	if len(spec.Flags) > 0 {
-		out.WriteString("## Global Options\n\n")
-		out.WriteString("| Option | Description |\n")
-		out.WriteString("|--------|-------------|\n")
-		for _, f := range spec.Flags {
-			optName := "--" + f.Name
-			if f.Shorthand != "" {
-				optName = fmt.Sprintf("-%s, --%s", f.Shorthand, f.Name)
-			}
-			out.WriteString(fmt.Sprintf("| %s | %s |\n", optName, f.Description))
+	if spec.RawHelp != "" {
+		out.WriteString("```\n")
+		out.WriteString(spec.RawHelp)
+		if !strings.HasSuffix(spec.RawHelp, "\n") {
+			out.WriteString("\n")
 		}
-		out.WriteString("\n")
+		out.WriteString("```\n\n")
 	}
 
 	if len(spec.Subcommands) > 0 {
@@ -655,33 +686,23 @@ func generateGroupSkill(mainCmd, groupName string, subcommands []SubcommandSpec,
 	out.WriteString("## Commands\n\n")
 	for _, sc := range subcommands {
 		out.WriteString(fmt.Sprintf("### %s %s\n\n", mainCmd, sc.Name))
-		out.WriteString(fmt.Sprintf("**Description**: %s\n\n", sc.Description))
-		if sc.Usage != "" {
-			out.WriteString(fmt.Sprintf("**Usage**: `%s`\n\n", sc.Usage))
+
+		if sc.RawHelp != "" {
+			out.WriteString("```\n")
+			out.WriteString(sc.RawHelp)
+			if !strings.HasSuffix(sc.RawHelp, "\n") {
+				out.WriteString("\n")
+			}
+			out.WriteString("```\n\n")
 		} else {
-			out.WriteString(fmt.Sprintf("**Usage**: `%s %s [options]`\n\n", mainCmd, sc.Name))
-		}
-
-		if len(sc.Flags) > 0 {
-			out.WriteString("**Options**:\n\n")
-			for _, f := range sc.Flags {
-				optName := "--" + f.Name
-				if f.Shorthand != "" {
-					optName = fmt.Sprintf("-%s, --%s", f.Shorthand, f.Name)
-				}
-				out.WriteString(fmt.Sprintf("- `%s`: %s\n", optName, f.Description))
-			}
-			out.WriteString("\n")
-		}
-
-		if len(sc.Examples) > 0 {
-			out.WriteString("**Examples**:\n\n")
-			for _, ex := range sc.Examples {
-				if ex.Command != "" {
-					out.WriteString(fmt.Sprintf("```\n%s %s %s\n```\n\n", mainCmd, sc.Name, ex.Command))
-				}
+			out.WriteString(fmt.Sprintf("**Description**: %s\n\n", sc.Description))
+			if sc.Usage != "" {
+				out.WriteString(fmt.Sprintf("**Usage**: `%s`\n\n", sc.Usage))
+			} else {
+				out.WriteString(fmt.Sprintf("**Usage**: `%s %s [options]`\n\n", mainCmd, sc.Name))
 			}
 		}
+
 		out.WriteString("---\n\n")
 	}
 }
@@ -750,41 +771,25 @@ func writeSkillFiles(spec *CommandSpec, skillDir string) error {
 func generateSingleSubcommandSkill(mainCmd string, spec *SubcommandSpec, out *os.File) {
 	skillName := mainCmd + "-" + spec.Name
 
+	desc := spec.Description
+	if desc == "" {
+		desc = fmt.Sprintf("%s %s command", mainCmd, spec.Name)
+	}
+
 	out.WriteString("---\n")
 	out.WriteString(fmt.Sprintf("name: %s\n", skillName))
-	out.WriteString(fmt.Sprintf("description: %s\n", spec.Description))
+	out.WriteString(fmt.Sprintf("description: %s\n", desc))
 	out.WriteString("---\n\n")
 
 	out.WriteString(fmt.Sprintf("# %s %s\n\n", mainCmd, spec.Name))
-	out.WriteString(fmt.Sprintf("**Description**: %s\n\n", spec.Description))
 
-	if spec.Usage != "" {
-		out.WriteString(fmt.Sprintf("**Usage**: `%s`\n\n", spec.Usage))
-	} else {
-		out.WriteString(fmt.Sprintf("**Usage**: `%s %s [options]`\n\n", mainCmd, spec.Name))
-	}
-
-	if len(spec.Flags) > 0 {
-		out.WriteString("## Options\n\n")
-		out.WriteString("| Option | Description |\n")
-		out.WriteString("|--------|-------------|\n")
-		for _, f := range spec.Flags {
-			optName := "--" + f.Name
-			if f.Shorthand != "" {
-				optName = fmt.Sprintf("-%s, --%s", f.Shorthand, f.Name)
-			}
-			out.WriteString(fmt.Sprintf("| %s | %s |\n", optName, f.Description))
+	if spec.RawHelp != "" {
+		out.WriteString("```\n")
+		out.WriteString(spec.RawHelp)
+		if !strings.HasSuffix(spec.RawHelp, "\n") {
+			out.WriteString("\n")
 		}
-		out.WriteString("\n")
-	}
-
-	if len(spec.Examples) > 0 {
-		out.WriteString("## Examples\n\n")
-		for _, ex := range spec.Examples {
-			if ex.Command != "" {
-				out.WriteString(fmt.Sprintf("```\n%s %s %s\n```\n\n", mainCmd, spec.Name, ex.Command))
-			}
-		}
+		out.WriteString("```\n\n")
 	}
 }
 

@@ -617,10 +617,13 @@ type frontmatterField struct {
 
 func parseFrontmatter(content string) (title, desc string, fields []frontmatterField, hasFM bool) {
 	doc := mdutil.SplitDocument(content)
-	if !doc.HasFrontmatter || strings.TrimSpace(doc.Frontmatter) == "" {
+	if !doc.HasFrontmatter {
 		return "", "", nil, false
 	}
 	hasFM = true
+	if strings.TrimSpace(doc.Frontmatter) == "" {
+		return "", "", fields, hasFM
+	}
 	raw, err := mdutil.ParseYAMLFrontmatter(doc.Frontmatter)
 	if err != nil {
 		return "", "", []frontmatterField{{Key: "error", Value: err.Error()}}, true

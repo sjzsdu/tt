@@ -12,11 +12,11 @@ interface EditorProps {
 export function Editor({ doc, content, setContent, fm, setFm }: EditorProps) {
   return (
     <form className="editor-form" onSubmit={e => e.preventDefault()}>
-      {doc.frontmatterFields?.length ? (
+      {doc.hasFrontmatter && (
         <div className="fm-edit-panel">
           <div className="fm-edit-header">Frontmatter</div>
           <div className="fm-edit-fields">
-            {doc.frontmatterFields.map(f => (
+            {doc.frontmatterFields?.map(f => (
               <label className="fm-edit-field" key={f.Key}>
                 <span className="fm-edit-label">{f.Key}</span>
                 <Input
@@ -28,7 +28,7 @@ export function Editor({ doc, content, setContent, fm, setFm }: EditorProps) {
             ))}
           </div>
         </div>
-      ) : null}
+      )}
 
       <Input.TextArea
         className="editor-textarea"

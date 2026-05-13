@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Empty, Input, Segmented } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, UnorderedListOutlined, TagOutlined } from '@ant-design/icons';
 import type { ListResponse, MdFile } from '../types';
 import { filterFiles } from '../utils/fileSearch';
 
@@ -22,7 +22,7 @@ function FileMeta({ file }: { file: MdFile }) {
     <>
       <span>{file.Relative}</span>
       <span>{file.Size} bytes</span>
-      {file.HasFrontmatter && <span className="fm-badge">FM</span>}
+      {file.HasFrontmatter && <TagOutlined className="fm-icon" title="Has frontmatter" />}
     </>
   );
 }

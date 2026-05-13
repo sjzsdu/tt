@@ -95,26 +95,19 @@ export function App() {
     return () => ws.close();
   }, [route.file, route.mode]);
 
-  const loadedFileRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (!route.file) return;
-    if (loadedFileRef.current !== route.file) {
-      loadedFileRef.current = route.file;
-      api.document(route.file).then(next => {
-        if (loadedFileRef.current === route.file) {
-          setDoc(next);
-          setContent(next.contentText);
-          if (route.mode === 'edit') {
-            const initial: Record<string, string> = {};
-            for (const f of next.frontmatterFields || []) {
-              initial[f.Key] = f.Value;
-            }
-            setFm(initial);
-          }
+    api.document(route.file).then(next => {
+      setDoc(next);
+      setContent(next.contentText);
+      if (route.mode === 'edit') {
+        const initial: Record<string, string> = {};
+        for (const f of next.frontmatterFields || []) {
+          initial[f.Key] = f.Value;
         }
-      }).catch(e => setError(String(e)));
-    }
+        setFm(initial);
+      }
+    }).catch(e => setError(String(e)));
   }, [route.file, route.mode]);
 
   useKeyboardShortcuts({

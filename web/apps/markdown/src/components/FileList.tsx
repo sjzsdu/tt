@@ -5,6 +5,7 @@ import { Empty } from 'antd';
 import {
   FileMarkdownOutlined,
   FolderOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
 import type { MdFile } from '../types';
 
@@ -60,7 +61,7 @@ function buildTree(files: MdFile[]): DataNode[] {
               title: (
                 <span className="tree-file-title">
                   {n.file.Title || n.file.Name}
-                  {n.file.HasFrontmatter && <em>FM</em>}
+                  {n.file.HasFrontmatter && <TagOutlined className="fm-icon" />}
                 </span>
               ),
               icon: <FileMarkdownOutlined />,
@@ -131,7 +132,7 @@ export function FileList({ files, current, navigate, mode, searchActive }: FileL
             >
               <b>{f.Title || f.Name}</b>
               <span>{f.Relative}</span>
-              {f.HasFrontmatter && <em>FM</em>}
+              {f.HasFrontmatter && <TagOutlined className="fm-icon" />}
             </button>
           </li>
         ))}
