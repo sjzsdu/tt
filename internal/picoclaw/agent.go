@@ -38,8 +38,8 @@ func (rt *Runtime) Run(opt RunOptions) error {
 	if opt.Debug {
 		pclogger.SetLevel(pclogger.DEBUG)
 	}
-	if strings.TrimSpace(resolved.Model) != "" {
-		cfg.Agents.Defaults.ModelName = strings.TrimSpace(resolved.Model)
+	if str(resolved.Model) != "" {
+		cfg.Agents.Defaults.ModelName = str(resolved.Model)
 	}
 
 	provider, modelID, err := pcproviders.CreateProvider(cfg)
@@ -62,9 +62,9 @@ func (rt *Runtime) Run(opt RunOptions) error {
 		return err
 	}
 
-	if text := strings.TrimSpace(resolved.Message); text != "" {
+	if text := str(resolved.Message); text != "" {
 		var resp string
-		if strings.TrimSpace(resolved.Agent) != "" && !strings.EqualFold(strings.TrimSpace(resolved.Agent), DefaultAgent(cfg)) {
+		if str(resolved.Agent) != "" && !strings.EqualFold(str(resolved.Agent), DefaultAgent(cfg)) {
 			resp, err = loop.ProcessDirectForAgent(context.Background(), text, resolved.Session, resolved.Agent)
 		} else {
 			resp, err = loop.ProcessDirect(context.Background(), text, resolved.Session)
@@ -94,10 +94,10 @@ func prepareConfigForRun(cfg *pcconfig.Config, opt ResolvedRunOptions) *pcconfig
 	if cfg == nil {
 		return nil
 	}
-	if strings.TrimSpace(opt.Model) != "" {
-		cfg.Agents.Defaults.ModelName = strings.TrimSpace(opt.Model)
+	if str(opt.Model) != "" {
+		cfg.Agents.Defaults.ModelName = str(opt.Model)
 	}
-	selected := strings.TrimSpace(opt.Agent)
+	selected := str(opt.Agent)
 	if selected == "" {
 		selected = DefaultAgent(cfg)
 	}
@@ -105,15 +105,15 @@ func prepareConfigForRun(cfg *pcconfig.Config, opt ResolvedRunOptions) *pcconfig
 		return cfg
 	}
 	for i := range cfg.Agents.List {
-		item := cfg.Agents.List[i]
-		if !strings.EqualFold(strings.TrimSpace(item.ID), selected) {
+		item := &cfg.Agents.List[i]
+		if !strings.EqualFold(str(item.ID), selected) {
 			continue
 		}
 		item.Default = true
-		if strings.TrimSpace(opt.Model) != "" {
-			item.Model = &pcconfig.AgentModelConfig{Primary: strings.TrimSpace(opt.Model)}
+		if str(opt.Model) != "" {
+			item.Model = &pcconfig.AgentModelConfig{Primary: str(opt.Model)}
 		}
-		cfg.Agents.List = []pcconfig.AgentConfig{item}
+		cfg.Agents.List = []pcconfig.AgentConfig{*item}
 		cfg.Agents.Dispatch = nil
 		return cfg
 	}
@@ -133,7 +133,7 @@ func runInteractive(loop *pcagent.AgentLoop, sessionKey string) error {
 			}
 			return fmt.Errorf("read input failed: %w", err)
 		}
-		input := strings.TrimSpace(line)
+		input := str(line)
 		if input == "" {
 			continue
 		}

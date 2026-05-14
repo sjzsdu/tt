@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	pcpkg "github.com/sipeed/picoclaw/pkg"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
@@ -56,20 +55,20 @@ func Load(opt Options) (*Runtime, error) {
 }
 
 func resolveHome(home string) string {
-	if strings.TrimSpace(home) != "" {
-		return strings.TrimSpace(home)
+	if str(home) != "" {
+		return str(home)
 	}
-	if envHome := strings.TrimSpace(os.Getenv(pcconfig.EnvHome)); envHome != "" {
+	if envHome := str(os.Getenv(pcconfig.EnvHome)); envHome != "" {
 		return envHome
 	}
 	return pcconfig.GetHome()
 }
 
 func resolveConfigPath(home, cfg string) string {
-	if strings.TrimSpace(cfg) != "" {
-		return strings.TrimSpace(cfg)
+	if str(cfg) != "" {
+		return str(cfg)
 	}
-	if envCfg := strings.TrimSpace(os.Getenv(pcconfig.EnvConfig)); envCfg != "" {
+	if envCfg := str(os.Getenv(pcconfig.EnvConfig)); envCfg != "" {
 		return envCfg
 	}
 	return filepath.Join(home, "config.json")
@@ -87,7 +86,7 @@ func loadSkills(cfg *pcconfig.Config, home string) []pcskills.SkillInfo {
 	if cfg == nil {
 		return nil
 	}
-	builtin := strings.TrimSpace(os.Getenv(pcconfig.EnvBuiltinSkills))
+	builtin := str(os.Getenv(pcconfig.EnvBuiltinSkills))
 	loader := pcskills.NewSkillsLoader(cfg.WorkspacePath(), filepath.Join(home, "skills"), builtin)
 	return loader.ListSkills()
 }
@@ -96,14 +95,14 @@ func DefaultModel(cfg *pcconfig.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	return strings.TrimSpace(cfg.Agents.Defaults.ModelName)
+	return str(cfg.Agents.Defaults.ModelName)
 }
 
 func Workspace(cfg *pcconfig.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	ws := strings.TrimSpace(cfg.WorkspacePath())
+	ws := str(cfg.WorkspacePath())
 	if ws != "" {
 		return ws
 	}

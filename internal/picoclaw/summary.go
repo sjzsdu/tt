@@ -15,7 +15,6 @@ type Summary struct {
 	Workspace              string           `json:"workspace"`
 	DefaultAgent           string           `json:"default_agent,omitempty"`
 	DefaultModel           string           `json:"default_model"`
-	ConfiguredMainModel    string           `json:"configured_main_model,omitempty"`
 	ConfiguredDefaultModel string           `json:"configured_default_model,omitempty"`
 	Agents                 []string         `json:"agents,omitempty"`
 	Models                 []string         `json:"models"`
@@ -31,7 +30,6 @@ func (rt *Runtime) Summary() Summary {
 		Workspace:              Workspace(rt.Config),
 		DefaultAgent:           DefaultAgent(rt.Config),
 		DefaultModel:           rt.PreferredModelName(),
-		ConfiguredMainModel:    "main",
 		ConfiguredDefaultModel: ConfiguredDefaultModel(rt.Config),
 		Agents:                 agentNames(rt.Config),
 		Models:                 availableModelNames(rt.Config),
@@ -43,21 +41,21 @@ func (rt *Runtime) Summary() Summary {
 
 func DefaultAgent(cfg *pcconfig.Config) string {
 	if cfg == nil {
-		return "main"
+		return defaultAgentID
 	}
 	for _, item := range cfg.Agents.List {
 		if item.Default {
-			return strings.TrimSpace(item.ID)
+			return str(item.ID)
 		}
 	}
-	return "main"
+	return defaultAgentID
 }
 
 func (rt *Runtime) ResolveModel(name string) (*pcconfig.ModelConfig, error) {
 	if rt == nil || rt.Config == nil {
 		return nil, fmt.Errorf("picoclaw runtime not loaded")
 	}
-	model := strings.TrimSpace(name)
+	model := str(name)
 	if model == "" {
 		model = rt.PreferredModelName()
 	}
@@ -77,7 +75,7 @@ func availableModelNames(cfg *pcconfig.Config) []string {
 		if !isAvailableModel(item) {
 			continue
 		}
-		name := strings.TrimSpace(item.ModelName)
+		name := str(item.ModelName)
 		if _, ok := seen[name]; ok {
 			continue
 		}
@@ -97,9 +95,9 @@ func agentNames(cfg *pcconfig.Config) []string {
 	seen[DefaultAgent(cfg)] = struct{}{}
 	out = append(out, DefaultAgent(cfg))
 	for _, item := range cfg.Agents.List {
-		name := strings.TrimSpace(item.ID)
+		name := str(item.ID)
 		if name == "" {
-			name = strings.TrimSpace(item.Name)
+			name = str(item.Name)
 		}
 		if name == "" {
 			continue
@@ -120,7 +118,7 @@ func skillNames(rt *Runtime) []string {
 	}
 	out := make([]string, 0, len(rt.Skills))
 	for _, skill := range rt.Skills {
-		name := strings.TrimSpace(skill.Name)
+		name := str(skill.Name)
 		if name == "" {
 			continue
 		}
@@ -134,7 +132,7 @@ func ConfiguredDefaultModel(cfg *pcconfig.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	return strings.TrimSpace(cfg.Agents.Defaults.ModelName)
+	return str(cfg.Agents.Defaults.ModelName)
 }
 
 func (rt *Runtime) PreferredModelName() string {
@@ -148,33 +146,33 @@ func preferredModelName(cfg *pcconfig.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	if hasAvailableModel(cfg, "main") {
-		return "main"
+	if hasAvailableModel(cfg, defaultModel) {
+		return defaultModel
 	}
-	if name := strings.TrimSpace(cfg.Agents.Defaults.ModelName); hasAvailableModel(cfg, name) {
+	if name := str(cfg.Agents.Defaults.ModelName); hasAvailableModel(cfg, name) {
 		return name
 	}
 	for _, name := range cfg.Agents.Defaults.ModelFallbacks {
-		name = strings.TrimSpace(name)
+		name = str(name)
 		if hasAvailableModel(cfg, name) {
 			return name
 		}
 	}
 	for _, item := range cfg.ModelList {
 		if isAvailableModel(item) {
-			return strings.TrimSpace(item.ModelName)
+			return str(item.ModelName)
 		}
 	}
 	return ""
 }
 
 func hasAvailableModel(cfg *pcconfig.Config, name string) bool {
-	name = strings.TrimSpace(name)
+	name = str(name)
 	if cfg == nil || name == "" {
 		return false
 	}
 	for _, item := range cfg.ModelList {
-		if strings.TrimSpace(item.ModelName) != name {
+		if str(item.ModelName) != name {
 			continue
 		}
 		if isAvailableModel(item) {
@@ -188,8 +186,8 @@ func isAvailableModel(item *pcconfig.ModelConfig) bool {
 	if item == nil {
 		return false
 	}
-	if strings.TrimSpace(item.ModelName) == "" || strings.TrimSpace(item.Model) == "" {
+	if str(item.ModelName) == "" || str(item.Model) == "" {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(item.LastTestStatus), "ok")
+	return strings.EqualFold(str(item.LastTestStatus), "ok")
 }

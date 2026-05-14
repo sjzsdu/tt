@@ -41,19 +41,19 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 	}
 
 	resolved := ResolvedRunOptions{
-		Message: strings.TrimSpace(opt.Message),
-		Session: strings.TrimSpace(opt.Session),
-		Agent:   strings.TrimSpace(opt.Agent),
-		Model:   strings.TrimSpace(opt.Model),
+		Message: str(opt.Message),
+		Session: str(opt.Session),
+		Agent:   str(opt.Agent),
+		Model:   str(opt.Model),
 	}
 
 	if resolved.Session == "" {
-		resolved.Session = "cli:default"
+		resolved.Session = defaultSession
 	}
 
 	var agentCfg *pcconfig.AgentConfig
 	if embedded, ok := opt.findEmbeddedAgent(resolved.Agent); ok {
-		resolved.Agent = strings.TrimSpace(embedded.ID)
+		resolved.Agent = str(embedded.ID)
 	} else {
 		var err error
 		agentCfg, err = rt.resolveAgentConfig(resolved.Agent)
@@ -61,12 +61,12 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 			return ResolvedRunOptions{}, err
 		}
 		if agentCfg != nil {
-			resolved.Agent = strings.TrimSpace(agentCfg.ID)
+			resolved.Agent = str(agentCfg.ID)
 		}
 	}
 
 	if resolved.Model == "" && agentCfg != nil && agentCfg.Model != nil {
-		resolved.Model = strings.TrimSpace(agentCfg.Model.Primary)
+		resolved.Model = str(agentCfg.Model.Primary)
 	}
 	if resolved.Model == "" {
 		resolved.Model = rt.PreferredModelName()
@@ -75,7 +75,7 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 		return ResolvedRunOptions{}, fmt.Errorf("no model specified and no default model configured")
 	}
 
-	if opt.Model == "" && strings.TrimSpace(opt.Agent) == "" {
+	if opt.Model == "" && str(opt.Agent) == "" {
 		resolved.Model = rt.safeModelForAgent(resolved.Model)
 	}
 
@@ -91,12 +91,12 @@ func (opt RunOptions) embeddedAgents() []EmbeddedAgent {
 }
 
 func (opt RunOptions) findEmbeddedAgent(id string) (EmbeddedAgent, bool) {
-	want := strings.TrimSpace(id)
+	want := str(id)
 	if want == "" {
 		return EmbeddedAgent{}, false
 	}
 	for _, agent := range opt.embeddedAgents() {
-		if strings.EqualFold(strings.TrimSpace(agent.ID), want) {
+		if strings.EqualFold(str(agent.ID), want) {
 			return agent, true
 		}
 	}
@@ -104,7 +104,7 @@ func (opt RunOptions) findEmbeddedAgent(id string) (EmbeddedAgent, bool) {
 }
 
 func (rt *Runtime) safeModelForAgent(name string) string {
-	model := strings.TrimSpace(name)
+	model := str(name)
 	if model == "" {
 		return model
 	}
@@ -116,7 +116,7 @@ func (rt *Runtime) safeModelForAgent(name string) string {
 	if protocol != "ollama" {
 		return model
 	}
-	fallback := strings.TrimSpace(rt.PreferredModelName())
+	fallback := str(rt.PreferredModelName())
 	if fallback == "" || strings.EqualFold(fallback, model) {
 		return model
 	}
@@ -135,16 +135,16 @@ func (rt *Runtime) resolveAgentConfig(name string) (*pcconfig.AgentConfig, error
 	if rt == nil || rt.Config == nil {
 		return nil, fmt.Errorf("picoclaw runtime not loaded")
 	}
-	want := strings.TrimSpace(name)
+	want := str(name)
 	if want == "" {
 		return defaultAgentConfig(rt.Config), nil
 	}
 	for i := range rt.Config.Agents.List {
 		item := &rt.Config.Agents.List[i]
-		if strings.EqualFold(strings.TrimSpace(item.ID), want) {
+		if strings.EqualFold(str(item.ID), want) {
 			return item, nil
 		}
-		if strings.EqualFold(strings.TrimSpace(item.Name), want) {
+		if strings.EqualFold(str(item.Name), want) {
 			return item, nil
 		}
 	}
@@ -156,7 +156,7 @@ func defaultAgentConfig(cfg *pcconfig.Config) *pcconfig.AgentConfig {
 		return nil
 	}
 	for i := range cfg.Agents.List {
-		if strings.EqualFold(strings.TrimSpace(cfg.Agents.List[i].ID), DefaultAgent(cfg)) {
+		if strings.EqualFold(str(cfg.Agents.List[i].ID), DefaultAgent(cfg)) {
 			return &cfg.Agents.List[i]
 		}
 	}

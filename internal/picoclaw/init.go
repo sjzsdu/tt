@@ -7,21 +7,22 @@ import (
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
 	pcbus "github.com/sipeed/picoclaw/pkg/bus"
+	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pclogger "github.com/sipeed/picoclaw/pkg/logger"
 	pcproviders "github.com/sipeed/picoclaw/pkg/providers"
 )
 
-type DirectRunner struct {
-	rt             *Runtime
-	defaultAgent   string
+type initRuntimeResult struct {
+	cfg            *pcconfig.Config
 	modelOverride  string
+	defaultAgent   string
 	msgBus         *pcbus.MessageBus
 	loop           *pcagent.AgentLoop
 	closeProvider  func()
 	embeddedAgents []EmbeddedAgent
 }
 
-func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
+func (rt *Runtime) initRuntime(opt RunOptions) (*initRuntimeResult, error) {
 	if rt == nil || rt.Config == nil {
 		return nil, fmt.Errorf("picoclaw runtime not loaded")
 	}
@@ -37,6 +38,7 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	if err := applyEmbeddedAgentConfigs(cfg, embeddedAgents, resolved.Model); err != nil {
 		return nil, err
 	}
+
 	pclogger.ConfigureFromEnv()
 	if opt.Quiet && !opt.Debug {
 		pclogger.DisableConsole()
@@ -44,6 +46,7 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	if opt.Debug {
 		pclogger.SetLevel(pclogger.DEBUG)
 	}
+
 	if str(resolved.Model) != "" {
 		cfg.Agents.Defaults.ModelName = str(resolved.Model)
 	}
@@ -52,12 +55,13 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create picoclaw provider failed: %w", err)
 	}
+	if modelID != "" {
+		cfg.Agents.Defaults.ModelName = modelID
+	}
+
 	closeProvider := func() {}
 	if stateful, ok := provider.(pcproviders.StatefulProvider); ok {
 		closeProvider = stateful.Close
-	}
-	if modelID != "" {
-		cfg.Agents.Defaults.ModelName = modelID
 	}
 
 	msgBus := pcbus.NewMessageBus()
@@ -69,10 +73,10 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 		return nil, err
 	}
 
-	return &DirectRunner{
-		rt:             rt,
-		defaultAgent:   DefaultAgent(cfg),
+	return &initRuntimeResult{
+		cfg:            cfg,
 		modelOverride:  str(opt.Model),
+		defaultAgent:   DefaultAgent(cfg),
 		msgBus:         msgBus,
 		loop:           loop,
 		closeProvider:  closeProvider,
@@ -80,51 +84,45 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	}, nil
 }
 
-func (dr *DirectRunner) Close() {
-	if dr == nil {
-		return
-	}
-	if dr.loop != nil {
-		dr.loop.Close()
-		dr.loop = nil
-	}
-	if dr.msgBus != nil {
-		dr.msgBus.Close()
-		dr.msgBus = nil
-	}
-	if dr.closeProvider != nil {
-		dr.closeProvider()
-		dr.closeProvider = nil
-	}
+func (r *initRuntimeResult) isClosed() bool {
+	return r == nil || r.loop == nil
 }
 
-func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
-	if dr == nil || dr.rt == nil || dr.loop == nil {
-		return "", fmt.Errorf("picoclaw direct runner not initialized")
+func (r *initRuntimeResult) processDirect(ctx context.Context, message, session, agentID string) (string, error) {
+	if r.isClosed() {
+		return "", fmt.Errorf("picoclaw runtime not initialized")
 	}
 
-	if str(opt.Model) == "" {
-		opt.Model = dr.modelOverride
-	}
-	if len(opt.EmbeddedAgents) == 0 && len(dr.embeddedAgents) > 0 {
-		opt.EmbeddedAgents = dr.embeddedAgents
-	}
-	resolved, err := dr.rt.ResolveRunOptions(opt)
-	if err != nil {
-		return "", err
-	}
-
-	if str(resolved.Agent) != "" && !strings.EqualFold(str(resolved.Agent), dr.defaultAgent) {
-		resp, err := dr.loop.ProcessDirectForAgent(context.Background(), resolved.Message, resolved.Session, resolved.Agent)
+	text := str(message)
+	if str(agentID) != "" && !strings.EqualFold(str(agentID), r.defaultAgent) {
+		resp, err := r.loop.ProcessDirectForAgent(ctx, text, session, agentID)
 		if err != nil {
 			return "", fmt.Errorf("process picoclaw message failed: %w", err)
 		}
 		return resp, nil
 	}
 
-	resp, err := dr.loop.ProcessDirect(context.Background(), resolved.Message, resolved.Session)
+	resp, err := r.loop.ProcessDirect(ctx, text, session)
 	if err != nil {
 		return "", fmt.Errorf("process picoclaw message failed: %w", err)
 	}
 	return resp, nil
+}
+
+func (r *initRuntimeResult) close() {
+	if r == nil {
+		return
+	}
+	if r.loop != nil {
+		r.loop.Close()
+		r.loop = nil
+	}
+	if r.msgBus != nil {
+		r.msgBus.Close()
+		r.msgBus = nil
+	}
+	if r.closeProvider != nil {
+		r.closeProvider()
+		r.closeProvider = nil
+	}
 }

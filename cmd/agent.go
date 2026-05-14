@@ -81,6 +81,9 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		cli.Picoclaw.Config = agentConfig
 	}
 	merged = ttconfig.Merge(merged, cli)
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
 
 	rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
@@ -89,7 +92,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		TTSources: loaded.Sources,
 	})
 	if err != nil {
-		return err
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 
 	debug := agentDebug
@@ -97,11 +100,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		debug = *merged.Agent.Debug
 	}
 
-	return rt.Run(pcwrap.RunOptions{
+	if err := rt.Run(pcwrap.RunOptions{
 		Message: msg,
 		Session: merged.Agent.Session,
 		Agent:   merged.Agent.Agent,
 		Model:   merged.Agent.Model,
 		Debug:   debug,
-	})
+		Quiet:   !debug,
+	}); err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	return nil
 }
