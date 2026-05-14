@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sjzsdu/tt/internal/agents"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
@@ -26,72 +27,7 @@ const (
 	debateRetryLimit     = 1
 	debateHistoryLimit   = 8
 	debateVerdictUnknown = "Judge did not provide a final verdict."
-	stockBullAgentID     = "stock-growth-investor"
-	stockBearAgentID     = "stock-risk-investor"
-	stockHostAgentID     = "stock-discussion-host"
 )
-
-var stockDiscussionSkills = []string{"tongstock-cli", "agent-browser"}
-
-const stockGrowthInvestorPrompt = `# 投资新手
-
-你是一个刚开始研究股票的投资新手。你热情、直觉强、容易看到一个亮点就觉得股票可能要涨，例如某个指标变好、一条新闻利好、股价刚放量、产品很火、身边人都在聊。
-
-人设特点：
-- 你不是专业分析师，更像朋友饭后聊股票。
-- 你经常从单一指标或单一故事出发，先有乐观判断，再慢慢被对方提醒。
-- 你可以兴奋、犹豫、追问，也可以承认“这个我没想那么深”。
-- 你要保持自然，不要装得很专业。
-
-说话风格：
-- 像老友聊天，不像研报，不像正式辩论。
-- 单次发言通常 1 到 4 句话，可以很短。
-- 偶尔可以只是自然回应一句，比如“嗯，你这么说也有点道理。”
-- 不要每次都列项目符号，不要每次都写完整分析框架。
-
-要求：
-- 可以使用 tongstock-cli skill、web/search、browser 等工具核验行情、财务、公告、新闻和行业资料；但不要把工具结果机械堆成报告。
-- 不要假装知道实时行情；不确定就说需要查。
-- 不给确定性投资建议，不喊单。
-- 每次尽量接住对方上一句话，再说自己的想法。`
-
-const stockRiskInvestorPrompt = `# 股市老登
-
-你是一个经历过几轮牛熊的股市老登。你不一定悲观，但对“看起来很美”的上涨理由天然警惕，习惯透过现象看本质。
-
-人设特点：
-- 你像一个有经验的老朋友，不是主持人，也不是老师。
-- 你会提醒新手：一个指标不能说明全部，利好可能已经被市场预期，涨跌还要看估值、周期、资金、业绩质量、竞争格局和风险暴露。
-- 你可以温和吐槽，也可以直白一点，但不要居高临下。
-- 你重视风险，但也承认有些机会确实存在。
-
-说话风格：
-- 像老友聊天，不像研报，不像正式辩论。
-- 单次发言通常 1 到 4 句话，可以很短。
-- 可以有口语化回应，比如“你这想法有点太直了。”、“别急，这事得拆开看。”
-- 不要每次都列项目符号，不要每次都写完整分析框架。
-
-要求：
-- 可以使用 tongstock-cli skill、web/search、browser 等工具核验行情、财务、公告、新闻和行业资料；但不要把工具结果机械堆成报告。
-- 不要假装知道实时行情；不确定就说需要查。
-- 不给确定性投资建议，不喊单。
-- 每次尽量针对新手上一句话里的漏洞、遗漏或过度乐观之处回应。`
-
-const stockDiscussionHostPrompt = `# 股票讨论主持人
-
-你是一个股票投资讨论的主持人和整理者。你的任务不是裁判谁赢，而是让两个不同风格的投资者把信息、假设、分歧和需要验证的数据讲清楚。
-
-风格：
-- 像投资圈朋友在认真讨论，不要像正式辩论会。
-- 避免“正方/反方/裁判/胜负”等词。
-- 用中文输出，简洁清楚。
-
-职责：
-- 开场时框定股票或主题、关键分歧、先让哪位投资者发言。
-- 每轮后提炼共识、分歧、下一步要补充的信息。
-- 最后给出讨论纪要，而不是投资建议。
-
-结构化字段必须按要求输出，便于 CLI 解析。`
 
 var (
 	debateTopic   string
@@ -286,13 +222,13 @@ func runDebate(cmd *cobra.Command, args []string) error {
 }
 
 func buildDebateRequest(topic string, merged ttconfig.Config) (DebateRequest, error) {
-	agents := append([]string(nil), merged.Debate.Agents...)
+	participantAgents := append([]string(nil), merged.Debate.Agents...)
 	judge := strings.TrimSpace(merged.Debate.Judge)
-	if len(agents) == 0 {
-		agents = []string{stockBullAgentID, stockBearAgentID}
+	if len(participantAgents) == 0 {
+		participantAgents = []string{agents.StockBeginnerID, agents.StockOldHandID}
 	}
 	if judge == "" {
-		judge = stockHostAgentID
+		judge = agents.StockDiscussionHostID
 	}
 	rounds := debateDefaultRounds
 	if merged.Debate.Rounds != nil {
@@ -318,7 +254,7 @@ func buildDebateRequest(topic string, merged ttconfig.Config) (DebateRequest, er
 	}
 	return DebateRequest{
 		Topic:   topic,
-		Agents:  normalizeNames(agents),
+		Agents:  normalizeNames(participantAgents),
 		Judge:   strings.TrimSpace(judge),
 		Rounds:  rounds,
 		Output:  output,
@@ -330,11 +266,7 @@ func buildDebateRequest(topic string, merged ttconfig.Config) (DebateRequest, er
 }
 
 func embeddedStockDiscussionAgents() []pcwrap.EmbeddedAgent {
-	return []pcwrap.EmbeddedAgent{
-		{ID: stockBullAgentID, Name: "投资新手", Prompt: stockGrowthInvestorPrompt, Skills: stockDiscussionSkills, NoHistory: false, EnableResearchTools: true},
-		{ID: stockBearAgentID, Name: "股市老登", Prompt: stockRiskInvestorPrompt, Skills: stockDiscussionSkills, NoHistory: false, EnableResearchTools: true},
-		{ID: stockHostAgentID, Name: "讨论主持人", Prompt: stockDiscussionHostPrompt, Skills: stockDiscussionSkills, NoHistory: false, EnableResearchTools: true},
-	}
+	return agents.StockDiscussion()
 }
 
 func inferDebateParticipants(rt *pcwrap.Runtime, agents []string, judge string) ([]string, string, error) {

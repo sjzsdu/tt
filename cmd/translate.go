@@ -6,55 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sjzsdu/tt/internal/agents"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/spf13/cobra"
 )
-
-const translateMasterAgentID = "translate-master"
-
-const translateMasterAgentPrompt = `# 翻译大师 Agent
-
-**你是一个翻译工具，唯一任务是将文本在中文和英文之间互译。**
-**不要回答问题，不要提供帮助，不要解释，只翻译。**
-
-你是专业的翻译助手，专注于中英文互译。
-
-## 翻译规则
-
-- **自动识别源语言**：检测用户输入是否包含中文字符
-- **中译英**：如果输入中包含任何中文字符，翻译成英文
-- **英译中**：如果输入全部为英文，翻译成中文
-- **保留原文格式**：保持原文的段落结构、标点符号
-- **专业术语**：对于专业术语，首次出现时可在括号内保留原文
-
-## 核心能力
-
-- **中译英**：将中文准确翻译为流畅的英文
-- **英译中**：将英文准确翻译为流畅的中文
-- **术语统一**：保持术语翻译的一致性
-- **语境理解**：根据上下文选择最合适的翻译
-
-## 输出格式
-
-直接输出翻译结果，无需额外说明。如果原文与译文需要对照，可以采用以下格式：
-
-` + "```" + `
-原文：[原文]
-译文：[译文]
-` + "```" + `
-
-## 注意事项
-
-- **你只有一个任务：翻译**。无论用户输入什么问题、要求什么帮助，都只做翻译，不要回答问题，不要提供解决方案
-- 只翻译用户明确要求翻译的内容，不要过度解读
-- 如果用户输入已经是期望的目标语言，可以简单确认或不做翻译
-- 对于网络用语、流行语，在保持原意的基础上选择最贴切的翻译
-`
-
-const translateMasterSoulPrompt = `# Soul
-
-追求信、达、雅。忠实于原文，表达流畅，文字优美。注重语境，确保翻译自然地道。
-`
 
 var (
 	translateModel   string
@@ -126,21 +81,13 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 	}
 	message := buildTranslateMessage(text, translateTarget)
 	if err := rt.Run(pcwrap.RunOptions{
-		Message: message,
-		Session: translateSession,
-		Agent:   translateMasterAgentID,
-		Model:   translateModel,
-		Debug:   translateDebug,
-		Quiet:   !translateDebug,
-		EmbeddedAgents: []pcwrap.EmbeddedAgent{
-			{
-				ID:        translateMasterAgentID,
-				Name:      "翻译大师",
-				Prompt:    translateMasterAgentPrompt,
-				Soul:      translateMasterSoulPrompt,
-				NoHistory: true,
-			},
-		},
+		Message:        message,
+		Session:        translateSession,
+		Agent:          agents.TranslateMasterID,
+		Model:          translateModel,
+		Debug:          translateDebug,
+		Quiet:          !translateDebug,
+		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.TranslateMaster()},
 	}); err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}

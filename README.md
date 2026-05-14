@@ -221,6 +221,8 @@ tt debate --topic "英伟达估值是否还能支撑上涨" --rounds 4
 tt debate "比亚迪现在是机会还是风险" --out debates/byd.json
 ```
 
+The embedded agent definitions live in `internal/agents/embedded/*.md` as Markdown files with YAML frontmatter. The `internal/agents` package loads them into Picoclaw `EmbeddedAgent` values so future embedded agents can be added without hardcoding large prompts in command files.
+
 The embedded stock agents are configured with `tongstock-cli` and `agent-browser` skills, and research tools such as web/search/fetch/exec are enabled in the cloned Picoclaw runtime config. This command depends on Picoclaw config and models, defaulting to `~/.picoclaw/config.json` unless overridden.
 
 Flags:
