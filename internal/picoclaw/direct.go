@@ -12,12 +12,13 @@ import (
 )
 
 type DirectRunner struct {
-	rt            *Runtime
-	defaultAgent  string
-	modelOverride string
-	msgBus        *pcbus.MessageBus
-	loop          *pcagent.AgentLoop
-	closeProvider func()
+	rt             *Runtime
+	defaultAgent   string
+	modelOverride  string
+	msgBus         *pcbus.MessageBus
+	loop           *pcagent.AgentLoop
+	closeProvider  func()
+	embeddedAgents []EmbeddedAgent
 }
 
 func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
@@ -32,7 +33,8 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 
 	cfg := cloneConfig(rt.Config)
 	cfg = prepareConfigForRun(cfg, resolved)
-	if err := applyEmbeddedAgentConfig(cfg, opt.EmbeddedAgent, resolved.Model); err != nil {
+	embeddedAgents := opt.embeddedAgents()
+	if err := applyEmbeddedAgentConfigs(cfg, embeddedAgents, resolved.Model); err != nil {
 		return nil, err
 	}
 	pclogger.ConfigureFromEnv()
@@ -60,7 +62,7 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 
 	msgBus := pcbus.NewMessageBus()
 	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
-	if err := registerEmbeddedAgentPrompt(loop, opt.EmbeddedAgent); err != nil {
+	if err := registerEmbeddedAgentPrompts(loop, embeddedAgents); err != nil {
 		loop.Close()
 		msgBus.Close()
 		closeProvider()
@@ -68,12 +70,13 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	}
 
 	return &DirectRunner{
-		rt:            rt,
-		defaultAgent:  DefaultAgent(cfg),
-		modelOverride: strings.TrimSpace(opt.Model),
-		msgBus:        msgBus,
-		loop:          loop,
-		closeProvider: closeProvider,
+		rt:             rt,
+		defaultAgent:   DefaultAgent(cfg),
+		modelOverride:  strings.TrimSpace(opt.Model),
+		msgBus:         msgBus,
+		loop:           loop,
+		closeProvider:  closeProvider,
+		embeddedAgents: embeddedAgents,
 	}, nil
 }
 
@@ -102,6 +105,9 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 
 	if strings.TrimSpace(opt.Model) == "" {
 		opt.Model = dr.modelOverride
+	}
+	if len(opt.EmbeddedAgents) == 0 && len(dr.embeddedAgents) > 0 {
+		opt.EmbeddedAgents = dr.embeddedAgents
 	}
 	resolved, err := dr.rt.ResolveRunOptions(opt)
 	if err != nil {

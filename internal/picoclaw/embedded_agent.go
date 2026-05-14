@@ -68,8 +68,32 @@ func applyEmbeddedAgentConfig(cfg *pcconfig.Config, agent *EmbeddedAgent, model 
 		Name:      name,
 		Workspace: workspace,
 		Model:     agentModel,
+		Skills:    append([]string(nil), agent.Skills...),
 		NoHistory: agent.NoHistory,
 	})
+	if agent.EnableResearchTools {
+		enableResearchTools(cfg)
+	}
+	return nil
+}
+
+func enableResearchTools(cfg *pcconfig.Config) {
+	if cfg == nil {
+		return
+	}
+	cfg.Tools.Skills.Enabled = true
+	cfg.Tools.FindSkills.Enabled = true
+	cfg.Tools.Web.Enabled = true
+	cfg.Tools.WebFetch.Enabled = true
+	cfg.Tools.Exec.Enabled = true
+}
+
+func applyEmbeddedAgentConfigs(cfg *pcconfig.Config, agents []EmbeddedAgent, model string) error {
+	for i := range agents {
+		if err := applyEmbeddedAgentConfig(cfg, &agents[i], model); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -93,6 +117,15 @@ func registerEmbeddedAgentPrompt(loop *pcagent.AgentLoop, agent *EmbeddedAgent) 
 		name:    strings.TrimSpace(agent.Name),
 		content: content,
 	})
+}
+
+func registerEmbeddedAgentPrompts(loop *pcagent.AgentLoop, agents []EmbeddedAgent) error {
+	for i := range agents {
+		if err := registerEmbeddedAgentPrompt(loop, &agents[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func removeAgentByID(cfg *pcconfig.Config, id string) {

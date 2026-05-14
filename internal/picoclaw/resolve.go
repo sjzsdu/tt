@@ -9,21 +9,23 @@ import (
 )
 
 type RunOptions struct {
-	Message       string
-	Session       string
-	Agent         string
-	Model         string
-	Debug         bool
-	Quiet         bool
-	EmbeddedAgent *EmbeddedAgent
+	Message        string
+	Session        string
+	Agent          string
+	Model          string
+	Debug          bool
+	Quiet          bool
+	EmbeddedAgents []EmbeddedAgent
 }
 
 type EmbeddedAgent struct {
-	ID        string
-	Name      string
-	Prompt    string
-	Soul      string
-	NoHistory bool
+	ID                  string
+	Name                string
+	Prompt              string
+	Soul                string
+	Skills              []string
+	NoHistory           bool
+	EnableResearchTools bool
 }
 
 type ResolvedRunOptions struct {
@@ -50,8 +52,8 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 	}
 
 	var agentCfg *pcconfig.AgentConfig
-	if opt.EmbeddedAgent != nil && strings.EqualFold(strings.TrimSpace(opt.EmbeddedAgent.ID), resolved.Agent) {
-		resolved.Agent = strings.TrimSpace(opt.EmbeddedAgent.ID)
+	if embedded, ok := opt.findEmbeddedAgent(resolved.Agent); ok {
+		resolved.Agent = strings.TrimSpace(embedded.ID)
 	} else {
 		var err error
 		agentCfg, err = rt.resolveAgentConfig(resolved.Agent)
@@ -82,6 +84,23 @@ func (rt *Runtime) ResolveRunOptions(opt RunOptions) (ResolvedRunOptions, error)
 	}
 
 	return resolved, nil
+}
+
+func (opt RunOptions) embeddedAgents() []EmbeddedAgent {
+	return append([]EmbeddedAgent(nil), opt.EmbeddedAgents...)
+}
+
+func (opt RunOptions) findEmbeddedAgent(id string) (EmbeddedAgent, bool) {
+	want := strings.TrimSpace(id)
+	if want == "" {
+		return EmbeddedAgent{}, false
+	}
+	for _, agent := range opt.embeddedAgents() {
+		if strings.EqualFold(strings.TrimSpace(agent.ID), want) {
+			return agent, true
+		}
+	}
+	return EmbeddedAgent{}, false
 }
 
 func (rt *Runtime) safeModelForAgent(name string) string {
