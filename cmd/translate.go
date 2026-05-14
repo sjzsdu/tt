@@ -111,6 +111,9 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("picoclaw-config") {
 		merged.Picoclaw.Config = translateConfig
 	}
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
 
 	rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
@@ -119,10 +122,10 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 		TTSources: loaded.Sources,
 	})
 	if err != nil {
-		return err
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	message := buildTranslateMessage(text, translateTarget)
-	return rt.Run(pcwrap.RunOptions{
+	if err := rt.Run(pcwrap.RunOptions{
 		Message: message,
 		Session: translateSession,
 		Agent:   translateMasterAgentID,
@@ -138,7 +141,10 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 				NoHistory: true,
 			},
 		},
-	})
+	}); err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	return nil
 }
 
 func collectTranslateInput(cmd *cobra.Command, args []string) (string, error) {

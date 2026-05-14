@@ -9,7 +9,7 @@
 - Local web UI for conversation-style JSON transcripts.
 - Local web UI for skill Markdown files with frontmatter support.
 - Embedded Picoclaw agent runtime command.
-- Structured multi-agent debate command.
+- Embedded stock investor discussion command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
 - Directory mirroring for config sharing.
 - Global and project-level JSON configuration.
@@ -67,7 +67,7 @@ Available commands:
 | `cmd2skill` | Convert CLI commands into skill files. |
 | `config` | Inspect and initialize `tt` configuration. |
 | `conversation` | Browse conversation-like JSON in a local web UI. |
-| `debate` | Run a structured multi-agent debate on a topic. |
+| `debate` | Run a stock bull/bear investor discussion and save the full JSON transcript. |
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
 | `mirror` | Mirror selected files from a source directory. |
@@ -191,27 +191,47 @@ tt agent info
 tt agent info --picoclaw-home ~/.picoclaw-dev
 ```
 
-### `tt debate`
+### `tt translate`
 
-Run two debater agents and one judge agent through multiple rounds, then render the transcript as text or JSON.
+Translate Chinese and English text using the embedded Picoclaw translate-master agent. This command depends on Picoclaw config and models, defaulting to `~/.picoclaw/config.json` unless overridden.
 
 ```bash
-tt debate "Remote work improves team productivity"
-tt debate --topic "AI should replace code review" --agents alpha,beta --judge referee
-tt debate --topic "AI should replace code review" --agents alpha --agents beta --judge referee
-tt debate "Should startups stay fully remote" --rounds 4 --output json --session cli:debate
-tt debate "AI should replace code review" --output json --out debates/review.json
+tt translate "Hello, world"
+echo "你好，世界" | tt translate
+tt translate --target ja "你好，世界"
+tt translate --model gpt-5.4 "Improve developer productivity"
 ```
 
 Flags:
 
-- `-t, --topic string`: debate topic. Positional args are also supported.
-- `--agents strings`: two debater agent ids or names.
-- `--judge string`: agent id or name for the judge.
-- `-r, --rounds int`: maximum number of debate rounds, default `3`.
-- `-o, --output string`: output format, `text` or `json`, default `text`.
-- `--out string`: write debate result to a file. JSON output auto-saves to `./debates` when omitted.
-- `-s, --session string`: session key prefix, default `cli:debate`.
+- `--target string`: target language override, such as `zh`, `en`, `ja`, `ko`, `fr`.
+- `--model string`: model override. Defaults to the Picoclaw default model.
+- `-s, --session string`: session key, default `cli:translate`.
+- `--picoclaw-home string`: override `PICOCLAW_HOME` for this run.
+- `--picoclaw-config string`: override `PICOCLAW_CONFIG` for this run.
+- `-d, --debug`: enable debug logging.
+
+### `tt debate`
+
+Run a stock-focused discussion between embedded investor agents. The default participants are a growth-oriented investor and a risk-oriented investor. Their turns are printed as soon as each model call completes, while the full structured result is always saved as JSON under `./debates` unless `--out` is provided.
+
+```bash
+tt debate "贵州茅台接下来半年怎么看"
+tt debate --topic "英伟达估值是否还能支撑上涨" --rounds 4
+tt debate "比亚迪现在是机会还是风险" --out debates/byd.json
+```
+
+The embedded stock agents are configured with `tongstock-cli` and `agent-browser` skills, and research tools such as web/search/fetch/exec are enabled in the cloned Picoclaw runtime config. This command depends on Picoclaw config and models, defaulting to `~/.picoclaw/config.json` unless overridden.
+
+Flags:
+
+- `-t, --topic string`: stock discussion topic. Positional args are also supported.
+- `--agents strings`: optional two investor agent ids or names. Defaults to embedded growth/risk investors.
+- `--judge string`: optional host agent id or name. Defaults to embedded stock discussion host for structured archival metadata.
+- `-r, --rounds int`: maximum number of visible investor turns, default `3`.
+- `-o, --output string`: output format, `text` or `json`, default `text`. Text mode streams visible investor turns; JSON mode also prints the final JSON.
+- `--out string`: write full JSON result to a file. When omitted, JSON is auto-saved to `./debates/stock-discussion-<timestamp>.json`.
+- `-s, --session string`: session key prefix, default `cli:debate` unless configured.
 - `--model string`: model override for all participants.
 - `--picoclaw-home string`: override `PICOCLAW_HOME` for this run.
 - `--picoclaw-config string`: override `PICOCLAW_CONFIG` for this run.
@@ -324,8 +344,6 @@ Example:
     "debug": false
   },
   "debate": {
-    "agents": ["alpha", "beta"],
-    "judge": "referee",
     "rounds": 3,
     "output": "text"
   },

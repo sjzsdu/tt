@@ -70,7 +70,7 @@ func initTTConfigFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create tt config directory failed: %w", err)
 	}
-	content := "{\n  \"agent\": {\n    \"session\": \"cli:default\"\n  },\n  \"conversation\": {\n    \"port\": 9680\n  }\n}\n"
+	content := "{\n  \"picoclaw\": {\n    \"home\": \"\",\n    \"config\": \"\"\n  },\n  \"agent\": {\n    \"session\": \"cli:default\"\n  },\n  \"debate\": {\n    \"rounds\": 3,\n    \"output\": \"text\"\n  },\n  \"conversation\": {\n    \"port\": 9680\n  }\n}\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write tt config failed: %w", err)
 	}

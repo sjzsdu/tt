@@ -231,6 +231,9 @@ func runDebate(cmd *cobra.Command, args []string) error {
 	if !cmd.Flags().Changed("output") {
 		merged.Debate.Output = debateDefaultOutput
 	}
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
 
 	rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
@@ -239,7 +242,7 @@ func runDebate(cmd *cobra.Command, args []string) error {
 		TTSources: loaded.Sources,
 	})
 	if err != nil {
-		return err
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 
 	req, err := buildDebateRequest(topic, merged)
@@ -247,7 +250,7 @@ func runDebate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := validateDebateRequest(req, rt); err != nil {
-		return err
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
@@ -258,7 +261,7 @@ func runDebate(cmd *cobra.Command, args []string) error {
 		EmbeddedAgents: embeddedStockDiscussionAgents(),
 	})
 	if err != nil {
-		return err
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	defer runner.Close()
 
@@ -267,7 +270,7 @@ func runDebate(cmd *cobra.Command, args []string) error {
 		return renderErr
 	}
 	if runErr != nil {
-		return runErr
+		return picoclawUnavailableError(runErr, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	return nil
 }
@@ -366,7 +369,7 @@ func validateDebateRequest(req DebateRequest, rt *pcwrap.Runtime) error {
 	embeddedAgents := embeddedStockDiscussionAgents()
 	for _, name := range participants {
 		if _, err := rt.ResolveRunOptions(pcwrap.RunOptions{Session: req.Session, Agent: name, Model: req.Model, EmbeddedAgents: embeddedAgents}); err != nil {
-			return fmt.Errorf("agent %q not found; available agents: %v", name, availableAgents)
+			return fmt.Errorf("resolve participant %q failed; available configured agents: %v: %w", name, availableAgents, err)
 		}
 	}
 	return nil
