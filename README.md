@@ -9,7 +9,7 @@
 - Local web UI for conversation-style JSON transcripts.
 - Local web UI for skill Markdown files with frontmatter support.
 - Embedded Picoclaw agent runtime command.
-- Embedded stock investor discussion command with streamed turns and JSON archive.
+- Embedded casual stock investor chat command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
 - Directory mirroring for config sharing.
 - Global and project-level JSON configuration.
@@ -67,7 +67,7 @@ Available commands:
 | `cmd2skill` | Convert CLI commands into skill files. |
 | `config` | Inspect and initialize `tt` configuration. |
 | `conversation` | Browse conversation-like JSON in a local web UI. |
-| `debate` | Run a stock bull/bear investor discussion and save the full JSON transcript. |
+| `debate` | Run a casual stock chat between an investing beginner and a market old hand, then save the full JSON transcript. |
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
 | `mirror` | Mirror selected files from a source directory. |
@@ -213,7 +213,7 @@ Flags:
 
 ### `tt debate`
 
-Run a stock-focused discussion between embedded investor agents. The default participants are a growth-oriented investor and a risk-oriented investor. Their turns are printed as soon as each model call completes, while the full structured result is always saved as JSON under `./debates` unless `--out` is provided.
+Run a stock-focused casual chat between embedded investor agents. The default participants are an optimistic investing beginner and an experienced market old hand. Their turns are printed as soon as each model call completes, while the full structured result is always saved as JSON under `./debates` unless `--out` is provided.
 
 ```bash
 tt debate "贵州茅台接下来半年怎么看"
@@ -226,7 +226,7 @@ The embedded stock agents are configured with `tongstock-cli` and `agent-browser
 Flags:
 
 - `-t, --topic string`: stock discussion topic. Positional args are also supported.
-- `--agents strings`: optional two investor agent ids or names. Defaults to embedded growth/risk investors.
+- `--agents strings`: optional two investor agent ids or names. Defaults to embedded investing beginner / market old hand agents.
 - `--judge string`: optional host agent id or name. Defaults to embedded stock discussion host for structured archival metadata.
 - `-r, --rounds int`: maximum number of visible investor turns, default `3`.
 - `-o, --output string`: output format, `text` or `json`, default `text`. Text mode streams visible investor turns; JSON mode also prints the final JSON.
