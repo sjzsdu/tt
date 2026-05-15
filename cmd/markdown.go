@@ -41,9 +41,10 @@ var (
 )
 
 var markdownCmd = &cobra.Command{
-	Use:   "markdown [files...]",
-	Short: "Browse markdown files in a local web UI",
-	Long:  "Start a local web service for browsing markdown files in the current working tree.",
+	Use:     "markdown [files...]",
+	Aliases: []string{"md"},
+	Short:   "Browse markdown files in a local web UI",
+	Long:    "Start a local web service for browsing markdown files in the current working tree.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		loaded, err := loadTTConfig()
 		if err != nil {
