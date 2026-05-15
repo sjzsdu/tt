@@ -29,6 +29,7 @@ var (
 	mdContent     string
 	mdContentOnly bool
 	mdPatterns    []string
+	mdInitialPath string
 
 	mdServer *http.Server
 	mdMu     sync.Mutex
@@ -160,7 +161,11 @@ func runMarkdownServer() error {
 			if err := initWatcher(); err != nil {
 				fmt.Printf("watcher init warning: %v\n", err)
 			}
-			go openBrowser(fmt.Sprintf("http://localhost:%d", port))
+			browserURL := fmt.Sprintf("http://localhost:%d", port)
+			if mdInitialPath != "" {
+				browserURL += mdInitialPath
+			}
+			go openBrowser(browserURL)
 			quit := make(chan os.Signal, 1)
 			signal.Notify(quit, os.Interrupt)
 			<-quit

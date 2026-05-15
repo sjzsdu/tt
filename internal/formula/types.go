@@ -36,6 +36,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -683,6 +684,17 @@ func ParseWaitsFor(value string) *WaitsForSpec {
 	}
 
 	return nil
+}
+
+func (f *Formula) RequiredVarNames() []string {
+	var names []string
+	for name, def := range f.Vars {
+		if def != nil && def.Required {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Validate checks the formula for structural errors.

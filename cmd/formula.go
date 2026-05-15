@@ -15,10 +15,12 @@ import (
 )
 
 var (
-	formulaDir    string
-	formulaVars   []string
-	formulaOutput string
-	formulaTitle  string
+	formulaDir      string
+	formulaVars     []string
+	formulaOutput   string
+	formulaTitle    string
+	formulaMarkdown bool
+	formulaPort     int
 )
 
 var formulaCmd = &cobra.Command{
@@ -37,10 +39,12 @@ var formulaListCmd = &cobra.Command{
 }
 
 var formulaShowCmd = &cobra.Command{
-	Use:   "show <name>",
+	Use:   "show [name]",
 	Short: "Show formula details",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runFormulaShow,
+	Long: `Show formula details. Without a name, lists all formulas.
+With --markdown and no name, generates a combined Markdown preview of all formulas.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runFormulaShow,
 }
 
 var formulaCompileCmd = &cobra.Command{
@@ -70,6 +74,9 @@ func init() {
 
 	formulaInstantiateCmd.Flags().StringVarP(&formulaOutput, "output", "o", "json", "output format: json, yaml, text, prompt")
 	formulaInstantiateCmd.Flags().StringVarP(&formulaTitle, "title", "t", "", "override root task title")
+
+	formulaShowCmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
+	formulaShowCmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -176,6 +183,13 @@ func extractFormulaName(filename string) string {
 }
 
 func runFormulaShow(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		if formulaMarkdown {
+			return runFormulaShowAllMarkdown()
+		}
+		return runFormulaList(cmd, args)
+	}
+
 	name := args[0]
 	p := formula.NewParser(getSearchPaths()...)
 
@@ -187,6 +201,10 @@ func runFormulaShow(cmd *cobra.Command, args []string) error {
 	resolved, err := p.Resolve(f)
 	if err != nil {
 		return fmt.Errorf("resolving: %w", err)
+	}
+
+	if formulaMarkdown {
+		return runFormulaShowMarkdown(resolved)
 	}
 
 	fmt.Printf("Formula: %s\n", resolved.Formula)
@@ -413,4 +431,457 @@ func runFormulaValidate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Formula %q is valid.\n", f.Formula)
 	return nil
+}
+
+func runFormulaShowMarkdown(resolved *formula.Formula) error {
+	recipe, err := formula.Compile(context.Background(), resolved.Formula, getSearchPaths(), nil)
+	if err != nil {
+		return err
+	}
+
+	md := generateFormulaMarkdown(resolved, recipe)
+
+	tmpDir, err := os.MkdirTemp("", "tt-formula-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+
+	mdPath := filepath.Join(tmpDir, resolved.Formula+".md")
+	if err := os.WriteFile(mdPath, []byte(md), 0644); err != nil {
+		os.RemoveAll(tmpDir)
+		return fmt.Errorf("write formula file: %w", err)
+	}
+
+	mdRoot = tmpDir
+	mdContent = ""
+	mdContentOnly = false
+	mdPort = formulaPort
+	mdInitialPath = "/view/" + resolved.Formula + ".md"
+
+	defer os.RemoveAll(tmpDir)
+	return runMarkdownServer()
+}
+
+func runFormulaShowAllMarkdown() error {
+	paths := getSearchPaths()
+	if len(paths) == 0 {
+		return fmt.Errorf("no formula search paths configured")
+	}
+
+	var formulas []*formula.Formula
+	seen := make(map[string]bool)
+
+	for _, dir := range paths {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !isFormulaFile(entry.Name()) {
+				continue
+			}
+			name := extractFormulaName(entry.Name())
+			if seen[name] {
+				continue
+			}
+
+			p := formula.NewParser(dir)
+			f, err := p.ParseFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			resolved, err := p.Resolve(f)
+			if err != nil {
+				continue
+			}
+			formulas = append(formulas, resolved)
+			seen[name] = true
+		}
+	}
+
+	if len(formulas) == 0 {
+		return fmt.Errorf("no formulas found in search paths")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "tt-formulas-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+
+	for _, f := range formulas {
+		recipe, err := formula.Compile(context.Background(), f.Formula, getSearchPaths(), nil)
+		if err != nil {
+			continue
+		}
+
+		md := generateFormulaMarkdown(f, recipe)
+		mdPath := filepath.Join(tmpDir, f.Formula+".md")
+		if err := os.WriteFile(mdPath, []byte(md), 0644); err != nil {
+			return fmt.Errorf("write %s: %w", f.Formula, err)
+		}
+	}
+
+	mdRoot = tmpDir
+	mdContent = ""
+	mdContentOnly = false
+	mdPort = formulaPort
+	mdInitialPath = ""
+
+	fmt.Printf("Generated %d formula files in %s\n", len(formulas), tmpDir)
+	defer os.RemoveAll(tmpDir)
+	return runMarkdownServer()
+}
+
+func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string {
+	var b strings.Builder
+
+	b.WriteString("---\n")
+	b.WriteString(fmt.Sprintf("title: \"%s\"\n", escapeYAML(f.Formula)))
+	if f.Description != "" {
+		b.WriteString(fmt.Sprintf("description: \"%s\"\n", escapeYAML(f.Description)))
+	}
+	b.WriteString("---\n\n")
+
+	b.WriteString(fmt.Sprintf("# %s\n\n", f.Formula))
+	if f.Description != "" {
+		b.WriteString(fmt.Sprintf("> %s\n\n", f.Description))
+	}
+
+	b.WriteString("| | |\n|---|---|\n")
+	b.WriteString(fmt.Sprintf("| **Version** | %d |\n", f.Version))
+	b.WriteString(fmt.Sprintf("| **Type** | %s |\n", f.Type))
+	if f.Phase != "" {
+		b.WriteString(fmt.Sprintf("| **Phase** | %s |\n", f.Phase))
+	}
+	b.WriteString(fmt.Sprintf("| **Steps** | %d |\n", len(recipe.Steps)))
+	b.WriteString("\n")
+
+	if len(f.Vars) > 0 {
+		b.WriteString("## Variables\n\n")
+		b.WriteString("| Name | Description | Default | Required |\n")
+		b.WriteString("|------|-------------|---------|----------|\n")
+		for _, vname := range sortedVarNames(f.Vars) {
+			def := f.Vars[vname]
+			if def == nil {
+				continue
+			}
+			desc := def.Description
+			if desc == "" {
+				desc = "-"
+			}
+			defVal := "-"
+			if def.Default != nil {
+				defVal = fmt.Sprintf("`%s`", *def.Default)
+			}
+			req := ""
+			if def.Required {
+				req = "✅"
+			}
+			b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", vname, desc, defVal, req))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("## Dependency Graph\n\n")
+	b.WriteString("```mermaid\n")
+	b.WriteString(generateMermaidGraph(recipe))
+	b.WriteString("\n```\n\n")
+
+	b.WriteString("## Quick Start\n\n")
+	b.WriteString(generateQuickStart(f, recipe))
+	b.WriteString("\n")
+
+	b.WriteString("## Steps\n\n")
+	for i, step := range recipe.Steps {
+		if step.IsRoot {
+			continue
+		}
+		priority := ""
+		if step.Priority != nil {
+			priority = fmt.Sprintf(" [P%d]", *step.Priority)
+		}
+		b.WriteString(fmt.Sprintf("### %d. `%s`%s\n\n", i, step.ID, priority))
+		b.WriteString(fmt.Sprintf("**%s**\n\n", step.Title))
+		if step.Description != "" {
+			b.WriteString(fmt.Sprintf("%s\n\n", step.Description))
+		}
+		if step.Notes != "" {
+			b.WriteString(fmt.Sprintf("> %s\n\n", step.Notes))
+		}
+
+		deps := findDepsForStep(recipe, step.ID)
+		if len(deps) > 0 {
+			b.WriteString(fmt.Sprintf("**Dependencies:** %s\n\n", strings.Join(deps, ", ")))
+		}
+
+		if len(step.Labels) > 0 {
+			b.WriteString(fmt.Sprintf("**Labels:** %s\n\n", strings.Join(step.Labels, ", ")))
+		}
+
+		if step.Gate != nil {
+			b.WriteString(fmt.Sprintf("**Gate:** %s (type: %s)\n\n", step.Gate.ID, step.Gate.Type))
+		}
+	}
+
+	return b.String()
+}
+
+func generateMermaidGraph(recipe *formula.Recipe) string {
+	var b strings.Builder
+	b.WriteString("graph TD\n")
+
+	parallelSteps := findParallelSteps(recipe)
+	endSteps := findEndSteps(recipe)
+	depths := computeStepDepths(recipe)
+	maxDepth := 1
+	for _, d := range depths {
+		if d > maxDepth {
+			maxDepth = d
+		}
+	}
+
+	for _, step := range recipe.Steps {
+		nodeID := mermaidNodeID(step.ID)
+		label := mermaidLabel(step.ID, step.Title, step.Priority)
+		shape := mermaidShape(step, endSteps, parallelSteps)
+		b.WriteString(fmt.Sprintf("    %s%s%s\n", nodeID, shape.open, label+shape.close))
+
+		depth := depths[step.ID]
+		color := depthColor(depth, maxDepth)
+
+		if step.IsRoot {
+			b.WriteString(fmt.Sprintf("    class %s nodeRoot\n", nodeID))
+		} else if step.Gate != nil {
+			b.WriteString(fmt.Sprintf("    class %s nodeGate\n", nodeID))
+		} else {
+			b.WriteString(fmt.Sprintf("    classDef c%s fill:%s,stroke:%s,stroke-width:2px\n", nodeID, color.Fill, color.Stroke))
+			b.WriteString(fmt.Sprintf("    class %s c%s\n", nodeID, nodeID))
+		}
+	}
+
+	b.WriteString("    classDef nodeRoot fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px\n")
+	b.WriteString("    classDef nodeGate fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5\n")
+
+	for _, dep := range recipe.Deps {
+		if dep.Type == "parent-child" {
+			continue
+		}
+		from := mermaidNodeID(dep.DependsOnID)
+		to := mermaidNodeID(dep.StepID)
+		edgeStyle := " -->"
+		if dep.Type == "waits-for" {
+			edgeStyle = " -.-> |wait|"
+		}
+		b.WriteString(fmt.Sprintf("    %s%s %s\n", from, edgeStyle, to))
+	}
+
+	return b.String()
+}
+
+type shapeDef struct {
+	open  string
+	close string
+}
+
+func mermaidShape(step formula.RecipeStep, endSteps, parallelSteps map[string]bool) shapeDef {
+	if step.IsRoot {
+		return shapeDef{open: "([\"", close: "\"])"}
+	}
+	if step.Gate != nil {
+		return shapeDef{open: "{\"", close: "\"}"}
+	}
+	if endSteps[step.ID] {
+		return shapeDef{open: "([\"", close: "\"])"}
+	}
+	if parallelSteps[step.ID] {
+		return shapeDef{open: "(\"", close: "\")"}
+	}
+	return shapeDef{open: "[\"", close: "\"]"}
+}
+
+type nodeColor struct {
+	Fill  string
+	Stroke string
+}
+
+func depthColor(depth, maxDepth int) nodeColor {
+	ratio := float64(depth) / float64(maxDepth)
+
+	stops := []struct {
+		ratio  float64
+		fill   string
+		stroke string
+	}{
+		{0.0, "#e3f2fd", "#1976d2"},
+		{0.25, "#e0f2f1", "#00796b"},
+		{0.5, "#e8f5e9", "#388e3c"},
+		{0.75, "#fff8e1", "#f57f17"},
+		{1.0, "#fbe9e7", "#d84315"},
+	}
+
+	if ratio <= stops[0].ratio {
+		return nodeColor{Fill: stops[0].fill, Stroke: stops[0].stroke}
+	}
+	for i := 1; i < len(stops); i++ {
+		if ratio <= stops[i].ratio {
+			return nodeColor{Fill: stops[i].fill, Stroke: stops[i].stroke}
+		}
+	}
+	last := stops[len(stops)-1]
+	return nodeColor{Fill: last.fill, Stroke: last.stroke}
+}
+
+func findEndSteps(recipe *formula.Recipe) map[string]bool {
+	hasDependent := make(map[string]bool)
+	for _, dep := range recipe.Deps {
+		if dep.Type == "parent-child" {
+			continue
+		}
+		hasDependent[dep.DependsOnID] = true
+	}
+
+	ends := make(map[string]bool)
+	for _, step := range recipe.Steps {
+		if step.IsRoot {
+			continue
+		}
+		if !hasDependent[step.ID] {
+			ends[step.ID] = true
+		}
+	}
+	return ends
+}
+
+func computeStepDepths(recipe *formula.Recipe) map[string]int {
+	depths := make(map[string]int)
+	for _, step := range recipe.Steps {
+		depths[step.ID] = 0
+	}
+
+	for _, step := range recipe.Steps {
+		d := stepDepth(step.ID, recipe, depths, make(map[string]bool))
+		depths[step.ID] = d
+	}
+	return depths
+}
+
+func stepDepth(id string, recipe *formula.Recipe, depths map[string]int, visiting map[string]bool) int {
+	if d, ok := depths[id]; ok && d > 0 {
+		return d
+	}
+	if visiting[id] {
+		return 0
+	}
+	visiting[id] = true
+
+	maxParentDepth := 0
+	for _, dep := range recipe.Deps {
+		if dep.StepID == id && dep.Type != "parent-child" {
+			parentD := stepDepth(dep.DependsOnID, recipe, depths, visiting)
+			if parentD+1 > maxParentDepth {
+				maxParentDepth = parentD + 1
+			}
+		}
+	}
+
+	depths[id] = maxParentDepth
+	return maxParentDepth
+}
+
+func findParallelSteps(recipe *formula.Recipe) map[string]bool {
+	parallel := make(map[string]bool)
+	depMap := make(map[string][]string)
+	for _, dep := range recipe.Deps {
+		if dep.Type == "parent-child" {
+			continue
+		}
+		depMap[dep.StepID] = append(depMap[dep.StepID], dep.DependsOnID)
+	}
+
+	sourceTargets := make(map[string][]string)
+	for stepID, deps := range depMap {
+		for _, dep := range deps {
+			sourceTargets[dep] = append(sourceTargets[dep], stepID)
+		}
+	}
+
+	for _, targets := range sourceTargets {
+		if len(targets) > 1 {
+			for _, t := range targets {
+				parallel[t] = true
+			}
+		}
+	}
+
+	return parallel
+}
+
+func findDepsForStep(recipe *formula.Recipe, stepID string) []string {
+	var deps []string
+	for _, dep := range recipe.Deps {
+		if dep.StepID == stepID && dep.Type != "parent-child" {
+			deps = append(deps, dep.DependsOnID)
+		}
+	}
+	return deps
+}
+
+func mermaidNodeID(id string) string {
+	result := strings.ReplaceAll(id, ".", "_")
+	result = strings.ReplaceAll(result, "-", "_")
+	return result
+}
+
+func mermaidLabel(id string, title string, priority *int) string {
+	safeTitle := strings.ReplaceAll(title, "\"", "'")
+	prefix := ""
+	if priority != nil {
+		prefix = fmt.Sprintf("[P%d] ", *priority)
+	}
+	shortID := id
+	if idx := strings.LastIndex(id, "."); idx >= 0 {
+		shortID = id[idx+1:]
+	}
+	return fmt.Sprintf("%s: %s%s", shortID, prefix, safeTitle)
+}
+
+func generateQuickStart(f *formula.Formula, recipe *formula.Recipe) string {
+	var b strings.Builder
+	b.WriteString("```bash\n")
+	b.WriteString(fmt.Sprintf("# 查看公式详情（带 Mermaid 流程图）\n"))
+	b.WriteString(fmt.Sprintf("tt formula show %s --markdown\n\n", f.Formula))
+	b.WriteString(fmt.Sprintf("# 编译公式，查看任务依赖\n"))
+	b.WriteString(fmt.Sprintf("tt formula compile %s\n\n", f.Formula))
+	b.WriteString(fmt.Sprintf("# 实例化为 JSON 任务树\n"))
+	b.WriteString(fmt.Sprintf("tt formula instantiate %s -o json\n\n", f.Formula))
+	b.WriteString(fmt.Sprintf("# 实例化为中文任务提示（适合给 AI agent）\n"))
+	b.WriteString(fmt.Sprintf("tt formula instantiate %s -o prompt\n\n", f.Formula))
+
+	requiredVars := f.RequiredVarNames()
+	if len(requiredVars) > 0 {
+		vars := make([]string, len(requiredVars))
+		for i, v := range requiredVars {
+			vars[i] = fmt.Sprintf("--var %s=<value>", v)
+		}
+		b.WriteString(fmt.Sprintf("# 传入必填变量: %s\n", strings.Join(requiredVars, ", ")))
+		b.WriteString(fmt.Sprintf("tt formula instantiate %s %s -o text\n", f.Formula, strings.Join(vars, " ")))
+	} else {
+		b.WriteString(fmt.Sprintf("# 传入变量值\n"))
+		b.WriteString(fmt.Sprintf("tt formula instantiate %s --var key=value -o text\n", f.Formula))
+	}
+	b.WriteString("```\n")
+	return b.String()
+}
+
+func escapeYAML(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	return s
+}
+
+func setMarkdownContent(content string, port int) {
+	mdContent = content
+	mdContentOnly = true
+	mdPort = port
+	mdInitialPath = ""
 }
