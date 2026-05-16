@@ -17,18 +17,20 @@ import (
 )
 
 var (
-	formulaDir       string
-	formulaVars      []string
-	formulaOutput    string
-	formulaTitle     string
-	formulaMarkdown  bool
-	formulaPort      int
-	formulaAgent     string
-	formulaModel     string
-	formulaSession   string
-	formulaDryRun    bool
-	formulaDebug     bool
-	formulaVerbose   bool
+	formulaDir      string
+	formulaVars     []string
+	formulaOutput   string
+	formulaTitle    string
+	formulaMarkdown bool
+	formulaPort     int
+	formulaAgent    string
+	formulaModel    string
+	formulaSession  string
+	formulaWeb      bool
+	formulaWebPort  int
+	formulaDryRun   bool
+	formulaDebug    bool
+	formulaVerbose  bool
 )
 
 var formulaCmd = &cobra.Command{
@@ -98,6 +100,8 @@ func init() {
 	formulaRunCmd.Flags().StringVar(&formulaAgent, "agent", "general", "default agent for steps without explicit agent config")
 	formulaRunCmd.Flags().StringVar(&formulaModel, "model", "", "default model override")
 	formulaRunCmd.Flags().StringVar(&formulaSession, "session", "cli:formula", "session key prefix")
+	formulaRunCmd.Flags().BoolVar(&formulaWeb, "web", false, "show a live web dashboard while the formula runs")
+	formulaRunCmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
 	formulaRunCmd.Flags().BoolVar(&formulaDryRun, "dry-run", false, "print execution plan without running")
 	formulaRunCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 	formulaRunCmd.Flags().BoolVarP(&formulaVerbose, "verbose", "v", false, "show full output of each step")
@@ -725,7 +729,7 @@ func mermaidShape(step formula.RecipeStep, endSteps, parallelSteps map[string]bo
 }
 
 type nodeColor struct {
-	Fill  string
+	Fill   string
 	Stroke string
 }
 
@@ -970,6 +974,15 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
+	projectRoot, _ := os.Getwd()
+
+	var dashboard *formulaDashboardServer
+	if formulaWeb {
+		dashboard = newFormulaDashboardServer(recipe)
+		if err := dashboard.start(formulaWebPort); err != nil {
+			return err
+		}
+	}
 
 	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
 		agent := step.Agent
@@ -991,23 +1004,37 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			modelDisplay = "(default from picoclaw)"
 		}
 
-		fmt.Fprintf(errOut, "\n▶ Running: %s\n", step.Title)
-		fmt.Fprintf(errOut, "  Agent: %s | Model: %s\n", agent.Name, modelDisplay)
+		logLine := func(format string, args ...any) {
+			line := fmt.Sprintf(format, args...)
+			fmt.Fprintln(errOut, line)
+			if dashboard != nil {
+				dashboard.logf("%s", line)
+			}
+		}
+
+		fmt.Fprintln(errOut)
+		logLine("▶ Running: %s", step.Title)
+		logLine("  Agent: %s | Model: %s", agent.Name, modelDisplay)
 
 		if step.Condition != "" {
 			condResult := executor.EvaluateCondition(step.Condition, exec.Context())
-			fmt.Fprintf(errOut, "  Condition: %s → %v\n", step.Condition, condResult)
+			logLine("  Condition: %s → %v", step.Condition, condResult)
 			if !condResult {
 				return "", nil
 			}
 		}
 
 		if len(step.InputCtx) > 0 {
-			fmt.Fprintf(errOut, "  Input context: %s\n", strings.Join(step.InputCtx, ", "))
+			inputLine := fmt.Sprintf("  Input context: %s", strings.Join(step.InputCtx, ", "))
+			fmt.Fprintln(errOut, inputLine)
+			if dashboard != nil {
+				dashboard.logf("%s", inputLine)
+			}
 		}
 
-		if cwd, err := os.Getwd(); err == nil {
-			prompt = fmt.Sprintf("Project root: %s\n\n%s", cwd, prompt)
+		prompt = renderFormulaPrompt(projectRoot, prompt)
+		if dashboard != nil {
+			dashboard.markStepRunning(step.ID, step.Title, agent.Name, model, sessionKey)
 		}
 
 		resp, err := runner.ProcessDirect(pcwrap.RunOptions{
@@ -1019,21 +1046,31 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		resp = strings.TrimSpace(resp)
 
 		if err != nil {
-			fmt.Fprintf(errOut, "  ✗ Failed: %v\n", err)
+			if dashboard != nil {
+				dashboard.markStepFailed(step.ID, err.Error(), resp)
+			}
+			logLine("  ✗ Failed: %v", err)
 			return resp, err
 		}
 
 		if resp == "" {
-			fmt.Fprintf(errOut, "  ⚠ Empty response from agent\n")
+			logLine("  ⚠ Empty response from agent")
 		} else {
-			fmt.Fprintf(errOut, "  ✓ Completed (%d chars)\n", len(resp))
+			logLine("  ✓ Completed (%d chars)", len(resp))
 			if formulaVerbose {
 				fmt.Fprintf(errOut, "\n%s\n\n", resp)
+				if dashboard != nil {
+					dashboard.logf("%s", resp)
+				}
 			}
 		}
 
+		if dashboard != nil {
+			dashboard.markStepCompleted(step.ID, resp)
+		}
+
 		if step.OutputKey != "" {
-			fmt.Fprintf(errOut, "  → Output key: %s\n", step.OutputKey)
+			logLine("  → Output key: %s", step.OutputKey)
 		}
 
 		return resp, nil
@@ -1047,6 +1084,15 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintln(out, strings.Repeat("─", 50))
 	renderRunResult(cmd, result, err != nil)
+	if dashboard != nil {
+		dashboard.finalize(result, err)
+	}
+
+	if formulaWeb {
+		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
+		fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
+		waitForFormulaDashboardExit(dashboard)
+	}
 
 	if err != nil {
 		return err
