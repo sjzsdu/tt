@@ -72,6 +72,10 @@ func (rt *Runtime) Run(opt RunOptions) error {
 		if err != nil {
 			return fmt.Errorf("process picoclaw message failed: %w", err)
 		}
+		resp, err = normalizeDirectResponse(resp, nil)
+		if err != nil {
+			return err
+		}
 		fmt.Fprintln(os.Stdout, resp)
 		return nil
 	}
@@ -153,6 +157,11 @@ func runInteractive(loop *pcagent.AgentLoop, sessionKey string) error {
 			return nil
 		}
 		resp, err := loop.ProcessDirect(context.Background(), input, sessionKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			continue
+		}
+		resp, err = normalizeDirectResponse(resp, nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue

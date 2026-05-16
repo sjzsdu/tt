@@ -23,8 +23,8 @@ import {
   UnorderedListOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { marked } from 'marked';
 import { api } from '../api';
+import { MarkdownOutput, OutputModal, OutputSurface } from './MarkdownOutput';
 import type {
   DashboardView,
   FormulaDashboardMessage,
@@ -76,10 +76,6 @@ function statusIcon(status: string) {
     default:
       return <ClockCircleOutlined />;
   }
-}
-
-function renderMarkdown(markdown: string) {
-	return marked.parse(markdown || '') as string;
 }
 
 function graphShortId(id: string) {
@@ -226,14 +222,6 @@ function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot
   );
 }
 
-function MarkdownOutput({ content }: { content: string }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
-
-  return (
-    <article className="markdown-body formula-markdown-output" dangerouslySetInnerHTML={{ __html: html }} />
-  );
-}
-
 function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (step: FormulaDashboardStep) => void }) {
   return (
     <button type="button" className={`step-card ${step.status}`} onClick={() => onSelect(step)}>
@@ -282,9 +270,7 @@ function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep |
           {step.output && (
             <section>
               <h4>Output</h4>
-              <div className="step-output-shell">
-                <MarkdownOutput content={step.output} />
-              </div>
+              <OutputSurface content={step.output} className="step-output-shell" />
             </section>
           )}
 
@@ -498,21 +484,15 @@ export function App() {
       </section>
 
       <StepDetailModal step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} />
-      <Modal
-        open={finalOutputOpen}
-        onCancel={() => setFinalOutputOpen(false)}
-        footer={null}
-        width={1040}
-        title="Final output"
-        className="final-output-modal"
-      >
-        {snapshot.final_output ? (
-          <div className="final-output-shell">
-            <div className="final-output-kicker">Rendered report</div>
-            <MarkdownOutput content={snapshot.final_output} />
-          </div>
-        ) : null}
-      </Modal>
+      {snapshot.final_output ? (
+        <OutputModal
+          open={finalOutputOpen}
+          onClose={() => setFinalOutputOpen(false)}
+          title="Final output"
+          content={snapshot.final_output}
+          className="final-output-modal"
+        />
+      ) : null}
     </main>
   );
 }

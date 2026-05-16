@@ -130,12 +130,20 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("process picoclaw message failed: %w", err)
 		}
+		resp, err = normalizeDirectResponse(resp, nil)
+		if err != nil {
+			return "", err
+		}
 		return resp, nil
 	}
 
 	resp, err := dr.loop.ProcessDirect(context.Background(), resolved.Message, resolved.Session)
 	if err != nil {
 		return "", fmt.Errorf("process picoclaw message failed: %w", err)
+	}
+	resp, err = normalizeDirectResponse(resp, nil)
+	if err != nil {
+		return "", err
 	}
 	return resp, nil
 }
