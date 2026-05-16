@@ -979,6 +979,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	var dashboard *formulaDashboardServer
 	if formulaWeb {
 		dashboard = newFormulaDashboardServer(recipe)
+		dashboard.state.WorkspaceDir = formulaDashboardWorkspace(projectRoot)
 		if err := dashboard.start(formulaWebPort); err != nil {
 			return err
 		}

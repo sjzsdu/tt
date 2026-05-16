@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
 )
 
@@ -30,28 +30,59 @@ type formulaDashboardServer struct {
 }
 
 type formulaDashboardSnapshot struct {
-	RecipeName  string                     `json:"recipe_name"`
-	Status      string                     `json:"status"`
-	StartedAt   string                     `json:"started_at,omitempty"`
-	FinishedAt  string                     `json:"finished_at,omitempty"`
-	FinalOutput string                     `json:"final_output,omitempty"`
-	Error       string                     `json:"error,omitempty"`
-	Steps       []formulaDashboardStep     `json:"steps"`
-	Logs        []formulaDashboardLogEntry `json:"logs,omitempty"`
+	RecipeName   string                     `json:"recipe_name"`
+	Description  string                     `json:"description,omitempty"`
+	Phase        string                     `json:"phase,omitempty"`
+	Status       string                     `json:"status"`
+	StartedAt    string                     `json:"started_at,omitempty"`
+	FinishedAt   string                     `json:"finished_at,omitempty"`
+	FinalOutput  string                     `json:"final_output,omitempty"`
+	Error        string                     `json:"error,omitempty"`
+	Steps        []formulaDashboardStep     `json:"steps"`
+	Edges        []formulaDashboardEdge     `json:"edges,omitempty"`
+	Logs         []formulaDashboardLogEntry `json:"logs,omitempty"`
+	WorkspaceDir string                     `json:"workspace_dir,omitempty"`
 }
 
 type formulaDashboardStep struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Agent      string `json:"agent"`
-	Model      string `json:"model,omitempty"`
-	Session    string `json:"session,omitempty"`
-	Status     string `json:"status"`
-	Output     string `json:"output,omitempty"`
-	Error      string `json:"error,omitempty"`
-	StartedAt  string `json:"started_at,omitempty"`
-	FinishedAt string `json:"finished_at,omitempty"`
-	DurationMS int64  `json:"duration_ms,omitempty"`
+	ID          string                `json:"id"`
+	Title       string                `json:"title"`
+	Description string                `json:"description,omitempty"`
+	Notes       string                `json:"notes,omitempty"`
+	Type        string                `json:"type,omitempty"`
+	Agent       string                `json:"agent"`
+	Model       string                `json:"model,omitempty"`
+	Session     string                `json:"session,omitempty"`
+	Status      string                `json:"status"`
+	Output      string                `json:"output,omitempty"`
+	Error       string                `json:"error,omitempty"`
+	StartedAt   string                `json:"started_at,omitempty"`
+	FinishedAt  string                `json:"finished_at,omitempty"`
+	DurationMS  int64                 `json:"duration_ms,omitempty"`
+	Priority    *int                  `json:"priority,omitempty"`
+	Labels      []string              `json:"labels,omitempty"`
+	Assignee    string                `json:"assignee,omitempty"`
+	OutputKey   string                `json:"output_key,omitempty"`
+	InputCtx    []string              `json:"input_ctx,omitempty"`
+	Execution   string                `json:"execution,omitempty"`
+	Condition   string                `json:"condition,omitempty"`
+	Metadata    map[string]string     `json:"metadata,omitempty"`
+	Gate        *formulaDashboardGate `json:"gate,omitempty"`
+	DependsOn   []string              `json:"depends_on,omitempty"`
+	Depth       int                   `json:"depth,omitempty"`
+	Index       int                   `json:"index"`
+}
+
+type formulaDashboardGate struct {
+	Type    string `json:"type,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
+}
+
+type formulaDashboardEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type,omitempty"`
 }
 
 type formulaDashboardLogEntry struct {
@@ -64,169 +95,150 @@ type formulaDashboardMessage struct {
 	State formulaDashboardSnapshot `json:"state"`
 }
 
-const formulaDashboardHTML = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>tt formula dashboard</title>
-  <style>
-    :root { color-scheme: dark; --bg: #0b1020; --panel: #121a31; --panel2: #0f172a; --border: #24304b; --text: #e5e7eb; --muted: #94a3b8; --green: #22c55e; --yellow: #f59e0b; --red: #ef4444; --blue: #60a5fa; }
-    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: linear-gradient(180deg, #090d1a, #111827); color: var(--text); }
-    header { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-    h1 { margin: 0; font-size: 18px; }
-    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    main { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; padding: 16px; }
-    .card { background: rgba(18,26,49,.92); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-    .card h2 { margin: 0; font-size: 14px; padding: 14px 16px; border-bottom: 1px solid var(--border); background: rgba(15,23,42,.7); }
-    .card .body { padding: 16px; }
-    .steps { display: grid; gap: 12px; }
-    .step { border: 1px solid var(--border); border-radius: 12px; background: rgba(15,23,42,.55); padding: 12px 14px; }
-    .step.running { border-color: rgba(96,165,250,.7); box-shadow: 0 0 0 1px rgba(96,165,250,.15) inset; }
-    .step.completed { border-color: rgba(34,197,94,.65); }
-    .step.failed { border-color: rgba(239,68,68,.7); }
-    .step.skipped { opacity: .7; }
-    .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-    .title { font-weight: 600; }
-    .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
-    .badge { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,.03); text-transform: uppercase; letter-spacing: .05em; }
-    .badge.running { color: var(--blue); border-color: rgba(96,165,250,.5); }
-    .badge.completed { color: var(--green); border-color: rgba(34,197,94,.5); }
-    .badge.failed { color: var(--red); border-color: rgba(239,68,68,.5); }
-    .badge.skipped { color: var(--yellow); border-color: rgba(245,158,11,.5); }
-    pre { margin: 10px 0 0; white-space: pre-wrap; word-break: break-word; background: #080d1a; border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: #dbeafe; font-size: 12px; line-height: 1.5; }
-    .logs { max-height: 340px; overflow: auto; display: grid; gap: 8px; }
-    .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #cbd5e1; border-bottom: 1px dashed rgba(148,163,184,.2); padding-bottom: 8px; }
-    .footer { padding: 0 16px 16px; color: var(--muted); font-size: 12px; }
-    .summary { display: grid; gap: 8px; }
-    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-    .stat { background: rgba(15,23,42,.7); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
-    .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-    .stat .v { margin-top: 4px; font-weight: 600; }
-    @media (max-width: 1100px) { main { grid-template-columns: 1fr; } .summary-grid { grid-template-columns: repeat(2, 1fr); } }
-  </style>
-</head>
-<body>
-  <header>
-    <div>
-      <h1 id="recipe-name">tt formula dashboard</h1>
-      <div class="sub" id="status-line">waiting for run...</div>
-    </div>
-    <div class="sub">Web dashboard • live formula run</div>
-  </header>
-  <main>
-    <section class="card">
-      <h2>Pipeline</h2>
-      <div class="body">
-        <div class="summary">
-          <div class="summary-grid" id="summary-grid"></div>
-          <div class="steps" id="steps"></div>
-        </div>
-      </div>
-    </section>
-    <section class="card">
-      <h2>Logs & Final Output</h2>
-      <div class="body">
-        <div class="logs" id="logs"></div>
-        <h3 style="margin:16px 0 8px;font-size:13px;color:#cbd5e1;">Final Output</h3>
-        <pre id="final-output">(waiting)</pre>
-      </div>
-      <div class="footer" id="footer"></div>
-    </section>
-  </main>
-  <script>
-    const stateUrl = '/api/state';
-    let current = null;
-
-    function esc(s) {
-      return String(s ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-    }
-
-    function badge(status) {
-      return '<span class="badge ' + esc(status) + '">' + esc(status) + '</span>';
-    }
-
-    function render() {
-      if (!current) return;
-      document.getElementById('recipe-name').textContent = current.recipe_name || 'tt formula dashboard';
-      document.getElementById('status-line').textContent = (current.status || 'pending') + (current.error ? ' • ' + current.error : '');
-      document.getElementById('final-output').textContent = current.final_output || '(waiting)';
-      document.getElementById('footer').textContent = (current.started_at || '') + (current.finished_at ? ' → ' + current.finished_at : '');
-
-      const summary = [
-        ['Status', current.status || 'pending'],
-        ['Steps', String((current.steps || []).length)],
-        ['Logs', String((current.logs || []).length)],
-        ['Error', current.error || 'none'],
-      ];
-      document.getElementById('summary-grid').innerHTML = summary.map(([k, v]) => '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>').join('');
-
-      document.getElementById('steps').innerHTML = (current.steps || []).map(step => {
-        const extra = [step.agent ? 'agent: ' + step.agent : '', step.model ? 'model: ' + step.model : '', step.session ? 'session: ' + step.session : '', step.started_at ? 'started: ' + step.started_at : '', step.finished_at ? 'finished: ' + step.finished_at : '', step.duration_ms ? 'duration: ' + step.duration_ms + 'ms' : ''].filter(Boolean).join(' • ');
-        const output = step.output ? '<pre>' + esc(step.output) + '</pre>' : '';
-        const err = step.error ? '<pre style="color:#fecaca;">' + esc(step.error) + '</pre>' : '';
-        return '<div class="step ' + esc(step.status || 'pending') + '"><div class="row"><div class="title">' + esc(step.title || step.id) + '</div>' + badge(step.status || 'pending') + '</div><div class="meta">' + esc(step.id) + (extra ? ' • ' + esc(extra) : '') + '</div>' + output + err + '</div>';
-      }).join('');
-
-      document.getElementById('logs').innerHTML = (current.logs || []).map(log => '<div class="log">[' + esc(log.at) + '] ' + esc(log.text) + '</div>').join('');
-    }
-
-    function connect() {
-      const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-      const ws = new WebSocket(proto + location.host + '/ws');
-      ws.onmessage = ev => {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === 'state') {
-            current = msg.state;
-            render();
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      };
-      ws.onclose = () => setTimeout(connect, 1500);
-    }
-
-    fetch(stateUrl).then(r => r.json()).then(msg => {
-      current = msg.state;
-      render();
-      connect();
-    }).catch(err => {
-      document.getElementById('status-line').textContent = 'failed to load state: ' + err;
-    });
-  </script>
-</body>
-</html>`
-
 func newFormulaDashboardServer(recipe *formula.Recipe) *formulaDashboardServer {
+	steps, edges := buildFormulaDashboardGraph(recipe)
+	return &formulaDashboardServer{
+		started: time.Now(),
+		recipe:  recipe.Name,
+		state: formulaDashboardSnapshot{
+			RecipeName:  recipe.Name,
+			Description: recipe.Description,
+			Phase:       recipe.Phase,
+			Status:      "running",
+			StartedAt:   time.Now().Format(time.RFC3339),
+			Steps:       steps,
+			Edges:       edges,
+			Logs:        []formulaDashboardLogEntry{},
+		},
+		clients:  map[*websocket.Conn]struct{}{},
+		shutdown: make(chan struct{}),
+	}
+}
+
+func buildFormulaDashboardGraph(recipe *formula.Recipe) ([]formulaDashboardStep, []formulaDashboardEdge) {
+	depths := computeDashboardDepths(recipe)
+	dependsOnMap := map[string][]string{}
+	stepIDs := map[string]struct{}{}
+
 	steps := make([]formulaDashboardStep, 0, len(recipe.Steps))
-	for _, step := range recipe.Steps {
+	for index, step := range recipe.Steps {
 		if step.IsRoot {
 			continue
 		}
+		stepIDs[step.ID] = struct{}{}
 		agentName := ""
 		modelName := ""
 		if step.Agent != nil {
 			agentName = step.Agent.Name
-			if step.Agent.Model != "" {
-				modelName = step.Agent.Model
+			modelName = step.Agent.Model
+		}
+		var gate *formulaDashboardGate
+		if step.Gate != nil {
+			gate = &formulaDashboardGate{Type: step.Gate.Type, ID: step.Gate.ID, Timeout: step.Gate.Timeout}
+		}
+		steps = append(steps, formulaDashboardStep{
+			ID:          step.ID,
+			Title:       step.Title,
+			Description: step.Description,
+			Notes:       step.Notes,
+			Type:        step.Type,
+			Agent:       agentName,
+			Model:       modelName,
+			Status:      "pending",
+			Priority:    step.Priority,
+			Labels:      append([]string(nil), step.Labels...),
+			Assignee:    step.Assignee,
+			OutputKey:   step.OutputKey,
+			InputCtx:    append([]string(nil), step.InputCtx...),
+			Execution:   step.Execution,
+			Condition:   step.Condition,
+			Metadata:    cloneStringMap(step.Metadata),
+			Gate:        gate,
+			Depth:       depths[step.ID],
+			Index:       index,
+		})
+	}
+
+	edges := make([]formulaDashboardEdge, 0, len(recipe.Deps))
+	for _, dep := range recipe.Deps {
+		if dep.Type == "parent-child" {
+			continue
+		}
+		if _, ok := stepIDs[dep.StepID]; !ok {
+			continue
+		}
+		if _, ok := stepIDs[dep.DependsOnID]; !ok {
+			continue
+		}
+		dependsOnMap[dep.StepID] = append(dependsOnMap[dep.StepID], dep.DependsOnID)
+		edges = append(edges, formulaDashboardEdge{From: dep.DependsOnID, To: dep.StepID, Type: dep.Type})
+	}
+
+	for i := range steps {
+		steps[i].DependsOn = append([]string(nil), dependsOnMap[steps[i].ID]...)
+	}
+
+	return steps, edges
+}
+
+func computeDashboardDepths(recipe *formula.Recipe) map[string]int {
+	stepIDs := map[string]struct{}{}
+	for _, step := range recipe.Steps {
+		if !step.IsRoot {
+			stepIDs[step.ID] = struct{}{}
+		}
+	}
+
+	parents := map[string][]string{}
+	for _, dep := range recipe.Deps {
+		if dep.Type == "parent-child" {
+			continue
+		}
+		if _, ok := stepIDs[dep.StepID]; !ok {
+			continue
+		}
+		if _, ok := stepIDs[dep.DependsOnID]; !ok {
+			continue
+		}
+		parents[dep.StepID] = append(parents[dep.StepID], dep.DependsOnID)
+	}
+
+	depths := map[string]int{}
+	var visit func(string, map[string]bool) int
+	visit = func(id string, visiting map[string]bool) int {
+		if depth, ok := depths[id]; ok {
+			return depth
+		}
+		if visiting[id] {
+			return 0
+		}
+		visiting[id] = true
+		maxDepth := 0
+		for _, parentID := range parents[id] {
+			if next := visit(parentID, visiting) + 1; next > maxDepth {
+				maxDepth = next
 			}
 		}
-		steps = append(steps, formulaDashboardStep{ID: step.ID, Title: step.Title, Agent: agentName, Model: modelName, Status: "pending"})
+		delete(visiting, id)
+		depths[id] = maxDepth
+		return maxDepth
 	}
-	return &formulaDashboardServer{
-		started:  time.Now(),
-		recipe:   recipe.Name,
-		state:    formulaDashboardSnapshot{RecipeName: recipe.Name, Status: "running", StartedAt: time.Now().Format(time.RFC3339), Steps: steps, Logs: []formulaDashboardLogEntry{}},
-		clients:  map[*websocket.Conn]struct{}{},
-		shutdown: make(chan struct{}),
+
+	for id := range stepIDs {
+		visit(id, map[string]bool{})
 	}
+	return depths
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func (s *formulaDashboardServer) start(port int) error {
@@ -237,6 +249,7 @@ func (s *formulaDashboardServer) start(port int) error {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/assets/", webui.FormulaAssetsHandler())
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/ws", s.handleWS)
@@ -300,7 +313,7 @@ func (s *formulaDashboardServer) handleIndex(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := template.Must(template.New("formula-dashboard").Parse(formulaDashboardHTML)).Execute(w, nil); err != nil {
+	if _, err := w.Write(webui.FormulaIndex()); err != nil {
 		http.Error(w, fmt.Sprintf("render formula dashboard failed: %v", err), http.StatusInternalServerError)
 	}
 }
@@ -392,6 +405,8 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 		s.state.Steps[i].Session = session
 		s.state.Steps[i].Status = "running"
 		s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
+		s.state.Steps[i].FinishedAt = ""
+		s.state.Steps[i].DurationMS = 0
 		s.state.Steps[i].Error = ""
 		s.state.Steps[i].Output = ""
 		break
@@ -465,7 +480,9 @@ func (s *formulaDashboardServer) finalize(result *executor.RunResult, runErr err
 				s.state.Steps[i].Status = string(step.Status)
 				s.state.Steps[i].Output = step.Output
 				s.state.Steps[i].Error = step.Error
-				s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
+				if step.Status == executor.StatusSkipped {
+					s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
+				}
 				break
 			}
 		}
@@ -477,7 +494,19 @@ func (s *formulaDashboardServer) finalize(result *executor.RunResult, runErr err
 
 func cloneFormulaDashboardSnapshot(s formulaDashboardSnapshot) formulaDashboardSnapshot {
 	cp := s
-	cp.Steps = append([]formulaDashboardStep(nil), s.Steps...)
+	cp.Steps = make([]formulaDashboardStep, len(s.Steps))
+	for i, step := range s.Steps {
+		cp.Steps[i] = step
+		cp.Steps[i].Labels = append([]string(nil), step.Labels...)
+		cp.Steps[i].InputCtx = append([]string(nil), step.InputCtx...)
+		cp.Steps[i].DependsOn = append([]string(nil), step.DependsOn...)
+		cp.Steps[i].Metadata = cloneStringMap(step.Metadata)
+		if step.Gate != nil {
+			gate := *step.Gate
+			cp.Steps[i].Gate = &gate
+		}
+	}
+	cp.Edges = append([]formulaDashboardEdge(nil), s.Edges...)
 	cp.Logs = append([]formulaDashboardLogEntry(nil), s.Logs...)
 	return cp
 }

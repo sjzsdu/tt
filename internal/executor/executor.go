@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/sjzsdu/tt/internal/formula"
 )
@@ -11,12 +12,12 @@ import (
 type StepRunner func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error)
 
 type RunOptions struct {
-	Vars      map[string]string
-	Agent     string
-	Model     string
-	Session   string
-	DryRun    bool
-	Debug     bool
+	Vars    map[string]string
+	Agent   string
+	Model   string
+	Session string
+	DryRun  bool
+	Debug   bool
 }
 
 type StepStatus string
@@ -30,11 +31,11 @@ const (
 )
 
 type StepResult struct {
-	StepID  string     `json:"step_id"`
-	Title   string     `json:"title"`
-	Status  StepStatus `json:"status"`
-	Output  string     `json:"output,omitempty"`
-	Error   string     `json:"error,omitempty"`
+	StepID string     `json:"step_id"`
+	Title  string     `json:"title"`
+	Status StepStatus `json:"status"`
+	Output string     `json:"output,omitempty"`
+	Error  string     `json:"error,omitempty"`
 }
 
 type RunResult struct {
@@ -50,6 +51,7 @@ type RunResult struct {
 type Executor struct {
 	recipe  *formula.Recipe
 	opts    RunOptions
+	mu      sync.RWMutex
 	context map[string]string
 	results map[string]*StepResult
 }
@@ -96,6 +98,7 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 		}
 	}
 
+	e.mu.RLock()
 	for _, r := range e.results {
 		result.Steps = append(result.Steps, *r)
 		result.Total++
@@ -108,11 +111,14 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 			result.Skipped++
 		}
 	}
+	e.mu.RUnlock()
 
 	if lastStepID != "" {
+		e.mu.RLock()
 		if final, ok := e.results[lastStepID]; ok && final.Output != "" {
 			result.FinalOutput = final.Output
 		}
+		e.mu.RUnlock()
 	}
 
 	return result, nil
@@ -120,32 +126,40 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 
 func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
 	if step.IsRoot {
+		e.mu.Lock()
 		e.results[step.ID] = &StepResult{
 			StepID: step.ID,
 			Title:  step.Title,
 			Status: StatusCompleted,
 		}
+		e.mu.Unlock()
 		return nil
 	}
 
 	if e.shouldSkip(step) {
+		e.mu.Lock()
 		e.results[step.ID] = &StepResult{
 			StepID: step.ID,
 			Title:  step.Title,
 			Status: StatusSkipped,
 		}
+		e.mu.Unlock()
 		return nil
 	}
 
+	e.mu.Lock()
 	e.results[step.ID] = &StepResult{
 		StepID: step.ID,
 		Title:  step.Title,
 		Status: StatusRunning,
 	}
+	e.mu.Unlock()
 
 	if e.opts.DryRun {
+		e.mu.Lock()
 		e.results[step.ID].Status = StatusCompleted
 		e.results[step.ID].Output = "[dry-run] would execute with agent: " + e.resolveAgent(step).Name
+		e.mu.Unlock()
 		return nil
 	}
 
@@ -153,17 +167,21 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 
 	output, err := runner(ctx, step, prompt)
 	if err != nil {
+		e.mu.Lock()
 		e.results[step.ID].Status = StatusFailed
 		e.results[step.ID].Error = err.Error()
+		e.mu.Unlock()
 		return fmt.Errorf("step %s failed: %w", step.ID, err)
 	}
 
+	e.mu.Lock()
 	e.results[step.ID].Status = StatusCompleted
 	e.results[step.ID].Output = output
 
 	if step.OutputKey != "" {
 		e.context[step.OutputKey] = output
 	}
+	e.mu.Unlock()
 
 	return nil
 }
@@ -172,6 +190,8 @@ func (e *Executor) shouldSkip(step *formula.RecipeStep) bool {
 	if step.Condition == "" {
 		return false
 	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return !EvaluateCondition(step.Condition, e.context)
 }
 
@@ -185,12 +205,14 @@ func (e *Executor) buildPrompt(step *formula.RecipeStep) string {
 	}
 
 	if len(step.InputCtx) > 0 {
+		e.mu.RLock()
 		b.WriteString("## Context from previous steps\n\n")
 		for _, key := range step.InputCtx {
 			if val, ok := e.context[key]; ok {
 				b.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", key, val))
 			}
 		}
+		e.mu.RUnlock()
 	}
 
 	if step.Notes != "" {
@@ -219,5 +241,11 @@ func (e *Executor) resolveSession(step *formula.RecipeStep) string {
 }
 
 func (e *Executor) Context() map[string]string {
-	return e.context
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	cp := make(map[string]string, len(e.context))
+	for k, v := range e.context {
+		cp[k] = v
+	}
+	return cp
 }

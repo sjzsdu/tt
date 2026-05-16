@@ -10,6 +10,7 @@
 *.test
 *.out
 coverage.out
+.playwright-mcp
 
 # Dependency directories
 vendor/
@@ -35,6 +36,8 @@ web/apps/markdown/node_modules/
 # Frontend build output
 web/apps/*/dist/
 internal/*/dist/
+/internal/webui/markdown/dist
+/internal/webui/formula/dist
 
 # Go workspace
 go.work
@@ -44,4 +47,4 @@ go.work.sum
 .env
 .env.local
 .env.*.local
-/internal/webui/markdown/dist
+

@@ -1,1 +1,1 @@
-{"private":true,"type":"module","workspaces":["apps/*"],"scripts":{"build":"npm run build --workspaces --if-present","build:markdown":"npm run build -w @tt/markdown-web","dev:markdown":"npm run dev -w @tt/markdown-web"},"devDependencies":{}}
+{"private":true,"type":"module","workspaces":["apps/*"],"scripts":{"build":"npm run build --workspaces --if-present","build:markdown":"npm run build -w @tt/markdown-web","dev:markdown":"npm run dev -w @tt/markdown-web","build:formula":"npm run build -w @tt/formula-web","dev:formula":"npm run dev -w @tt/formula-web"},"devDependencies":{}}

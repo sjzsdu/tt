@@ -1,0 +1,604 @@
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --panel: rgba(7, 19, 34, 0.82);
+  --panel-strong: rgba(8, 16, 29, 0.96);
+  --line: rgba(125, 211, 252, 0.14);
+  --text: #edf6ff;
+  --muted: #8ea6c3;
+  --accent: #66e3c4;
+  --danger: #fb7185;
+  --warning: #fbbf24;
+  --success: #4ade80;
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Noto Sans', sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 24%),
+    radial-gradient(circle at top right, rgba(102, 227, 196, 0.1), transparent 28%),
+    linear-gradient(180deg, #06101d 0%, #0b1526 46%, #08111d 100%);
+  color: var(--text);
+}
+
+button, input, textarea { font: inherit; }
+
+.formula-app {
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.empty-screen {
+  display: grid;
+  place-items: center;
+}
+
+.hero-panel,
+.stats-grid > .ant-card,
+.workspace-main,
+.console-card,
+.step-card,
+.step-modal .ant-modal-content,
+.step-modal .ant-card {
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.hero-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 26px 28px;
+  border-radius: 24px;
+  margin-bottom: 20px;
+}
+
+.hero-kicker {
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hero-panel h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 52px);
+  line-height: 1;
+}
+
+.hero-panel p {
+  margin: 12px 0 0;
+  max-width: 720px;
+  color: var(--muted);
+}
+
+.hero-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stats-grid > .ant-card,
+.console-card,
+.workspace-main,
+.step-card {
+  border-radius: 22px;
+}
+
+.stats-grid .ant-card-body {
+  padding: 18px 20px;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.8fr);
+  gap: 16px;
+}
+
+.workspace-main {
+  padding: 18px;
+}
+
+.workspace-side {
+  display: grid;
+  gap: 16px;
+}
+
+.console-card .ant-card-head,
+.step-modal .ant-card-head {
+  border-bottom-color: var(--line);
+}
+
+.console-card .ant-card-body,
+.step-modal .ant-card-body {
+  background: transparent;
+}
+
+.step-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.step-card {
+  display: block;
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  padding: 18px;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.step-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(102, 227, 196, 0.34);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+}
+
+.step-card.pending { border-color: rgba(148, 163, 184, 0.25); }
+.step-card.running { border-color: rgba(125, 211, 252, 0.45); }
+.step-card.completed { border-color: rgba(74, 222, 128, 0.35); }
+.step-card.failed { border-color: rgba(251, 113, 133, 0.42); }
+.step-card.skipped { border-color: rgba(251, 191, 36, 0.32); }
+
+.step-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.step-card-kicker {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.step-card h3 {
+  margin: 6px 0 0;
+  font-size: 19px;
+}
+
+.step-card p {
+  color: var(--muted);
+  line-height: 1.65;
+  min-height: 48px;
+}
+
+.step-chip-row,
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.step-chip,
+.pill-list li,
+.legend-pill {
+  list-style: none;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+}
+
+.graph-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.graph-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.graph-header-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.graph-header h3 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.graph-header p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  max-width: 720px;
+}
+
+.graph-legend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.graph-now-running {
+  min-width: 220px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  background: linear-gradient(180deg, rgba(12, 30, 53, 0.94), rgba(8, 22, 40, 0.82));
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.08);
+}
+
+.graph-now-running span {
+  display: block;
+  margin-bottom: 6px;
+  color: #7dd3fc;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.graph-now-running strong {
+  display: block;
+  line-height: 1.45;
+}
+
+.legend-pill.pending { border-color: rgba(148, 163, 184, 0.36); }
+.legend-pill.running { border-color: rgba(125, 211, 252, 0.5); color: #d8f5ff; }
+.legend-pill.completed { border-color: rgba(74, 222, 128, 0.5); color: #dcfce7; }
+.legend-pill.failed { border-color: rgba(251, 113, 133, 0.5); color: #ffe4e6; }
+.legend-pill.skipped { border-color: rgba(251, 191, 36, 0.5); color: #fde68a; }
+
+.graph-canvas {
+  position: relative;
+  overflow: auto;
+  padding: 12px 0 0;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)),
+    radial-gradient(circle at top left, rgba(102, 227, 196, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(4, 10, 18, 0.92), rgba(7, 16, 29, 0.98));
+  border: 1px solid rgba(125, 211, 252, 0.1);
+}
+
+.graph-stage-rails {
+  position: absolute;
+  inset: 56px 0 0;
+  pointer-events: none;
+}
+
+.graph-stage-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(102, 227, 196, 0.06), rgba(125, 211, 252, 0.015));
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.04);
+}
+
+.graph-board {
+  position: relative;
+  min-height: 420px;
+  z-index: 1;
+}
+
+.graph-svg-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.78);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 10px rgba(125, 211, 252, 0.08));
+}
+
+.graph-edge.waits-for,
+.graph-edge.blocks {
+  stroke-dasharray: 6 6;
+}
+
+.graph-column-label {
+  position: absolute;
+  top: 0;
+  color: #7dd3fc;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.graph-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0)),
+    linear-gradient(180deg, rgba(8, 16, 29, 0.99), rgba(10, 20, 36, 0.9));
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.28);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.graph-node:hover {
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.36);
+}
+
+.graph-node.pending { border-color: rgba(148, 163, 184, 0.25); }
+.graph-node.running { border-color: rgba(125, 211, 252, 0.58); box-shadow: 0 0 0 1px rgba(125,211,252,0.12) inset, 0 24px 64px rgba(20, 66, 102, 0.32); }
+.graph-node.completed { border-color: rgba(74, 222, 128, 0.4); }
+.graph-node.failed { border-color: rgba(251, 113, 133, 0.42); }
+.graph-node.skipped { border-color: rgba(251, 191, 36, 0.34); }
+
+.graph-node-topline {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.graph-node strong {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.graph-node p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.graph-node span,
+.graph-node em,
+.graph-node-id {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.graph-node-id {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.graph-node-state {
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255,255,255,0.04);
+}
+
+.graph-node-state.running { color: #7dd3fc; }
+.graph-node-state.completed { color: #86efac; }
+.graph-node-state.failed { color: #fda4af; }
+.graph-node-state.skipped { color: #fcd34d; }
+
+.graph-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.graph-node-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.final-output-shell {
+  padding: 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)),
+    linear-gradient(180deg, rgba(8, 14, 24, 0.92), rgba(8, 13, 22, 0.98));
+  border: 1px solid rgba(125, 211, 252, 0.08);
+}
+
+.final-output-kicker {
+  margin-bottom: 16px;
+  color: #7dd3fc;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.formula-markdown-output {
+  max-width: 100%;
+  color: var(--text) !important;
+  background: transparent !important;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.formula-markdown-output.markdown-body {
+  background: transparent;
+}
+
+.formula-markdown-output h1,
+.formula-markdown-output h2,
+.formula-markdown-output h3,
+.formula-markdown-output h4,
+.formula-markdown-output h5,
+.formula-markdown-output h6,
+.formula-markdown-output p,
+.formula-markdown-output li,
+.formula-markdown-output strong,
+.formula-markdown-output blockquote,
+.formula-markdown-output td,
+.formula-markdown-output th {
+  color: var(--text) !important;
+}
+
+.formula-markdown-output h1,
+.formula-markdown-output h2,
+.formula-markdown-output h3 {
+  border-bottom-color: rgba(125, 211, 252, 0.14) !important;
+}
+
+.formula-markdown-output a {
+  color: #7dd3fc !important;
+}
+
+.formula-markdown-output table {
+  display: block;
+  width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+}
+
+.formula-markdown-output table th,
+.formula-markdown-output table td {
+  border-color: rgba(125, 211, 252, 0.12) !important;
+  background: rgba(255,255,255,0.015) !important;
+}
+
+.formula-markdown-output pre,
+.formula-markdown-output code {
+  background: rgba(255,255,255,0.06) !important;
+  color: #dbeafe !important;
+}
+
+.formula-markdown-output blockquote {
+  border-left-color: rgba(102, 227, 196, 0.6) !important;
+  color: var(--muted) !important;
+}
+
+.code-block {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(4, 9, 18, 0.88);
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  color: #d8ebff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.error-block {
+  border-color: rgba(251, 113, 133, 0.24);
+  color: #ffe4e6;
+}
+
+.timeline-time {
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-text {
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.step-modal .ant-modal-content {
+  border-radius: 26px;
+}
+
+.step-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+  gap: 16px;
+}
+
+.step-modal-main,
+.step-modal-side {
+  display: grid;
+  gap: 16px;
+}
+
+.step-modal-main h4 {
+  margin: 0 0 10px;
+}
+
+.meta-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.meta-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-list span,
+.card-subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.meta-list strong {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.meta-list.compact { gap: 8px; }
+
+@media (max-width: 1200px) {
+  .stats-grid,
+  .workspace-grid,
+  .step-grid,
+  .step-modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-panel,
+  .graph-header {
+    flex-direction: column;
+  }
+
+  .hero-actions {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .formula-app {
+    padding: 16px;
+  }
+
+  .hero-panel,
+  .workspace-main,
+  .step-card {
+    padding: 16px;
+  }
+}
