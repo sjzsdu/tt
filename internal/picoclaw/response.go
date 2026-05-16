@@ -20,3 +20,11 @@ func normalizeDirectResponse(resp string, err error) (string, error) {
 	}
 	return resp, nil
 }
+
+func isEmptyDirectResponseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "model returned an empty response")
+}
