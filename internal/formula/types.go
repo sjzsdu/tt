@@ -238,6 +238,18 @@ type Step struct {
 	// Timeout is the maximum duration for this step.
 	Timeout string `json:"timeout,omitempty" toml:"timeout,omitempty"`
 
+	// Agent specifies the agent configuration for executing this step.
+	Agent *AgentConfig `json:"agent,omitempty" toml:"agent,omitempty"`
+
+	// OutputKey stores the step's output for downstream steps to reference.
+	OutputKey string `json:"output_key,omitempty" toml:"output_key,omitempty"`
+
+	// InputCtx lists output keys from upstream steps to inject into this step's prompt.
+	InputCtx []string `json:"input_context,omitempty" toml:"input_context,omitempty"`
+
+	// Execution controls how this step runs: sync, async, or fire-and-forget.
+	Execution string `json:"execution,omitempty" toml:"execution,omitempty"`
+
 	// Source tracing fields.
 	SourceFormula  string `json:"-" toml:"-"`
 	SourceLocation string `json:"-" toml:"-"`
@@ -339,6 +351,10 @@ type stepTOMLAlias struct {
 	Ralph           json.RawMessage   `json:"ralph,omitempty"`
 	Retry           *RetrySpec        `json:"retry,omitempty"`
 	Timeout         string            `json:"timeout,omitempty"`
+	Agent           *AgentConfig      `json:"agent,omitempty"`
+	OutputKey       string            `json:"output_key,omitempty"`
+	InputCtx        []string          `json:"input_context,omitempty"`
+	Execution       string            `json:"execution,omitempty"`
 }
 
 type loopTOMLAlias struct {
@@ -420,6 +436,10 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		OnComplete:      a.OnComplete,
 		Retry:           retry,
 		Timeout:         a.Timeout,
+		Agent:           a.Agent,
+		OutputKey:       a.OutputKey,
+		InputCtx:        a.InputCtx,
+		Execution:       a.Execution,
 	}, nil
 }
 
@@ -546,6 +566,15 @@ type Gate struct {
 	Type    string `json:"type" toml:"type"`
 	ID      string `json:"id,omitempty" toml:"id,omitempty"`
 	Timeout string `json:"timeout,omitempty" toml:"timeout,omitempty"`
+}
+
+// AgentConfig specifies which agent executes a step and how.
+type AgentConfig struct {
+	Name    string `json:"name" toml:"name"`
+	Model   string `json:"model,omitempty" toml:"model,omitempty"`
+	Session string `json:"session,omitempty" toml:"session,omitempty"`
+	Timeout string `json:"timeout,omitempty" toml:"timeout,omitempty"`
+	Retries int    `json:"retries,omitempty" toml:"retries,omitempty"`
 }
 
 // RetrySpec defines first-class transient retry semantics.

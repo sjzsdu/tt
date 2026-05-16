@@ -10,6 +10,7 @@ var (
 	stepCondVarPattern        = regexp.MustCompile(`^\{\{(\w+)\}\}$`)
 	stepCondNegatedVarPattern = regexp.MustCompile(`^!\{\{(\w+)\}\}$`)
 	stepCondComparePattern    = regexp.MustCompile(`^\{\{(\w+)\}\}\s*(==|!=)\s*(.+)$`)
+	stepCondRuntimePattern    = regexp.MustCompile(`^(\w+)\s*(==|!=|=~)\s*(.+)$`)
 )
 
 func EvaluateStepCondition(condition string, vars map[string]string) (bool, error) {
@@ -45,6 +46,10 @@ func EvaluateStepCondition(condition string, vars map[string]string) (bool, erro
 		case "!=":
 			return actual != expected, nil
 		}
+	}
+
+	if m := stepCondRuntimePattern.FindStringSubmatch(condition); m != nil {
+		return true, nil
 	}
 
 	return false, fmt.Errorf("invalid step condition format: %q", condition)

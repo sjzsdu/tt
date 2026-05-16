@@ -511,6 +511,13 @@ func cloneStep(s *Step) *Step {
 		}
 		clone.ExpandVars = v
 	}
+	if s.Agent != nil {
+		agentClone := *s.Agent
+		clone.Agent = &agentClone
+	}
+	if s.InputCtx != nil {
+		clone.InputCtx = append([]string(nil), s.InputCtx...)
+	}
 	return &clone
 }
 

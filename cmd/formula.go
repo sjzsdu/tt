@@ -10,17 +10,25 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/molecule"
+	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
 var (
-	formulaDir      string
-	formulaVars     []string
-	formulaOutput   string
-	formulaTitle    string
-	formulaMarkdown bool
-	formulaPort     int
+	formulaDir       string
+	formulaVars      []string
+	formulaOutput    string
+	formulaTitle     string
+	formulaMarkdown  bool
+	formulaPort      int
+	formulaAgent     string
+	formulaModel     string
+	formulaSession   string
+	formulaDryRun    bool
+	formulaDebug     bool
+	formulaVerbose   bool
 )
 
 var formulaCmd = &cobra.Command{
@@ -68,6 +76,15 @@ var formulaValidateCmd = &cobra.Command{
 	RunE:  runFormulaValidate,
 }
 
+var formulaRunCmd = &cobra.Command{
+	Use:   "run <name>",
+	Short: "Execute a formula with picoclaw agents",
+	Long: `Execute a formula by running each step through the configured agent.
+Steps are executed in dependency order, with parallel steps running concurrently.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runFormulaRun,
+}
+
 func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
@@ -78,11 +95,19 @@ func init() {
 	formulaShowCmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
 	formulaShowCmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
 
+	formulaRunCmd.Flags().StringVar(&formulaAgent, "agent", "general", "default agent for steps without explicit agent config")
+	formulaRunCmd.Flags().StringVar(&formulaModel, "model", "", "default model override")
+	formulaRunCmd.Flags().StringVar(&formulaSession, "session", "cli:formula", "session key prefix")
+	formulaRunCmd.Flags().BoolVar(&formulaDryRun, "dry-run", false, "print execution plan without running")
+	formulaRunCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
+	formulaRunCmd.Flags().BoolVarP(&formulaVerbose, "verbose", "v", false, "show full output of each step")
+
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
 	formulaCmd.AddCommand(formulaCompileCmd)
 	formulaCmd.AddCommand(formulaInstantiateCmd)
 	formulaCmd.AddCommand(formulaValidateCmd)
+	formulaCmd.AddCommand(formulaRunCmd)
 
 	rootCmd.AddCommand(formulaCmd)
 }
@@ -884,4 +909,210 @@ func setMarkdownContent(content string, port int) {
 	mdContentOnly = true
 	mdPort = port
 	mdInitialPath = ""
+}
+
+func runFormulaRun(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	vars := parseVars()
+
+	if formulaSession == "" {
+		formulaSession = "cli:formula"
+	}
+
+	recipe, err := formula.Compile(context.Background(), name, getSearchPaths(), vars)
+	if err != nil {
+		return err
+	}
+
+	if formulaDryRun {
+		return runFormulaDryRun(recipe)
+	}
+
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return err
+	}
+	merged := loaded.Merged
+
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
+
+	rt, err := pcwrap.Load(pcwrap.Options{
+		Home:      merged.Picoclaw.Home,
+		Config:    merged.Picoclaw.Config,
+		TTConfig:  merged,
+		TTSources: loaded.Sources,
+	})
+	if err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
+		Session: formulaSession,
+		Model:   formulaModel,
+		Debug:   formulaDebug,
+		Quiet:   true,
+	})
+	if err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	defer runner.Close()
+
+	exec := executor.New(recipe, executor.RunOptions{
+		Vars:    vars,
+		Agent:   formulaAgent,
+		Model:   formulaModel,
+		Session: formulaSession,
+		DryRun:  formulaDryRun,
+		Debug:   formulaDebug,
+	})
+
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+
+	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+		agent := step.Agent
+		if agent == nil || agent.Name == "" {
+			agent = &formula.AgentConfig{Name: formulaAgent, Model: formulaModel}
+		}
+
+		sessionKey := formulaSession + ":" + agent.Name + ":" + step.ID
+		if agent.Session != "" {
+			sessionKey = formulaSession + ":" + agent.Name + ":" + agent.Session
+		}
+
+		model := agent.Model
+		if model == "" {
+			model = formulaModel
+		}
+		modelDisplay := model
+		if modelDisplay == "" {
+			modelDisplay = "(default from picoclaw)"
+		}
+
+		fmt.Fprintf(errOut, "\n▶ Running: %s\n", step.Title)
+		fmt.Fprintf(errOut, "  Agent: %s | Model: %s\n", agent.Name, modelDisplay)
+
+		if step.Condition != "" {
+			condResult := executor.EvaluateCondition(step.Condition, exec.Context())
+			fmt.Fprintf(errOut, "  Condition: %s → %v\n", step.Condition, condResult)
+			if !condResult {
+				return "", nil
+			}
+		}
+
+		if len(step.InputCtx) > 0 {
+			fmt.Fprintf(errOut, "  Input context: %s\n", strings.Join(step.InputCtx, ", "))
+		}
+
+		if cwd, err := os.Getwd(); err == nil {
+			prompt = fmt.Sprintf("Project root: %s\n\n%s", cwd, prompt)
+		}
+
+		resp, err := runner.ProcessDirect(pcwrap.RunOptions{
+			Message: prompt,
+			Session: sessionKey,
+			Agent:   agent.Name,
+			Model:   model,
+		})
+		resp = strings.TrimSpace(resp)
+
+		if err != nil {
+			fmt.Fprintf(errOut, "  ✗ Failed: %v\n", err)
+			return resp, err
+		}
+
+		if resp == "" {
+			fmt.Fprintf(errOut, "  ⚠ Empty response from agent\n")
+		} else {
+			fmt.Fprintf(errOut, "  ✓ Completed (%d chars)\n", len(resp))
+			if formulaVerbose {
+				fmt.Fprintf(errOut, "\n%s\n\n", resp)
+			}
+		}
+
+		if step.OutputKey != "" {
+			fmt.Fprintf(errOut, "  → Output key: %s\n", step.OutputKey)
+		}
+
+		return resp, nil
+	}
+
+	fmt.Fprintf(out, "Executing formula: %s\n", recipe.Name)
+	fmt.Fprintf(out, "Steps: %d (excluding root)\n", len(recipe.Steps)-1)
+	fmt.Fprintln(out, strings.Repeat("─", 50))
+
+	result, err := exec.Run(context.Background(), stepRunner)
+
+	fmt.Fprintln(out, strings.Repeat("─", 50))
+	renderRunResult(cmd, result, err != nil)
+
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func runFormulaDryRun(recipe *formula.Recipe) error {
+	fmt.Printf("Execution Plan for: %s\n\n", recipe.Name)
+
+	batches, err := executor.TopologicalBatches(recipe)
+	if err != nil {
+		return err
+	}
+
+	for i, batch := range batches {
+		fmt.Printf("Batch %d (parallel):\n", i+1)
+		for _, step := range batch {
+			if step.IsRoot {
+				continue
+			}
+			agent := "default"
+			if step.Agent != nil && step.Agent.Name != "" {
+				agent = step.Agent.Name
+			}
+			skip := ""
+			if step.Condition != "" {
+				skip = fmt.Sprintf(" [if: %s]", step.Condition)
+			}
+			output := ""
+			if step.OutputKey != "" {
+				output = fmt.Sprintf(" → output: %s", step.OutputKey)
+			}
+			fmt.Printf("  - %s (%s)%s%s\n", step.ID, agent, skip, output)
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+func renderRunResult(cmd *cobra.Command, result *executor.RunResult, hasError bool) {
+	out := cmd.OutOrStdout()
+
+	fmt.Fprintf(out, "\nExecution Result: %s\n", result.RecipeName)
+	fmt.Fprintf(out, "Total: %d | Completed: %d | Failed: %d | Skipped: %d\n\n",
+		result.Total, result.Completed, result.Failed, result.Skipped)
+
+	for _, r := range result.Steps {
+		status := string(r.Status)
+		switch r.Status {
+		case executor.StatusCompleted:
+			status = "✓ " + status
+		case executor.StatusFailed:
+			status = "✗ " + status
+		case executor.StatusSkipped:
+			status = "⊘ " + status
+		}
+		fmt.Fprintf(out, "  [%s] %s\n", status, r.Title)
+		if r.Error != "" {
+			fmt.Fprintf(out, "    Error: %s\n", r.Error)
+		}
+	}
+
+	if result.FinalOutput != "" {
+		fmt.Fprintf(out, "\n--- Final Output ---\n\n%s\n", result.FinalOutput)
+	}
+	fmt.Fprintln(out)
 }

@@ -5,6 +5,13 @@ import (
 	"sort"
 )
 
+type RunOptions struct {
+	Message string
+	Session string
+	Agent   string
+	Model   string
+}
+
 // Recipe is the output of formula compilation — a flattened, ordered list of
 // steps with namespaced IDs and all dependency edges. Variable placeholders
 // ({{var}}) are preserved; substitution happens at instantiation time.
@@ -32,6 +39,11 @@ type RecipeStep struct {
 	IsRoot      bool
 	Metadata    map[string]string
 	Gate        *RecipeGate
+	Agent       *AgentConfig
+	OutputKey   string
+	InputCtx    []string
+	Execution   string
+	Condition   string
 }
 
 // RecipeGate describes an async coordination gate on a step.
@@ -146,6 +158,11 @@ func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, o
 			Labels:      step.Labels,
 			Assignee:    step.Assignee,
 			Metadata:    step.Metadata,
+			Agent:       step.Agent,
+			OutputKey:   step.OutputKey,
+			InputCtx:    step.InputCtx,
+			Execution:   step.Execution,
+			Condition:   step.Condition,
 		}
 
 		if step.WaitsFor != "" {

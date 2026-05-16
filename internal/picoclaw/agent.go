@@ -90,6 +90,18 @@ func cloneConfig(cfg *pcconfig.Config) *pcconfig.Config {
 	return &cp
 }
 
+// setAgentWorkspaces overrides all agent workspaces to the given directory.
+// This is used by the formula runner so agents can access the project files.
+func setAgentWorkspaces(cfg *pcconfig.Config, workspace string) {
+	if cfg == nil || workspace == "" {
+		return
+	}
+	cfg.Agents.Defaults.Workspace = workspace
+	for i := range cfg.Agents.List {
+		cfg.Agents.List[i].Workspace = workspace
+	}
+}
+
 func prepareConfigForRun(cfg *pcconfig.Config, opt ResolvedRunOptions) *pcconfig.Config {
 	if cfg == nil {
 		return nil

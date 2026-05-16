@@ -23,6 +23,7 @@ const (
 	OpGreaterEqual Operator = ">="
 	OpLess         Operator = "<"
 	OpLessEqual    Operator = "<="
+	OpRegexMatch   Operator = "=~"
 )
 
 type Condition struct {
@@ -39,7 +40,7 @@ type Condition struct {
 }
 
 var (
-	fieldPattern       = regexp.MustCompile(`^(\w+(?:\.\w+)*)\s*([=!<>]+)\s*(.+)$`)
+	fieldPattern       = regexp.MustCompile(`^(\w+(?:\.\w+)*)\s*([=!<>~]+)\s*(.+)$`)
 	aggregatePattern   = regexp.MustCompile(`^(children|descendants|steps)\((\w+)\)\.(all|any|count)\((.+)\)(.*)$`)
 	fileExistsPattern  = regexp.MustCompile(`^file\.exists\(['"](.+)['"]\)$`)
 	envPattern         = regexp.MustCompile(`^env\.(\w+)\s*([=!<>]+)\s*(.+)$`)

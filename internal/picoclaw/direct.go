@@ -3,6 +3,8 @@ package picoclaw
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
@@ -32,6 +34,15 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	}
 
 	cfg := cloneConfig(rt.Config)
+	cfg.Agents.Defaults.RestrictToWorkspace = false
+	cfg.Agents.Defaults.AllowReadOutsideWorkspace = true
+	if cwd, err := os.Getwd(); err == nil {
+		ttDir := filepath.Join(cwd, ".tt")
+		os.MkdirAll(ttDir, 0o755)
+		setAgentWorkspaces(cfg, ttDir)
+		cfg.Tools.AllowReadPaths = append(cfg.Tools.AllowReadPaths, cwd)
+		cfg.Tools.AllowWritePaths = append(cfg.Tools.AllowWritePaths, cwd)
+	}
 	cfg = prepareConfigForRun(cfg, resolved)
 	embeddedAgents := opt.embeddedAgents()
 	if err := applyEmbeddedAgentConfigs(cfg, embeddedAgents, resolved.Model); err != nil {
