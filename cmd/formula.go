@@ -991,9 +991,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			agent = &formula.AgentConfig{Name: formulaAgent, Model: formulaModel}
 		}
 
-		sessionKey := formulaSession + ":" + agent.Name + ":" + step.ID
+		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, formulaSession, step.ID)
 		if agent.Session != "" {
-			sessionKey = formulaSession + ":" + agent.Name + ":" + agent.Session
+			sessionKey = fmt.Sprintf("agent:%s:%s:%s", agent.Name, formulaSession, agent.Session)
 		}
 
 		model := agent.Model

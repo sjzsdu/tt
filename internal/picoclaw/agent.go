@@ -112,6 +112,9 @@ func prepareConfigForRun(cfg *pcconfig.Config, opt ResolvedRunOptions) *pcconfig
 	}
 	if str(opt.Model) != "" {
 		cfg.Agents.Defaults.ModelName = str(opt.Model)
+		for i := range cfg.Agents.List {
+			cfg.Agents.List[i].Model = &pcconfig.AgentModelConfig{Primary: str(opt.Model)}
+		}
 	}
 	selected := str(opt.Agent)
 	if selected == "" {
