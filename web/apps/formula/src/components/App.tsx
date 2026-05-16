@@ -282,7 +282,9 @@ function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep |
           {step.output && (
             <section>
               <h4>Output</h4>
-              <pre className="code-block">{step.output}</pre>
+              <div className="step-output-shell">
+                <MarkdownOutput content={step.output} />
+              </div>
             </section>
           )}
 
@@ -348,6 +350,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<FormulaDashboardSnapshot | null>(null);
   const [view, setView] = useState<DashboardView>(currentView());
   const [selectedStep, setSelectedStep] = useState<FormulaDashboardStep | null>(null);
+  const [finalOutputOpen, setFinalOutputOpen] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -482,9 +485,10 @@ export function App() {
           </Card>
           <Card className="console-card" title="Final output">
             {snapshot.final_output ? (
-              <div className="final-output-shell">
+              <div className="final-output-preview">
                 <div className="final-output-kicker">Rendered report</div>
-                <MarkdownOutput content={snapshot.final_output} />
+                <p>{snapshot.final_output.split('\n').find(line => line.trim()) || 'Open the final report.'}</p>
+                <Button type="primary" onClick={() => setFinalOutputOpen(true)}>Open final report</Button>
               </div>
             ) : (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for final output" />
@@ -494,6 +498,21 @@ export function App() {
       </section>
 
       <StepDetailModal step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} />
+      <Modal
+        open={finalOutputOpen}
+        onCancel={() => setFinalOutputOpen(false)}
+        footer={null}
+        width={1040}
+        title="Final output"
+        className="final-output-modal"
+      >
+        {snapshot.final_output ? (
+          <div className="final-output-shell">
+            <div className="final-output-kicker">Rendered report</div>
+            <MarkdownOutput content={snapshot.final_output} />
+          </div>
+        ) : null}
+      </Modal>
     </main>
   );
 }

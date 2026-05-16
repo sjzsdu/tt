@@ -424,6 +424,27 @@ button, input, textarea { font: inherit; }
   border: 1px solid rgba(125, 211, 252, 0.08);
 }
 
+.final-output-preview {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0)),
+    linear-gradient(180deg, rgba(8, 14, 24, 0.88), rgba(8, 13, 22, 0.96));
+  border: 1px solid rgba(125, 211, 252, 0.08);
+}
+
+.final-output-preview p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .final-output-kicker {
   margin-bottom: 16px;
   color: #7dd3fc;
@@ -442,6 +463,21 @@ button, input, textarea { font: inherit; }
 
 .formula-markdown-output.markdown-body {
   background: transparent;
+}
+
+.step-output-shell {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(4, 9, 18, 0.52);
+  border: 1px solid rgba(125, 211, 252, 0.1);
+}
+
+.step-output-shell .formula-markdown-output {
+  font-size: 14px;
+}
+
+.final-output-modal .ant-modal-content {
+  border-radius: 28px;
 }
 
 .formula-markdown-output h1,
