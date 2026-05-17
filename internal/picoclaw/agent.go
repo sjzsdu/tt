@@ -77,6 +77,13 @@ func (rt *Runtime) Run(opt RunOptions) error {
 		}
 		resp, err = normalizeDirectResponse(resp, nil)
 		if err != nil {
+			if isEmptyDirectResponseError(err) {
+				resp, err = recoverEmptyDirectResponse(loop, resolved.Session, str(resolved.Agent), DefaultAgent(cfg))
+				if err == nil {
+					fmt.Fprintln(os.Stdout, resp)
+					return nil
+				}
+			}
 			return err
 		}
 		fmt.Fprintln(os.Stdout, resp)
@@ -182,6 +189,13 @@ func runInteractive(loop *pcagent.AgentLoop, sessionKey string) error {
 		}
 		resp, err = normalizeDirectResponse(resp, nil)
 		if err != nil {
+			if isEmptyDirectResponseError(err) {
+				resp, err = recoverEmptyDirectResponse(loop, sessionKey, "", "")
+				if err == nil {
+					fmt.Fprintln(os.Stdout, resp)
+					continue
+				}
+			}
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue
 		}

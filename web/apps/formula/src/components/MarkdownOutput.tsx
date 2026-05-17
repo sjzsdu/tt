@@ -1,23 +1,81 @@
 import { useMemo } from 'react';
-import { Modal } from 'antd';
-import { marked } from 'marked';
+import { Modal, Table } from 'antd';
+import { marked, type TokensList } from 'marked';
 
-function normalizeMarkdownHTML(html: string) {
-  return html.replace(/<table>([\s\S]*?)<\/table>/g, '<div class="markdown-table-wrap"><table>$1</table></div>');
+type MarkdownPart =
+  | { type: 'html'; html: string }
+  | { type: 'table'; headers: string[]; rows: string[][] };
+
+function renderInlineMarkdown(markdown: string) {
+  return marked.parseInline(markdown || '') as string;
 }
 
-function renderMarkdown(markdown: string) {
-  return normalizeMarkdownHTML(marked.parse(markdown || '') as string);
+function splitMarkdownParts(markdown: string): MarkdownPart[] {
+  const tokens = marked.lexer(markdown || '') as TokensList;
+  const parts: MarkdownPart[] = [];
+  let buffer: any[] = [];
+
+  const flush = () => {
+    if (!buffer.length) return;
+    parts.push({ type: 'html', html: marked.parser(buffer as any) as string });
+    buffer = [];
+  };
+
+  for (const token of tokens as any[]) {
+    if (token.type === 'table') {
+      flush();
+      parts.push({
+        type: 'table',
+        headers: (token.header || []).map((cell: any) => String(cell.text || cell.raw || '')),
+        rows: (token.rows || []).map((row: any) => (row || []).map((cell: any) => String(cell.text || cell.raw || ''))),
+      });
+      continue;
+    }
+    buffer.push(token);
+  }
+
+  flush();
+  return parts;
 }
 
 export function MarkdownOutput({ content, className = '' }: { content: string; className?: string }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const parts = useMemo(() => splitMarkdownParts(content), [content]);
 
   return (
-    <article
-      className={`markdown-body formula-markdown-output ${className}`.trim()}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <article className={`markdown-body formula-markdown-output ${className}`.trim()}>
+      {parts.map((part, index) => {
+        if (part.type === 'html') {
+          return <div key={index} className="markdown-html-block" dangerouslySetInnerHTML={{ __html: part.html }} />;
+        }
+
+        const columns = part.headers.map((header, columnIndex) => ({
+          title: <span dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(header) }} />,
+          dataIndex: `col_${columnIndex}`,
+          key: `col_${columnIndex}`,
+          render: (value: string) => <div dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(value) }} />,
+        }));
+        const dataSource = part.rows.map((row, rowIndex) => {
+          const record: Record<string, string> = { key: `row_${rowIndex}` };
+          row.forEach((cell, columnIndex) => {
+            record[`col_${columnIndex}`] = cell;
+          });
+          return record;
+        });
+
+        return (
+          <div key={index} className="markdown-table-block">
+            <Table
+              size="small"
+              pagination={false}
+              columns={columns}
+              dataSource={dataSource}
+              scroll={{ x: 'max-content' }}
+              className="formula-ant-table"
+            />
+          </div>
+        );
+      })}
+    </article>
   );
 }
 

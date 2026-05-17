@@ -510,31 +510,44 @@ button, input, textarea { font: inherit; }
   color: #7dd3fc !important;
 }
 
-.formula-markdown-output .markdown-table-wrap {
+.markdown-table-block {
   margin: 18px 0;
-  overflow-x: auto;
+}
+
+.formula-ant-table {
+  overflow: hidden;
   border: 1px solid rgba(125, 211, 252, 0.12);
   border-radius: 14px;
   background: rgba(255,255,255,0.02);
 }
 
-.formula-markdown-output table {
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-  border-spacing: 0;
+.formula-ant-table .ant-table {
+  background: transparent;
 }
 
-.formula-markdown-output table th,
-.formula-markdown-output table td {
-  border-color: rgba(125, 211, 252, 0.12) !important;
-  background: rgba(255,255,255,0.015) !important;
-  padding: 10px 14px !important;
+.formula-ant-table .ant-table-container {
+  background: transparent;
+}
+
+.formula-ant-table .ant-table-thead > tr > th {
+  background: rgba(125, 211, 252, 0.08) !important;
+  color: #e8f3ff !important;
+  border-bottom-color: rgba(125, 211, 252, 0.12) !important;
+}
+
+.formula-ant-table .ant-table-tbody > tr > td {
+  background: rgba(11, 20, 34, 0.92) !important;
+  color: var(--text) !important;
+  border-bottom-color: rgba(125, 211, 252, 0.1) !important;
   vertical-align: top;
 }
 
-.formula-markdown-output table th {
-  background: rgba(125, 211, 252, 0.08) !important;
+.formula-ant-table .ant-table-tbody > tr:nth-child(even) > td {
+  background: rgba(255,255,255,0.02) !important;
+}
+
+.formula-ant-table .ant-table-cell {
+  white-space: normal;
 }
 
 .formula-markdown-output pre,
@@ -583,20 +596,138 @@ button, input, textarea { font: inherit; }
   border-radius: 26px;
 }
 
-.step-modal-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
-  gap: 16px;
+/* ── Tag bar ── */
+.step-modal-tagbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
 }
 
-.step-modal-main,
-.step-modal-side {
+/* ── Two-column body ── */
+.step-modal-body {
   display: grid;
-  gap: 16px;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 2fr);
+  gap: 18px;
 }
 
-.step-modal-main h4 {
-  margin: 0 0 10px;
+/* ── Sidebar cards ── */
+.step-modal-sidebar {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.step-sidebar-card {
+  overflow: hidden;
+}
+
+.step-sidebar-card .ant-card-body {
+  padding: 12px 14px !important;
+}
+
+.step-sidebar-card .ant-card-head {
+  min-height: unset;
+  padding: 10px 14px !important;
+}
+
+.step-sidebar-card .ant-card-head-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.step-descriptions .ant-descriptions-item-label {
+  color: var(--muted) !important;
+  white-space: nowrap;
+}
+
+.step-descriptions .ant-descriptions-item-content {
+  color: var(--text) !important;
+}
+
+/* ── Main content sections ── */
+.step-modal-main {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  min-width: 0;
+}
+
+.step-modal-section {
+  background: rgba(255,255,255,0.015);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.step-modal-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(125, 211, 252, 0.04);
+  border-bottom: 1px solid var(--line);
+}
+
+.step-modal-section-header h4 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.step-modal-section-icon {
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.step-modal-section-icon.error-icon {
+  opacity: 0.9;
+}
+
+.step-modal-section-body {
+  padding: 14px 16px;
+}
+
+.step-description-text {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.step-modal-section .code-block {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+.step-modal-section .step-output-shell {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  padding: 14px 16px;
+}
+
+/* ── Shared utilities ── */
+.card-subtitle {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
 }
 
 .meta-list {
@@ -613,8 +744,7 @@ button, input, textarea { font: inherit; }
   gap: 4px;
 }
 
-.meta-list span,
-.card-subtitle {
+.meta-list span {
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
@@ -631,8 +761,11 @@ button, input, textarea { font: inherit; }
 @media (max-width: 1200px) {
   .stats-grid,
   .workspace-grid,
-  .step-grid,
-  .step-modal-grid {
+  .step-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .step-modal-body {
     grid-template-columns: 1fr;
   }
 

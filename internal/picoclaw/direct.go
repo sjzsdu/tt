@@ -126,7 +126,7 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 		resp, err = normalizeDirectResponse(resp, nil)
 		if err != nil {
 			if isEmptyDirectResponseError(err) {
-				resp, err = dr.retryEmptyDirectResponse(resolved.Session, resolved.Agent)
+				resp, err = recoverEmptyDirectResponse(dr.loop, resolved.Session, resolved.Agent, dr.defaultAgent)
 				if err == nil {
 					return resp, nil
 				}
@@ -143,7 +143,7 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 	resp, err = normalizeDirectResponse(resp, nil)
 	if err != nil {
 		if isEmptyDirectResponseError(err) {
-			resp, err = dr.retryEmptyDirectResponse(resolved.Session, "")
+			resp, err = recoverEmptyDirectResponse(dr.loop, resolved.Session, "", dr.defaultAgent)
 			if err == nil {
 				return resp, nil
 			}
@@ -151,22 +151,4 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 		return "", err
 	}
 	return resp, nil
-}
-
-func (dr *DirectRunner) retryEmptyDirectResponse(sessionKey, agentID string) (string, error) {
-	const retryPrompt = "The previous model turn returned no final content. Based on the conversation, tool results, and task above, provide the final answer now. Do not call more tools unless absolutely necessary. Return a concise but complete response."
-
-	var (
-		resp string
-		err  error
-	)
-	if strings.TrimSpace(agentID) != "" && !strings.EqualFold(agentID, dr.defaultAgent) {
-		resp, err = dr.loop.ProcessDirectForAgent(context.Background(), retryPrompt, sessionKey, agentID)
-	} else {
-		resp, err = dr.loop.ProcessDirect(context.Background(), retryPrompt, sessionKey)
-	}
-	if err != nil {
-		return "", fmt.Errorf("process picoclaw retry failed: %w", err)
-	}
-	return normalizeDirectResponse(resp, nil)
 }

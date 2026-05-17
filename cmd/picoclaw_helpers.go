@@ -5,11 +5,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
 func picoclawUnavailableError(err error, home, configPath string) error {
 	if err == nil {
 		return nil
+	}
+	if !shouldWrapPicoclawError(err) {
+		return err
 	}
 	resolvedHome, resolvedConfig := resolvePicoclawPaths(home, configPath)
 
@@ -38,6 +43,31 @@ func ensurePicoclawConfigAvailable(home, configPath string) error {
 		return picoclawUnavailableError(fmt.Errorf("cannot access picoclaw config file: %w", err), home, configPath)
 	}
 	return nil
+}
+
+func shouldWrapPicoclawError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if pcwrap.IsEmptyDirectResponseError(err) {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	wrapIndicators := []string{
+		"picoclaw config file does not exist",
+		"cannot access picoclaw config file",
+		"load picoclaw config failed",
+		"create picoclaw provider failed",
+		"no model specified and no default model configured",
+		"agent \"",
+		"not found",
+	}
+	for _, indicator := range wrapIndicators {
+		if strings.Contains(msg, indicator) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolvePicoclawPaths(home, configPath string) (string, string) {

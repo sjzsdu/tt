@@ -3,10 +3,10 @@ import {
   App as AntdApp,
   Button,
   Card,
+  Descriptions,
   Empty,
   Modal,
   Segmented,
-  Space,
   Statistic,
   Tag,
   Timeline,
@@ -246,86 +246,102 @@ function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (s
 function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep | null; open: boolean; onClose: () => void }) {
   if (!step) return null;
   const metadataEntries = Object.entries(step.metadata || {});
+  const labels = step.labels || [];
+  const inputCtx = step.input_ctx || [];
 
   return (
     <Modal open={open} onCancel={onClose} footer={null} width={960} title={step.title} className="step-modal">
-      <div className="step-modal-grid">
-        <div className="step-modal-main">
-          <Space wrap size={[8, 8]}>
-            <Tag color={statusTone[step.status] || 'default'}>{step.status}</Tag>
-            {step.agent && <Tag>{step.agent}</Tag>}
-            {step.model && <Tag>{step.model}</Tag>}
-            {step.type && <Tag>{step.type}</Tag>}
-            {step.priority && <Tag>P{step.priority}</Tag>}
-          </Space>
+      <div className="step-modal-tagbar">
+        <Tag color={statusTone[step.status] || 'default'}>{step.status}</Tag>
+        {step.agent && <Tag>{step.agent}</Tag>}
+        {step.model && <Tag>{step.model}</Tag>}
+        {step.type && <Tag>{step.type}</Tag>}
+        {step.priority && <Tag>P{step.priority}</Tag>}
+      </div>
 
-          {(step.description || step.notes) && (
-            <section>
-              <h4>Brief</h4>
-              {step.description && <p>{step.description}</p>}
-              {step.notes && <pre className="code-block">{step.notes}</pre>}
-            </section>
-          )}
-
-          {step.output && (
-            <section>
-              <h4>Output</h4>
-              <OutputSurface content={step.output} className="step-output-shell" />
-            </section>
-          )}
-
-          {step.error && (
-            <section>
-              <h4>Error</h4>
-              <pre className="code-block error-block">{step.error}</pre>
-            </section>
-          )}
-        </div>
-
-        <aside className="step-modal-side">
-          <Card size="small" title="Runtime">
-            <ul className="meta-list">
-              <li><span>ID</span><strong>{step.id}</strong></li>
-              <li><span>Started</span><strong>{formatDate(step.started_at)}</strong></li>
-              <li><span>Finished</span><strong>{formatDate(step.finished_at)}</strong></li>
-              <li><span>Duration</span><strong>{formatDuration(step.duration_ms)}</strong></li>
-              <li><span>Session</span><strong>{step.session || '—'}</strong></li>
-              <li><span>Execution</span><strong>{step.execution || '—'}</strong></li>
-              <li><span>Condition</span><strong>{step.condition || '—'}</strong></li>
-            </ul>
+      <div className="step-modal-body">
+        <aside className="step-modal-sidebar">
+          <Card size="small" title="Runtime" className="step-sidebar-card">
+            <Descriptions column={1} size="small" className="step-descriptions">
+              <Descriptions.Item label="ID">{step.id}</Descriptions.Item>
+              <Descriptions.Item label="Duration">{formatDuration(step.duration_ms)}</Descriptions.Item>
+              <Descriptions.Item label="Started">{formatDate(step.started_at)}</Descriptions.Item>
+              <Descriptions.Item label="Finished">{formatDate(step.finished_at)}</Descriptions.Item>
+              <Descriptions.Item label="Session">{step.session || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Execution">{step.execution || '—'}</Descriptions.Item>
+              <Descriptions.Item label="Condition">{step.condition || '—'}</Descriptions.Item>
+            </Descriptions>
           </Card>
-          <Card size="small" title="Dependencies">
+
+          <Card size="small" title="Dependencies" className="step-sidebar-card">
             {step.depends_on?.length ? (
               <ul className="pill-list">
                 {step.depends_on.map(dep => <li key={dep}>{dep}</li>)}
               </ul>
             ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No dependencies" />}
           </Card>
-          <Card size="small" title="Inputs & Labels">
-            {!!step.input_ctx?.length && (
+
+          <Card size="small" title="Inputs & Labels" className="step-sidebar-card">
+            {!!inputCtx.length && (
               <>
                 <div className="card-subtitle">Input context</div>
-                <ul className="pill-list">{step.input_ctx.map(key => <li key={key}>{key}</li>)}</ul>
+                <ul className="pill-list">{inputCtx.map(key => <li key={key}>{key}</li>)}</ul>
               </>
             )}
-            {!!step.labels?.length && (
+            {!!labels.length && (
               <>
                 <div className="card-subtitle">Labels</div>
-                <ul className="pill-list">{step.labels.map(label => <li key={label}>{label}</li>)}</ul>
+                <ul className="pill-list">{labels.map(label => <li key={label}>{label}</li>)}</ul>
               </>
             )}
-            {!step.input_ctx?.length && !step.labels?.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No labels or inputs" />}
+            {!inputCtx.length && !labels.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No labels or inputs" />}
           </Card>
+
           {metadataEntries.length > 0 && (
-            <Card size="small" title="Metadata">
-              <ul className="meta-list compact">
+            <Card size="small" title="Metadata" className="step-sidebar-card">
+              <Descriptions column={1} size="small" className="step-descriptions">
                 {metadataEntries.map(([key, value]) => (
-                  <li key={key}><span>{key}</span><strong>{value}</strong></li>
+                  <Descriptions.Item key={key} label={key}>{value}</Descriptions.Item>
                 ))}
-              </ul>
+              </Descriptions>
             </Card>
           )}
         </aside>
+
+        <div className="step-modal-main">
+          {(step.description || step.notes) && (
+            <section className="step-modal-section">
+              <div className="step-modal-section-header">
+                <span className="step-modal-section-icon">📋</span>
+                <h4>Brief</h4>
+              </div>
+              <div className="step-modal-section-body">
+                {step.description && <p className="step-description-text">{step.description}</p>}
+                {step.notes && <pre className="code-block">{step.notes}</pre>}
+              </div>
+            </section>
+          )}
+
+          {step.output && (
+            <section className="step-modal-section">
+              <div className="step-modal-section-header">
+                <span className="step-modal-section-icon">📄</span>
+                <h4>Output</h4>
+              </div>
+              <OutputSurface content={step.output} className="step-output-shell" />
+            </section>
+          )}
+
+          {step.error && (
+            <section className="step-modal-section">
+              <div className="step-modal-section-header">
+                <span className="step-modal-section-icon error-icon">⚠️</span>
+                <h4>Error</h4>
+              </div>
+              <pre className="code-block error-block">{step.error}</pre>
+            </section>
+          )}
+        </div>
       </div>
     </Modal>
   );
