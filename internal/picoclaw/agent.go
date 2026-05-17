@@ -26,6 +26,9 @@ func (rt *Runtime) Run(opt RunOptions) error {
 	}
 
 	cfg := cloneConfig(rt.Config)
+	if cwd, err := os.Getwd(); err == nil {
+		configureProjectWorkspace(cfg, cwd)
+	}
 	cfg = prepareConfigForRun(cfg, resolved)
 	embeddedAgents := opt.embeddedAgents()
 	if err := applyEmbeddedAgentConfigs(cfg, embeddedAgents, resolved.Model); err != nil {
@@ -94,8 +97,21 @@ func cloneConfig(cfg *pcconfig.Config) *pcconfig.Config {
 	return &cp
 }
 
+// configureProjectWorkspace points picoclaw filesystem and shell tools at the
+// current tt project. Relative tool paths such as "." must resolve to the
+// user's project root, not to picoclaw's private state directory.
+func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) {
+	if cfg == nil || workspace == "" {
+		return
+	}
+	setAgentWorkspaces(cfg, workspace)
+	cfg.Agents.Defaults.RestrictToWorkspace = false
+	cfg.Agents.Defaults.AllowReadOutsideWorkspace = true
+	cfg.Tools.AllowReadPaths = append(cfg.Tools.AllowReadPaths, workspace)
+	cfg.Tools.AllowWritePaths = append(cfg.Tools.AllowWritePaths, workspace)
+}
+
 // setAgentWorkspaces overrides all agent workspaces to the given directory.
-// This is used by the formula runner so agents can access the project files.
 func setAgentWorkspaces(cfg *pcconfig.Config, workspace string) {
 	if cfg == nil || workspace == "" {
 		return

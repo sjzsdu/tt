@@ -58,6 +58,13 @@ type Executor struct {
 
 func New(recipe *formula.Recipe, opts RunOptions) *Executor {
 	vars := make(map[string]string)
+	if recipe != nil {
+		for k, def := range recipe.Vars {
+			if def != nil && def.Default != nil {
+				vars[k] = *def.Default
+			}
+		}
+	}
 	for k, v := range opts.Vars {
 		vars[k] = v
 	}
@@ -198,10 +205,10 @@ func (e *Executor) shouldSkip(step *formula.RecipeStep) bool {
 func (e *Executor) buildPrompt(step *formula.RecipeStep) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("# Task: %s\n\n", step.Title))
+	b.WriteString(fmt.Sprintf("# Task: %s\n\n", e.renderTemplate(step.Title)))
 
 	if step.Description != "" {
-		b.WriteString(fmt.Sprintf("## Description\n\n%s\n\n", step.Description))
+		b.WriteString(fmt.Sprintf("## Description\n\n%s\n\n", e.renderTemplate(step.Description)))
 	}
 
 	if len(step.InputCtx) > 0 {
@@ -216,10 +223,23 @@ func (e *Executor) buildPrompt(step *formula.RecipeStep) string {
 	}
 
 	if step.Notes != "" {
-		b.WriteString(fmt.Sprintf("## Notes\n\n%s\n\n", step.Notes))
+		b.WriteString(fmt.Sprintf("## Notes\n\n%s\n\n", e.renderTemplate(step.Notes)))
 	}
 
 	return b.String()
+}
+
+func (e *Executor) renderTemplate(s string) string {
+	if s == "" {
+		return s
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := s
+	for k, v := range e.context {
+		out = strings.ReplaceAll(out, "{{"+k+"}}", v)
+	}
+	return out
 }
 
 func (e *Executor) resolveAgent(step *formula.RecipeStep) *formula.AgentConfig {
