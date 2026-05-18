@@ -79,11 +79,11 @@ var formulaValidateCmd = &cobra.Command{
 }
 
 var formulaRunCmd = &cobra.Command{
-	Use:   "run <name>",
+	Use:   "run <name> [required-var-value]",
 	Short: "Execute a formula with picoclaw agents",
 	Long: `Execute a formula by running each step through the configured agent.
 Steps are executed in dependency order, with parallel steps running concurrently.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MinimumNArgs(1),
 	RunE: runFormulaRun,
 }
 
@@ -140,6 +140,29 @@ func parseVars() map[string]string {
 		}
 	}
 	return vars
+}
+
+func applyFormulaRunPositionalVars(f *formula.Formula, values []string, vars map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if f == nil {
+		return fmt.Errorf("formula is required for positional variables")
+	}
+	required := f.RequiredVarNames()
+	if len(required) != 1 {
+		return fmt.Errorf("positional value shorthand requires exactly one required variable, found %d; use --var key=value", len(required))
+	}
+	name := required[0]
+	if _, exists := vars[name]; exists {
+		return fmt.Errorf("variable %q is already set via --var; remove the positional value or the --var override", name)
+	}
+	value := strings.TrimSpace(strings.Join(values, " "))
+	if value == "" {
+		return fmt.Errorf("positional value for required variable %q cannot be empty", name)
+	}
+	vars[name] = value
+	return nil
 }
 
 func runFormulaList(cmd *cobra.Command, args []string) error {
@@ -896,8 +919,13 @@ func generateQuickStart(f *formula.Formula, recipe *formula.Recipe) string {
 		for i, v := range requiredVars {
 			vars[i] = fmt.Sprintf("--var %s=<value>", v)
 		}
-		b.WriteString(fmt.Sprintf("# 带必填变量执行: %s\n", strings.Join(requiredVars, ", ")))
-		b.WriteString(fmt.Sprintf("tt formula run %s %s\n", f.Formula, strings.Join(vars, " ")))
+		if len(requiredVars) == 1 {
+			b.WriteString(fmt.Sprintf("# 带必填变量执行: %s（位置参数简写）\n", requiredVars[0]))
+			b.WriteString(fmt.Sprintf("tt formula run %s <value>\n", f.Formula))
+		} else {
+			b.WriteString(fmt.Sprintf("# 带必填变量执行: %s\n", strings.Join(requiredVars, ", ")))
+			b.WriteString(fmt.Sprintf("tt formula run %s %s\n", f.Formula, strings.Join(vars, " ")))
+		}
 	} else {
 		b.WriteString(fmt.Sprintf("# 传入变量值\n"))
 		b.WriteString(fmt.Sprintf("tt formula run %s --var key=value\n", f.Formula))
@@ -922,6 +950,15 @@ func setMarkdownContent(content string, port int) {
 func runFormulaRun(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	vars := parseVars()
+
+	p := formula.NewParser(getSearchPaths()...)
+	f, err := p.LoadByName(name)
+	if err != nil {
+		return err
+	}
+	if err := applyFormulaRunPositionalVars(f, args[1:], vars); err != nil {
+		return err
+	}
 
 	if formulaSession == "" {
 		formulaSession = "cli:formula"
