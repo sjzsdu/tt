@@ -36,6 +36,8 @@ description = "This step runs only when the decide step produced JSON with path=
 id = "improve"
 title = "Iterate until review approves"
 depends_on = ["frontend-plan"]
+input_context = ["decision"]
+condition = "decision.path == frontend"
 description = "Runtime loop: every iteration can use the latest agent output and decide whether to stop."
 
   [steps.loop]

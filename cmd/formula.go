@@ -756,7 +756,7 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 
 	for _, step := range recipe.Steps {
 		nodeID := mermaidNodeID(step.ID)
-		label := mermaidLabel(step.ID, step.Title, step.Priority)
+		label := mermaidLabel(step)
 		shape := mermaidShape(step, endSteps, parallelSteps)
 		b.WriteString(fmt.Sprintf("    %s%s%s\n", nodeID, shape.open, label+shape.close))
 
@@ -767,14 +767,22 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 			b.WriteString(fmt.Sprintf("    class %s nodeRoot\n", nodeID))
 		} else if step.Gate != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeGate\n", nodeID))
+		} else if step.Loop != nil {
+			b.WriteString(fmt.Sprintf("    class %s nodeLoop\n", nodeID))
 		} else {
 			b.WriteString(fmt.Sprintf("    classDef c%s fill:%s,stroke:%s,stroke-width:2px\n", nodeID, color.Fill, color.Stroke))
 			b.WriteString(fmt.Sprintf("    class %s c%s\n", nodeID, nodeID))
 		}
 	}
 
+	for _, step := range recipe.Steps {
+		appendMermaidLoopBody(&b, step)
+	}
+
 	b.WriteString("    classDef nodeRoot fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px\n")
 	b.WriteString("    classDef nodeGate fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5\n")
+	b.WriteString("    classDef nodeLoop fill:#fff3e0,stroke:#ef6c00,stroke-width:2px\n")
+	b.WriteString("    classDef nodeLoopBody fill:#fff8e1,stroke:#f9a825,stroke-width:1px,stroke-dasharray: 3 3\n")
 
 	for _, dep := range recipe.Deps {
 		if dep.Type == "parent-child" {
@@ -790,6 +798,67 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 	}
 
 	return b.String()
+}
+
+func appendMermaidLoopBody(b *strings.Builder, step formula.RecipeStep) {
+	if step.Loop == nil || len(step.Loop.Body) == 0 {
+		return
+	}
+
+	loopID := mermaidNodeID(step.ID)
+	var previous string
+	for i, bodyStep := range step.Loop.Body {
+		bodyID := mermaidNodeID(fmt.Sprintf("%s.loop.%d.%s", step.ID, i+1, bodyStep.ID))
+		label := mermaidLoopBodyLabel(bodyStep)
+		b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", bodyID, label))
+		b.WriteString(fmt.Sprintf("    class %s nodeLoopBody\n", bodyID))
+		if i == 0 {
+			b.WriteString(fmt.Sprintf("    %s -.-> |iterate| %s\n", loopID, bodyID))
+		} else {
+			b.WriteString(fmt.Sprintf("    %s -.-> %s\n", previous, bodyID))
+		}
+		previous = bodyID
+	}
+	if previous != "" {
+		b.WriteString(fmt.Sprintf("    %s -.-> |%s| %s\n", previous, mermaidLoopEdgeLabel(step.Loop), loopID))
+	}
+}
+
+func mermaidLoopBodyLabel(step *formula.Step) string {
+	if step == nil {
+		return "loop body"
+	}
+	parts := []string{fmt.Sprintf("body: %s", mermaidEscapeLabel(step.ID))}
+	if step.Title != "" {
+		parts = append(parts, mermaidEscapeLabel(step.Title))
+	}
+	if step.OutputKey != "" {
+		parts = append(parts, fmt.Sprintf("out: %s", mermaidEscapeLabel(step.OutputKey)))
+	}
+	return strings.Join(parts, "<br/>")
+}
+
+func mermaidLoopEdgeLabel(loop *formula.LoopSpec) string {
+	if loop == nil {
+		return "next"
+	}
+	var parts []string
+	if loop.Until != "" {
+		parts = append(parts, "until "+loop.Until)
+	}
+	if loop.Max > 0 {
+		parts = append(parts, fmt.Sprintf("max %d", loop.Max))
+	}
+	if loop.Count > 0 {
+		parts = append(parts, fmt.Sprintf("count %d", loop.Count))
+	}
+	if loop.Range != "" {
+		parts = append(parts, "range "+loop.Range)
+	}
+	if len(parts) == 0 {
+		return "next"
+	}
+	return mermaidEscapeLabel(strings.Join(parts, "; "))
 }
 
 type shapeDef struct {
@@ -946,17 +1015,37 @@ func mermaidNodeID(id string) string {
 	return result
 }
 
-func mermaidLabel(id string, title string, priority *int) string {
-	safeTitle := strings.ReplaceAll(title, "\"", "'")
+func mermaidLabel(step formula.RecipeStep) string {
+	safeTitle := mermaidEscapeLabel(step.Title)
 	prefix := ""
-	if priority != nil {
-		prefix = fmt.Sprintf("[P%d] ", *priority)
+	if step.Priority != nil {
+		prefix = fmt.Sprintf("[P%d] ", *step.Priority)
 	}
-	shortID := id
-	if idx := strings.LastIndex(id, "."); idx >= 0 {
-		shortID = id[idx+1:]
+	shortID := step.ID
+	if idx := strings.LastIndex(step.ID, "."); idx >= 0 {
+		shortID = step.ID[idx+1:]
 	}
-	return fmt.Sprintf("%s: %s%s", shortID, prefix, safeTitle)
+	parts := []string{fmt.Sprintf("%s: %s%s", mermaidEscapeLabel(shortID), prefix, safeTitle)}
+	if step.Condition != "" {
+		parts = append(parts, "if: "+mermaidEscapeLabel(step.Condition))
+	}
+	if step.OutputKey != "" {
+		parts = append(parts, "out: "+mermaidEscapeLabel(step.OutputKey))
+	}
+	if len(step.InputCtx) > 0 {
+		parts = append(parts, "in: "+mermaidEscapeLabel(strings.Join(step.InputCtx, ", ")))
+	}
+	if step.Loop != nil {
+		parts = append(parts, "loop: "+mermaidLoopEdgeLabel(step.Loop))
+	}
+	return strings.Join(parts, "<br/>")
+}
+
+func mermaidEscapeLabel(s string) string {
+	s = strings.ReplaceAll(s, "\"", "'")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
 }
 
 func generateQuickStart(f *formula.Formula, recipe *formula.Recipe) string {

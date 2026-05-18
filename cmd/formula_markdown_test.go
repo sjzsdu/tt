@@ -79,3 +79,49 @@ func TestGenerateFormulaMarkdownUsesRunShorthandForSingleRequiredVar(t *testing.
 		t.Fatalf("markdown missing positional run shorthand:\n%s", md)
 	}
 }
+
+func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "runtime-control",
+		Steps: []formula.RecipeStep{
+			{ID: "root", Title: "Root", IsRoot: true},
+			{ID: "decide", Title: "Decide", OutputKey: "decision"},
+			{ID: "frontend-plan", Title: "Frontend", Condition: "decision.path == frontend", InputCtx: []string{"decision"}},
+			{
+				ID:        "improve",
+				Title:     "Improve",
+				Condition: "decision.path == frontend",
+				Loop: &formula.LoopSpec{
+					Until: "review.approved == true",
+					Max:   3,
+					Body: []*formula.Step{
+						{ID: "draft", Title: "Draft", OutputKey: "draft"},
+						{ID: "review", Title: "Review", OutputKey: "review"},
+					},
+				},
+			},
+		},
+		Deps: []formula.RecipeDep{
+			{StepID: "decide", DependsOnID: "root"},
+			{StepID: "frontend-plan", DependsOnID: "decide"},
+			{StepID: "improve", DependsOnID: "frontend-plan"},
+		},
+	}
+
+	graph := generateMermaidGraph(recipe)
+	for _, want := range []string{
+		"if: decision.path == frontend",
+		"out: decision",
+		"in: decision",
+		"loop: until review.approved == true; max 3",
+		"body: draft<br/>Draft<br/>out: draft",
+		"body: review<br/>Review<br/>out: review",
+		"-.-> |iterate|",
+		"class improve nodeLoop",
+		"classDef nodeLoopBody",
+	} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("mermaid graph missing %q:\n%s", want, graph)
+		}
+	}
+}
