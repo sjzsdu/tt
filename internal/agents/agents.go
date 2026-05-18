@@ -13,6 +13,12 @@ import (
 
 const (
 	TranslateMasterID     = "translate-master"
+	CoderID               = "coder"
+	FullStackID           = "full-stack"
+	PlannerID             = "planner"
+	ProductManagerID      = "product-manager"
+	TesterID              = "tester"
+	UIID                  = "ui"
 	StockBeginnerID       = "stock-growth-investor"
 	StockOldHandID        = "stock-risk-investor"
 	StockDiscussionHostID = "stock-discussion-host"
@@ -35,8 +41,44 @@ func TranslateMaster() pcwrap.EmbeddedAgent {
 	return mustGet(TranslateMasterID)
 }
 
+func Coder() pcwrap.EmbeddedAgent {
+	return mustGet(CoderID)
+}
+
+func FullStack() pcwrap.EmbeddedAgent {
+	return mustGet(FullStackID)
+}
+
+func Planner() pcwrap.EmbeddedAgent {
+	return mustGet(PlannerID)
+}
+
+func ProductManager() pcwrap.EmbeddedAgent {
+	return mustGet(ProductManagerID)
+}
+
+func Tester() pcwrap.EmbeddedAgent {
+	return mustGet(TesterID)
+}
+
+func UI() pcwrap.EmbeddedAgent {
+	return mustGet(UIID)
+}
+
 func NvwaPromptDesigner() pcwrap.EmbeddedAgent {
 	return mustGet(NvwaPromptDesignerID)
+}
+
+func Core() []pcwrap.EmbeddedAgent {
+	return mustGetMany(CoderID, FullStackID, PlannerID, ProductManagerID, TesterID, UIID)
+}
+
+func All() []pcwrap.EmbeddedAgent {
+	agents, err := List()
+	if err != nil {
+		panic(err)
+	}
+	return agents
 }
 
 func StockDiscussion() []pcwrap.EmbeddedAgent {

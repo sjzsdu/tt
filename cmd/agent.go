@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sjzsdu/tt/internal/agents"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
@@ -103,13 +104,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	loading := startLLMLoading("正在等待 agent 回复", debug || msg == "")
 	defer loading.Stop()
 	if err := rt.Run(pcwrap.RunOptions{
-		Message:      msg,
-		Session:      merged.Agent.Session,
-		Agent:        merged.Agent.Agent,
-		Model:        merged.Agent.Model,
-		Debug:        debug,
-		Quiet:        !debug,
-		BeforeOutput: loading.Stop,
+		Message:        msg,
+		Session:        merged.Agent.Session,
+		Agent:          merged.Agent.Agent,
+		Model:          merged.Agent.Model,
+		Debug:          debug,
+		Quiet:          !debug,
+		EmbeddedAgents: agents.All(),
+		BeforeOutput:   loading.Stop,
 	}); err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
