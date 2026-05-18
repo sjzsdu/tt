@@ -14,7 +14,7 @@ import (
 const (
 	TranslateMasterID     = "translate-master"
 	CoderID               = "coder"
-	ReporterID            = "reporter"
+	ReporterID            = "nvwa-agent"
 	FullStackID           = "full-stack"
 	PlannerID             = "planner"
 	ProductManagerID      = "product-manager"
@@ -75,7 +75,7 @@ func NvwaPromptDesigner() pcwrap.EmbeddedAgent {
 }
 
 func Core() []pcwrap.EmbeddedAgent {
-	return mustGetMany(CoderID, ReporterID, FullStackID, PlannerID, ProductManagerID, TesterID, UIID)
+	return mustGetMany(CoderID, FullStackID, PlannerID, ProductManagerID, TesterID, UIID)
 }
 
 func All() []pcwrap.EmbeddedAgent {

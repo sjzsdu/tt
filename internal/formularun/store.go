@@ -241,8 +241,12 @@ func (s *Store) SaveStepError(stepID, content string) error {
 	return writeText(s.stepPath(stepID, "error.txt"), content)
 }
 
+func StepArtifactPath(runDir, stepID, suffix string) string {
+	return filepath.Join(runDir, "steps", safeStepID(stepID)+"."+suffix)
+}
+
 func (s *Store) stepPath(stepID, suffix string) string {
-	return filepath.Join(s.Dir, "steps", safeStepID(stepID)+"."+suffix)
+	return StepArtifactPath(s.Dir, stepID, suffix)
 }
 
 func List(root string) ([]Record, error) {
@@ -292,6 +296,17 @@ func Resolve(root, id string) (Record, error) {
 		}
 	}
 	return Record{}, fmt.Errorf("formula run %q not found", id)
+}
+
+func Delete(root, id string) (Record, error) {
+	record, err := Resolve(root, id)
+	if err != nil {
+		return Record{}, err
+	}
+	if err := os.RemoveAll(record.Dir); err != nil {
+		return Record{}, err
+	}
+	return record, nil
 }
 
 func LoadMetadata(dir string) (Metadata, error) {

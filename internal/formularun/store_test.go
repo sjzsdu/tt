@@ -107,3 +107,22 @@ func TestLoadMetadataMarksDeadRunningRunStale(t *testing.T) {
 		t.Fatalf("expected run_stale event, got %s", logs)
 	}
 }
+
+func TestDeleteRemovesRunDirectory(t *testing.T) {
+	root := t.TempDir()
+	recipe := &formula.Recipe{Name: "delete-demo", Steps: []formula.RecipeStep{{ID: "delete-demo", Title: "Demo", IsRoot: true}}}
+	store, err := New(root, recipe, nil, "", "", "", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := Delete(root, store.Meta.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ID != store.Meta.RunID {
+		t.Fatalf("deleted wrong run: %+v", record)
+	}
+	if _, err := os.Stat(store.Dir); !os.IsNotExist(err) {
+		t.Fatalf("expected run dir removed, stat err=%v", err)
+	}
+}

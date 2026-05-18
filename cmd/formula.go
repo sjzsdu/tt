@@ -41,6 +41,7 @@ var (
 	formulaRunsFormula string
 	formulaRunsStatus  string
 	formulaRunShowStep string
+	formulaRunRmYes    bool
 )
 
 var formulaCmd = &cobra.Command{
@@ -122,6 +123,13 @@ var formulaRunShowCmd = &cobra.Command{
 	RunE:  runFormulaRunShow,
 }
 
+var formulaRunRmCmd = &cobra.Command{
+	Use:   "rm <run-id>",
+	Short: "Delete a saved formula run",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runFormulaRunRm,
+}
+
 func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
@@ -146,8 +154,10 @@ func init() {
 	formulaRunsCmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
 	formulaRunOpenCmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
 	formulaRunShowCmd.Flags().StringVar(&formulaRunShowStep, "step", "", "show details for a specific step id")
+	formulaRunRmCmd.Flags().BoolVarP(&formulaRunRmYes, "yes", "y", false, "confirm deletion without prompting")
 	formulaRunCmd.AddCommand(formulaRunOpenCmd)
 	formulaRunCmd.AddCommand(formulaRunShowCmd)
+	formulaRunCmd.AddCommand(formulaRunRmCmd)
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -1446,6 +1456,18 @@ func runFormulaRunShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runFormulaRunRm(cmd *cobra.Command, args []string) error {
+	if !formulaRunRmYes {
+		return fmt.Errorf("refusing to delete formula run %q without --yes", args[0])
+	}
+	record, err := formularun.Delete("", args[0])
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Deleted formula run: %s\n", record.ID)
+	return nil
+}
+
 func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaDashboardSnapshot, stepID string) error {
 	for _, step := range snapshot.Steps {
 		if step.ID != stepID {
@@ -1455,12 +1477,21 @@ func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot form
 		if step.Error != "" {
 			fmt.Fprintf(out, "Error: %s\n", step.Error)
 		}
+		printArtifactPath(out, "Prompt", formularun.StepArtifactPath(record.Dir, step.ID, "prompt.md"))
+		printArtifactPath(out, "Output file", formularun.StepArtifactPath(record.Dir, step.ID, "output.md"))
+		printArtifactPath(out, "Error file", formularun.StepArtifactPath(record.Dir, step.ID, "error.txt"))
 		if step.Output != "" {
 			fmt.Fprintf(out, "\n--- Output ---\n\n%s\n", step.Output)
 		}
 		return nil
 	}
 	return fmt.Errorf("step %q not found in run %s", stepID, record.ID)
+}
+
+func printArtifactPath(out io.Writer, label, path string) {
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(out, "%s: %s\n", label, path)
+	}
 }
 
 func useFormulaSessionsDir(projectRoot string) (func(), error) {
