@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ var (
 	agentDebug   bool
 	agentHome    string
 	agentConfig  string
+	agentList    bool
 )
 
 var agentCmd = &cobra.Command{
@@ -29,6 +31,7 @@ configuration, models, sessions, and skills without invoking the picoclaw binary
 	Args: cobra.ArbitraryArgs,
 	Example: `tt agent -m "summarize this project"
 tt agent "explain the current directory"
+tt agent --list
 tt agent --session cli:tt --model gpt-5.4 -m "review this idea"
 tt agent --picoclaw-home ~/.picoclaw-dev -m "list available skills"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,13 +45,13 @@ func init() {
 	agentCmd.Flags().StringVarP(&agentSession, "session", "s", "", "session key; defaults to cli:default")
 	agentCmd.Flags().StringVar(&agentName, "agent", "", "agent id or name to use")
 	agentCmd.Flags().StringVar(&agentModel, "model", "", "model to use; defaults to the selected agent model or config default")
+	agentCmd.Flags().BoolVar(&agentList, "list", false, "list embedded agents and agents configured in picoclaw")
 	agentCmd.Flags().BoolVarP(&agentDebug, "debug", "d", false, "enable debug logging")
 	agentCmd.Flags().StringVar(&agentHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 	agentCmd.Flags().StringVar(&agentConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 }
 
 func runAgent(cmd *cobra.Command, args []string) error {
-	_ = cmd
 	msg := strings.TrimSpace(agentMessage)
 	if msg == "" && len(args) > 0 {
 		msg = strings.TrimSpace(strings.Join(args, " "))
@@ -82,6 +85,9 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		cli.Picoclaw.Config = agentConfig
 	}
 	merged = ttconfig.Merge(merged, cli)
+	if agentList {
+		return runAgentList(cmd, merged, loaded.Sources)
+	}
 	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
 		return err
 	}
@@ -119,6 +125,50 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		BeforeOutput:   loading.Stop,
 	}); err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	return nil
+}
+
+func runAgentList(cmd *cobra.Command, cfg ttconfig.Config, sources ttconfig.Sources) error {
+	out := cmd.OutOrStdout()
+	embeddedAgents, err := agents.List()
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(out, "Embedded agents:")
+	if len(embeddedAgents) == 0 {
+		fmt.Fprintln(out, "  (none)")
+	} else {
+		for _, agent := range embeddedAgents {
+			fmt.Fprintf(out, "  %-24s %s\n", agent.ID, agent.Name)
+		}
+	}
+
+	rt, err := pcwrap.Load(pcwrap.Options{
+		Home:      cfg.Picoclaw.Home,
+		Config:    cfg.Picoclaw.Config,
+		TTConfig:  cfg,
+		TTSources: sources,
+	})
+	if err != nil {
+		return picoclawUnavailableError(err, cfg.Picoclaw.Home, cfg.Picoclaw.Config)
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Picoclaw configured agents:")
+	configured := rt.Summary().Agents
+	if len(configured) == 0 {
+		fmt.Fprintln(out, "  (none)")
+	} else {
+		defaultAgent := pcwrap.DefaultAgent(rt.Config)
+		for _, name := range configured {
+			marker := ""
+			if strings.EqualFold(name, defaultAgent) {
+				marker = " (default)"
+			}
+			fmt.Fprintf(out, "  %s%s\n", name, marker)
+		}
 	}
 	return nil
 }

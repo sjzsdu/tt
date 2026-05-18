@@ -38,7 +38,11 @@ var formulaCmd = &cobra.Command{
 	Short: "Manage and instantiate formula templates",
 	Long: `Formula templates define structured task workflows with variables,
 dependencies, and control flow. Compile and instantiate formulas to generate
-task trees for complex work.`,
+task trees for complex work.
+
+Tip: Prefer embedded agents when choosing step agents, such as coder, planner,
+tester, product-manager, ui, or full-stack. Use tt agent --list to see embedded
+and picoclaw-configured agents.`,
 }
 
 var formulaListCmd = &cobra.Command{
