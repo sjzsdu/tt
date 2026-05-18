@@ -100,13 +100,16 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		debug = *merged.Agent.Debug
 	}
 
+	loading := startLLMLoading("正在等待 agent 回复", debug || msg == "")
+	defer loading.Stop()
 	if err := rt.Run(pcwrap.RunOptions{
-		Message: msg,
-		Session: merged.Agent.Session,
-		Agent:   merged.Agent.Agent,
-		Model:   merged.Agent.Model,
-		Debug:   debug,
-		Quiet:   !debug,
+		Message:      msg,
+		Session:      merged.Agent.Session,
+		Agent:        merged.Agent.Agent,
+		Model:        merged.Agent.Model,
+		Debug:        debug,
+		Quiet:        !debug,
+		BeforeOutput: loading.Stop,
 	}); err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}

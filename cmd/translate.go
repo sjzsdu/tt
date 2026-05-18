@@ -80,6 +80,8 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	message := buildTranslateMessage(text, translateTarget)
+	loading := startLLMLoading("正在翻译", translateDebug)
+	defer loading.Stop()
 	if err := rt.Run(pcwrap.RunOptions{
 		Message:        message,
 		Session:        translateSession,
@@ -88,6 +90,7 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 		Debug:          translateDebug,
 		Quiet:          !translateDebug,
 		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.TranslateMaster()},
+		BeforeOutput:   loading.Stop,
 	}); err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}

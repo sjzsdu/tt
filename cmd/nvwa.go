@@ -172,6 +172,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	if err != nil {
 		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
+	loading := startLLMLoading("正在生成 agent 提示词", nvwaDebug)
 	dr, err := rt.NewDirectRunner(pcwrap.RunOptions{
 		Session:        nvwaSession,
 		Agent:          agents.NvwaPromptDesignerID,
@@ -182,6 +183,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.NvwaPromptDesigner()},
 	})
 	if err != nil {
+		loading.Stop()
 		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	defer dr.Close()
@@ -196,6 +198,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		Quiet:          !nvwaDebug,
 		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.NvwaPromptDesigner()},
 	})
+	loading.Stop()
 	if err != nil {
 		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}

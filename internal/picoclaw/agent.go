@@ -80,17 +80,25 @@ func (rt *Runtime) Run(opt RunOptions) error {
 			if isEmptyDirectResponseError(err) {
 				resp, err = recoverEmptyDirectResponse(loop, resolved.Session, str(resolved.Agent), DefaultAgent(cfg))
 				if err == nil {
+					callBeforeOutput(opt.BeforeOutput)
 					fmt.Fprintln(os.Stdout, resp)
 					return nil
 				}
 			}
 			return err
 		}
+		callBeforeOutput(opt.BeforeOutput)
 		fmt.Fprintln(os.Stdout, resp)
 		return nil
 	}
 
 	return runInteractive(loop, resolved.Session)
+}
+
+func callBeforeOutput(fn func()) {
+	if fn != nil {
+		fn()
+	}
 }
 
 func cloneConfig(cfg *pcconfig.Config) *pcconfig.Config {

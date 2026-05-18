@@ -17,6 +17,7 @@ type RunOptions struct {
 	Debug          bool
 	Quiet          bool
 	EmbeddedAgents []EmbeddedAgent
+	BeforeOutput   func()
 }
 
 type EmbeddedAgent struct {

@@ -12,6 +12,7 @@
 - Embedded casual stock investor chat command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
 - Directory mirroring for config sharing.
+- LLM-backed commands show an elapsed loading status on terminal stderr while waiting for model responses.
 - Global and project-level JSON configuration.
 
 ## Installation
