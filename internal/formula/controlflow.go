@@ -48,6 +48,12 @@ func ApplyLoopsWithVars(steps []*Step, vars map[string]string) ([]*Step, error) 
 			return nil, err
 		}
 
+		if step.Loop.Until != "" {
+			clone := cloneStep(step)
+			result = append(result, clone)
+			continue
+		}
+
 		expanded, err := expandLoopWithVars(step, vars)
 		if err != nil {
 			return nil, err

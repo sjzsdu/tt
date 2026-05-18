@@ -160,6 +160,10 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		return nil
 	}
 
+	if step.Loop != nil && step.Loop.Until != "" {
+		return e.executeRuntimeLoop(ctx, runner, step)
+	}
+
 	if e.shouldSkip(step) {
 		e.mu.Lock()
 		e.results[step.ID] = &StepResult{
@@ -208,6 +212,89 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	e.mu.Unlock()
 
 	return nil
+}
+
+func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
+	max := step.Loop.Max
+	if max <= 0 {
+		max = 1
+	}
+	e.mu.Lock()
+	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning}
+	e.mu.Unlock()
+
+	for iter := 1; iter <= max; iter++ {
+		for _, body := range step.Loop.Body {
+			if body == nil {
+				continue
+			}
+			bodyStep := recipeStepFromLoopBody(step, body, iter)
+			if e.shouldSkip(&bodyStep) {
+				e.mu.Lock()
+				e.results[bodyStep.ID] = &StepResult{StepID: bodyStep.ID, Title: bodyStep.Title, Status: StatusSkipped}
+				e.mu.Unlock()
+				continue
+			}
+			e.mu.Lock()
+			e.context["iteration"] = fmt.Sprintf("%d", iter)
+			e.results[bodyStep.ID] = &StepResult{StepID: bodyStep.ID, Title: bodyStep.Title, Status: StatusRunning}
+			e.mu.Unlock()
+
+			prompt := e.buildPrompt(&bodyStep)
+			output, err := runner(ctx, &bodyStep, prompt)
+			if err != nil {
+				e.mu.Lock()
+				e.results[bodyStep.ID].Status = StatusFailed
+				e.results[bodyStep.ID].Error = err.Error()
+				e.results[step.ID].Status = StatusFailed
+				e.results[step.ID].Error = err.Error()
+				e.mu.Unlock()
+				return fmt.Errorf("loop %s iteration %d step %s failed: %w", step.ID, iter, bodyStep.ID, err)
+			}
+
+			e.mu.Lock()
+			e.results[bodyStep.ID].Status = StatusCompleted
+			e.results[bodyStep.ID].Output = output
+			if bodyStep.OutputKey != "" {
+				e.context[bodyStep.OutputKey] = output
+			}
+			e.mu.Unlock()
+		}
+
+		if EvaluateCondition(step.Loop.Until, e.Context()) {
+			e.mu.Lock()
+			e.results[step.ID].Status = StatusCompleted
+			e.results[step.ID].Output = fmt.Sprintf("loop completed after %d iteration(s)", iter)
+			e.mu.Unlock()
+			return nil
+		}
+	}
+
+	e.mu.Lock()
+	e.results[step.ID].Status = StatusCompleted
+	e.results[step.ID].Output = fmt.Sprintf("loop reached max iterations (%d)", max)
+	e.mu.Unlock()
+	return nil
+}
+
+func recipeStepFromLoopBody(parent *formula.RecipeStep, body *formula.Step, iter int) formula.RecipeStep {
+	id := fmt.Sprintf("%s.iter%d.%s", parent.ID, iter, body.ID)
+	return formula.RecipeStep{
+		ID:          id,
+		Title:       strings.ReplaceAll(body.Title, "{{iteration}}", fmt.Sprintf("%d", iter)),
+		Description: strings.ReplaceAll(body.Description, "{{iteration}}", fmt.Sprintf("%d", iter)),
+		Notes:       strings.ReplaceAll(body.Notes, "{{iteration}}", fmt.Sprintf("%d", iter)),
+		Type:        body.Type,
+		Priority:    body.Priority,
+		Labels:      append([]string(nil), body.Labels...),
+		Assignee:    body.Assignee,
+		Metadata:    body.Metadata,
+		Agent:       body.Agent,
+		OutputKey:   body.OutputKey,
+		InputCtx:    append([]string(nil), body.InputCtx...),
+		Execution:   body.Execution,
+		Condition:   body.Condition,
+	}
 }
 
 func (e *Executor) shouldSkip(step *formula.RecipeStep) bool {

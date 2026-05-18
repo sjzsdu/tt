@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -119,7 +120,49 @@ func resolveValue(s string, ctx map[string]string) string {
 	if v, ok := ctx[s]; ok {
 		return v
 	}
+	if strings.Contains(s, ".") {
+		parts := strings.Split(s, ".")
+		if raw, ok := ctx[parts[0]]; ok {
+			if val, ok := resolveJSONPath(raw, parts[1:]); ok {
+				return val
+			}
+		}
+	}
 	return unquote(s)
+}
+
+func resolveJSONPath(raw string, path []string) (string, bool) {
+	var value any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &value); err != nil {
+		return "", false
+	}
+	cur := value
+	for _, part := range path {
+		obj, ok := cur.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		cur, ok = obj[part]
+		if !ok {
+			return "", false
+		}
+	}
+	switch v := cur.(type) {
+	case string:
+		return v, true
+	case bool:
+		if v {
+			return "true", true
+		}
+		return "false", true
+	case float64:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%f", v), "0"), "."), true
+	case nil:
+		return "", true
+	default:
+		b, _ := json.Marshal(v)
+		return string(b), true
+	}
 }
 
 func unquote(s string) string {

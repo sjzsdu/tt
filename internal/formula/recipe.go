@@ -44,6 +44,7 @@ type RecipeStep struct {
 	InputCtx    []string
 	Execution   string
 	Condition   string
+	Loop        *LoopSpec
 }
 
 // RecipeGate describes an async coordination gate on a step.
@@ -163,6 +164,7 @@ func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, o
 			InputCtx:    step.InputCtx,
 			Execution:   step.Execution,
 			Condition:   step.Condition,
+			Loop:        step.Loop,
 		}
 
 		if step.WaitsFor != "" {
