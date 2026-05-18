@@ -80,6 +80,18 @@ func TestGenerateFormulaMarkdownUsesRunShorthandForSingleRequiredVar(t *testing.
 	}
 }
 
+func TestDefaultFormulaAgentUsesPicoclawMain(t *testing.T) {
+	if got := defaultFormulaAgent(""); got != "main" {
+		t.Fatalf("defaultFormulaAgent(empty) = %q, want main", got)
+	}
+	if got := defaultFormulaAgent("  "); got != "main" {
+		t.Fatalf("defaultFormulaAgent(blank) = %q, want main", got)
+	}
+	if got := defaultFormulaAgent("planner"); got != "planner" {
+		t.Fatalf("defaultFormulaAgent(explicit) = %q, want planner", got)
+	}
+}
+
 func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 	recipe := &formula.Recipe{
 		Name: "runtime-control",

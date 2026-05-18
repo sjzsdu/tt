@@ -147,7 +147,7 @@ func init() {
 	formulaShowCmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
 	formulaShowCmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
 
-	formulaRunCmd.Flags().StringVar(&formulaAgent, "agent", "general", "default agent for steps without explicit agent config")
+	formulaRunCmd.Flags().StringVar(&formulaAgent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
 	formulaRunCmd.Flags().StringVar(&formulaModel, "model", "", "default model override")
 	formulaRunCmd.Flags().StringVar(&formulaSession, "session", "cli:formula", "session key prefix")
 	formulaRunCmd.Flags().BoolVar(&formulaWeb, "web", false, "show a live web dashboard while the formula runs")
@@ -225,6 +225,13 @@ func applyFormulaRunPositionalVars(f *formula.Formula, values []string, vars map
 	}
 	vars[name] = value
 	return nil
+}
+
+func defaultFormulaAgent(agent string) string {
+	if strings.TrimSpace(agent) == "" {
+		return pcwrap.DefaultAgentID
+	}
+	return agent
 }
 
 func runFormulaList(cmd *cobra.Command, args []string) error {
@@ -1224,9 +1231,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	}
 	defer runner.Close()
 
+	runAgent := defaultFormulaAgent(formulaAgent)
 	exec := executor.New(recipe, executor.RunOptions{
 		Vars:    vars,
-		Agent:   formulaAgent,
+		Agent:   runAgent,
 		Model:   formulaModel,
 		Session: formulaSession,
 		DryRun:  formulaDryRun,
@@ -1238,7 +1246,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
-		runStore, err = formularun.NewWithMetadata("", recipe, vars, formulaAgent, formulaModel, formulaSession, projectRoot, version)
+		runStore, err = formularun.NewWithMetadata("", recipe, vars, runAgent, formulaModel, formulaSession, projectRoot, version)
 		if err != nil {
 			return err
 		}
@@ -1263,7 +1271,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
 		agent := step.Agent
 		if agent == nil || agent.Name == "" {
-			agent = &formula.AgentConfig{Name: formulaAgent, Model: formulaModel}
+			agent = &formula.AgentConfig{Name: runAgent, Model: formulaModel}
 		}
 
 		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, formulaSession, step.ID)
@@ -1460,7 +1468,7 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
 		agent := step.Agent
 		if agent == nil || agent.Name == "" {
-			agent = &formula.AgentConfig{Name: runStore.Meta.Agent, Model: runStore.Meta.Model}
+			agent = &formula.AgentConfig{Name: defaultFormulaAgent(runStore.Meta.Agent), Model: runStore.Meta.Model}
 		}
 		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, runStore.Meta.Session, step.ID)
 		if agent.Session != "" {

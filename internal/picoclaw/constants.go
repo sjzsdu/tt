@@ -3,7 +3,8 @@ package picoclaw
 import "strings"
 
 const (
-	defaultAgentID  = "main"
+	DefaultAgentID  = "main"
+	defaultAgentID  = DefaultAgentID
 	defaultSession  = "tt:default"
 	defaultModel    = "main"
 	envPicoclawHome = "PICOCLAW_HOME"

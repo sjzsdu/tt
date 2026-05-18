@@ -92,3 +92,19 @@ func TestExecutorRuntimeUntilLoopUsesAgentOutput(t *testing.T) {
 		t.Fatalf("completed = %d, want 4; result=%+v", result.Completed, result)
 	}
 }
+
+func TestResolveAgentDefaultsToPicoclawMain(t *testing.T) {
+	exec := New(&formula.Recipe{}, RunOptions{})
+	agent := exec.resolveAgent(&formula.RecipeStep{ID: "step"})
+	if agent.Name != defaultAgentID {
+		t.Fatalf("default agent = %q, want %q", agent.Name, defaultAgentID)
+	}
+}
+
+func TestResolveAgentPreservesExplicitStepAgent(t *testing.T) {
+	exec := New(&formula.Recipe{}, RunOptions{Agent: defaultAgentID})
+	agent := exec.resolveAgent(&formula.RecipeStep{ID: "step", Agent: &formula.AgentConfig{Name: "planner", Model: "custom-model"}})
+	if agent.Name != "planner" || agent.Model != "custom-model" {
+		t.Fatalf("agent = %+v, want explicit step agent", agent)
+	}
+}

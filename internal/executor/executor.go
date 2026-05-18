@@ -9,6 +9,8 @@ import (
 	"github.com/sjzsdu/tt/internal/formula"
 )
 
+const defaultAgentID = "main"
+
 type StepRunner func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error)
 
 type RunOptions struct {
@@ -350,8 +352,12 @@ func (e *Executor) resolveAgent(step *formula.RecipeStep) *formula.AgentConfig {
 	if step.Agent != nil && step.Agent.Name != "" {
 		return step.Agent
 	}
+	agentName := e.opts.Agent
+	if agentName == "" {
+		agentName = defaultAgentID
+	}
 	return &formula.AgentConfig{
-		Name:    e.opts.Agent,
+		Name:    agentName,
 		Model:   e.opts.Model,
 		Session: e.opts.Session,
 	}
