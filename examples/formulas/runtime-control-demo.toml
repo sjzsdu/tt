@@ -1,0 +1,62 @@
+formula = "runtime-control-demo"
+description = "Demo: use agent JSON output to choose a runtime branch and stop an until loop."
+version = 1
+type = "workflow"
+
+[vars]
+topic = { default = "formula runtime control flow", description = "Topic to process" }
+
+[[steps]]
+id = "decide"
+title = "Decide which implementation path to use"
+description = """
+Analyze {{topic}} and output ONLY compact JSON in this shape:
+{"path":"frontend"} or {"path":"backend"}
+For this demo, choose frontend.
+"""
+output_key = "decision"
+
+[[steps]]
+id = "frontend-plan"
+title = "Frontend path selected"
+depends_on = ["decide"]
+input_context = ["decision"]
+condition = "decision.path == frontend"
+description = "This step runs only when the decide step produced JSON with path=frontend."
+
+[[steps]]
+id = "backend-plan"
+title = "Backend path selected"
+depends_on = ["decide"]
+input_context = ["decision"]
+condition = "decision.path == backend"
+description = "This step runs only when the decide step produced JSON with path=backend."
+
+[[steps]]
+id = "improve"
+title = "Iterate until review approves"
+depends_on = ["frontend-plan"]
+description = "Runtime loop: every iteration can use the latest agent output and decide whether to stop."
+
+  [steps.loop]
+  until = "review.approved == true"
+  max = 3
+
+  [[steps.loop.body]]
+  id = "draft"
+  title = "Draft iteration {{iteration}}"
+  description = "Create or improve a short proposal for {{topic}}."
+  output_key = "draft"
+
+  [[steps.loop.body]]
+  id = "review"
+  title = "Review iteration {{iteration}}"
+  input_context = ["draft"]
+  description = """
+Review the draft. Output ONLY compact JSON, for example:
+{"approved":false,"reason":"needs more detail"}
+or
+{"approved":true,"reason":"good enough"}
+For this demo, approve on the second pass if the draft is acceptable.
+"""
+  output_key = "review"

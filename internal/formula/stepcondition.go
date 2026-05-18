@@ -10,7 +10,7 @@ var (
 	stepCondVarPattern        = regexp.MustCompile(`^\{\{(\w+)\}\}$`)
 	stepCondNegatedVarPattern = regexp.MustCompile(`^!\{\{(\w+)\}\}$`)
 	stepCondComparePattern    = regexp.MustCompile(`^\{\{(\w+)\}\}\s*(==|!=)\s*(.+)$`)
-	stepCondRuntimePattern    = regexp.MustCompile(`^(\w+)\s*(==|!=|=~)\s*(.+)$`)
+	stepCondRuntimePattern    = regexp.MustCompile(`^(\w+(?:\.\w+)*)\s*(==|!=|=~)\s*(.+)$`)
 )
 
 func EvaluateStepCondition(condition string, vars map[string]string) (bool, error) {
