@@ -748,7 +748,11 @@ func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string 
 	if f.Phase != "" {
 		b.WriteString(fmt.Sprintf("- **Phase:** `%s`\n", f.Phase))
 	}
-	b.WriteString(fmt.Sprintf("- **Steps:** `%d`\n", len(recipe.Steps)))
+	stepCount, loopBodyCount := formulaAuthoredStepCounts(f.Steps)
+	b.WriteString(fmt.Sprintf("- **Steps:** `%d`\n", stepCount))
+	if loopBodyCount > 0 {
+		b.WriteString(fmt.Sprintf("- **Loop body steps:** `%d`\n", loopBodyCount))
+	}
 	b.WriteString("\n")
 
 	if len(f.Vars) > 0 {
@@ -823,6 +827,26 @@ func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string 
 	}
 
 	return b.String()
+}
+
+func formulaAuthoredStepCounts(steps []*formula.Step) (int, int) {
+	stepCount := 0
+	loopBodyCount := 0
+	var walk func([]*formula.Step)
+	walk = func(items []*formula.Step) {
+		for _, step := range items {
+			if step == nil {
+				continue
+			}
+			stepCount++
+			if step.Loop != nil {
+				loopBodyCount += len(step.Loop.Body)
+			}
+			walk(step.Children)
+		}
+	}
+	walk(steps)
+	return stepCount, loopBodyCount
 }
 
 func generateLoopMarkdown(step formula.RecipeStep) string {

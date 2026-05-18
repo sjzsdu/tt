@@ -14,6 +14,9 @@ func TestGenerateFormulaMarkdownDetailsAndRunExamples(t *testing.T) {
 		Version:     1,
 		Type:        formula.TypeWorkflow,
 		Phase:       "liquid",
+		Steps: []*formula.Step{
+			{ID: "diagnose", Title: "Diagnose bug"},
+		},
 	}
 	recipe := &formula.Recipe{
 		Name: "bug-fix",
@@ -29,7 +32,7 @@ func TestGenerateFormulaMarkdownDetailsAndRunExamples(t *testing.T) {
 		"- **Version:** `1`",
 		"- **Type:** `workflow`",
 		"- **Phase:** `liquid`",
-		"- **Steps:** `2`",
+		"- **Steps:** `1`",
 		"tt formula run bug-fix --dry-run",
 		"tt formula run bug-fix",
 	} {
@@ -39,6 +42,35 @@ func TestGenerateFormulaMarkdownDetailsAndRunExamples(t *testing.T) {
 	}
 	if strings.Contains(md, "| | |") || strings.Contains(md, "|---|---|") {
 		t.Fatalf("formula details should not use a markdown table:\n%s", md)
+	}
+}
+
+func TestGenerateFormulaMarkdownCountsAuthoredStepsOnly(t *testing.T) {
+	f := &formula.Formula{Formula: "runtime-control", Version: 1, Type: formula.TypeWorkflow, Steps: []*formula.Step{
+		{ID: "decide", Title: "Decide"},
+		{ID: "frontend", Title: "Frontend"},
+		{ID: "improve", Title: "Improve", Loop: &formula.LoopSpec{Body: []*formula.Step{
+			{ID: "draft", Title: "Draft"},
+			{ID: "review", Title: "Review"},
+		}}},
+	}}
+	recipe := &formula.Recipe{Steps: []formula.RecipeStep{
+		{ID: "runtime-control", IsRoot: true},
+		{ID: "runtime-control.start", Title: "start", Execution: "noop", Metadata: map[string]string{"formula_boundary": "start"}},
+		{ID: "runtime-control.decide", Title: "Decide"},
+		{ID: "runtime-control.frontend", Title: "Frontend"},
+		{ID: "runtime-control.improve", Title: "Improve", Loop: &formula.LoopSpec{Body: []*formula.Step{{ID: "draft"}, {ID: "review"}}}},
+		{ID: "runtime-control.end", Title: "end", Execution: "noop", Metadata: map[string]string{"formula_boundary": "end"}},
+	}}
+
+	md := generateFormulaMarkdown(f, recipe)
+	for _, want := range []string{"- **Steps:** `3`", "- **Loop body steps:** `2`"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("markdown missing %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "- **Steps:** `6`") {
+		t.Fatalf("markdown should not count root/generated boundary recipe steps:\n%s", md)
 	}
 }
 
