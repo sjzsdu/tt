@@ -16,6 +16,7 @@ const (
 	StockBeginnerID       = "stock-growth-investor"
 	StockOldHandID        = "stock-risk-investor"
 	StockDiscussionHostID = "stock-discussion-host"
+	NvwaPromptDesignerID  = "nvwa-prompt-designer"
 )
 
 //go:embed embedded/*.md
@@ -32,6 +33,10 @@ type definition struct {
 
 func TranslateMaster() pcwrap.EmbeddedAgent {
 	return mustGet(TranslateMasterID)
+}
+
+func NvwaPromptDesigner() pcwrap.EmbeddedAgent {
+	return mustGet(NvwaPromptDesignerID)
 }
 
 func StockDiscussion() []pcwrap.EmbeddedAgent {

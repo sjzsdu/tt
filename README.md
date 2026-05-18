@@ -71,6 +71,7 @@ Available commands:
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
 | `mirror` | Mirror selected files from a source directory. |
+| `nvwa` | Generate role-specific `Agent.md` and `soul.md` prompts with an embedded LLM prompt designer. |
 | `skill` | Browse and edit skill Markdown files. |
 | `version` | Print the `tt` version. |
 
@@ -235,6 +236,37 @@ Flags:
 - `--out string`: write full JSON result to a file. When omitted, JSON is auto-saved to `./debates/stock-discussion-<timestamp>.json`.
 - `-s, --session string`: session key prefix, default `cli:debate` unless configured.
 - `--model string`: model override for all participants.
+- `--picoclaw-home string`: override `PICOCLAW_HOME` for this run.
+- `--picoclaw-config string`: override `PICOCLAW_CONFIG` for this run.
+- `-d, --debug`: enable debug logging.
+
+### `tt nvwa`
+
+Generate OpenClaw/Picoclaw-style prompt content for a professional role. `nvwa` calls an embedded prompt-designer agent through the configured Picoclaw model, so the result is role-specific rather than a fixed template. By default it prints separate `Agent.md` and `soul.md` content; use `--style embedded` to output the same YAML-frontmatter Markdown format used by `internal/agents/embedded/*.md`.
+
+```bash
+tt nvwa 前端开发工程师
+tt nvwa 产品经理 --context "偏增长型 SaaS"
+tt nvwa "Go 后端工程师" --write --output .agents/go-backend
+tt nvwa 数据分析师 --format agent --model gpt-5.4
+tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill agent-browser
+```
+
+Flags:
+
+- `-w, --write`: write generated files instead of printing to stdout.
+- `-o, --output string`: output directory when writing files, default `.`.
+- `-f, --force`: overwrite existing files when writing.
+- `--format string`: generate `agent`, `soul`, or `both`, default `both`. Only `both` is supported with `--style embedded`.
+- `--style string`: output style, `files` or `embedded`, default `files`.
+- `--id string`: embedded agent id when using `--style embedded`; defaults to an ASCII slug or `nvwa-agent`.
+- `--name string`: embedded agent display name; defaults to the role.
+- `--skill string`: embedded agent skill; repeat or comma-separate for multiple skills.
+- `--no-history`: set `no_history: true` in embedded output.
+- `--research-tools`: set `enable_research_tools: true` in embedded output.
+- `--context string`: extra role context, target scenario, style, or constraints.
+- `--model string`: model override. Defaults to the Picoclaw default model.
+- `-s, --session string`: session key, default `cli:nvwa`.
 - `--picoclaw-home string`: override `PICOCLAW_HOME` for this run.
 - `--picoclaw-config string`: override `PICOCLAW_CONFIG` for this run.
 - `-d, --debug`: enable debug logging.
