@@ -10,7 +10,7 @@ func TestBuildGenerationPromptIncludesRoleAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildGenerationPrompt returned error: %v", err)
 	}
-	for _, want := range []string{"前端开发工程师", "偏 B 端后台", "不能套用通用模板", "<Agent.md>", "<soul.md>"} {
+	for _, want := range []string{"前端开发工程师", "偏 B 端后台", "standard 长度", "900-1400", "400-700", "不能套用通用模板", "<Agent.md>", "<soul.md>"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q: %s", want, prompt)
 		}
