@@ -911,6 +911,8 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 			b.WriteString(fmt.Sprintf("    class %s nodeBoundary\n", nodeID))
 		} else if step.Gate != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeGate\n", nodeID))
+		} else if step.Condition != "" {
+			b.WriteString(fmt.Sprintf("    class %s nodeCondition\n", nodeID))
 		} else if step.Loop != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeLoop\n", nodeID))
 		} else {
@@ -928,6 +930,7 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 
 	b.WriteString("    classDef nodeBoundary fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px\n")
 	b.WriteString("    classDef nodeGate fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5\n")
+	b.WriteString("    classDef nodeCondition fill:#e1f5fe,stroke:#0277bd,stroke-width:2px\n")
 	b.WriteString("    classDef nodeLoop fill:#fff3e0,stroke:#ef6c00,stroke-width:2px\n")
 	b.WriteString("    classDef nodeLoopBody fill:#fff8e1,stroke:#f9a825,stroke-width:1px,stroke-dasharray: 3 3\n")
 
@@ -1089,6 +1092,9 @@ func mermaidShape(step formula.RecipeStep, endSteps, parallelSteps map[string]bo
 		return shapeDef{open: "([\"", close: "\"])"}
 	}
 	if step.Gate != nil {
+		return shapeDef{open: "{\"", close: "\"}"}
+	}
+	if step.Condition != "" {
 		return shapeDef{open: "{\"", close: "\"}"}
 	}
 	if endSteps != nil && endSteps[step.ID] {

@@ -130,6 +130,8 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 		"end([\"end: end\"])",
 		"start --> decide",
 		"improve --> end",
+		"frontend_plan{\"frontend-plan:",
+		"class frontend_plan nodeCondition",
 		"if: decision.path == frontend",
 		"out: decision",
 		"in: decision",
@@ -138,7 +140,8 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 		"body: draft<br/>Draft<br/>out: draft",
 		"body: review<br/>Review<br/>out: review",
 		"-.-> |iterate|",
-		"class improve nodeLoop",
+		"class improve nodeCondition",
+		"classDef nodeCondition",
 		"classDef nodeLoopBody",
 	} {
 		if !strings.Contains(graph, want) {
