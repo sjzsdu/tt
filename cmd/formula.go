@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,22 +22,25 @@ import (
 )
 
 var (
-	formulaDir       string
-	formulaVars      []string
-	formulaOutput    string
-	formulaTitle     string
-	formulaMarkdown  bool
-	formulaPort      int
-	formulaAgent     string
-	formulaModel     string
-	formulaSession   string
-	formulaWeb       bool
-	formulaWebPort   int
-	formulaDryRun    bool
-	formulaDebug     bool
-	formulaVerbose   bool
-	formulaNoSave    bool
-	formulaRunsLimit int
+	formulaDir         string
+	formulaVars        []string
+	formulaOutput      string
+	formulaTitle       string
+	formulaMarkdown    bool
+	formulaPort        int
+	formulaAgent       string
+	formulaModel       string
+	formulaSession     string
+	formulaWeb         bool
+	formulaWebPort     int
+	formulaDryRun      bool
+	formulaDebug       bool
+	formulaVerbose     bool
+	formulaNoSave      bool
+	formulaRunsLimit   int
+	formulaRunsFormula string
+	formulaRunsStatus  string
+	formulaRunShowStep string
 )
 
 var formulaCmd = &cobra.Command{
@@ -111,6 +115,13 @@ var formulaRunOpenCmd = &cobra.Command{
 	RunE:  runFormulaRunOpen,
 }
 
+var formulaRunShowCmd = &cobra.Command{
+	Use:   "show [run-id|latest]",
+	Short: "Show a saved formula run",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runFormulaRunShow,
+}
+
 func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
@@ -131,8 +142,12 @@ func init() {
 	formulaRunCmd.Flags().BoolVarP(&formulaVerbose, "verbose", "v", false, "show full output of each step")
 	formulaRunCmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
 	formulaRunsCmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
+	formulaRunsCmd.Flags().StringVar(&formulaRunsFormula, "formula", "", "filter runs by formula name")
+	formulaRunsCmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
 	formulaRunOpenCmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
+	formulaRunShowCmd.Flags().StringVar(&formulaRunShowStep, "step", "", "show details for a specific step id")
 	formulaRunCmd.AddCommand(formulaRunOpenCmd)
+	formulaRunCmd.AddCommand(formulaRunShowCmd)
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -1021,13 +1036,23 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
+	projectRoot, _ := os.Getwd()
+	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
+		return err
+	}
+	restoreSessionsDir, err := useFormulaSessionsDir(projectRoot)
+	if err != nil {
+		return err
+	}
 
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
-		Session: formulaSession,
-		Model:   formulaModel,
-		Debug:   formulaDebug,
-		Quiet:   true,
+		Session:   formulaSession,
+		Model:     formulaModel,
+		Debug:     formulaDebug,
+		Quiet:     true,
+		Workspace: projectRoot,
 	})
+	restoreSessionsDir()
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
@@ -1044,7 +1069,6 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
-	projectRoot, _ := os.Getwd()
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
@@ -1306,6 +1330,11 @@ func runFormulaRuns(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(out, "No saved formula runs found.")
 		return nil
 	}
+	records = filterFormulaRunRecords(records)
+	if len(records) == 0 {
+		fmt.Fprintln(out, "No matching formula runs found.")
+		return nil
+	}
 	limit := formulaRunsLimit
 	if limit <= 0 || limit > len(records) {
 		limit = len(records)
@@ -1317,6 +1346,25 @@ func runFormulaRuns(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", record.ID, meta.Formula, meta.Status, shortTime(meta.StartedAt), shortTime(meta.FinishedAt))
 	}
 	return w.Flush()
+}
+
+func filterFormulaRunRecords(records []formularun.Record) []formularun.Record {
+	formulaFilter := strings.TrimSpace(formulaRunsFormula)
+	statusFilter := strings.TrimSpace(formulaRunsStatus)
+	if formulaFilter == "" && statusFilter == "" {
+		return records
+	}
+	out := make([]formularun.Record, 0, len(records))
+	for _, record := range records {
+		if formulaFilter != "" && !strings.EqualFold(record.Metadata.Formula, formulaFilter) {
+			continue
+		}
+		if statusFilter != "" && !strings.EqualFold(record.Metadata.Status, statusFilter) {
+			continue
+		}
+		out = append(out, record)
+	}
+	return out
 }
 
 func runFormulaRunOpen(cmd *cobra.Command, args []string) error {
@@ -1342,6 +1390,83 @@ func runFormulaRunOpen(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
 	waitForFormulaDashboardExit(dashboard)
 	return nil
+}
+
+func runFormulaRunShow(cmd *cobra.Command, args []string) error {
+	id := "latest"
+	if len(args) > 0 {
+		id = args[0]
+	}
+	record, err := formularun.Resolve("", id)
+	if err != nil {
+		return err
+	}
+	var snapshot formulaDashboardSnapshot
+	_ = formularun.LoadState(record.Dir, &snapshot)
+	out := cmd.OutOrStdout()
+	meta := record.Metadata
+	fmt.Fprintf(out, "Run: %s\n", record.ID)
+	fmt.Fprintf(out, "Formula: %s\n", meta.Formula)
+	fmt.Fprintf(out, "Status: %s\n", meta.Status)
+	if meta.Error != "" {
+		fmt.Fprintf(out, "Error: %s\n", meta.Error)
+	}
+	fmt.Fprintf(out, "Started: %s\n", shortTime(meta.StartedAt))
+	fmt.Fprintf(out, "Finished: %s\n", shortTime(meta.FinishedAt))
+	fmt.Fprintf(out, "Directory: %s\n", record.Dir)
+	fmt.Fprintf(out, "Sessions: %s\n", filepath.Join(meta.WorkspaceDir, ".tt", "sessions"))
+	if strings.TrimSpace(formulaRunShowStep) != "" {
+		return renderFormulaRunStep(out, record, snapshot, formulaRunShowStep)
+	}
+	if len(snapshot.Steps) > 0 {
+		fmt.Fprintln(out, "\nSteps:")
+		for _, step := range snapshot.Steps {
+			fmt.Fprintf(out, "  [%s] %s (%s)\n", step.Status, step.ID, step.Title)
+			if step.Error != "" {
+				fmt.Fprintf(out, "    Error: %s\n", step.Error)
+			}
+		}
+	}
+	if snapshot.FinalOutput != "" {
+		fmt.Fprintf(out, "\n--- Final Output ---\n\n%s\n", snapshot.FinalOutput)
+	}
+	return nil
+}
+
+func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaDashboardSnapshot, stepID string) error {
+	for _, step := range snapshot.Steps {
+		if step.ID != stepID {
+			continue
+		}
+		fmt.Fprintf(out, "\nStep: %s\nTitle: %s\nStatus: %s\nAgent: %s\nSession: %s\n", step.ID, step.Title, step.Status, step.Agent, step.Session)
+		if step.Error != "" {
+			fmt.Fprintf(out, "Error: %s\n", step.Error)
+		}
+		if step.Output != "" {
+			fmt.Fprintf(out, "\n--- Output ---\n\n%s\n", step.Output)
+		}
+		return nil
+	}
+	return fmt.Errorf("step %q not found in run %s", stepID, record.ID)
+}
+
+func useFormulaSessionsDir(projectRoot string) (func(), error) {
+	sessionsDir := filepath.Join(projectRoot, ".tt", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		return nil, err
+	}
+	const envName = "PICOCLAW_SESSIONS_DIR"
+	prev, ok := os.LookupEnv(envName)
+	if err := os.Setenv(envName, sessionsDir); err != nil {
+		return nil, err
+	}
+	return func() {
+		if ok {
+			_ = os.Setenv(envName, prev)
+			return
+		}
+		_ = os.Unsetenv(envName)
+	}, nil
 }
 
 func shortTime(value string) string {
