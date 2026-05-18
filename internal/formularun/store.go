@@ -37,6 +37,22 @@ type Metadata struct {
 	WorkspaceDir string            `json:"workspace_dir,omitempty"`
 	StatePath    string            `json:"state_path,omitempty"`
 	RecipePath   string            `json:"recipe_path,omitempty"`
+	LogsPath     string            `json:"logs_path,omitempty"`
+}
+
+type Event struct {
+	Type       string         `json:"type"`
+	At         string         `json:"at"`
+	RunID      string         `json:"run_id,omitempty"`
+	StepID     string         `json:"step_id,omitempty"`
+	Agent      string         `json:"agent,omitempty"`
+	Model      string         `json:"model,omitempty"`
+	Session    string         `json:"session,omitempty"`
+	Status     string         `json:"status,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	DurationMS int64          `json:"duration_ms,omitempty"`
+	OutputPath string         `json:"output_path,omitempty"`
+	Extra      map[string]any `json:"extra,omitempty"`
 }
 
 type Record struct {
@@ -83,12 +99,16 @@ func New(root string, recipe *formula.Recipe, vars map[string]string, agent, mod
 		WorkspaceDir: workspace,
 		StatePath:    "state.json",
 		RecipePath:   "recipe.json",
+		LogsPath:     "logs.jsonl",
 	}
 	store := &Store{Root: root, Dir: dir, Meta: meta}
 	if err := store.SaveRecipe(recipe); err != nil {
 		return nil, err
 	}
 	if err := store.SaveMetadata(); err != nil {
+		return nil, err
+	}
+	if err := store.AppendEvent(Event{Type: "run_started", Status: StatusRunning}); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -110,7 +130,41 @@ func (s *Store) Finish(status, errMsg string) error {
 	s.Meta.Status = status
 	s.Meta.Error = strings.TrimSpace(errMsg)
 	s.Meta.FinishedAt = time.Now().Format(time.RFC3339)
-	return s.SaveMetadata()
+	if err := s.SaveMetadata(); err != nil {
+		return err
+	}
+	return s.AppendEvent(Event{Type: "run_finished", Status: status, Error: s.Meta.Error})
+}
+
+func (s *Store) AppendEvent(event Event) error {
+	if s == nil {
+		return nil
+	}
+	if strings.TrimSpace(event.Type) == "" {
+		return fmt.Errorf("event type is required")
+	}
+	if event.At == "" {
+		event.At = time.Now().Format(time.RFC3339)
+	}
+	if event.RunID == "" {
+		event.RunID = s.Meta.RunID
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	path := filepath.Join(s.Dir, "logs.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
 }
 
 func (s *Store) SaveStepPrompt(stepID, content string) error {

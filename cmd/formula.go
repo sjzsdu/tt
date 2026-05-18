@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -1124,6 +1125,17 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		if dashboard != nil {
 			dashboard.markStepRunning(step.ID, step.Title, agent.Name, model, sessionKey)
 		}
+		stepStarted := time.Now()
+		if runStore != nil {
+			_ = runStore.AppendEvent(formularun.Event{
+				Type:    "step_started",
+				StepID:  step.ID,
+				Agent:   agent.Name,
+				Model:   model,
+				Session: sessionKey,
+				Status:  "running",
+			})
+		}
 
 		resp, err := runner.ProcessDirect(pcwrap.RunOptions{
 			Message: prompt,
@@ -1134,11 +1146,13 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		resp = strings.TrimSpace(resp)
 
 		if err != nil {
+			duration := time.Since(stepStarted).Milliseconds()
 			if runStore != nil {
 				_ = runStore.SaveStepError(step.ID, err.Error())
 				if resp != "" {
 					_ = runStore.SaveStepOutput(step.ID, resp)
 				}
+				_ = runStore.AppendEvent(formularun.Event{Type: "step_failed", StepID: step.ID, Status: "failed", Error: err.Error(), DurationMS: duration})
 			}
 			if dashboard != nil {
 				dashboard.markStepFailed(step.ID, err.Error(), resp)
@@ -1164,6 +1178,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		}
 		if runStore != nil {
 			_ = runStore.SaveStepOutput(step.ID, resp)
+			_ = runStore.AppendEvent(formularun.Event{Type: "step_completed", StepID: step.ID, Status: "completed", DurationMS: time.Since(stepStarted).Milliseconds()})
 		}
 
 		if step.OutputKey != "" {
@@ -1177,7 +1192,12 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "Steps: %d (excluding root)\n", len(recipe.Steps)-1)
 	fmt.Fprintln(out, strings.Repeat("─", 50))
 
-	result, err := exec.Run(context.Background(), stepRunner)
+	runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stopRunSignals()
+	result, err := exec.Run(runCtx, stepRunner)
+	if runCtx.Err() != nil && err == nil {
+		err = runCtx.Err()
+	}
 
 	fmt.Fprintln(out, strings.Repeat("─", 50))
 	renderRunResult(cmd, result, err != nil)
@@ -1187,7 +1207,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if runStore != nil {
 		status := formularun.StatusCompleted
 		errMsg := ""
-		if err != nil {
+		if runCtx.Err() != nil {
+			status = formularun.StatusInterrupted
+			errMsg = runCtx.Err().Error()
+		} else if err != nil {
 			status = formularun.StatusFailed
 			errMsg = err.Error()
 		}

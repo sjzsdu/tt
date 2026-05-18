@@ -1,6 +1,7 @@
 package formularun
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,9 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	if err := store.SaveStepOutput("demo.step", "output"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.AppendEvent(Event{Type: "step_completed", StepID: "demo.step", Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Finish(StatusCompleted, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +50,15 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	for _, rel := range []string{"run.json", "recipe.json", "state.json", filepath.Join("steps", "demo.step.prompt.md"), filepath.Join("steps", "demo.step.output.md")} {
 		if _, err := os.Stat(filepath.Join(store.Dir, rel)); err != nil {
 			t.Fatalf("expected artifact %s: %v", rel, err)
+		}
+	}
+	logs, err := os.ReadFile(filepath.Join(store.Dir, "logs.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range [][]byte{[]byte(`"type":"run_started"`), []byte(`"type":"step_completed"`), []byte(`"type":"run_finished"`)} {
+		if !bytes.Contains(logs, want) {
+			t.Fatalf("expected logs to contain %s; got %s", want, logs)
 		}
 	}
 }
