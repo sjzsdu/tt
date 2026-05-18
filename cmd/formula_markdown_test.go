@@ -110,6 +110,10 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 
 	graph := generateMermaidGraph(recipe)
 	for _, want := range []string{
+		"tt_start([\"start\"])",
+		"tt_end([\"end\"])",
+		"tt_start --> decide",
+		"improve --> tt_end",
 		"if: decision.path == frontend",
 		"out: decision",
 		"in: decision",
@@ -119,6 +123,23 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 		"-.-> |iterate|",
 		"class improve nodeLoop",
 		"classDef nodeLoopBody",
+	} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("mermaid graph missing %q:\n%s", want, graph)
+		}
+	}
+	if strings.Contains(graph, "root:") {
+		t.Fatalf("mermaid graph should use synthetic start instead of rendering recipe root:\n%s", graph)
+	}
+}
+
+func TestGenerateMermaidGraphConvergesRootOnlyRecipe(t *testing.T) {
+	recipe := &formula.Recipe{Steps: []formula.RecipeStep{{ID: "root", Title: "Root", IsRoot: true}}}
+	graph := generateMermaidGraph(recipe)
+	for _, want := range []string{
+		"tt_start([\"start\"])",
+		"tt_end([\"end\"])",
+		"tt_start --> tt_end",
 	} {
 		if !strings.Contains(graph, want) {
 			t.Fatalf("mermaid graph missing %q:\n%s", want, graph)

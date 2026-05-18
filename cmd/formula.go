@@ -746,6 +746,7 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 
 	parallelSteps := findParallelSteps(recipe)
 	endSteps := findEndSteps(recipe)
+	stepByID := recipeStepMap(recipe)
 	depths := computeStepDepths(recipe)
 	maxDepth := 1
 	for _, d := range depths {
@@ -754,18 +755,22 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 		}
 	}
 
+	b.WriteString("    tt_start([\"start\"])\n")
+	b.WriteString("    class tt_start nodeBoundary\n")
+
 	for _, step := range recipe.Steps {
+		if step.IsRoot {
+			continue
+		}
 		nodeID := mermaidNodeID(step.ID)
 		label := mermaidLabel(step)
-		shape := mermaidShape(step, endSteps, parallelSteps)
+		shape := mermaidShape(step, nil, parallelSteps)
 		b.WriteString(fmt.Sprintf("    %s%s%s\n", nodeID, shape.open, label+shape.close))
 
 		depth := depths[step.ID]
 		color := depthColor(depth, maxDepth)
 
-		if step.IsRoot {
-			b.WriteString(fmt.Sprintf("    class %s nodeRoot\n", nodeID))
-		} else if step.Gate != nil {
+		if step.Gate != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeGate\n", nodeID))
 		} else if step.Loop != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeLoop\n", nodeID))
@@ -776,20 +781,42 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 	}
 
 	for _, step := range recipe.Steps {
+		if step.IsRoot {
+			continue
+		}
 		appendMermaidLoopBody(&b, step)
 	}
 
-	b.WriteString("    classDef nodeRoot fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px\n")
+	b.WriteString("    tt_end([\"end\"])\n")
+	b.WriteString("    class tt_end nodeBoundary\n")
+
+	b.WriteString("    classDef nodeBoundary fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px\n")
 	b.WriteString("    classDef nodeGate fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5\n")
 	b.WriteString("    classDef nodeLoop fill:#fff3e0,stroke:#ef6c00,stroke-width:2px\n")
 	b.WriteString("    classDef nodeLoopBody fill:#fff8e1,stroke:#f9a825,stroke-width:1px,stroke-dasharray: 3 3\n")
 
+	if len(recipe.Steps) == 0 || len(realRecipeSteps(recipe)) == 0 {
+		b.WriteString("    tt_start --> tt_end\n")
+		return b.String()
+	}
+
+	started := make(map[string]bool)
+	incoming := make(map[string]bool)
 	for _, dep := range recipe.Deps {
 		if dep.Type == "parent-child" {
 			continue
 		}
 		from := mermaidNodeID(dep.DependsOnID)
 		to := mermaidNodeID(dep.StepID)
+		if dep.StepID == "" || stepByID[dep.StepID].ID == "" || stepByID[dep.StepID].IsRoot {
+			continue
+		}
+		if dep.DependsOnID == "" || stepByID[dep.DependsOnID].IsRoot {
+			from = "tt_start"
+			started[dep.StepID] = true
+		} else if stepByID[dep.DependsOnID].ID != "" {
+			incoming[dep.StepID] = true
+		}
 		edgeStyle := " -->"
 		if dep.Type == "waits-for" {
 			edgeStyle = " -.-> |wait|"
@@ -797,7 +824,39 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 		b.WriteString(fmt.Sprintf("    %s%s %s\n", from, edgeStyle, to))
 	}
 
+	for _, step := range recipe.Steps {
+		if step.IsRoot || incoming[step.ID] || started[step.ID] {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("    tt_start --> %s\n", mermaidNodeID(step.ID)))
+	}
+
+	for _, step := range recipe.Steps {
+		if step.IsRoot || !endSteps[step.ID] {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("    %s --> tt_end\n", mermaidNodeID(step.ID)))
+	}
+
 	return b.String()
+}
+
+func recipeStepMap(recipe *formula.Recipe) map[string]formula.RecipeStep {
+	steps := make(map[string]formula.RecipeStep, len(recipe.Steps))
+	for _, step := range recipe.Steps {
+		steps[step.ID] = step
+	}
+	return steps
+}
+
+func realRecipeSteps(recipe *formula.Recipe) []formula.RecipeStep {
+	steps := make([]formula.RecipeStep, 0, len(recipe.Steps))
+	for _, step := range recipe.Steps {
+		if !step.IsRoot {
+			steps = append(steps, step)
+		}
+	}
+	return steps
 }
 
 func appendMermaidLoopBody(b *strings.Builder, step formula.RecipeStep) {
