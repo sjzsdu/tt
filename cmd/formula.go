@@ -1072,7 +1072,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
-		runStore, err = formularun.New("", recipe, vars, formulaAgent, formulaModel, formulaSession, projectRoot)
+		runStore, err = formularun.NewWithMetadata("", recipe, vars, formulaAgent, formulaModel, formulaSession, projectRoot, version)
 		if err != nil {
 			return err
 		}
@@ -1414,6 +1414,19 @@ func runFormulaRunShow(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "Started: %s\n", shortTime(meta.StartedAt))
 	fmt.Fprintf(out, "Finished: %s\n", shortTime(meta.FinishedAt))
 	fmt.Fprintf(out, "Directory: %s\n", record.Dir)
+	if meta.PID != 0 {
+		fmt.Fprintf(out, "PID: %d\n", meta.PID)
+	}
+	if meta.TTVersion != "" {
+		fmt.Fprintf(out, "tt Version: %s\n", meta.TTVersion)
+	}
+	if meta.GitBranch != "" || meta.GitCommit != "" {
+		dirty := "clean"
+		if meta.GitDirty {
+			dirty = "dirty"
+		}
+		fmt.Fprintf(out, "Git: %s %s (%s)\n", meta.GitBranch, meta.GitCommit, dirty)
+	}
 	fmt.Fprintf(out, "Sessions: %s\n", filepath.Join(meta.WorkspaceDir, ".tt", "sessions"))
 	if strings.TrimSpace(formulaRunShowStep) != "" {
 		return renderFormulaRunStep(out, record, snapshot, formulaRunShowStep)

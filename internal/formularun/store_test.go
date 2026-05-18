@@ -85,3 +85,25 @@ func TestNewDefaultRootEnsuresTTAndGitIgnore(t *testing.T) {
 		t.Fatalf("expected .gitignore to contain .tt/: %s", gitignore)
 	}
 }
+
+func TestLoadMetadataMarksDeadRunningRunStale(t *testing.T) {
+	dir := t.TempDir()
+	meta := Metadata{RunID: "run-stale", Formula: "demo", Status: StatusRunning, StartedAt: "2026-01-01T00:00:00Z", PID: -1}
+	if err := writeJSON(filepath.Join(dir, "run.json"), meta); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadMetadata(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Status != StatusStale {
+		t.Fatalf("expected stale status, got %+v", loaded)
+	}
+	logs, err := os.ReadFile(filepath.Join(dir, "logs.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(logs, []byte(`"type":"run_stale"`)) {
+		t.Fatalf("expected run_stale event, got %s", logs)
+	}
+}

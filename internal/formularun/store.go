@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sjzsdu/tt/internal/formula"
@@ -20,6 +22,7 @@ const (
 	StatusCompleted   = "completed"
 	StatusFailed      = "failed"
 	StatusInterrupted = "interrupted"
+	StatusStale       = "stale"
 )
 
 type Metadata struct {
@@ -34,6 +37,11 @@ type Metadata struct {
 	Agent        string            `json:"agent,omitempty"`
 	Model        string            `json:"model,omitempty"`
 	Session      string            `json:"session,omitempty"`
+	PID          int               `json:"pid,omitempty"`
+	TTVersion    string            `json:"tt_version,omitempty"`
+	GitBranch    string            `json:"git_branch,omitempty"`
+	GitCommit    string            `json:"git_commit,omitempty"`
+	GitDirty     bool              `json:"git_dirty,omitempty"`
 	WorkspaceDir string            `json:"workspace_dir,omitempty"`
 	StatePath    string            `json:"state_path,omitempty"`
 	RecipePath   string            `json:"recipe_path,omitempty"`
@@ -75,6 +83,10 @@ func DefaultRoot(workspace string) string {
 }
 
 func New(root string, recipe *formula.Recipe, vars map[string]string, agent, model, session, workspace string) (*Store, error) {
+	return NewWithMetadata(root, recipe, vars, agent, model, session, workspace, "")
+}
+
+func NewWithMetadata(root string, recipe *formula.Recipe, vars map[string]string, agent, model, session, workspace, ttVersion string) (*Store, error) {
 	if root == "" {
 		if err := EnsureWorkspaceState(workspace); err != nil {
 			return nil, err
@@ -89,6 +101,7 @@ func New(root string, recipe *formula.Recipe, vars map[string]string, agent, mod
 	if err := os.MkdirAll(filepath.Join(dir, "steps"), 0o755); err != nil {
 		return nil, err
 	}
+	git := collectGitMetadata(workspace)
 	meta := Metadata{
 		RunID:        id,
 		Formula:      recipe.Name,
@@ -99,6 +112,11 @@ func New(root string, recipe *formula.Recipe, vars map[string]string, agent, mod
 		Agent:        agent,
 		Model:        model,
 		Session:      session,
+		PID:          os.Getpid(),
+		TTVersion:    ttVersion,
+		GitBranch:    git.Branch,
+		GitCommit:    git.Commit,
+		GitDirty:     git.Dirty,
 		WorkspaceDir: workspace,
 		StatePath:    "state.json",
 		RecipePath:   "recipe.json",
@@ -248,6 +266,9 @@ func List(root string) ([]Record, error) {
 		if err != nil {
 			continue
 		}
+		if markStaleIfNeeded(dir, &meta) {
+			_ = writeJSON(filepath.Join(dir, "run.json"), meta)
+		}
 		records = append(records, Record{ID: e.Name(), Dir: dir, Metadata: meta})
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].Metadata.StartedAt > records[j].Metadata.StartedAt })
@@ -278,6 +299,9 @@ func LoadMetadata(dir string) (Metadata, error) {
 	if err := readJSON(filepath.Join(dir, "run.json"), &meta); err != nil {
 		return meta, err
 	}
+	if markStaleIfNeeded(dir, &meta) {
+		_ = writeJSON(filepath.Join(dir, "run.json"), meta)
+	}
 	return meta, nil
 }
 
@@ -306,6 +330,84 @@ func writeText(path, content string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+type gitMetadata struct {
+	Branch string
+	Commit string
+	Dirty  bool
+}
+
+func collectGitMetadata(workspace string) gitMetadata {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		workspace, _ = os.Getwd()
+	}
+	branch := gitOutput(workspace, "rev-parse", "--abbrev-ref", "HEAD")
+	commit := gitOutput(workspace, "rev-parse", "--short", "HEAD")
+	dirty := strings.TrimSpace(gitOutput(workspace, "status", "--porcelain")) != ""
+	return gitMetadata{Branch: branch, Commit: commit, Dirty: dirty}
+}
+
+func gitOutput(dir string, args ...string) string {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func markStaleIfNeeded(dir string, meta *Metadata) bool {
+	if meta == nil || meta.Status != StatusRunning || meta.FinishedAt != "" {
+		return false
+	}
+	if meta.PID > 0 && processExists(meta.PID) {
+		return false
+	}
+	meta.Status = StatusStale
+	meta.Error = "run process is no longer active"
+	meta.FinishedAt = time.Now().Format(time.RFC3339)
+	_ = appendEventToDir(dir, Event{Type: "run_stale", RunID: meta.RunID, Status: StatusStale, Error: meta.Error})
+	return true
+}
+
+func processExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil || process == nil {
+		return false
+	}
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+func appendEventToDir(dir string, event Event) error {
+	if event.Type == "" {
+		return nil
+	}
+	if event.At == "" {
+		event.At = time.Now().Format(time.RFC3339)
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	path := filepath.Join(dir, "logs.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
 }
 func cloneMap(src map[string]string) map[string]string {
 	if len(src) == 0 {
