@@ -40,8 +40,8 @@ Picoclaw model to create role-specific content instead of filling a fixed templa
 	Args: cobra.ArbitraryArgs,
 	Example: `tt nvwa 前端开发工程师
 tt nvwa 产品经理 --context "偏增长型 SaaS"
-tt nvwa "Go 后端工程师" --write --output .agents/go-backend
-tt nvwa 数据分析师 --format agent --model gpt-5.4
+tt nvwa "Go 后端工程师" --output .agents/go-backend
+tt nvwa 数据分析师 --write=false --format agent --model gpt-5.4
 tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill agent-browser`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runNvwa(cmd, args)
@@ -50,8 +50,8 @@ tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill ag
 
 func init() {
 	rootCmd.AddCommand(nvwaCmd)
-	nvwaCmd.Flags().BoolVarP(&nvwaWrite, "write", "w", false, "write Agent.md and/or soul.md files instead of printing to stdout")
-	nvwaCmd.Flags().StringVarP(&nvwaOutput, "output", "o", ".", "output directory when --write is set")
+	nvwaCmd.Flags().BoolVarP(&nvwaWrite, "write", "w", true, "write generated file(s); set --write=false to print to stdout")
+	nvwaCmd.Flags().StringVarP(&nvwaOutput, "output", "o", ".", "output directory when writing files")
 	nvwaCmd.Flags().BoolVarP(&nvwaForce, "force", "f", false, "overwrite existing files when --write is set")
 	nvwaCmd.Flags().StringVar(&nvwaFormat, "format", "both", "content to generate: agent, soul, or both")
 	nvwaCmd.Flags().StringVar(&nvwaStyle, "style", "files", "output style: files or embedded")

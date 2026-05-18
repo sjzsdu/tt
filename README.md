@@ -243,19 +243,19 @@ Flags:
 
 ### `tt nvwa`
 
-Generate OpenClaw/Picoclaw-style prompt content for a professional role. `nvwa` calls an embedded prompt-designer agent through the configured Picoclaw model, so the result is role-specific rather than a fixed template. By default it prints separate `Agent.md` and `soul.md` content; use `--style embedded` to output the same YAML-frontmatter Markdown format used by `internal/agents/embedded/*.md`.
+Generate OpenClaw/Picoclaw-style prompt content for a professional role. `nvwa` calls an embedded prompt-designer agent through the configured Picoclaw model, so the result is role-specific rather than a fixed template. By default it writes generated files; set `--write=false` to print to stdout. Use `--style embedded` to output the same YAML-frontmatter Markdown format used by `internal/agents/embedded/*.md`.
 
 ```bash
 tt nvwa 前端开发工程师
 tt nvwa 产品经理 --context "偏增长型 SaaS"
-tt nvwa "Go 后端工程师" --write --output .agents/go-backend
-tt nvwa 数据分析师 --format agent --model gpt-5.4
+tt nvwa "Go 后端工程师" --output .agents/go-backend
+tt nvwa 数据分析师 --write=false --format agent --model gpt-5.4
 tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill agent-browser
 ```
 
 Flags:
 
-- `-w, --write`: write generated files instead of printing to stdout.
+- `-w, --write`: write generated file(s), default `true`; set `--write=false` to print to stdout.
 - `-o, --output string`: output directory when writing files, default `.`.
 - `-f, --force`: overwrite existing files when writing.
 - `--format string`: generate `agent`, `soul`, or `both`, default `both`. Only `both` is supported with `--style embedded`.
