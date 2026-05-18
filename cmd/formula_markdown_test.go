@@ -97,6 +97,7 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 		Name: "runtime-control",
 		Steps: []formula.RecipeStep{
 			{ID: "root", Title: "Root", IsRoot: true},
+			{ID: "start", Title: "start", Execution: "noop", Metadata: map[string]string{"formula_boundary": "start"}},
 			{ID: "decide", Title: "Decide", OutputKey: "decision"},
 			{ID: "frontend-plan", Title: "Frontend", Condition: "decision.path == frontend", InputCtx: []string{"decision"}},
 			{
@@ -112,20 +113,23 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 					},
 				},
 			},
+			{ID: "end", Title: "end", Execution: "noop", Metadata: map[string]string{"formula_boundary": "end"}},
 		},
 		Deps: []formula.RecipeDep{
-			{StepID: "decide", DependsOnID: "root"},
+			{StepID: "start", DependsOnID: "root"},
+			{StepID: "decide", DependsOnID: "start"},
 			{StepID: "frontend-plan", DependsOnID: "decide"},
 			{StepID: "improve", DependsOnID: "frontend-plan"},
+			{StepID: "end", DependsOnID: "improve"},
 		},
 	}
 
 	graph := generateMermaidGraph(recipe)
 	for _, want := range []string{
-		"tt_start([\"start\"])",
-		"tt_end([\"end\"])",
-		"tt_start --> decide",
-		"improve --> tt_end",
+		"start([\"start: start\"])",
+		"end([\"end: end\"])",
+		"start --> decide",
+		"improve --> end",
 		"if: decision.path == frontend",
 		"out: decision",
 		"in: decision",
@@ -146,12 +150,19 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 }
 
 func TestGenerateMermaidGraphConvergesRootOnlyRecipe(t *testing.T) {
-	recipe := &formula.Recipe{Steps: []formula.RecipeStep{{ID: "root", Title: "Root", IsRoot: true}}}
+	recipe := &formula.Recipe{
+		Steps: []formula.RecipeStep{
+			{ID: "root", Title: "Root", IsRoot: true},
+			{ID: "start", Title: "start", Execution: "noop", Metadata: map[string]string{"formula_boundary": "start"}},
+			{ID: "end", Title: "end", Execution: "noop", Metadata: map[string]string{"formula_boundary": "end"}},
+		},
+		Deps: []formula.RecipeDep{{StepID: "start", DependsOnID: "root"}, {StepID: "end", DependsOnID: "start"}},
+	}
 	graph := generateMermaidGraph(recipe)
 	for _, want := range []string{
-		"tt_start([\"start\"])",
-		"tt_end([\"end\"])",
-		"tt_start --> tt_end",
+		"start([\"start: start\"])",
+		"end([\"end: end\"])",
+		"start --> end",
 	} {
 		if !strings.Contains(graph, want) {
 			t.Fatalf("mermaid graph missing %q:\n%s", want, graph)

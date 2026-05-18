@@ -752,7 +752,6 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 	b.WriteString("graph TD\n")
 
 	parallelSteps := findParallelSteps(recipe)
-	endSteps := findEndSteps(recipe)
 	stepByID := recipeStepMap(recipe)
 	depths := computeStepDepths(recipe)
 	maxDepth := 1
@@ -761,9 +760,6 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 			maxDepth = d
 		}
 	}
-
-	b.WriteString("    tt_start([\"start\"])\n")
-	b.WriteString("    class tt_start nodeBoundary\n")
 
 	for _, step := range recipe.Steps {
 		if step.IsRoot {
@@ -777,7 +773,9 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 		depth := depths[step.ID]
 		color := depthColor(depth, maxDepth)
 
-		if step.Gate != nil {
+		if isMermaidBoundaryStep(step) {
+			b.WriteString(fmt.Sprintf("    class %s nodeBoundary\n", nodeID))
+		} else if step.Gate != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeGate\n", nodeID))
 		} else if step.Loop != nil {
 			b.WriteString(fmt.Sprintf("    class %s nodeLoop\n", nodeID))
@@ -794,21 +792,11 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 		appendMermaidLoopBody(&b, step)
 	}
 
-	b.WriteString("    tt_end([\"end\"])\n")
-	b.WriteString("    class tt_end nodeBoundary\n")
-
 	b.WriteString("    classDef nodeBoundary fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px\n")
 	b.WriteString("    classDef nodeGate fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5\n")
 	b.WriteString("    classDef nodeLoop fill:#fff3e0,stroke:#ef6c00,stroke-width:2px\n")
 	b.WriteString("    classDef nodeLoopBody fill:#fff8e1,stroke:#f9a825,stroke-width:1px,stroke-dasharray: 3 3\n")
 
-	if len(recipe.Steps) == 0 || len(realRecipeSteps(recipe)) == 0 {
-		b.WriteString("    tt_start --> tt_end\n")
-		return b.String()
-	}
-
-	started := make(map[string]bool)
-	incoming := make(map[string]bool)
 	for _, dep := range recipe.Deps {
 		if dep.Type == "parent-child" {
 			continue
@@ -818,31 +806,14 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 		if dep.StepID == "" || stepByID[dep.StepID].ID == "" || stepByID[dep.StepID].IsRoot {
 			continue
 		}
-		if dep.DependsOnID == "" || stepByID[dep.DependsOnID].IsRoot {
-			from = "tt_start"
-			started[dep.StepID] = true
-		} else if stepByID[dep.DependsOnID].ID != "" {
-			incoming[dep.StepID] = true
+		if dep.DependsOnID == "" || stepByID[dep.DependsOnID].ID == "" || stepByID[dep.DependsOnID].IsRoot {
+			continue
 		}
 		edgeStyle := " -->"
 		if dep.Type == "waits-for" {
 			edgeStyle = " -.-> |wait|"
 		}
 		b.WriteString(fmt.Sprintf("    %s%s %s\n", from, edgeStyle, to))
-	}
-
-	for _, step := range recipe.Steps {
-		if step.IsRoot || incoming[step.ID] || started[step.ID] {
-			continue
-		}
-		b.WriteString(fmt.Sprintf("    tt_start --> %s\n", mermaidNodeID(step.ID)))
-	}
-
-	for _, step := range recipe.Steps {
-		if step.IsRoot || !endSteps[step.ID] {
-			continue
-		}
-		b.WriteString(fmt.Sprintf("    %s --> tt_end\n", mermaidNodeID(step.ID)))
 	}
 
 	return b.String()
@@ -864,6 +835,10 @@ func realRecipeSteps(recipe *formula.Recipe) []formula.RecipeStep {
 		}
 	}
 	return steps
+}
+
+func isMermaidBoundaryStep(step formula.RecipeStep) bool {
+	return step.Metadata != nil && step.Metadata["formula_boundary"] != ""
 }
 
 func appendMermaidLoopBody(b *strings.Builder, step formula.RecipeStep) {
@@ -936,10 +911,13 @@ func mermaidShape(step formula.RecipeStep, endSteps, parallelSteps map[string]bo
 	if step.IsRoot {
 		return shapeDef{open: "([\"", close: "\"])"}
 	}
+	if isMermaidBoundaryStep(step) {
+		return shapeDef{open: "([\"", close: "\"])"}
+	}
 	if step.Gate != nil {
 		return shapeDef{open: "{\"", close: "\"}"}
 	}
-	if endSteps[step.ID] {
+	if endSteps != nil && endSteps[step.ID] {
 		return shapeDef{open: "([\"", close: "\"])"}
 	}
 	if parallelSteps[step.ID] {
@@ -1547,13 +1525,24 @@ func runFormulaDryRun(recipe *formula.Recipe) error {
 		return err
 	}
 
-	for i, batch := range batches {
-		fmt.Printf("Batch %d (parallel):\n", i+1)
+	displayBatch := 1
+	for _, batch := range batches {
+		var visible []*formula.RecipeStep
 		for _, step := range batch {
-			if step.IsRoot {
-				continue
+			if !step.IsRoot {
+				visible = append(visible, step)
 			}
+		}
+		if len(visible) == 0 {
+			continue
+		}
+		fmt.Printf("Batch %d (parallel):\n", displayBatch)
+		displayBatch++
+		for _, step := range visible {
 			agent := "default"
+			if step.Execution == "noop" {
+				agent = "noop"
+			}
 			if step.Agent != nil && step.Agent.Name != "" {
 				agent = step.Agent.Name
 			}

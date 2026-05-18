@@ -111,7 +111,7 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 			if err := <-errCh; err != nil {
 				return result, err
 			}
-			if !step.IsRoot {
+			if !step.IsRoot && step.Execution != "noop" {
 				lastStepID = step.ID
 			}
 		}
@@ -152,6 +152,17 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	e.mu.RUnlock()
 
 	if step.IsRoot {
+		e.mu.Lock()
+		e.results[step.ID] = &StepResult{
+			StepID: step.ID,
+			Title:  step.Title,
+			Status: StatusCompleted,
+		}
+		e.mu.Unlock()
+		return nil
+	}
+
+	if step.Execution == "noop" {
 		e.mu.Lock()
 		e.results[step.ID] = &StepResult{
 			StepID: step.ID,

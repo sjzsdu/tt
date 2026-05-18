@@ -132,8 +132,92 @@ func toRecipe(f *Formula) (*Recipe, error) {
 	idMapping := make(map[string]string)
 	flattenSteps(f.Steps, f.Formula, idMapping, &r.Steps, &r.Deps)
 	collectRecipeDeps(f.Steps, idMapping, &r.Deps)
+	addRecipeBoundarySteps(r)
 
 	return r, nil
+}
+
+func addRecipeBoundarySteps(r *Recipe) {
+	if r == nil {
+		return
+	}
+	startID := r.Name + ".start"
+	endID := r.Name + ".end"
+	if idx := recipeStepIndex(r, startID); idx >= 0 {
+		markBoundaryStep(&r.Steps[idx], "start")
+	} else {
+		start := RecipeStep{ID: startID, Title: "start", Type: "boundary", Execution: "noop", Metadata: map[string]string{"formula_boundary": "start"}}
+		if len(r.Steps) == 0 {
+			r.Steps = append(r.Steps, start)
+		} else {
+			r.Steps = append([]RecipeStep{r.Steps[0], start}, r.Steps[1:]...)
+		}
+	}
+	if idx := recipeStepIndex(r, endID); idx >= 0 {
+		markBoundaryStep(&r.Steps[idx], "end")
+	} else {
+		end := RecipeStep{ID: endID, Title: "end", Type: "boundary", Execution: "noop", Metadata: map[string]string{"formula_boundary": "end"}}
+		r.Steps = append(r.Steps, end)
+	}
+
+	r.Deps = append(r.Deps, RecipeDep{StepID: startID, DependsOnID: r.Name, Type: "blocks"})
+	incoming := make(map[string]bool)
+	outgoing := make(map[string]bool)
+	for _, dep := range r.Deps {
+		if dep.Type == "parent-child" {
+			continue
+		}
+		incoming[dep.StepID] = true
+		outgoing[dep.DependsOnID] = true
+	}
+
+	var realSteps []RecipeStep
+	for _, step := range r.Steps {
+		if step.IsRoot || isBoundaryRecipeStep(step) {
+			continue
+		}
+		realSteps = append(realSteps, step)
+	}
+	if len(realSteps) == 0 {
+		r.Deps = append(r.Deps, RecipeDep{StepID: endID, DependsOnID: startID, Type: "blocks"})
+		return
+	}
+	for _, step := range realSteps {
+		if !incoming[step.ID] {
+			r.Deps = append(r.Deps, RecipeDep{StepID: step.ID, DependsOnID: startID, Type: "blocks"})
+		}
+	}
+	for _, step := range realSteps {
+		if !outgoing[step.ID] {
+			r.Deps = append(r.Deps, RecipeDep{StepID: endID, DependsOnID: step.ID, Type: "blocks"})
+		}
+	}
+}
+
+func isBoundaryRecipeStep(step RecipeStep) bool {
+	return step.Metadata != nil && step.Metadata["formula_boundary"] != ""
+}
+
+func recipeStepIndex(r *Recipe, id string) int {
+	if r == nil {
+		return -1
+	}
+	for i := range r.Steps {
+		if r.Steps[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func markBoundaryStep(step *RecipeStep, boundary string) {
+	if step == nil {
+		return
+	}
+	if step.Metadata == nil {
+		step.Metadata = make(map[string]string)
+	}
+	step.Metadata["formula_boundary"] = boundary
 }
 
 func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, out *[]RecipeStep, deps *[]RecipeDep) {
