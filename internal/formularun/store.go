@@ -76,6 +76,9 @@ func DefaultRoot(workspace string) string {
 
 func New(root string, recipe *formula.Recipe, vars map[string]string, agent, model, session, workspace string) (*Store, error) {
 	if root == "" {
+		if err := EnsureWorkspaceState(workspace); err != nil {
+			return nil, err
+		}
 		root = DefaultRoot(workspace)
 	}
 	if recipe == nil {
@@ -112,6 +115,49 @@ func New(root string, recipe *formula.Recipe, vars map[string]string, agent, mod
 		return nil, err
 	}
 	return store, nil
+}
+
+func EnsureWorkspaceState(workspace string) error {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		var err error
+		workspace, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, ".tt"), 0o755); err != nil {
+		return err
+	}
+	return ensureGitIgnoreEntry(filepath.Join(workspace, ".gitignore"), ".tt/")
+}
+
+func ensureGitIgnoreEntry(path, entry string) error {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	content := string(data)
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == entry || strings.TrimSpace(line) == strings.TrimSuffix(entry, "/") {
+			return nil
+		}
+	}
+	var b strings.Builder
+	b.WriteString(content)
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		b.WriteString("\n")
+	}
+	if !strings.Contains(content, "# Local AI/config state") {
+		b.WriteString("\n# Local AI/config state\n")
+	}
+	b.WriteString(entry)
+	b.WriteString("\n")
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 func NewID(name string, t time.Time) string {

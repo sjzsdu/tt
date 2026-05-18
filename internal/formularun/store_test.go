@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula"
@@ -60,5 +61,27 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 		if !bytes.Contains(logs, want) {
 			t.Fatalf("expected logs to contain %s; got %s", want, logs)
 		}
+	}
+}
+
+func TestNewDefaultRootEnsuresTTAndGitIgnore(t *testing.T) {
+	workspace := t.TempDir()
+	recipe := &formula.Recipe{Name: "demo", Steps: []formula.RecipeStep{{ID: "demo", Title: "Demo", IsRoot: true}}}
+	store, err := New("", recipe, nil, "", "", "", workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(store.Dir, filepath.Join(workspace, ".tt", "runs", "formula")) {
+		t.Fatalf("run dir should be under workspace .tt, got %s", store.Dir)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".tt")); err != nil {
+		t.Fatalf("expected .tt directory: %v", err)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(workspace, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(gitignore, []byte(".tt/")) {
+		t.Fatalf("expected .gitignore to contain .tt/: %s", gitignore)
 	}
 }
