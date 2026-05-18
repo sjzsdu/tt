@@ -134,6 +134,7 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 		"out: decision",
 		"in: decision",
 		"loop: until review.approved == true; max 3",
+		"subgraph improve_loop_body[\"loop body: improve\"]",
 		"body: draft<br/>Draft<br/>out: draft",
 		"body: review<br/>Review<br/>out: review",
 		"-.-> |iterate|",
@@ -146,6 +147,40 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 	}
 	if strings.Contains(graph, "root:") {
 		t.Fatalf("mermaid graph should use synthetic start instead of rendering recipe root:\n%s", graph)
+	}
+}
+
+func TestGenerateFormulaMarkdownShowsLoopDetails(t *testing.T) {
+	f := &formula.Formula{Formula: "runtime-control", Version: 1, Type: formula.TypeWorkflow}
+	recipe := &formula.Recipe{
+		Name: "runtime-control",
+		Steps: []formula.RecipeStep{
+			{ID: "runtime-control", Title: "Root", IsRoot: true},
+			{
+				ID:        "runtime-control.improve",
+				Title:     "Improve",
+				Condition: "decision.path == frontend",
+				Loop: &formula.LoopSpec{Until: "review.approved == true", Max: 3, Body: []*formula.Step{
+					{ID: "draft", Title: "Draft iteration {{iteration}}", OutputKey: "draft"},
+					{ID: "review", Title: "Review iteration {{iteration}}", InputCtx: []string{"draft"}, OutputKey: "review"},
+				}},
+			},
+		},
+	}
+
+	md := generateFormulaMarkdown(f, recipe)
+	for _, want := range []string{
+		"#### Runtime Loop",
+		"- **Control:** until `review.approved == true`; max `3`",
+		"- **Step condition:** `decision.path == frontend`",
+		"| # | Body Step | Title | Input | Output | Condition | Agent |",
+		"| 1 | `draft` | Draft iteration {{iteration}} | - | `draft` | - | default |",
+		"| 2 | `review` | Review iteration {{iteration}} | `draft` | `review` | - | default |",
+		"runtime-control.improve.iter1.<body>",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("markdown missing %q:\n%s", want, md)
+		}
 	}
 }
 

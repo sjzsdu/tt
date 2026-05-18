@@ -742,8 +742,68 @@ func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string 
 		if step.Gate != nil {
 			b.WriteString(fmt.Sprintf("**Gate:** %s (type: %s)\n\n", step.Gate.ID, step.Gate.Type))
 		}
+
+		if step.Loop != nil {
+			b.WriteString(generateLoopMarkdown(step))
+		}
 	}
 
+	return b.String()
+}
+
+func generateLoopMarkdown(step formula.RecipeStep) string {
+	if step.Loop == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("#### Runtime Loop\n\n")
+	if summary := loopSummary(step.Loop); summary != "" {
+		b.WriteString(fmt.Sprintf("- **Control:** %s\n", summary))
+	}
+	if step.Condition != "" {
+		b.WriteString(fmt.Sprintf("- **Step condition:** `%s`\n", step.Condition))
+	}
+	b.WriteString(fmt.Sprintf("- **Body steps:** `%d`\n\n", len(step.Loop.Body)))
+
+	if len(step.Loop.Body) == 0 {
+		return b.String()
+	}
+	b.WriteString("| # | Body Step | Title | Input | Output | Condition | Agent |\n")
+	b.WriteString("|---|-----------|-------|-------|--------|-----------|-------|\n")
+	for i, body := range step.Loop.Body {
+		if body == nil {
+			continue
+		}
+		input := "-"
+		if len(body.InputCtx) > 0 {
+			input = "`" + strings.Join(body.InputCtx, "`, `") + "`"
+		}
+		output := "-"
+		if body.OutputKey != "" {
+			output = "`" + body.OutputKey + "`"
+		}
+		condition := "-"
+		if body.Condition != "" {
+			condition = "`" + body.Condition + "`"
+		}
+		agent := "default"
+		if body.Agent != nil && body.Agent.Name != "" {
+			agent = "`" + body.Agent.Name + "`"
+		}
+		b.WriteString(fmt.Sprintf("| %d | `%s` | %s | %s | %s | %s | %s |\n",
+			i+1,
+			markdownCell(body.ID),
+			markdownCell(body.Title),
+			markdownCell(input),
+			markdownCell(output),
+			markdownCell(condition),
+			markdownCell(agent),
+		))
+	}
+	b.WriteString("\n")
+	b.WriteString("> During execution, each loop body result is saved as `parent.iterN.body`, for example `")
+	b.WriteString(step.ID)
+	b.WriteString(".iter1.<body>`.\n\n")
 	return b.String()
 }
 
@@ -847,22 +907,39 @@ func appendMermaidLoopBody(b *strings.Builder, step formula.RecipeStep) {
 	}
 
 	loopID := mermaidNodeID(step.ID)
+	loopBodyGraphID := loopID + "_loop_body"
+	b.WriteString(fmt.Sprintf("    subgraph %s[\"loop body: %s\"]\n", loopBodyGraphID, mermaidEscapeLabel(shortStepID(step.ID))))
+	b.WriteString("        direction TB\n")
 	var previous string
 	for i, bodyStep := range step.Loop.Body {
 		bodyID := mermaidNodeID(fmt.Sprintf("%s.loop.%d.%s", step.ID, i+1, bodyStep.ID))
 		label := mermaidLoopBodyLabel(bodyStep)
-		b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", bodyID, label))
+		b.WriteString(fmt.Sprintf("        %s[\"%s\"]\n", bodyID, label))
 		b.WriteString(fmt.Sprintf("    class %s nodeLoopBody\n", bodyID))
-		if i == 0 {
-			b.WriteString(fmt.Sprintf("    %s -.-> |iterate| %s\n", loopID, bodyID))
-		} else {
-			b.WriteString(fmt.Sprintf("    %s -.-> %s\n", previous, bodyID))
+		if i > 0 {
+			b.WriteString(fmt.Sprintf("        %s -.-> %s\n", previous, bodyID))
 		}
 		previous = bodyID
+	}
+	b.WriteString("    end\n")
+	if first := firstLoopBodyNodeID(step); first != "" {
+		b.WriteString(fmt.Sprintf("    %s -.-> |iterate| %s\n", loopID, first))
 	}
 	if previous != "" {
 		b.WriteString(fmt.Sprintf("    %s -.-> |%s| %s\n", previous, mermaidLoopEdgeLabel(step.Loop), loopID))
 	}
+}
+
+func firstLoopBodyNodeID(step formula.RecipeStep) string {
+	if step.Loop == nil {
+		return ""
+	}
+	for i, bodyStep := range step.Loop.Body {
+		if bodyStep != nil {
+			return mermaidNodeID(fmt.Sprintf("%s.loop.%d.%s", step.ID, i+1, bodyStep.ID))
+		}
+	}
+	return ""
 }
 
 func mermaidLoopBodyLabel(step *formula.Step) string {
@@ -900,6 +977,29 @@ func mermaidLoopEdgeLabel(loop *formula.LoopSpec) string {
 		return "next"
 	}
 	return mermaidEscapeLabel(strings.Join(parts, "; "))
+}
+
+func loopSummary(loop *formula.LoopSpec) string {
+	if loop == nil {
+		return ""
+	}
+	var parts []string
+	if loop.Until != "" {
+		parts = append(parts, fmt.Sprintf("until `%s`", loop.Until))
+	}
+	if loop.Max > 0 {
+		parts = append(parts, fmt.Sprintf("max `%d`", loop.Max))
+	}
+	if loop.Count > 0 {
+		parts = append(parts, fmt.Sprintf("count `%d`", loop.Count))
+	}
+	if loop.Range != "" {
+		parts = append(parts, fmt.Sprintf("range `%s`", loop.Range))
+	}
+	if loop.Var != "" {
+		parts = append(parts, fmt.Sprintf("var `%s`", loop.Var))
+	}
+	return strings.Join(parts, "; ")
 }
 
 type shapeDef struct {
@@ -1065,10 +1165,7 @@ func mermaidLabel(step formula.RecipeStep) string {
 	if step.Priority != nil {
 		prefix = fmt.Sprintf("[P%d] ", *step.Priority)
 	}
-	shortID := step.ID
-	if idx := strings.LastIndex(step.ID, "."); idx >= 0 {
-		shortID = step.ID[idx+1:]
-	}
+	shortID := shortStepID(step.ID)
 	parts := []string{fmt.Sprintf("%s: %s%s", mermaidEscapeLabel(shortID), prefix, safeTitle)}
 	if step.Condition != "" {
 		parts = append(parts, "if: "+mermaidEscapeLabel(step.Condition))
@@ -1083,6 +1180,23 @@ func mermaidLabel(step formula.RecipeStep) string {
 		parts = append(parts, "loop: "+mermaidLoopEdgeLabel(step.Loop))
 	}
 	return strings.Join(parts, "<br/>")
+}
+
+func shortStepID(id string) string {
+	if idx := strings.LastIndex(id, "."); idx >= 0 {
+		return id[idx+1:]
+	}
+	return id
+}
+
+func markdownCell(s string) string {
+	s = strings.ReplaceAll(s, "\n", "<br/>")
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
 }
 
 func mermaidEscapeLabel(s string) string {
