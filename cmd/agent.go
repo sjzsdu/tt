@@ -85,6 +85,10 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
 		return err
 	}
+	workspace, err := ensureTTWorkspace()
+	if err != nil {
+		return err
+	}
 
 	rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
@@ -108,6 +112,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		Session:        merged.Agent.Session,
 		Agent:          merged.Agent.Agent,
 		Model:          merged.Agent.Model,
+		Workspace:      workspace,
 		Debug:          debug,
 		Quiet:          !debug,
 		EmbeddedAgents: agents.All(),
