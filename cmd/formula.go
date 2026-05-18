@@ -7,30 +7,35 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/molecule"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
 var (
-	formulaDir      string
-	formulaVars     []string
-	formulaOutput   string
-	formulaTitle    string
-	formulaMarkdown bool
-	formulaPort     int
-	formulaAgent    string
-	formulaModel    string
-	formulaSession  string
-	formulaWeb      bool
-	formulaWebPort  int
-	formulaDryRun   bool
-	formulaDebug    bool
-	formulaVerbose  bool
+	formulaDir       string
+	formulaVars      []string
+	formulaOutput    string
+	formulaTitle     string
+	formulaMarkdown  bool
+	formulaPort      int
+	formulaAgent     string
+	formulaModel     string
+	formulaSession   string
+	formulaWeb       bool
+	formulaWebPort   int
+	formulaDryRun    bool
+	formulaDebug     bool
+	formulaVerbose   bool
+	formulaNoSave    bool
+	formulaRunsLimit int
 )
 
 var formulaCmd = &cobra.Command{
@@ -91,6 +96,20 @@ Steps are executed in dependency order, with parallel steps running concurrently
 	RunE: runFormulaRun,
 }
 
+var formulaRunsCmd = &cobra.Command{
+	Use:   "runs",
+	Short: "List saved formula runs",
+	Args:  cobra.NoArgs,
+	RunE:  runFormulaRuns,
+}
+
+var formulaRunOpenCmd = &cobra.Command{
+	Use:   "open [run-id|latest]",
+	Short: "Open a saved formula run dashboard",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runFormulaRunOpen,
+}
+
 func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
@@ -109,6 +128,10 @@ func init() {
 	formulaRunCmd.Flags().BoolVar(&formulaDryRun, "dry-run", false, "print execution plan without running")
 	formulaRunCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 	formulaRunCmd.Flags().BoolVarP(&formulaVerbose, "verbose", "v", false, "show full output of each step")
+	formulaRunCmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
+	formulaRunsCmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
+	formulaRunOpenCmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
+	formulaRunCmd.AddCommand(formulaRunOpenCmd)
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -116,6 +139,7 @@ func init() {
 	formulaCmd.AddCommand(formulaInstantiateCmd)
 	formulaCmd.AddCommand(formulaValidateCmd)
 	formulaCmd.AddCommand(formulaRunCmd)
+	formulaCmd.AddCommand(formulaRunsCmd)
 
 	rootCmd.AddCommand(formulaCmd)
 }
@@ -1021,10 +1045,25 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	errOut := cmd.ErrOrStderr()
 	projectRoot, _ := os.Getwd()
 
+	var runStore *formularun.Store
+	if !formulaNoSave {
+		runStore, err = formularun.New("", recipe, vars, formulaAgent, formulaModel, formulaSession, projectRoot)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Run ID: %s\n", runStore.Meta.RunID)
+		fmt.Fprintf(out, "Saved to: %s\n", runStore.Dir)
+	}
+
 	var dashboard *formulaDashboardServer
-	if formulaWeb {
+	if runStore != nil || formulaWeb {
 		dashboard = newFormulaDashboardServer(recipe)
 		dashboard.state.WorkspaceDir = formulaDashboardWorkspace(projectRoot)
+		if runStore != nil {
+			dashboard.attachStore(runStore)
+		}
+	}
+	if formulaWeb {
 		if err := dashboard.start(formulaWebPort); err != nil {
 			return err
 		}
@@ -1079,6 +1118,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		}
 
 		prompt = renderFormulaPrompt(projectRoot, prompt)
+		if runStore != nil {
+			_ = runStore.SaveStepPrompt(step.ID, prompt)
+		}
 		if dashboard != nil {
 			dashboard.markStepRunning(step.ID, step.Title, agent.Name, model, sessionKey)
 		}
@@ -1092,6 +1134,12 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		resp = strings.TrimSpace(resp)
 
 		if err != nil {
+			if runStore != nil {
+				_ = runStore.SaveStepError(step.ID, err.Error())
+				if resp != "" {
+					_ = runStore.SaveStepOutput(step.ID, resp)
+				}
+			}
 			if dashboard != nil {
 				dashboard.markStepFailed(step.ID, err.Error(), resp)
 			}
@@ -1114,6 +1162,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		if dashboard != nil {
 			dashboard.markStepCompleted(step.ID, resp)
 		}
+		if runStore != nil {
+			_ = runStore.SaveStepOutput(step.ID, resp)
+		}
 
 		if step.OutputKey != "" {
 			logLine("  → Output key: %s", step.OutputKey)
@@ -1132,6 +1183,18 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	renderRunResult(cmd, result, err != nil)
 	if dashboard != nil {
 		dashboard.finalize(result, err)
+	}
+	if runStore != nil {
+		status := formularun.StatusCompleted
+		errMsg := ""
+		if err != nil {
+			status = formularun.StatusFailed
+			errMsg = err.Error()
+		}
+		_ = runStore.Finish(status, errMsg)
+		if dashboard != nil {
+			_ = dashboard.persistSnapshot()
+		}
 	}
 
 	if formulaWeb {
@@ -1207,4 +1270,63 @@ func renderRunResult(cmd *cobra.Command, result *executor.RunResult, hasError bo
 		fmt.Fprintf(out, "\n--- Final Output ---\n\n%s\n", result.FinalOutput)
 	}
 	fmt.Fprintln(out)
+}
+
+func runFormulaRuns(cmd *cobra.Command, args []string) error {
+	_ = args
+	records, err := formularun.List("")
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	if len(records) == 0 {
+		fmt.Fprintln(out, "No saved formula runs found.")
+		return nil
+	}
+	limit := formulaRunsLimit
+	if limit <= 0 || limit > len(records) {
+		limit = len(records)
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tFORMULA\tSTATUS\tSTARTED\tFINISHED")
+	for _, record := range records[:limit] {
+		meta := record.Metadata
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", record.ID, meta.Formula, meta.Status, shortTime(meta.StartedAt), shortTime(meta.FinishedAt))
+	}
+	return w.Flush()
+}
+
+func runFormulaRunOpen(cmd *cobra.Command, args []string) error {
+	id := "latest"
+	if len(args) > 0 {
+		id = args[0]
+	}
+	record, err := formularun.Resolve("", id)
+	if err != nil {
+		return err
+	}
+	var snapshot formulaDashboardSnapshot
+	if err := formularun.LoadState(record.Dir, &snapshot); err != nil {
+		return fmt.Errorf("load formula run state failed: %w", err)
+	}
+	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
+	if err := dashboard.start(formulaWebPort); err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Opened formula run: %s\n", record.ID)
+	fmt.Fprintf(out, "Web dashboard: http://localhost:%d\n", dashboard.port)
+	fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
+	waitForFormulaDashboardExit(dashboard)
+	return nil
+}
+
+func shortTime(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t.Local().Format("2006-01-02 15:04:05")
+	}
+	return value
 }

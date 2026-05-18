@@ -14,6 +14,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
 )
@@ -25,8 +26,29 @@ type formulaDashboardServer struct {
 	started  time.Time
 	recipe   string
 	state    formulaDashboardSnapshot
+	store    *formularun.Store
+	readonly bool
 	clients  map[*websocket.Conn]struct{}
 	shutdown chan struct{}
+}
+
+func newFormulaDashboardServerFromSnapshot(snapshot formulaDashboardSnapshot) *formulaDashboardServer {
+	return &formulaDashboardServer{
+		started:  time.Now(),
+		recipe:   snapshot.RecipeName,
+		state:    cloneFormulaDashboardSnapshot(snapshot),
+		clients:  map[*websocket.Conn]struct{}{},
+		shutdown: make(chan struct{}),
+		readonly: true,
+	}
+}
+
+func (s *formulaDashboardServer) attachStore(store *formularun.Store) {
+	if s == nil {
+		return
+	}
+	s.store = store
+	_ = s.persistSnapshot()
 }
 
 type formulaDashboardSnapshot struct {
@@ -363,6 +385,7 @@ func (s *formulaDashboardServer) snapshotMessageLocked() []byte {
 }
 
 func (s *formulaDashboardServer) broadcast() {
+	_ = s.persistSnapshot()
 	s.mu.Lock()
 	payload := s.snapshotMessageLocked()
 	clients := make([]*websocket.Conn, 0, len(s.clients))
@@ -379,6 +402,16 @@ func (s *formulaDashboardServer) broadcast() {
 			_ = conn.Close(websocket.StatusNormalClosure, "")
 		}
 	}
+}
+
+func (s *formulaDashboardServer) persistSnapshot() error {
+	if s == nil || s.store == nil || s.readonly {
+		return nil
+	}
+	s.mu.Lock()
+	snapshot := cloneFormulaDashboardSnapshot(s.state)
+	s.mu.Unlock()
+	return s.store.SaveState(snapshot)
 }
 
 func (s *formulaDashboardServer) logf(format string, args ...any) {
