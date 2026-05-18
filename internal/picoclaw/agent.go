@@ -26,8 +26,8 @@ func (rt *Runtime) Run(opt RunOptions) error {
 	}
 
 	cfg := cloneConfig(rt.Config)
-	if cwd, err := os.Getwd(); err == nil {
-		configureProjectWorkspace(cfg, cwd)
+	if workspace := resolveRunWorkspace(opt.Workspace); workspace != "" {
+		configureProjectWorkspace(cfg, workspace)
 	}
 	cfg = prepareConfigForRun(cfg, resolved)
 	embeddedAgents := opt.embeddedAgents()
@@ -116,6 +116,16 @@ func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) {
 	cfg.Agents.Defaults.AllowReadOutsideWorkspace = true
 	cfg.Tools.AllowReadPaths = append(cfg.Tools.AllowReadPaths, workspace)
 	cfg.Tools.AllowWritePaths = append(cfg.Tools.AllowWritePaths, workspace)
+}
+
+func resolveRunWorkspace(workspace string) string {
+	if workspace = str(workspace); workspace != "" {
+		return workspace
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	return ""
 }
 
 // setAgentWorkspaces overrides all agent workspaces to the given directory.

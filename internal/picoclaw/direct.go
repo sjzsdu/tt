@@ -3,7 +3,6 @@ package picoclaw
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
@@ -33,8 +32,8 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	}
 
 	cfg := cloneConfig(rt.Config)
-	if cwd, err := os.Getwd(); err == nil {
-		configureProjectWorkspace(cfg, cwd)
+	if workspace := resolveRunWorkspace(opt.Workspace); workspace != "" {
+		configureProjectWorkspace(cfg, workspace)
 	}
 	cfg = prepareConfigForRun(cfg, resolved)
 	embeddedAgents := opt.embeddedAgents()

@@ -148,6 +148,10 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	if err != nil {
 		return nvwa.Files{}, err
 	}
+	workspace, err := ensureNvwaWorkspace()
+	if err != nil {
+		return nvwa.Files{}, err
+	}
 	merged := loaded.Merged
 	if cmd.Flags().Changed("picoclaw-home") {
 		merged.Picoclaw.Home = nvwaHome
@@ -172,6 +176,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		Session:        nvwaSession,
 		Agent:          agents.NvwaPromptDesignerID,
 		Model:          nvwaModel,
+		Workspace:      workspace,
 		Debug:          nvwaDebug,
 		Quiet:          !nvwaDebug,
 		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.NvwaPromptDesigner()},
@@ -186,6 +191,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		Session:        nvwaSession,
 		Agent:          agents.NvwaPromptDesignerID,
 		Model:          nvwaModel,
+		Workspace:      workspace,
 		Debug:          nvwaDebug,
 		Quiet:          !nvwaDebug,
 		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.NvwaPromptDesigner()},
@@ -198,6 +204,18 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		return nvwa.Files{}, fmt.Errorf("parse nvwa model output failed: %w\n\nRaw output:\n%s", err, response)
 	}
 	return files, nil
+}
+
+func ensureNvwaWorkspace() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get current directory: %w", err)
+	}
+	workspace := filepath.Join(cwd, ".tt")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return "", fmt.Errorf("create nvwa workspace: %w", err)
+	}
+	return workspace, nil
 }
 
 func printNvwaFiles(files nvwa.Files, format string) {

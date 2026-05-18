@@ -13,6 +13,7 @@ type RunOptions struct {
 	Session        string
 	Agent          string
 	Model          string
+	Workspace      string
 	Debug          bool
 	Quiet          bool
 	EmbeddedAgents []EmbeddedAgent
