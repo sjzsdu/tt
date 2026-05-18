@@ -576,13 +576,13 @@ func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string 
 		b.WriteString(fmt.Sprintf("> %s\n\n", f.Description))
 	}
 
-	b.WriteString("| | |\n|---|---|\n")
-	b.WriteString(fmt.Sprintf("| **Version** | %d |\n", f.Version))
-	b.WriteString(fmt.Sprintf("| **Type** | %s |\n", f.Type))
+	b.WriteString("## Formula Details\n\n")
+	b.WriteString(fmt.Sprintf("- **Version:** `%d`\n", f.Version))
+	b.WriteString(fmt.Sprintf("- **Type:** `%s`\n", f.Type))
 	if f.Phase != "" {
-		b.WriteString(fmt.Sprintf("| **Phase** | %s |\n", f.Phase))
+		b.WriteString(fmt.Sprintf("- **Phase:** `%s`\n", f.Phase))
 	}
-	b.WriteString(fmt.Sprintf("| **Steps** | %d |\n", len(recipe.Steps)))
+	b.WriteString(fmt.Sprintf("- **Steps:** `%d`\n", len(recipe.Steps)))
 	b.WriteString("\n")
 
 	if len(f.Vars) > 0 {
@@ -885,6 +885,10 @@ func generateQuickStart(f *formula.Formula, recipe *formula.Recipe) string {
 	b.WriteString(fmt.Sprintf("tt formula instantiate %s -o json\n\n", f.Formula))
 	b.WriteString(fmt.Sprintf("# 实例化为中文任务提示（适合给 AI agent）\n"))
 	b.WriteString(fmt.Sprintf("tt formula instantiate %s -o prompt\n\n", f.Formula))
+	b.WriteString(fmt.Sprintf("# 试运行执行计划（不调用大模型）\n"))
+	b.WriteString(fmt.Sprintf("tt formula run %s --dry-run\n\n", f.Formula))
+	b.WriteString(fmt.Sprintf("# 执行公式\n"))
+	b.WriteString(fmt.Sprintf("tt formula run %s\n\n", f.Formula))
 
 	requiredVars := f.RequiredVarNames()
 	if len(requiredVars) > 0 {
@@ -892,11 +896,11 @@ func generateQuickStart(f *formula.Formula, recipe *formula.Recipe) string {
 		for i, v := range requiredVars {
 			vars[i] = fmt.Sprintf("--var %s=<value>", v)
 		}
-		b.WriteString(fmt.Sprintf("# 传入必填变量: %s\n", strings.Join(requiredVars, ", ")))
-		b.WriteString(fmt.Sprintf("tt formula instantiate %s %s -o text\n", f.Formula, strings.Join(vars, " ")))
+		b.WriteString(fmt.Sprintf("# 带必填变量执行: %s\n", strings.Join(requiredVars, ", ")))
+		b.WriteString(fmt.Sprintf("tt formula run %s %s\n", f.Formula, strings.Join(vars, " ")))
 	} else {
 		b.WriteString(fmt.Sprintf("# 传入变量值\n"))
-		b.WriteString(fmt.Sprintf("tt formula instantiate %s --var key=value -o text\n", f.Formula))
+		b.WriteString(fmt.Sprintf("tt formula run %s --var key=value\n", f.Formula))
 	}
 	b.WriteString("```\n")
 	return b.String()
