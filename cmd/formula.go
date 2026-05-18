@@ -130,6 +130,13 @@ var formulaRunRmCmd = &cobra.Command{
 	RunE:  runFormulaRunRm,
 }
 
+var formulaRunResumeCmd = &cobra.Command{
+	Use:   "resume [run-id|latest]",
+	Short: "Resume a saved formula run from unfinished steps",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runFormulaRunResume,
+}
+
 func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
@@ -158,6 +165,7 @@ func init() {
 	formulaRunCmd.AddCommand(formulaRunOpenCmd)
 	formulaRunCmd.AddCommand(formulaRunShowCmd)
 	formulaRunCmd.AddCommand(formulaRunRmCmd)
+	formulaRunCmd.AddCommand(formulaRunResumeCmd)
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -1266,6 +1274,115 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string) error {
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return err
+	}
+	merged := loaded.Merged
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
+	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
+	if err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
+	}
+	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
+		return err
+	}
+	restoreSessionsDir, err := useFormulaSessionsDir(projectRoot)
+	if err != nil {
+		return err
+	}
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: runStore.Meta.Session, Model: runStore.Meta.Model, Debug: formulaDebug, Quiet: true, Workspace: projectRoot})
+	restoreSessionsDir()
+	if err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	defer runner.Close()
+
+	exec := executor.New(recipe, executor.RunOptions{Vars: vars, InitialResults: initialResults, InitialContext: initialContext, Agent: runStore.Meta.Agent, Model: runStore.Meta.Model, Session: runStore.Meta.Session, Debug: formulaDebug})
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+
+	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+		agent := step.Agent
+		if agent == nil || agent.Name == "" {
+			agent = &formula.AgentConfig{Name: runStore.Meta.Agent, Model: runStore.Meta.Model}
+		}
+		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, runStore.Meta.Session, step.ID)
+		if agent.Session != "" {
+			sessionKey = fmt.Sprintf("agent:%s:%s:%s", agent.Name, runStore.Meta.Session, agent.Session)
+		}
+		model := agent.Model
+		if model == "" {
+			model = runStore.Meta.Model
+		}
+		logLine := func(format string, args ...any) {
+			line := fmt.Sprintf(format, args...)
+			fmt.Fprintln(errOut, line)
+			if dashboard != nil {
+				dashboard.logf("%s", line)
+			}
+		}
+		fmt.Fprintln(errOut)
+		logLine("▶ Resuming: %s", step.Title)
+		prompt = renderFormulaPrompt(projectRoot, prompt)
+		_ = runStore.SaveStepPrompt(step.ID, prompt)
+		if dashboard != nil {
+			dashboard.markStepRunning(step.ID, step.Title, agent.Name, model, sessionKey)
+		}
+		started := time.Now()
+		_ = runStore.AppendEvent(formularun.Event{Type: "step_started", StepID: step.ID, Agent: agent.Name, Model: model, Session: sessionKey, Status: "running"})
+		resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: prompt, Session: sessionKey, Agent: agent.Name, Model: model})
+		resp = strings.TrimSpace(resp)
+		if err != nil {
+			_ = runStore.SaveStepError(step.ID, err.Error())
+			_ = runStore.AppendEvent(formularun.Event{Type: "step_failed", StepID: step.ID, Status: "failed", Error: err.Error(), DurationMS: time.Since(started).Milliseconds()})
+			if dashboard != nil {
+				dashboard.markStepFailed(step.ID, err.Error(), resp)
+			}
+			return resp, err
+		}
+		_ = runStore.SaveStepOutput(step.ID, resp)
+		_ = runStore.AppendEvent(formularun.Event{Type: "step_completed", StepID: step.ID, Status: "completed", DurationMS: time.Since(started).Milliseconds()})
+		if dashboard != nil {
+			dashboard.markStepCompleted(step.ID, resp)
+		}
+		return resp, nil
+	}
+
+	fmt.Fprintf(out, "Resuming formula run: %s\n", runStore.Meta.RunID)
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	result, err := exec.Run(runCtx, stepRunner)
+	if runCtx.Err() != nil && err == nil {
+		err = runCtx.Err()
+	}
+	renderRunResult(cmd, result, err != nil)
+	if dashboard != nil {
+		dashboard.finalize(result, err)
+	}
+	status := formularun.StatusCompleted
+	errMsg := ""
+	if runCtx.Err() != nil {
+		status = formularun.StatusInterrupted
+		errMsg = runCtx.Err().Error()
+	} else if err != nil {
+		status = formularun.StatusFailed
+		errMsg = err.Error()
+	}
+	_ = runStore.Finish(status, errMsg)
+	if dashboard != nil {
+		_ = dashboard.persistSnapshot()
+	}
+	return err
+}
+
 func runFormulaDryRun(recipe *formula.Recipe) error {
 	fmt.Printf("Execution Plan for: %s\n\n", recipe.Name)
 
@@ -1466,6 +1583,77 @@ func runFormulaRunRm(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Deleted formula run: %s\n", record.ID)
 	return nil
+}
+
+func runFormulaRunResume(cmd *cobra.Command, args []string) error {
+	id := "latest"
+	if len(args) > 0 {
+		id = args[0]
+	}
+	record, err := formularun.Resolve("", id)
+	if err != nil {
+		return err
+	}
+	recipe, err := formularun.LoadRecipe(record.Dir)
+	if err != nil {
+		return err
+	}
+	var snapshot formulaDashboardSnapshot
+	if err := formularun.LoadState(record.Dir, &snapshot); err != nil {
+		return fmt.Errorf("load formula run state failed: %w", err)
+	}
+	initialResults, initialContext := buildResumeState(recipe, snapshot)
+	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
+	store.Meta.Status = formularun.StatusRunning
+	store.Meta.Error = ""
+	store.Meta.FinishedAt = ""
+	store.Meta.PID = os.Getpid()
+	store.Meta.TTVersion = version
+	_ = store.SaveMetadata()
+	_ = store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
+	resetSnapshotForResume(&snapshot)
+	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
+	dashboard.readonly = false
+	dashboard.attachStore(store)
+	return executeFormulaRecipe(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+}
+
+func buildResumeState(recipe *formula.Recipe, snapshot formulaDashboardSnapshot) ([]executor.StepResult, map[string]string) {
+	stepByID := map[string]*formula.RecipeStep{}
+	for i := range recipe.Steps {
+		stepByID[recipe.Steps[i].ID] = &recipe.Steps[i]
+	}
+	var results []executor.StepResult
+	ctx := map[string]string{}
+	for _, step := range snapshot.Steps {
+		status := executor.StepStatus(step.Status)
+		if status != executor.StatusCompleted && status != executor.StatusSkipped {
+			continue
+		}
+		results = append(results, executor.StepResult{StepID: step.ID, Title: step.Title, Status: status, Output: step.Output, Error: step.Error})
+		if recipeStep := stepByID[step.ID]; recipeStep != nil && recipeStep.OutputKey != "" && step.Output != "" {
+			ctx[recipeStep.OutputKey] = step.Output
+		}
+	}
+	return results, ctx
+}
+
+func resetSnapshotForResume(snapshot *formulaDashboardSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	snapshot.Status = "running"
+	snapshot.Error = ""
+	snapshot.FinishedAt = ""
+	for i := range snapshot.Steps {
+		if snapshot.Steps[i].Status == "completed" || snapshot.Steps[i].Status == "skipped" {
+			continue
+		}
+		snapshot.Steps[i].Status = "pending"
+		snapshot.Steps[i].Error = ""
+		snapshot.Steps[i].FinishedAt = ""
+		snapshot.Steps[i].DurationMS = 0
+	}
 }
 
 func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaDashboardSnapshot, stepID string) error {

@@ -12,12 +12,14 @@ import (
 type StepRunner func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error)
 
 type RunOptions struct {
-	Vars    map[string]string
-	Agent   string
-	Model   string
-	Session string
-	DryRun  bool
-	Debug   bool
+	Vars           map[string]string
+	InitialContext map[string]string
+	InitialResults []StepResult
+	Agent          string
+	Model          string
+	Session        string
+	DryRun         bool
+	Debug          bool
 }
 
 type StepStatus string
@@ -68,11 +70,19 @@ func New(recipe *formula.Recipe, opts RunOptions) *Executor {
 	for k, v := range opts.Vars {
 		vars[k] = v
 	}
+	for k, v := range opts.InitialContext {
+		vars[k] = v
+	}
+	results := make(map[string]*StepResult)
+	for _, result := range opts.InitialResults {
+		result := result
+		results[result.StepID] = &result
+	}
 	return &Executor{
 		recipe:  recipe,
 		opts:    opts,
 		context: vars,
-		results: make(map[string]*StepResult),
+		results: results,
 	}
 }
 
@@ -132,6 +142,13 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 }
 
 func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
+	e.mu.RLock()
+	if existing, ok := e.results[step.ID]; ok && (existing.Status == StatusCompleted || existing.Status == StatusSkipped) {
+		e.mu.RUnlock()
+		return nil
+	}
+	e.mu.RUnlock()
+
 	if step.IsRoot {
 		e.mu.Lock()
 		e.results[step.ID] = &StepResult{

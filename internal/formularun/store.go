@@ -322,6 +322,14 @@ func LoadMetadata(dir string) (Metadata, error) {
 
 func LoadState(dir string, out any) error { return readJSON(filepath.Join(dir, "state.json"), out) }
 
+func LoadRecipe(dir string) (*formula.Recipe, error) {
+	var recipe formula.Recipe
+	if err := readJSON(filepath.Join(dir, "recipe.json"), &recipe); err != nil {
+		return nil, err
+	}
+	return &recipe, nil
+}
+
 func writeJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
