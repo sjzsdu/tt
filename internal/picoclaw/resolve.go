@@ -150,6 +150,9 @@ func (rt *Runtime) resolveAgentConfig(name string) (*pcconfig.AgentConfig, error
 			return item, nil
 		}
 	}
+	if strings.EqualFold(want, defaultAgentID) {
+		return defaultAgentConfig(rt.Config), nil
+	}
 	return nil, fmt.Errorf("agent %q not found", want)
 }
 
