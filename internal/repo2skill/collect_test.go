@@ -10,9 +10,9 @@ import (
 
 func TestCollectNPMRepo(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "package.json", `{"name":"@acme/widgets","version":"1.2.3","description":"Composable widget helpers","exports":{".":"./src/index.ts"},"dependencies":{"zod":"^1.0.0"}}`)
+	writeFile(t, dir, "package.json", `{"name":"@acme/widgets","version":"1.2.3","description":"Composable widget helpers","exports":{".":{"types":"./dist/index.d.ts","import":"./src/index.ts"},"./extra":"./src/extra.ts"},"dependencies":{"zod":"^1.0.0"}}`)
 	writeFile(t, dir, "README.md", "# Widgets\n\nComposable widget helpers for apps.\n\n```ts\nimport { createWidget } from '@acme/widgets'\ncreateWidget()\n```\n")
-	writeFile(t, dir, "src/index.ts", "export function createWidget() { return {} }\nexport class Widget {}\n")
+	writeFile(t, dir, "src/index.ts", "export function createWidget() { return {} }\nexport class Widget {}\nexport { ExtraWidget as Extra } from './extra'\n")
 	writeFile(t, dir, "examples/basic.ts", "import { createWidget } from '../src'\n")
 
 	p, cleanup, err := Collect(dir, Options{})
@@ -26,13 +26,16 @@ func TestCollectNPMRepo(t *testing.T) {
 	if len(p.PackageFiles) != 1 || p.PackageFiles[0].Ecosystem != "npm" {
 		t.Fatalf("package files: %#v", p.PackageFiles)
 	}
+	if strings.Contains(strings.Join(p.PackageFiles[0].Exports, ","), "import") || !containsString(p.PackageFiles[0].Exports, "./extra") {
+		t.Fatalf("exports should include public subpaths but not condition keys: %#v", p.PackageFiles[0].Exports)
+	}
 	if len(p.InstallHints) == 0 || p.InstallHints[0] != "npm install @acme/widgets" {
 		t.Fatalf("install hints: %#v", p.InstallHints)
 	}
 	if len(p.UsageSnippets) != 1 {
 		t.Fatalf("snippets: %#v", p.UsageSnippets)
 	}
-	if !hasSymbol(p.PublicAPIs, "createWidget") || !hasSymbol(p.PublicAPIs, "Widget") {
+	if !hasSymbol(p.PublicAPIs, "createWidget") || !hasSymbol(p.PublicAPIs, "Widget") || !hasSymbol(p.PublicAPIs, "Extra") {
 		t.Fatalf("symbols: %#v", p.PublicAPIs)
 	}
 }
@@ -84,6 +87,29 @@ func writeFile(t *testing.T, root, rel, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestNormalizeSkillModelAddsValidationNotes(t *testing.T) {
+	p := &RepoProfile{Name: "demo", PublicAPIs: []APISymbol{{Name: "Known", Source: "index.ts"}}, InstallHints: []string{"npm install demo"}}
+	m := NormalizeSkillModel(&SkillModel{Profile: p, Install: []string{"npm install"}, PublicAPI: []APISymbol{{Name: "Imaginary", Source: "docs.md"}}, Recipes: []Recipe{{Title: "Use it", Description: "Do the thing."}}})
+	if len(m.Install) != 1 || m.Install[0] != "npm install demo" {
+		t.Fatalf("install fallback failed: %#v", m.Install)
+	}
+	if len(p.Warnings) == 0 || !strings.Contains(p.Warnings[0], "Imaginary") {
+		t.Fatalf("expected validation warning, got %#v", p.Warnings)
+	}
+	if !strings.Contains(m.PublicAPI[0].Evidence, "agent-suggested") {
+		t.Fatalf("expected agent-suggested evidence, got %#v", m.PublicAPI[0])
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func hasSymbol(items []APISymbol, name string) bool {

@@ -151,7 +151,7 @@ func parsePackageFile(path, rel string) (PackageFile, bool) {
 			pf.Name = strAny(m["name"])
 			pf.Version = strAny(m["version"])
 			pf.Description = strAny(m["description"])
-			pf.Exports = collectJSONKeys(m["exports"])
+			pf.Exports = collectPackageExports(m["exports"])
 			pf.Dependencies = collectJSONKeys(m["dependencies"])
 		}
 	case "go.mod":
@@ -186,6 +186,39 @@ func collectJSONKeys(v any) []string {
 	sort.Strings(out)
 	return out
 }
+func collectPackageExports(v any) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walk func(any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case string:
+			if t != "" && !seen[t] {
+				seen[t] = true
+				out = append(out, t)
+			}
+		case []any:
+			for _, item := range t {
+				walk(item)
+			}
+		case map[string]any:
+			for k, item := range t {
+				if isPublicExportKey(k) && !seen[k] {
+					seen[k] = true
+					out = append(out, k)
+				}
+				walk(item)
+			}
+		}
+	}
+	walk(v)
+	sort.Strings(out)
+	return out
+}
+func isPublicExportKey(k string) bool {
+	return k == "." || strings.HasPrefix(k, "./")
+}
+
 func firstRegex(s, pat string) string {
 	m := regexp.MustCompile(pat).FindStringSubmatch(s)
 	if len(m) > 1 {
@@ -256,10 +289,45 @@ func extractPublicSymbols(path, rel, lower string) []APISymbol {
 	}
 	s := string(data)
 	var out []APISymbol
-	patterns := []string{`(?m)^export\s+(?:declare\s+)?(?:function|class|interface|type|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^pub\s+(?:fn|struct|enum|trait|mod)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^func\s+([A-Z][A-Za-z0-9_]*)\s*\(`, `(?m)^class\s+([A-Z][A-Za-z0-9_]*)`, `(?m)^def\s+([a-zA-Z_][A-Za-z0-9_]*)\s*\(`}
+	patterns := []string{`(?m)^export\s+(?:declare\s+)?(?:function|class|interface|type|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^export\s*\{([^}]+)\}`, `(?m)^pub\s+(?:fn|struct|enum|trait|mod)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^func\s+([A-Z][A-Za-z0-9_]*)\s*\(`, `(?m)^class\s+([A-Z][A-Za-z0-9_]*)`, `(?m)^def\s+([a-zA-Z_][A-Za-z0-9_]*)\s*\(`, `(?m)__all__\s*=\s*\[([^\]]+)\]`}
+	seen := map[string]bool{}
 	for _, pat := range patterns {
 		for _, m := range regexp.MustCompile(pat).FindAllStringSubmatch(s, 50) {
-			out = append(out, APISymbol{Name: m[1], Kind: "symbol", Source: rel, Evidence: fmt.Sprintf("%s exports %s", rel, m[1])})
+			for _, name := range exportedNamesFromMatch(m[1]) {
+				if seen[name] {
+					continue
+				}
+				seen[name] = true
+				out = append(out, APISymbol{Name: name, Kind: "symbol", Source: rel, Evidence: fmt.Sprintf("%s exports %s", rel, name)})
+			}
+		}
+	}
+	return out
+}
+
+func exportedNamesFromMatch(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	var out []string
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.Trim(part, "\"'"))
+		if part == "" || strings.HasPrefix(part, "from ") {
+			continue
+		}
+		fields := strings.Fields(part)
+		if len(fields) == 0 {
+			continue
+		}
+		name := fields[0]
+		if len(fields) >= 3 && fields[1] == "as" {
+			name = fields[2]
+		}
+		name = strings.Trim(name, "\"'{}")
+		if regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(name) {
+			out = append(out, name)
 		}
 	}
 	return out
@@ -294,8 +362,24 @@ func postProcessProfile(p *RepoProfile) {
 			p.InstallHints = append(p.InstallHints, "cargo add "+pf.Name)
 		}
 	}
+	p.PublicAPIs = dedupeAPIs(p.PublicAPIs)
+	p.InstallHints = cleanInstallHints(p.InstallHints)
 	sort.Slice(p.Readmes, func(i, j int) bool { return p.Readmes[i].Path < p.Readmes[j].Path })
 }
+func dedupeAPIs(values []APISymbol) []APISymbol {
+	seen := map[string]bool{}
+	var out []APISymbol
+	for _, api := range values {
+		key := strings.ToLower(api.Name + "\x00" + api.Source)
+		if api.Name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, api)
+	}
+	return out
+}
+
 func sanitizeName(s string) string {
 	s = strings.TrimSpace(strings.TrimPrefix(s, "@"))
 	s = strings.ReplaceAll(s, "/", "-")

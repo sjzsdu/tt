@@ -24,6 +24,7 @@ func Run(input string, opts Options, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	model = NormalizeSkillModel(model)
 	if opts.DryRun {
 		return RenderAll(model, stdout)
 	}
@@ -193,6 +194,12 @@ func RenderEvidenceReference(out io.Writer, m *SkillModel) error {
 	fmt.Fprintln(out, "\n## Documentation")
 	for _, d := range append(p.Readmes, p.Docs...) {
 		fmt.Fprintf(out, "- `%s` - %s\n", d.Path, oneLine(d.Summary))
+	}
+	if len(p.Warnings) > 0 {
+		fmt.Fprintln(out, "\n## Validation notes")
+		for _, warning := range cleanStrings(p.Warnings) {
+			fmt.Fprintf(out, "- %s\n", warning)
+		}
 	}
 	fmt.Fprintln(out, "\n## Examples and tests")
 	for _, e := range p.Examples {
