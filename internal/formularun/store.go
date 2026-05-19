@@ -97,13 +97,14 @@ func NewWithMetadata(root string, recipe *formula.Recipe, vars map[string]string
 		return nil, fmt.Errorf("recipe is required")
 	}
 	id := NewID(recipe.Name, time.Now())
-	dir := filepath.Join(root, id)
+	formulaSlug := slug(recipe.Name)
+	dir := filepath.Join(root, formulaSlug, id)
 	if err := os.MkdirAll(filepath.Join(dir, "steps"), 0o755); err != nil {
 		return nil, err
 	}
 	git := collectGitMetadata(workspace)
 	meta := Metadata{
-		RunID:        id,
+		RunID:        filepath.ToSlash(filepath.Join(formulaSlug, id)),
 		Formula:      recipe.Name,
 		Description:  recipe.Description,
 		Status:       StatusRunning,
@@ -178,8 +179,8 @@ func ensureGitIgnoreEntry(path, entry string) error {
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
-func NewID(name string, t time.Time) string {
-	return fmt.Sprintf("%s-%s-%s", t.UTC().Format("20060102-150405"), slug(name), randHex(3))
+func NewID(_ string, t time.Time) string {
+	return fmt.Sprintf("%s-%s", t.UTC().Format("20060102-150405"), randHex(3))
 }
 
 func (s *Store) SaveMetadata() error { return writeJSON(filepath.Join(s.Dir, "run.json"), s.Meta) }
@@ -253,19 +254,15 @@ func List(root string) ([]Record, error) {
 	if root == "" {
 		root = DefaultRoot("")
 	}
-	entries, err := os.ReadDir(root)
+	dirs, err := listRunDirs(root)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	records := make([]Record, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, e.Name())
+	records := make([]Record, 0, len(dirs))
+	for _, dir := range dirs {
 		meta, err := LoadMetadata(dir)
 		if err != nil {
 			continue
@@ -273,10 +270,54 @@ func List(root string) ([]Record, error) {
 		if markStaleIfNeeded(dir, &meta) {
 			_ = writeJSON(filepath.Join(dir, "run.json"), meta)
 		}
-		records = append(records, Record{ID: e.Name(), Dir: dir, Metadata: meta})
+		id := runIDFromDir(root, dir)
+		if strings.TrimSpace(meta.RunID) != "" {
+			id = meta.RunID
+		}
+		records = append(records, Record{ID: id, Dir: dir, Metadata: meta})
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].Metadata.StartedAt > records[j].Metadata.StartedAt })
 	return records, nil
+}
+
+func listRunDirs(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		if _, err := os.Stat(filepath.Join(dir, "run.json")); err == nil {
+			dirs = append(dirs, dir)
+			continue
+		}
+		children, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, child := range children {
+			if !child.IsDir() {
+				continue
+			}
+			childDir := filepath.Join(dir, child.Name())
+			if _, err := os.Stat(filepath.Join(childDir, "run.json")); err == nil {
+				dirs = append(dirs, childDir)
+			}
+		}
+	}
+	return dirs, nil
+}
+
+func runIDFromDir(root, dir string) string {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." {
+		return filepath.Base(dir)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func Resolve(root, id string) (Record, error) {
@@ -291,7 +332,8 @@ func Resolve(root, id string) (Record, error) {
 		return records[0], nil
 	}
 	for _, r := range records {
-		if r.ID == id || strings.HasPrefix(r.ID, id) {
+		leafID := filepath.Base(filepath.FromSlash(r.ID))
+		if r.ID == id || leafID == id || strings.HasPrefix(r.ID, id) || strings.HasPrefix(leafID, id) {
 			return r, nil
 		}
 	}

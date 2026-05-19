@@ -25,6 +25,15 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.HasPrefix(store.Meta.RunID, "demo-formula/") {
+		t.Fatalf("run id should include formula slug directory, got %q", store.Meta.RunID)
+	}
+	if !strings.Contains(filepath.ToSlash(store.Dir), "/runs/demo-formula/") {
+		t.Fatalf("run dir should be nested under formula slug, got %s", store.Dir)
+	}
+	if strings.Contains(filepath.Base(store.Dir), "demo-formula") {
+		t.Fatalf("leaf run dir should not repeat formula slug, got %s", filepath.Base(store.Dir))
+	}
 	if err := store.SaveState(map[string]string{"status": "running"}); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +56,9 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	}
 	if record.Metadata.Formula != "demo formula" || record.Metadata.Status != StatusCompleted {
 		t.Fatalf("unexpected metadata: %+v", record.Metadata)
+	}
+	if record.ID != store.Meta.RunID {
+		t.Fatalf("record id = %q, want %q", record.ID, store.Meta.RunID)
 	}
 	for _, rel := range []string{"run.json", "recipe.json", "state.json", filepath.Join("steps", "demo.step.prompt.md"), filepath.Join("steps", "demo.step.output.md")} {
 		if _, err := os.Stat(filepath.Join(store.Dir, rel)); err != nil {
@@ -71,7 +83,7 @@ func TestNewDefaultRootEnsuresTTAndGitIgnore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(store.Dir, filepath.Join(workspace, ".tt", "runs", "formula")) {
+	if !strings.HasPrefix(store.Dir, filepath.Join(workspace, ".tt", "runs", "formula", "demo")) {
 		t.Fatalf("run dir should be under workspace .tt, got %s", store.Dir)
 	}
 	if _, err := os.Stat(filepath.Join(workspace, ".tt")); err != nil {
@@ -124,5 +136,24 @@ func TestDeleteRemovesRunDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(store.Dir); !os.IsNotExist(err) {
 		t.Fatalf("expected run dir removed, stat err=%v", err)
+	}
+}
+
+func TestListIncludesLegacyFlatRunDirectories(t *testing.T) {
+	root := t.TempDir()
+	legacyDir := filepath.Join(root, "20260101-000000-demo-abc123")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta := Metadata{RunID: "20260101-000000-demo-abc123", Formula: "demo", Status: StatusCompleted, StartedAt: "2026-01-01T00:00:00Z"}
+	if err := writeJSON(filepath.Join(legacyDir, "run.json"), meta); err != nil {
+		t.Fatal(err)
+	}
+	records, err := List(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].ID != meta.RunID {
+		t.Fatalf("records = %+v, want legacy flat run", records)
 	}
 }
