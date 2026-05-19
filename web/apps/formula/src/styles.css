@@ -428,6 +428,109 @@ button, input, textarea { font: inherit; }
   width: 100%;
 }
 
+.auto-output {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.auto-output-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.auto-output-text {
+  max-height: 520px;
+  overflow: auto;
+}
+
+.auto-output-empty {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  color: var(--muted);
+  text-align: center;
+}
+
+.json-output-shell {
+  max-height: 560px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  background: rgba(4, 9, 18, 0.72);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.json-node {
+  margin: 3px 0;
+}
+
+.json-node summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 6px;
+  border-radius: 10px;
+  color: #dbeafe;
+}
+
+.json-node summary:hover {
+  background: rgba(125, 211, 252, 0.08);
+}
+
+.json-children {
+  margin: 3px 0 8px 10px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(125, 211, 252, 0.14);
+}
+
+.json-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 10px;
+}
+
+.json-row:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.json-key {
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.json-separator,
+.json-count {
+  color: var(--muted);
+}
+
+.json-type-tag {
+  margin-inline: 6px;
+  border-color: rgba(102, 227, 196, 0.22) !important;
+  color: #99f6e4 !important;
+  background: rgba(20, 184, 166, 0.08) !important;
+}
+
+.json-primitive {
+  word-break: break-word;
+}
+
+.json-primitive.string { color: #86efac; }
+.json-primitive.number { color: #fbbf24; }
+.json-primitive.boolean { color: #f0abfc; }
+.json-primitive.null { color: #94a3b8; font-style: italic; }
+
 .final-output-preview {
   display: grid;
   gap: 14px;

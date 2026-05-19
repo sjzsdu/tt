@@ -1,10 +1,16 @@
-import { useMemo } from 'react';
-import { Modal, Table } from 'antd';
+import { useMemo, type ReactNode } from 'react';
+import { Modal, Table, Tag } from 'antd';
 import { marked, type TokensList } from 'marked';
 
 type MarkdownPart =
   | { type: 'html'; html: string }
   | { type: 'table'; headers: string[]; rows: string[][] };
+
+type OutputKind = 'json' | 'markdown' | 'text' | 'empty';
+
+type ParsedOutput =
+  | { kind: 'json'; value: unknown }
+  | { kind: 'markdown' | 'text' | 'empty'; content: string };
 
 function renderInlineMarkdown(markdown: string) {
   return marked.parseInline(markdown || '') as string;
@@ -36,6 +42,52 @@ function splitMarkdownParts(markdown: string): MarkdownPart[] {
 
   flush();
   return parts;
+}
+
+function parseOutput(content: string): ParsedOutput {
+  const trimmed = (content || '').trim();
+  if (!trimmed) return { kind: 'empty', content: '' };
+
+  const jsonCandidate = extractJsonCandidate(trimmed);
+  if (jsonCandidate) {
+    try {
+      return { kind: 'json', value: JSON.parse(jsonCandidate) };
+    } catch {
+      // fall through to markdown/text detection
+    }
+  }
+
+  if (looksLikeMarkdown(trimmed)) {
+    return { kind: 'markdown', content };
+  }
+  return { kind: 'text', content };
+}
+
+function extractJsonCandidate(input: string) {
+  const fenced = input.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const candidate = fenced ? fenced[1].trim() : input;
+  if (!candidate) return '';
+  if ((candidate.startsWith('{') && candidate.endsWith('}')) || (candidate.startsWith('[') && candidate.endsWith(']'))) {
+    return candidate;
+  }
+  return '';
+}
+
+function looksLikeMarkdown(input: string) {
+  return /(^#{1,6}\s)|(^[-*+]\s)|(^\d+\.\s)|(```)|(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(^>\s)|(^\|.*\|$)/m.test(input);
+}
+
+function outputLabel(kind: OutputKind) {
+  switch (kind) {
+    case 'json':
+      return 'JSON';
+    case 'markdown':
+      return 'Markdown';
+    case 'text':
+      return 'Text';
+    default:
+      return 'Empty';
+  }
 }
 
 export function MarkdownOutput({ content, className = '' }: { content: string; className?: string }) {
@@ -79,6 +131,81 @@ export function MarkdownOutput({ content, className = '' }: { content: string; c
   );
 }
 
+function JsonOutput({ value }: { value: unknown }) {
+  return (
+    <div className="json-output-shell">
+      <JsonValue value={value} depth={0} name="root" />
+    </div>
+  );
+}
+
+function JsonValue({ value, name, depth }: { value: unknown; name?: string; depth: number }): ReactNode {
+  const type = jsonType(value);
+  const label = name ? <span className="json-key">{name}</span> : null;
+
+  if (value === null || type !== 'object') {
+    return (
+      <div className="json-row" style={{ paddingLeft: depth * 16 }}>
+        {label}
+        {label && <span className="json-separator">:</span>}
+        <PrimitiveValue value={value} />
+      </div>
+    );
+  }
+
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value as Record<string, unknown>);
+
+  return (
+    <details className="json-node" open={depth < 2} style={{ marginLeft: depth * 12 }}>
+      <summary>
+        {label}
+        {label && <span className="json-separator">:</span>}
+        <Tag className="json-type-tag">{Array.isArray(value) ? 'array' : 'object'}</Tag>
+        <span className="json-count">{entries.length} item{entries.length === 1 ? '' : 's'}</span>
+      </summary>
+      <div className="json-children">
+        {entries.map(([entryKey, entryValue]) => (
+          <JsonValue key={entryKey} name={entryKey} value={entryValue} depth={depth + 1} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function PrimitiveValue({ value }: { value: unknown }) {
+  const type = jsonType(value);
+  if (value === null) return <span className="json-primitive null">null</span>;
+  if (typeof value === 'string') return <span className="json-primitive string">"{value}"</span>;
+  if (typeof value === 'number') return <span className="json-primitive number">{value}</span>;
+  if (typeof value === 'boolean') return <span className="json-primitive boolean">{String(value)}</span>;
+  return <span className={`json-primitive ${type}`}>{String(value)}</span>;
+}
+
+function jsonType(value: unknown) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+export function AutoOutput({ content, className = '' }: { content: string; className?: string }) {
+  const parsed = useMemo(() => parseOutput(content), [content]);
+
+  return (
+    <div className={`auto-output ${className}`.trim()}>
+      <div className="auto-output-toolbar">
+        <span>Auto rendered</span>
+        <Tag>{outputLabel(parsed.kind)}</Tag>
+      </div>
+      {parsed.kind === 'json' && <JsonOutput value={parsed.value} />}
+      {parsed.kind === 'markdown' && <MarkdownOutput content={parsed.content} />}
+      {parsed.kind === 'text' && <pre className="code-block auto-output-text">{parsed.content}</pre>}
+      {parsed.kind === 'empty' && <div className="auto-output-empty">No output</div>}
+    </div>
+  );
+}
+
 export function OutputSurface({
   content,
   className = '',
@@ -88,7 +215,7 @@ export function OutputSurface({
 }) {
   return (
     <div className={`output-surface ${className}`.trim()}>
-      <MarkdownOutput content={content} />
+      <AutoOutput content={content} />
     </div>
   );
 }
