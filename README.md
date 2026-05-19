@@ -66,6 +66,7 @@ Available commands:
 | --- | --- |
 | `agent` | Run the embedded Picoclaw agent runtime. |
 | `cmd2skill` | Convert CLI commands into skill files. |
+| `repo2skill` | Convert repositories into agent-oriented library skills. |
 | `config` | Inspect and initialize `tt` configuration. |
 | `conversation` | Browse conversation-like JSON in a local web UI. |
 | `debate` | Run a casual stock chat between an investing beginner and a market old hand, then save the full JSON transcript. |
@@ -293,6 +294,41 @@ Flags:
 - `--timeout duration`: timeout for each help command, default `5s`.
 - `--max-commands int`: maximum number of command help pages to discover, default `200`.
 - `--markdown`: open generated skill content directly with markdown command instead of writing files.
+
+
+### `tt repo2skill`
+
+Analyze a local or remote repository and generate an agent-oriented skill for using that library in development. The generated skill emphasizes repository purpose, installation hints, public API starting points, documented recipes, best practices, and an evidence map.
+
+```bash
+tt repo2skill ./my-library
+tt repo2skill https://github.com/colinhacks/zod
+tt repo2skill github.com/gin-gonic/gin --dry-run
+tt repo2skill ./repo --target-dir ./.agents/skills
+```
+
+Flags:
+
+- `--target-dir string`: directory to write skill files, default `~/.agents/skills`.
+- `--dry-run`: print generated skill content to stdout instead of writing files.
+- `--markdown`: open generated skill content directly with the markdown command.
+- `--intent string`: skill intent, default `use-library`. Other planned intents include `contribute`, `api-reference`, and `architecture`.
+- `--language string`: preferred output language hint for future agent analysis.
+- `--max-files int`: maximum relevant files to collect, default `200`.
+- `--max-file-size int`: maximum bytes per collected file, default `262144`.
+- `--timeout duration`: timeout for git clone and analysis steps, default `2m`.
+- `--keep-temp`: keep cloned temporary repository for debugging.
+
+Generated structure:
+
+```text
+skills/<repo-name>/
+  SKILL.md
+  references/
+    api.md
+    recipes.md
+    evidence.md
+```
 
 ### `tt mirror`
 
