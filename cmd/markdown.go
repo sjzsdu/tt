@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -73,8 +76,19 @@ var markdownCmd = &cobra.Command{
 		if !cmd.Flags().Changed("pattern") && len(merged.Markdown.Patterns) > 0 {
 			mdPatterns = append(mdPatterns, merged.Markdown.Patterns...)
 		}
+		mdInitialPath = ""
 		if len(args) == 1 {
 			candidate := args[0]
+			if repo, ok := parseGitHubRepo(candidate); ok {
+				root, initialPath, err := prepareMarkdownGitHubRepo(repo)
+				if err != nil {
+					return err
+				}
+				mdRoot = root
+				mdPatterns = nil
+				mdInitialPath = initialPath
+				return runMarkdownServer()
+			}
 			if !filepath.IsAbs(candidate) {
 				candidate = filepath.Join(cwd, candidate)
 			}
@@ -99,6 +113,144 @@ var markdownCmd = &cobra.Command{
 
 		return runMarkdownServer()
 	},
+}
+
+type githubRepo struct {
+	Owner    string
+	Name     string
+	CloneURL string
+}
+
+func parseGitHubRepo(raw string) (githubRepo, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return githubRepo{}, false
+	}
+
+	if strings.HasPrefix(trimmed, "git@github.com:") {
+		path := strings.TrimPrefix(trimmed, "git@github.com:")
+		return githubRepoFromPath(path)
+	}
+
+	if strings.HasPrefix(trimmed, "github.com/") {
+		return githubRepoFromPath(strings.TrimPrefix(trimmed, "github.com/"))
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		return githubRepo{}, false
+	}
+	if !strings.EqualFold(parsed.Host, "github.com") && !strings.EqualFold(parsed.Host, "www.github.com") {
+		return githubRepo{}, false
+	}
+	return githubRepoFromPath(strings.TrimPrefix(parsed.Path, "/"))
+}
+
+func githubRepoFromPath(path string) (githubRepo, bool) {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return githubRepo{}, false
+	}
+	name := strings.TrimSuffix(parts[1], ".git")
+	if name == "" || parts[0] == "." || name == "." {
+		return githubRepo{}, false
+	}
+	return githubRepo{
+		Owner:    parts[0],
+		Name:     name,
+		CloneURL: fmt.Sprintf("https://github.com/%s/%s.git", parts[0], name),
+	}, true
+}
+
+func prepareMarkdownGitHubRepo(repo githubRepo) (root, initialPath string, err error) {
+	cacheRoot, err := os.UserCacheDir()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve cache dir failed: %w", err)
+	}
+	digest := sha1.Sum([]byte(strings.ToLower(repo.Owner + "/" + repo.Name)))
+	dirName := fmt.Sprintf("%s-%s-%s", safeFileName(repo.Owner), safeFileName(repo.Name), hex.EncodeToString(digest[:])[:8])
+	repoDir := filepath.Join(cacheRoot, "tt", "markdown-repos", dirName)
+
+	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
+		fmt.Printf("Updating GitHub repository %s/%s...\n", repo.Owner, repo.Name)
+		cmd := exec.Command("git", "-C", repoDir, "pull", "--ff-only")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("git pull warning: %v\n", err)
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
+			return "", "", fmt.Errorf("create markdown repo cache failed: %w", err)
+		}
+		fmt.Printf("Cloning GitHub repository %s/%s...\n", repo.Owner, repo.Name)
+		cmd := exec.Command("git", "clone", "--depth", "1", repo.CloneURL, repoDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", "", fmt.Errorf("clone GitHub repository failed: %w", err)
+		}
+	}
+
+	entry := findMarkdownEntry(repoDir)
+	if entry != "" {
+		initialPath = "/view/" + escapeViewPath(entry)
+	}
+	return repoDir, initialPath, nil
+}
+
+func safeFileName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = regexp.MustCompile(`[^a-z0-9._-]+`).ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-.")
+	if s == "" {
+		return "repo"
+	}
+	return s
+}
+
+func findMarkdownEntry(root string) string {
+	preferred := []string{"README.md", "README.markdown", "readme.md", "readme.markdown", "docs/README.md", "docs/index.md", "index.md"}
+	for _, rel := range preferred {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil && !info.IsDir() {
+			return rel
+		}
+	}
+	files := make([]string, 0)
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDir(d.Name(), path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isMarkdownFile(d.Name()) {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(files)
+	if len(files) == 0 {
+		return ""
+	}
+	return files[0]
+}
+
+func escapeViewPath(rel string) string {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func init() {
