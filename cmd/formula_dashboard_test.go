@@ -50,3 +50,50 @@ func TestBuildFormulaDashboardGraphKeepsExplicitBoundaryWork(t *testing.T) {
 		t.Fatalf("dashboard edges = %+v, want explicit start -> work", edges)
 	}
 }
+
+func TestFormulaDashboardLoopBodyActivityRollsUpToParentStep(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "demo",
+		Steps: []formula.RecipeStep{
+			{ID: "demo", IsRoot: true},
+			{ID: "demo.review", Title: "Review loop"},
+		},
+	}
+	dashboard := newFormulaDashboardServer(recipe)
+
+	dashboard.markStepRunning("demo.review.iter1.check", "Check iteration 1", "agent", "model", "session")
+	dashboard.markStepCompleted("demo.review.iter1.check", "approved=false")
+
+	snapshot := dashboard.snapshot()
+	if got := snapshot.Steps[0].Status; got != "running" {
+		t.Fatalf("parent status = %q, want running while loop body is recorded", got)
+	}
+	if len(snapshot.Steps[0].Activities) != 1 {
+		t.Fatalf("activities = %+v, want one rolled-up loop activity", snapshot.Steps[0].Activities)
+	}
+	activity := snapshot.Steps[0].Activities[0]
+	if activity.StepID != "demo.review.iter1.check" || activity.Status != "completed" || activity.Output != "approved=false" {
+		t.Fatalf("activity = %+v, want completed loop body output", activity)
+	}
+}
+
+func TestBuildFormulaDashboardGraphIncludesLoopPlan(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "demo",
+		Steps: []formula.RecipeStep{
+			{ID: "demo", IsRoot: true},
+			{ID: "demo.loop", Title: "Loop", Loop: &formula.LoopSpec{Until: "review.approved == true", Max: 3, Body: []*formula.Step{{ID: "review", Title: "Review", OutputKey: "review"}}}},
+		},
+	}
+
+	steps, _ := buildFormulaDashboardGraph(recipe)
+	if len(steps) != 1 || steps[0].Loop == nil {
+		t.Fatalf("dashboard step loop = %+v, want loop plan", steps)
+	}
+	if steps[0].Loop.Summary != "until review.approved == true · max 3" {
+		t.Fatalf("loop summary = %q", steps[0].Loop.Summary)
+	}
+	if len(steps[0].Loop.Body) != 1 || steps[0].Loop.Body[0].ID != "review" || steps[0].Loop.Body[0].OutputKey != "review" {
+		t.Fatalf("loop body = %+v, want review body", steps[0].Loop.Body)
+	}
+}

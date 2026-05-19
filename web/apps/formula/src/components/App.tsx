@@ -4,13 +4,13 @@ import {
   Button,
   Card,
   Descriptions,
+  Drawer,
   Empty,
   Modal,
+  Progress,
   Segmented,
-  Statistic,
   Tag,
   Timeline,
-  Tooltip,
 } from 'antd';
 import {
   ApartmentOutlined,
@@ -18,12 +18,12 @@ import {
   ClockCircleOutlined,
   ExpandOutlined,
   LoadingOutlined,
-  NodeIndexOutlined,
   PartitionOutlined,
   UnorderedListOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import { api } from '../api';
+import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import { MarkdownOutput, OutputModal, OutputSurface } from './MarkdownOutput';
 import type {
   DashboardView,
@@ -52,13 +52,6 @@ function currentView(): DashboardView {
   return localStorage.getItem('formula-dashboard-view') === 'graph' ? 'graph' : 'list';
 }
 
-function formatDate(value?: string) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
 function formatDuration(ms?: number) {
   if (!ms) return '—';
   if (ms < 1000) return `${ms}ms`;
@@ -82,7 +75,64 @@ function graphShortId(id: string) {
   return id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id;
 }
 
-function computeGraphLayout(snapshot: FormulaDashboardSnapshot) {
+function statusLabel(status: string) {
+  return status.replace(/_/g, ' ');
+}
+
+function activityShortId(id: string) {
+  const iter = id.match(/\.iter(\d+)\.([^.]*)$/);
+  if (iter) return `iter ${iter[1]} · ${iter[2]}`;
+  return graphShortId(id);
+}
+
+function loopActivitySummary(step: FormulaDashboardStep) {
+  const activities = step.activities || [];
+  const iterations = new Set<string>();
+  for (const activity of activities) {
+    const match = activity.step_id.match(/\.iter(\d+)\./);
+    if (match) iterations.add(match[1]);
+  }
+  if (!step.loop && !activities.length) return '';
+  const bodyCount = step.loop?.body?.length || 0;
+  const bits = [];
+  if (step.loop?.summary) bits.push(step.loop.summary);
+  if (bodyCount) bits.push(`${bodyCount} body step${bodyCount === 1 ? '' : 's'}`);
+  if (iterations.size) bits.push(`${iterations.size} iteration${iterations.size === 1 ? '' : 's'} seen`);
+  return bits.join(' · ');
+}
+
+type StepNodeData = {
+  step: FormulaDashboardStep;
+  onSelect: (step: FormulaDashboardStep) => void;
+};
+
+function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
+  const step = data.step;
+  const latest = step.activities?.at(-1);
+  const loopSummary = loopActivitySummary(step);
+  return (
+    <button type="button" className={`graph-node flow-graph-node ${step.status}`} onClick={() => data.onSelect(step)}>
+      <Handle type="target" position={Position.Left} className="flow-handle" />
+      <div className="graph-node-topline">
+        <div className="graph-node-id">{graphShortId(step.id)}</div>
+        <span className={`graph-node-state ${step.status}`}>{step.status}</span>
+      </div>
+      <strong>{step.title}</strong>
+      <p>{step.description || step.notes || 'Structured execution step in the formula pipeline.'}</p>
+      {loopSummary && <div className="loop-summary-pill">↻ {loopSummary}</div>}
+      {latest && <div className="step-activity-mini"><span>{latest.at}</span>{activityShortId(latest.step_id)} · {statusLabel(latest.status)}</div>}
+      <div className="graph-node-meta">
+        <span><PartitionOutlined /> {step.agent || 'default agent'}</span>
+        {!!step.depends_on?.length && <span><ExpandOutlined /> {step.depends_on.length} deps</span>}
+      </div>
+      <Handle type="source" position={Position.Right} className="flow-handle" />
+    </button>
+  );
+}
+
+const nodeTypes = { step: StepFlowNode };
+
+function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void) {
   const grouped = new Map<number, FormulaDashboardStep[]>();
   for (const step of snapshot.steps) {
     const depth = step.depth || 0;
@@ -95,48 +145,53 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot) {
     grouped.get(depth)!.sort((a, b) => a.index - b.index);
   }
 
-  const nodeWidth = 280;
-  const nodeHeight = 112;
-  const colGap = 92;
-  const rowGap = 42;
+  const nodeWidth = 300;
+  const nodeHeight = 178;
+  const colGap = 76;
+  const rowGap = 28;
   const paddingX = 28;
-  const paddingY = 28;
+  const paddingTop = 52;
+  const paddingBottom = 28;
 
-  const nodes = snapshot.steps.map(step => {
+  const nodes: Node<StepNodeData>[] = snapshot.steps.map(step => {
     const depth = step.depth || 0;
     const column = grouped.get(depth) || [];
     const row = column.findIndex(candidate => candidate.id === step.id);
     return {
-      step,
-      x: paddingX + depth * (nodeWidth + colGap),
-      y: paddingY + row * (nodeHeight + rowGap),
-      width: nodeWidth,
-      height: nodeHeight,
+      id: step.id,
+      type: 'step',
+      data: { step, onSelect },
+      position: {
+        x: paddingX + depth * (nodeWidth + colGap),
+        y: paddingTop + row * (nodeHeight + rowGap),
+      },
+      style: { width: nodeWidth, height: nodeHeight },
     };
   });
 
-  const nodeByID = new Map(nodes.map(node => [node.step.id, node]));
-  const lines = snapshot.edges.flatMap(edge => {
-    const from = nodeByID.get(edge.from);
-    const to = nodeByID.get(edge.to);
-    if (!from || !to) return [];
-    const startX = from.x + from.width;
-    const startY = from.y + from.height / 2;
-    const endX = to.x;
-    const endY = to.y + to.height / 2;
-    const midX = startX + (endX - startX) / 2;
-    return [{ edge, path: `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}` }];
+  const nodeIDs = new Set(nodes.map(node => node.id));
+  const edges: Edge[] = snapshot.edges.flatMap(edge => {
+    if (!nodeIDs.has(edge.from) || !nodeIDs.has(edge.to)) return [];
+    return [{
+      id: `${edge.from}-${edge.to}`,
+      source: edge.from,
+      target: edge.to,
+      type: 'smoothstep',
+      animated: edge.type === 'blocks' || snapshot.steps.some(step => step.id === edge.to && step.status === 'running'),
+      markerEnd: { type: MarkerType.ArrowClosed, color: 'rgba(148, 163, 184, 0.82)' },
+      className: `flow-edge ${edge.type || 'default'}`,
+    }];
   });
 
   const width = Math.max(720, paddingX * 2 + Math.max(1, depths.length) * nodeWidth + Math.max(0, depths.length-1) * colGap);
   const maxRows = Math.max(1, ...depths.map(depth => grouped.get(depth)?.length || 0));
-  const height = Math.max(360, paddingY * 2 + maxRows * nodeHeight + Math.max(0, maxRows-1) * rowGap);
+  const height = Math.max(360, paddingTop + paddingBottom + maxRows * nodeHeight + Math.max(0, maxRows-1) * rowGap);
 
-  return { widths: { nodeWidth, nodeHeight }, depths, nodes, lines, width, height };
+  return { widths: { nodeWidth, nodeHeight, colGap, paddingX }, depths, nodes, edges, width, height };
 }
 
 function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void }) {
-  const layout = useMemo(() => computeGraphLayout(snapshot), [snapshot]);
+  const layout = useMemo(() => computeGraphLayout(snapshot, onSelect), [snapshot, onSelect]);
   const running = snapshot.steps.find(step => step.status === 'running');
 
   if (!snapshot.steps.length) {
@@ -164,65 +219,31 @@ function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot
         </div>
         </div>
       </div>
-      <div className="graph-canvas">
-        <div className="graph-stage-rails" aria-hidden="true">
-          {layout.depths.map(depth => (
-            <div
-              key={depth}
-              className="graph-stage-rail"
-              style={{ left: 28 + depth * (layout.widths.nodeWidth + 92), width: layout.widths.nodeWidth }}
-            />
-          ))}
-        </div>
-        <div className="graph-board" style={{ width: layout.width, height: layout.height }}>
-          <svg className="graph-svg-layer" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`}>
-            <defs>
-              <marker id="graph-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(148, 163, 184, 0.82)" />
-              </marker>
-            </defs>
-            {layout.lines.map(({ edge, path }) => (
-              <path key={`${edge.from}-${edge.to}`} d={path} className={`graph-edge ${edge.type || 'default'}`} markerEnd="url(#graph-arrow)" />
-            ))}
-          </svg>
-
-          {layout.depths.map(depth => (
-            <div
-              key={depth}
-              className="graph-column-label"
-              style={{ left: 28 + depth * (layout.widths.nodeWidth + 92), width: layout.widths.nodeWidth }}
-            >
-              Stage {depth + 1}
-            </div>
-          ))}
-
-          {layout.nodes.map(node => (
-            <button
-              key={node.step.id}
-              type="button"
-              className={`graph-node ${node.step.status}`}
-              style={{ left: node.x, top: node.y, width: node.width, minHeight: node.height }}
-              onClick={() => onSelect(node.step)}
-            >
-              <div className="graph-node-topline">
-                <div className="graph-node-id">{graphShortId(node.step.id)}</div>
-                <span className={`graph-node-state ${node.step.status}`}>{node.step.status}</span>
-              </div>
-              <strong>{node.step.title}</strong>
-              <p>{node.step.description || node.step.notes || 'Structured execution step in the formula pipeline.'}</p>
-              <div className="graph-node-meta">
-                <span><PartitionOutlined /> {node.step.agent || 'default agent'}</span>
-                {!!node.step.depends_on?.length && <span><ExpandOutlined /> {node.step.depends_on.length} deps</span>}
-              </div>
-            </button>
-          ))}
-        </div>
+      <div className="graph-canvas react-flow-canvas">
+        <ReactFlow
+          nodes={layout.nodes}
+          edges={layout.edges}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.18 }}
+          minZoom={0.35}
+          maxZoom={1.4}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable
+        >
+          <Background color="rgba(125, 211, 252, 0.18)" gap={28} size={1} />
+          <MiniMap pannable zoomable nodeStrokeWidth={3} className="flow-minimap" />
+          <Controls className="flow-controls" />
+        </ReactFlow>
       </div>
     </div>
   );
 }
 
 function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (step: FormulaDashboardStep) => void }) {
+  const latest = step.activities?.at(-1);
+  const loopSummary = loopActivitySummary(step);
   return (
     <button type="button" className={`step-card ${step.status}`} onClick={() => onSelect(step)}>
       <div className="step-card-row">
@@ -233,24 +254,38 @@ function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (s
         <Tag color={statusTone[step.status] || 'default'} icon={statusIcon(step.status)}>{step.status}</Tag>
       </div>
       <p>{step.description || step.notes || 'No extra description for this step.'}</p>
+      {loopSummary && <div className="loop-summary-pill">↻ {loopSummary}</div>}
+      {latest && (
+        <div className={`step-activity-mini ${latest.status}`}>
+          <span>{latest.at}</span>{activityShortId(latest.step_id)} · {latest.title || statusLabel(latest.status)}
+        </div>
+      )}
       <div className="step-chip-row">
         {step.agent && <span className="step-chip">agent · {step.agent}</span>}
         {step.model && <span className="step-chip">model · {step.model}</span>}
         {!!step.depends_on?.length && <span className="step-chip">deps · {step.depends_on.length}</span>}
+        {step.loop && <span className="step-chip loop-chip">loop · {step.loop.body?.length || 0} body</span>}
+        {!!step.activities?.length && <span className="step-chip">activity · {step.activities.length}</span>}
         {step.output_key && <span className="step-chip">output · {step.output_key}</span>}
       </div>
     </button>
   );
 }
 
-function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep | null; open: boolean; onClose: () => void }) {
+function StepInspector({ step, open, onClose }: { step: FormulaDashboardStep | null; open: boolean; onClose: () => void }) {
   if (!step) return null;
   const metadataEntries = Object.entries(step.metadata || {});
   const labels = step.labels || [];
   const inputCtx = step.input_ctx || [];
+  const activities = step.activities || [];
+  const loopBody = step.loop?.body || [];
 
   return (
-    <Modal open={open} onCancel={onClose} footer={null} width={960} title={step.title} className="step-modal">
+    <Drawer open={open} onClose={onClose} width="96vw" title="Step Inspector" className="step-inspector" destroyOnClose>
+      <div className="inspector-title-block">
+        <div className="step-card-kicker">{step.id}</div>
+        <h2>{step.title}</h2>
+      </div>
       <div className="step-modal-tagbar">
         <Tag color={statusTone[step.status] || 'default'}>{step.status}</Tag>
         {step.agent && <Tag>{step.agent}</Tag>}
@@ -259,14 +294,12 @@ function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep |
         {step.priority && <Tag>P{step.priority}</Tag>}
       </div>
 
-      <div className="step-modal-body">
+      <div className="step-modal-body inspector-body">
         <aside className="step-modal-sidebar">
           <Card size="small" title="Runtime" className="step-sidebar-card">
             <Descriptions column={1} size="small" className="step-descriptions">
               <Descriptions.Item label="ID">{step.id}</Descriptions.Item>
               <Descriptions.Item label="Duration">{formatDuration(step.duration_ms)}</Descriptions.Item>
-              <Descriptions.Item label="Started">{formatDate(step.started_at)}</Descriptions.Item>
-              <Descriptions.Item label="Finished">{formatDate(step.finished_at)}</Descriptions.Item>
               <Descriptions.Item label="Session">{step.session || '—'}</Descriptions.Item>
               <Descriptions.Item label="Execution">{step.execution || '—'}</Descriptions.Item>
               <Descriptions.Item label="Condition">{step.condition || '—'}</Descriptions.Item>
@@ -322,6 +355,50 @@ function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep |
             </section>
           )}
 
+          {step.loop && (
+            <section className="step-modal-section loop-plan-section">
+              <div className="step-modal-section-header">
+                <span className="step-modal-section-icon">🔁</span>
+                <h4>Loop plan</h4>
+              </div>
+              <div className="loop-plan-body">
+                <div className="loop-plan-summary">
+                  <strong>{step.loop.summary || 'Runtime loop'}</strong>
+                  <span>{loopBody.length} planned body step{loopBody.length === 1 ? '' : 's'}</span>
+                </div>
+                <div className="loop-plan-grid">
+                  {step.loop.until && <div><span>Until</span><code>{step.loop.until}</code></div>}
+                  {!!step.loop.max && <div><span>Max</span><code>{step.loop.max}</code></div>}
+                  {!!step.loop.count && <div><span>Count</span><code>{step.loop.count}</code></div>}
+                  {step.loop.range && <div><span>Range</span><code>{step.loop.range}</code></div>}
+                  {step.loop.var && <div><span>Var</span><code>{step.loop.var}</code></div>}
+                </div>
+                {loopBody.length > 0 && (
+                  <div className="loop-body-list">
+                    {loopBody.map((body, index) => (
+                      <div className="loop-body-card" key={`${body.id}-${index}`}>
+                        <div className="loop-body-index">#{index + 1}</div>
+                        <div className="loop-body-main">
+                          <div className="loop-body-head">
+                            <strong>{body.title || body.id}</strong>
+                            <code>{body.id}</code>
+                          </div>
+                          {body.description && <p>{body.description}</p>}
+                          <div className="loop-body-meta">
+                            {(body.agent || body.model) && <span>agent · {[body.agent, body.model].filter(Boolean).join(' / ')}</span>}
+                            {body.output_key && <span>output · {body.output_key}</span>}
+                            {!!body.input_ctx?.length && <span>input · {body.input_ctx.join(', ')}</span>}
+                            {body.condition && <span>if · {body.condition}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {step.output && (
             <section className="step-modal-section">
               <div className="step-modal-section-header">
@@ -329,6 +406,32 @@ function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep |
                 <h4>Output</h4>
               </div>
               <OutputSurface content={step.output} className="step-output-shell" />
+            </section>
+          )}
+
+          {activities.length > 0 && (
+            <section className="step-modal-section">
+              <div className="step-modal-section-header">
+                <span className="step-modal-section-icon">🛰️</span>
+                <h4>Step activity</h4>
+              </div>
+              <div className="step-activity-list">
+                {activities.map(activity => (
+                  <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
+                    <div className="step-activity-status-dot" />
+                    <div className="step-activity-content">
+                      <div className="step-activity-head">
+                        <strong>{activity.title || activityShortId(activity.step_id)}</strong>
+                        <Tag color={statusTone[activity.status] || 'default'}>{statusLabel(activity.status)}</Tag>
+                      </div>
+                      <div className="step-activity-meta">{activity.at} · {activity.step_id}{activity.duration_ms ? ` · ${formatDuration(activity.duration_ms)}` : ''}</div>
+                      {activity.detail && <p>{activity.detail}</p>}
+                      {activity.output && <OutputSurface content={activity.output} className="step-activity-output" />}
+                      {activity.error && <pre className="code-block error-block">{activity.error}</pre>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           )}
 
@@ -343,7 +446,7 @@ function StepDetailModal({ step, open, onClose }: { step: FormulaDashboardStep |
           )}
         </div>
       </div>
-    </Modal>
+    </Drawer>
   );
 }
 
@@ -405,10 +508,14 @@ export function App() {
       steps: snapshot.steps.length,
       running: counts.running || 0,
       completed: counts.completed || 0,
+      skipped: counts.skipped || 0,
       failed: counts.failed || 0,
       logs: snapshot.logs.length,
     };
   }, [snapshot]);
+
+  const progress = summary?.steps ? Math.round(((summary.completed + summary.skipped) / summary.steps) * 100) : 0;
+  const runningStep = snapshot?.steps.find(step => step.status === 'running');
 
   const orderedSteps = useMemo(() => {
     return [...(snapshot?.steps || [])].sort((a, b) => {
@@ -436,7 +543,10 @@ export function App() {
       <section className="hero-panel">
         <div>
           <div className="hero-kicker">tt formula dashboard</div>
-          <h1>{snapshot.recipe_name}</h1>
+          <div className="hero-title-row">
+            <h1>{snapshot.recipe_name}</h1>
+            <Tag color={statusTone[snapshot.status] || 'processing'} icon={statusIcon(snapshot.status)}>{statusLabel(snapshot.status)}</Tag>
+          </div>
           <p>{snapshot.description || 'Live execution control room for formula runs.'}</p>
         </div>
         <div className="hero-actions">
@@ -448,17 +558,29 @@ export function App() {
               { label: 'Graph', value: 'graph', icon: <ApartmentOutlined /> },
             ]}
           />
-          <Tooltip title={snapshot.workspace_dir || 'Formula sessions stored under project-local .tt'}>
-            <Button icon={<NodeIndexOutlined />}>.tt sessions</Button>
-          </Tooltip>
+          {snapshot.final_output ? (
+            <Button type="primary" onClick={() => setFinalOutputOpen(true)}>Open final report</Button>
+          ) : (
+            <Button disabled>Waiting for final report</Button>
+          )}
         </div>
       </section>
 
-      <section className="stats-grid">
-        <Card><Statistic title="Run status" value={snapshot.status} prefix={statusIcon(snapshot.status)} /></Card>
-        <Card><Statistic title="Steps" value={summary.steps} /></Card>
-        <Card><Statistic title="Running / Completed" value={`${summary.running} / ${summary.completed}`} /></Card>
-        <Card><Statistic title="Failures / Logs" value={`${summary.failed} / ${summary.logs}`} /></Card>
+      <section className="run-overview-panel">
+        <div className="run-overview-main">
+          <div className="overview-kicker">Run progress</div>
+          <strong>{progress}% complete</strong>
+          <Progress percent={progress} showInfo={false} strokeColor={{ '0%': '#67e8f9', '100%': '#66e3c4' }} trailColor="rgba(148, 163, 184, 0.16)" />
+          <p>{runningStep ? `Current: ${runningStep.title}` : snapshot.status === 'completed' ? 'Run finished.' : 'Waiting for the next executable step.'}</p>
+        </div>
+        <div className="overview-metrics">
+          <div><span>Total</span><strong>{summary.steps}</strong></div>
+          <div><span>Done</span><strong>{summary.completed}</strong></div>
+          <div><span>Running</span><strong>{summary.running}</strong></div>
+          <div><span>Skipped</span><strong>{summary.skipped}</strong></div>
+          <div className={summary.failed ? 'danger' : ''}><span>Failed</span><strong>{summary.failed}</strong></div>
+          <div><span>Logs</span><strong>{summary.logs}</strong></div>
+        </div>
       </section>
 
       <section className="workspace-grid">
@@ -485,21 +607,10 @@ export function App() {
               }))}
             />
           </Card>
-          <Card className="console-card" title="Final output">
-            {snapshot.final_output ? (
-              <div className="final-output-preview">
-                <div className="final-output-kicker">Rendered report</div>
-                <p>{snapshot.final_output.split('\n').find(line => line.trim()) || 'Open the final report.'}</p>
-                <Button type="primary" onClick={() => setFinalOutputOpen(true)}>Open final report</Button>
-              </div>
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for final output" />
-            )}
-          </Card>
         </aside>
       </section>
 
-      <StepDetailModal step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} />
+      <StepInspector step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} />
       {snapshot.final_output ? (
         <OutputModal
           open={finalOutputOpen}

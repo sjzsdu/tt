@@ -1428,14 +1428,6 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	defer runner.Close()
 
 	runAgent := defaultFormulaAgent(formulaAgent)
-	exec := executor.New(recipe, executor.RunOptions{
-		Vars:    vars,
-		Agent:   runAgent,
-		Model:   formulaModel,
-		Session: formulaSession,
-		DryRun:  formulaDryRun,
-		Debug:   formulaDebug,
-	})
 
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -1463,6 +1455,26 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+
+	exec := executor.New(recipe, executor.RunOptions{
+		Vars:    vars,
+		Agent:   runAgent,
+		Model:   formulaModel,
+		Session: formulaSession,
+		DryRun:  formulaDryRun,
+		Debug:   formulaDebug,
+		OnStepUpdate: func(result executor.StepResult) {
+			if dashboard == nil {
+				return
+			}
+			switch result.Status {
+			case executor.StatusCompleted:
+				dashboard.markStepCompleted(result.StepID, result.Output)
+			case executor.StatusFailed:
+				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
+			}
+		},
+	})
 
 	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
 		agent := step.Agent
@@ -1657,7 +1669,26 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 	}
 	defer runner.Close()
 
-	exec := executor.New(recipe, executor.RunOptions{Vars: vars, InitialResults: initialResults, InitialContext: initialContext, Agent: runStore.Meta.Agent, Model: runStore.Meta.Model, Session: runStore.Meta.Session, Debug: formulaDebug})
+	exec := executor.New(recipe, executor.RunOptions{
+		Vars:           vars,
+		InitialResults: initialResults,
+		InitialContext: initialContext,
+		Agent:          runStore.Meta.Agent,
+		Model:          runStore.Meta.Model,
+		Session:        runStore.Meta.Session,
+		Debug:          formulaDebug,
+		OnStepUpdate: func(result executor.StepResult) {
+			if dashboard == nil {
+				return
+			}
+			switch result.Status {
+			case executor.StatusCompleted:
+				dashboard.markStepCompleted(result.StepID, result.Output)
+			case executor.StatusFailed:
+				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
+			}
+		},
+	})
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -2007,7 +2038,6 @@ func resetSnapshotForResume(snapshot *formulaDashboardSnapshot) {
 	}
 	snapshot.Status = "running"
 	snapshot.Error = ""
-	snapshot.FinishedAt = ""
 	for i := range snapshot.Steps {
 		if snapshot.Steps[i].Status == "completed" || snapshot.Steps[i].Status == "skipped" {
 			continue

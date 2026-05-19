@@ -292,7 +292,7 @@ export function OutputModal({
   onClose: () => void;
 }) {
   return (
-    <Modal open={open} onCancel={onClose} footer={null} width={1040} title={title} className={className}>
+    <Modal open={open} onCancel={onClose} footer={null} width="88vw" title={title} className={className}>
       <div className="final-output-shell">
         <div className="final-output-kicker">Rendered report</div>
         <OutputSurface content={content} />

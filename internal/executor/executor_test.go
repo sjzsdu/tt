@@ -93,6 +93,36 @@ func TestExecutorRuntimeUntilLoopUsesAgentOutput(t *testing.T) {
 	}
 }
 
+func TestExecutorRuntimeUntilLoopEmitsParentCompletionUpdate(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "runtime-loop",
+		Steps: []formula.RecipeStep{
+			{ID: "runtime-loop", Title: "Root", IsRoot: true},
+			{
+				ID:    "runtime-loop.improve",
+				Title: "Improve until approved",
+				Loop:  &formula.LoopSpec{Until: "review.approved == true", Max: 2, Body: []*formula.Step{{ID: "review", Title: "Review", OutputKey: "review"}}},
+			},
+		},
+		Deps: []formula.RecipeDep{{StepID: "runtime-loop.improve", DependsOnID: "runtime-loop", Type: "parent-child"}},
+	}
+	var updates []StepResult
+	_, err := New(recipe, RunOptions{OnStepUpdate: func(result StepResult) {
+		updates = append(updates, result)
+	}}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+		return `{"approved":true}`, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("updates = %+v, want one parent completion update", updates)
+	}
+	if updates[0].StepID != "runtime-loop.improve" || updates[0].Status != StatusCompleted || updates[0].Output == "" {
+		t.Fatalf("update = %+v, want completed loop parent with output", updates[0])
+	}
+}
+
 func TestResolveAgentDefaultsToPicoclawMain(t *testing.T) {
 	exec := New(&formula.Recipe{}, RunOptions{})
 	agent := exec.resolveAgent(&formula.RecipeStep{ID: "step"})

@@ -22,6 +22,7 @@ type RunOptions struct {
 	Session        string
 	DryRun         bool
 	Debug          bool
+	OnStepUpdate   func(StepResult)
 }
 
 type StepStatus string
@@ -256,12 +257,14 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 			prompt := e.buildPrompt(&bodyStep)
 			output, err := runner(ctx, &bodyStep, prompt)
 			if err != nil {
+				failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Error: err.Error()}
 				e.mu.Lock()
 				e.results[bodyStep.ID].Status = StatusFailed
 				e.results[bodyStep.ID].Error = err.Error()
 				e.results[step.ID].Status = StatusFailed
 				e.results[step.ID].Error = err.Error()
 				e.mu.Unlock()
+				e.emitStepUpdate(failed)
 				return fmt.Errorf("loop %s iteration %d step %s failed: %w", step.ID, iter, bodyStep.ID, err)
 			}
 
@@ -275,19 +278,29 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 		}
 
 		if EvaluateCondition(step.Loop.Until, e.Context()) {
+			completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: fmt.Sprintf("loop completed after %d iteration(s)", iter)}
 			e.mu.Lock()
 			e.results[step.ID].Status = StatusCompleted
-			e.results[step.ID].Output = fmt.Sprintf("loop completed after %d iteration(s)", iter)
+			e.results[step.ID].Output = completed.Output
 			e.mu.Unlock()
+			e.emitStepUpdate(completed)
 			return nil
 		}
 	}
 
+	completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: fmt.Sprintf("loop reached max iterations (%d)", max)}
 	e.mu.Lock()
 	e.results[step.ID].Status = StatusCompleted
-	e.results[step.ID].Output = fmt.Sprintf("loop reached max iterations (%d)", max)
+	e.results[step.ID].Output = completed.Output
 	e.mu.Unlock()
+	e.emitStepUpdate(completed)
 	return nil
+}
+
+func (e *Executor) emitStepUpdate(result StepResult) {
+	if e.opts.OnStepUpdate != nil {
+		e.opts.OnStepUpdate(result)
+	}
 }
 
 func recipeStepFromLoopBody(parent *formula.RecipeStep, body *formula.Step, iter int) formula.RecipeStep {

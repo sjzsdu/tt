@@ -56,8 +56,6 @@ type formulaDashboardSnapshot struct {
 	Description  string                     `json:"description,omitempty"`
 	Phase        string                     `json:"phase,omitempty"`
 	Status       string                     `json:"status"`
-	StartedAt    string                     `json:"started_at,omitempty"`
-	FinishedAt   string                     `json:"finished_at,omitempty"`
 	FinalOutput  string                     `json:"final_output,omitempty"`
 	Error        string                     `json:"error,omitempty"`
 	Steps        []formulaDashboardStep     `json:"steps"`
@@ -78,8 +76,8 @@ type formulaDashboardStep struct {
 	Status      string                `json:"status"`
 	Output      string                `json:"output,omitempty"`
 	Error       string                `json:"error,omitempty"`
-	StartedAt   string                `json:"started_at,omitempty"`
-	FinishedAt  string                `json:"finished_at,omitempty"`
+	StartedAt   string                `json:"-"`
+	FinishedAt  string                `json:"-"`
 	DurationMS  int64                 `json:"duration_ms,omitempty"`
 	Priority    *int                  `json:"priority,omitempty"`
 	Labels      []string              `json:"labels,omitempty"`
@@ -90,9 +88,43 @@ type formulaDashboardStep struct {
 	Condition   string                `json:"condition,omitempty"`
 	Metadata    map[string]string     `json:"metadata,omitempty"`
 	Gate        *formulaDashboardGate `json:"gate,omitempty"`
+	Loop        *formulaDashboardLoop `json:"loop,omitempty"`
 	DependsOn   []string              `json:"depends_on,omitempty"`
+	Activities  []formulaStepActivity `json:"activities,omitempty"`
 	Depth       int                   `json:"depth,omitempty"`
 	Index       int                   `json:"index"`
+}
+
+type formulaStepActivity struct {
+	At         string `json:"at"`
+	StepID     string `json:"step_id"`
+	Title      string `json:"title,omitempty"`
+	Status     string `json:"status"`
+	Detail     string `json:"detail,omitempty"`
+	Output     string `json:"output,omitempty"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+}
+
+type formulaDashboardLoop struct {
+	Count   int                        `json:"count,omitempty"`
+	Until   string                     `json:"until,omitempty"`
+	Max     int                        `json:"max,omitempty"`
+	Range   string                     `json:"range,omitempty"`
+	Var     string                     `json:"var,omitempty"`
+	Summary string                     `json:"summary,omitempty"`
+	Body    []formulaDashboardLoopBody `json:"body,omitempty"`
+}
+
+type formulaDashboardLoopBody struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Agent       string   `json:"agent,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	OutputKey   string   `json:"output_key,omitempty"`
+	InputCtx    []string `json:"input_ctx,omitempty"`
+	Condition   string   `json:"condition,omitempty"`
 }
 
 type formulaDashboardGate struct {
@@ -127,7 +159,6 @@ func newFormulaDashboardServer(recipe *formula.Recipe) *formulaDashboardServer {
 			Description: recipe.Description,
 			Phase:       recipe.Phase,
 			Status:      "running",
-			StartedAt:   time.Now().Format(time.RFC3339),
 			Steps:       steps,
 			Edges:       edges,
 			Logs:        []formulaDashboardLogEntry{},
@@ -158,6 +189,7 @@ func buildFormulaDashboardGraph(recipe *formula.Recipe) ([]formulaDashboardStep,
 		if step.Gate != nil {
 			gate = &formulaDashboardGate{Type: step.Gate.Type, ID: step.Gate.ID, Timeout: step.Gate.Timeout}
 		}
+		loop := buildFormulaDashboardLoop(step.Loop)
 		steps = append(steps, formulaDashboardStep{
 			ID:          step.ID,
 			Title:       step.Title,
@@ -176,6 +208,7 @@ func buildFormulaDashboardGraph(recipe *formula.Recipe) ([]formulaDashboardStep,
 			Condition:   step.Condition,
 			Metadata:    cloneStringMap(step.Metadata),
 			Gate:        gate,
+			Loop:        loop,
 			Depth:       depths[step.ID],
 			Index:       index,
 		})
@@ -265,6 +298,79 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+func buildFormulaDashboardLoop(loop *formula.LoopSpec) *formulaDashboardLoop {
+	if loop == nil {
+		return nil
+	}
+	dashboardLoop := &formulaDashboardLoop{
+		Count:   loop.Count,
+		Until:   loop.Until,
+		Max:     loop.Max,
+		Range:   loop.Range,
+		Var:     loop.Var,
+		Summary: dashboardLoopSummary(loop),
+		Body:    make([]formulaDashboardLoopBody, 0, len(loop.Body)),
+	}
+	for _, body := range loop.Body {
+		if body == nil {
+			continue
+		}
+		agentName := ""
+		modelName := ""
+		if body.Agent != nil {
+			agentName = body.Agent.Name
+			modelName = body.Agent.Model
+		}
+		dashboardLoop.Body = append(dashboardLoop.Body, formulaDashboardLoopBody{
+			ID:          body.ID,
+			Title:       body.Title,
+			Description: body.Description,
+			Agent:       agentName,
+			Model:       modelName,
+			OutputKey:   body.OutputKey,
+			InputCtx:    append([]string(nil), body.InputCtx...),
+			Condition:   body.Condition,
+		})
+	}
+	return dashboardLoop
+}
+
+func dashboardLoopSummary(loop *formula.LoopSpec) string {
+	if loop == nil {
+		return ""
+	}
+	switch {
+	case loop.Until != "":
+		max := loop.Max
+		if max <= 0 {
+			max = 1
+		}
+		return fmt.Sprintf("until %s · max %d", loop.Until, max)
+	case loop.Count > 0:
+		return fmt.Sprintf("count %d", loop.Count)
+	case loop.Range != "":
+		if loop.Var != "" {
+			return fmt.Sprintf("for %s in %s", loop.Var, loop.Range)
+		}
+		return fmt.Sprintf("range %s", loop.Range)
+	default:
+		return fmt.Sprintf("%d body step(s)", len(loop.Body))
+	}
+}
+
+func cloneDashboardLoop(src *formulaDashboardLoop) *formulaDashboardLoop {
+	if src == nil {
+		return nil
+	}
+	cp := *src
+	cp.Body = make([]formulaDashboardLoopBody, len(src.Body))
+	copy(cp.Body, src.Body)
+	for i := range cp.Body {
+		cp.Body[i].InputCtx = append([]string(nil), src.Body[i].InputCtx...)
+	}
+	return &cp
 }
 
 func (s *formulaDashboardServer) start(port int) error {
@@ -430,10 +536,12 @@ func (s *formulaDashboardServer) logf(format string, args ...any) {
 
 func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, session string) {
 	s.mu.Lock()
+	found := false
 	for i := range s.state.Steps {
 		if s.state.Steps[i].ID != stepID {
 			continue
 		}
+		found = true
 		if title != "" {
 			s.state.Steps[i].Title = title
 		}
@@ -446,7 +554,11 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 		s.state.Steps[i].DurationMS = 0
 		s.state.Steps[i].Error = ""
 		s.state.Steps[i].Output = ""
+		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Detail: fmt.Sprintf("Agent %s started this step", agent)})
 		break
+	}
+	if !found {
+		s.markLoopActivityLocked(stepID, title, "running", fmt.Sprintf("Agent %s started loop body", agent), "", "", 0)
 	}
 	if s.state.Status == "pending" {
 		s.state.Status = "running"
@@ -457,10 +569,12 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 
 func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 	s.mu.Lock()
+	found := false
 	for i := range s.state.Steps {
 		if s.state.Steps[i].ID != stepID {
 			continue
 		}
+		found = true
 		s.state.Steps[i].Status = "completed"
 		s.state.Steps[i].Output = output
 		s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
@@ -469,7 +583,11 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
 			}
 		}
+		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "completed", Detail: fmt.Sprintf("Completed with %d chars of output", len(output)), Output: output, DurationMS: s.state.Steps[i].DurationMS})
 		break
+	}
+	if !found {
+		s.markLoopActivityLocked(stepID, "", "completed", fmt.Sprintf("Completed with %d chars of output", len(output)), output, "", 0)
 	}
 	s.mu.Unlock()
 	s.broadcast()
@@ -477,10 +595,12 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 
 func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.mu.Lock()
+	found := false
 	for i := range s.state.Steps {
 		if s.state.Steps[i].ID != stepID {
 			continue
 		}
+		found = true
 		s.state.Steps[i].Status = "failed"
 		s.state.Steps[i].Error = errMsg
 		s.state.Steps[i].Output = output
@@ -490,12 +610,62 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
 			}
 		}
+		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "failed", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
 		break
+	}
+	if !found {
+		s.markLoopActivityLocked(stepID, "", "failed", errMsg, output, errMsg, 0)
 	}
 	s.state.Status = "failed"
 	s.state.Error = errMsg
 	s.mu.Unlock()
 	s.broadcast()
+}
+
+func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, detail, output, errMsg string, durationMS int64) {
+	parentID := loopParentStepID(stepID)
+	if parentID == "" {
+		return
+	}
+	for i := range s.state.Steps {
+		if s.state.Steps[i].ID != parentID {
+			continue
+		}
+		if status == "running" && s.state.Steps[i].Status == "pending" {
+			s.state.Steps[i].Status = "running"
+			s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
+		}
+		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
+		return
+	}
+}
+
+func loopParentStepID(stepID string) string {
+	idx := strings.Index(stepID, ".iter")
+	if idx <= 0 {
+		return ""
+	}
+	return stepID[:idx]
+}
+
+func appendStepActivity(step *formulaDashboardStep, activity formulaStepActivity) {
+	if step == nil || activity.StepID == "" {
+		return
+	}
+	for i := len(step.Activities) - 1; i >= 0; i-- {
+		if step.Activities[i].StepID != activity.StepID {
+			continue
+		}
+		if activity.Title == "" {
+			activity.Title = step.Activities[i].Title
+		}
+		step.Activities[i] = activity
+		return
+	}
+	step.Activities = append(step.Activities, activity)
+	if len(step.Activities) > 80 {
+		step.Activities = append([]formulaStepActivity(nil), step.Activities[len(step.Activities)-80:]...)
+	}
 }
 
 func (s *formulaDashboardServer) finalize(result *executor.RunResult, runErr error) {
@@ -524,7 +694,6 @@ func (s *formulaDashboardServer) finalize(result *executor.RunResult, runErr err
 			}
 		}
 	}
-	s.state.FinishedAt = time.Now().Format(time.RFC3339)
 	s.mu.Unlock()
 	s.broadcast()
 }
@@ -537,6 +706,8 @@ func cloneFormulaDashboardSnapshot(s formulaDashboardSnapshot) formulaDashboardS
 		cp.Steps[i].Labels = append([]string(nil), step.Labels...)
 		cp.Steps[i].InputCtx = append([]string(nil), step.InputCtx...)
 		cp.Steps[i].DependsOn = append([]string(nil), step.DependsOn...)
+		cp.Steps[i].Activities = append([]formulaStepActivity(nil), step.Activities...)
+		cp.Steps[i].Loop = cloneDashboardLoop(step.Loop)
 		cp.Steps[i].Metadata = cloneStringMap(step.Metadata)
 		if step.Gate != nil {
 			gate := *step.Gate
