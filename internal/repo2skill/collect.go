@@ -91,6 +91,7 @@ func Collect(input string, opts Options) (*RepoProfile, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
+	collectManifestEntrypoints(res.Path, p, opts)
 	postProcessProfile(p)
 	return p, cleanup, nil
 }
@@ -152,6 +153,7 @@ func parsePackageFile(path, rel string) (PackageFile, bool) {
 			pf.Version = strAny(m["version"])
 			pf.Description = strAny(m["description"])
 			pf.Exports = collectPackageExports(m["exports"])
+			pf.EntryHints = collectNPMEntryHints(m)
 			pf.Dependencies = collectJSONKeys(m["dependencies"])
 		}
 	case "go.mod":
@@ -217,6 +219,26 @@ func collectPackageExports(v any) []string {
 }
 func isPublicExportKey(k string) bool {
 	return k == "." || strings.HasPrefix(k, "./")
+}
+
+func collectNPMEntryHints(m map[string]any) []string {
+	var out []string
+	for _, key := range []string{"types", "typings", "module", "main", "browser"} {
+		if v := strAny(m[key]); v != "" {
+			out = append(out, v)
+		}
+	}
+	for _, v := range collectPackageExports(m["exports"]) {
+		if looksLikeSourcePath(v) {
+			out = append(out, v)
+		}
+	}
+	return cleanStrings(out)
+}
+
+func looksLikeSourcePath(v string) bool {
+	v = strings.TrimSpace(v)
+	return strings.HasSuffix(v, ".ts") || strings.HasSuffix(v, ".tsx") || strings.HasSuffix(v, ".js") || strings.HasSuffix(v, ".jsx") || strings.HasSuffix(v, ".mjs") || strings.HasSuffix(v, ".cjs") || strings.HasSuffix(v, ".d.ts") || strings.HasSuffix(v, ".py") || strings.HasSuffix(v, ".rs") || strings.HasSuffix(v, ".go")
 }
 
 func firstRegex(s, pat string) string {
@@ -289,11 +311,11 @@ func extractPublicSymbols(path, rel, lower string) []APISymbol {
 	}
 	s := string(data)
 	var out []APISymbol
-	patterns := []string{`(?m)^export\s+(?:declare\s+)?(?:function|class|interface|type|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^export\s*\{([^}]+)\}`, `(?m)^pub\s+(?:fn|struct|enum|trait|mod)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^func\s+([A-Z][A-Za-z0-9_]*)\s*\(`, `(?m)^class\s+([A-Z][A-Za-z0-9_]*)`, `(?m)^def\s+([a-zA-Z_][A-Za-z0-9_]*)\s*\(`, `(?m)__all__\s*=\s*\[([^\]]+)\]`}
+	patterns := []string{`(?m)^export\s+(?:declare\s+)?(?:function|class|interface|type|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^export\s*\{([^}]+)\}`, `(?m)^pub\s+(?:fn|struct|enum|trait|mod|type|const|static)\s+([A-Za-z_][A-Za-z0-9_]*)`, `(?m)^func\s+([A-Z][A-Za-z0-9_]*)\s*\(`, `(?m)^type\s+([A-Z][A-Za-z0-9_]*)\b`, `(?m)^(?:var|const)\s+(?:\([^)]*\b([A-Z][A-Za-z0-9_]*)\b|([A-Z][A-Za-z0-9_]*))`, `(?m)^class\s+([A-Z][A-Za-z0-9_]*)`, `(?m)^def\s+([a-zA-Z_][A-Za-z0-9_]*)\s*\(`, `(?m)__all__\s*=\s*\[([^\]]+)\]`}
 	seen := map[string]bool{}
 	for _, pat := range patterns {
 		for _, m := range regexp.MustCompile(pat).FindAllStringSubmatch(s, 50) {
-			for _, name := range exportedNamesFromMatch(m[1]) {
+			for _, name := range exportedNamesFromMatch(firstNonEmptyCapture(m[1:])) {
 				if seen[name] {
 					continue
 				}
@@ -303,6 +325,15 @@ func extractPublicSymbols(path, rel, lower string) []APISymbol {
 		}
 	}
 	return out
+}
+
+func firstNonEmptyCapture(values []string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func exportedNamesFromMatch(value string) []string {
@@ -326,11 +357,47 @@ func exportedNamesFromMatch(value string) []string {
 			name = fields[2]
 		}
 		name = strings.Trim(name, "\"'{}")
-		if regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(name) {
+		if !strings.HasPrefix(name, "_") && regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(name) {
 			out = append(out, name)
 		}
 	}
 	return out
+}
+
+func collectManifestEntrypoints(root string, p *RepoProfile, opts Options) {
+	seen := map[string]bool{}
+	for _, ep := range p.EntryPoints {
+		seen[filepath.ToSlash(ep.Path)] = true
+	}
+	for _, pf := range p.PackageFiles {
+		candidates := append([]string{}, pf.EntryHints...)
+		if pf.Ecosystem == "python" {
+			pkg := strings.ReplaceAll(pf.Name, "-", "_")
+			candidates = append(candidates, filepath.Join(pkg, "__init__.py"), filepath.Join("src", pkg, "__init__.py"))
+		}
+		if pf.Ecosystem == "rust" {
+			candidates = append(candidates, "src/lib.rs")
+		}
+		for _, candidate := range candidates {
+			candidate = strings.TrimPrefix(strings.TrimSpace(candidate), "./")
+			if candidate == "" || !looksLikeSourcePath(candidate) {
+				continue
+			}
+			path := filepath.Join(root, filepath.FromSlash(candidate))
+			info, err := os.Stat(path)
+			if err != nil || info.IsDir() || info.Size() > opts.MaxFileSize {
+				continue
+			}
+			rel, _ := filepath.Rel(root, path)
+			rel = filepath.ToSlash(rel)
+			if seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			p.EntryPoints = append(p.EntryPoints, EntryPoint{Path: rel, Language: languageFor(rel), Kind: "manifest-entrypoint", Evidence: pf.Path})
+			p.PublicAPIs = append(p.PublicAPIs, extractPublicSymbols(path, rel, strings.ToLower(rel))...)
+		}
+	}
 }
 
 func postProcessProfile(p *RepoProfile) {

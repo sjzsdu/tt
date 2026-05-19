@@ -298,7 +298,7 @@ Flags:
 
 ### `tt repo2skill`
 
-Analyze a local or remote repository and generate an agent-oriented skill for using that library in development. The generated skill emphasizes repository purpose, installation hints, public API starting points, documented recipes, best practices, validation notes, and an evidence map.
+Analyze a local or remote repository and generate an agent-oriented skill for using that library in development. The generated skill emphasizes repository purpose, installation hints, public API starting points, documented recipes, best practices, validation notes, and an evidence map. It has first-class deterministic collector coverage for TypeScript/JavaScript, Python, Go, and Rust repository layouts.
 
 ```bash
 tt repo2skill ./my-library

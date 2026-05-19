@@ -47,7 +47,7 @@ The generated skill is optimized for the `use-library` intent: help an agent und
 - Resolves local directories, full Git URLs, and GitHub shorthand.
 - Collects package metadata from `package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, and common build files.
 - Reads README, docs, examples, tests, and language entrypoints.
-- Extracts code snippets and public symbols using deterministic heuristics, including TypeScript re-exports and Python `__all__` patterns.
+- Extracts code snippets and public symbols using deterministic heuristics, including TypeScript package entrypoints/re-exports, Python package `__init__.py`/`__all__`, Go exported functions/types/constants/vars, and Rust `src/lib.rs` public items.
 - Normalizes analyzer output, drops empty install hints, flags agent-suggested APIs that deterministic extraction did not verify, and renders validation notes in `evidence.md`.
 - Renders `SKILL.md` plus API, recipes, and evidence references.
 - Includes an embedded `repo2skill` Picoclaw agent for evidence-constrained library skill synthesis.

@@ -41,6 +41,7 @@ type PackageFile struct {
 	Description  string
 	Exports      []string
 	Dependencies []string
+	EntryHints   []string
 }
 
 type DocFile struct {
