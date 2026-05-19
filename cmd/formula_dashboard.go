@@ -144,7 +144,7 @@ func buildFormulaDashboardGraph(recipe *formula.Recipe) ([]formulaDashboardStep,
 
 	steps := make([]formulaDashboardStep, 0, len(recipe.Steps))
 	for index, step := range recipe.Steps {
-		if step.IsRoot {
+		if step.IsRoot || isFormulaDashboardHiddenBoundary(step) {
 			continue
 		}
 		stepIDs[step.ID] = struct{}{}
@@ -206,7 +206,7 @@ func buildFormulaDashboardGraph(recipe *formula.Recipe) ([]formulaDashboardStep,
 func computeDashboardDepths(recipe *formula.Recipe) map[string]int {
 	stepIDs := map[string]struct{}{}
 	for _, step := range recipe.Steps {
-		if !step.IsRoot {
+		if !step.IsRoot && !isFormulaDashboardHiddenBoundary(step) {
 			stepIDs[step.ID] = struct{}{}
 		}
 	}
@@ -250,6 +250,10 @@ func computeDashboardDepths(recipe *formula.Recipe) map[string]int {
 		visit(id, map[string]bool{})
 	}
 	return depths
+}
+
+func isFormulaDashboardHiddenBoundary(step formula.RecipeStep) bool {
+	return step.Execution == "noop" && step.Metadata != nil && step.Metadata["formula_boundary"] != ""
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
