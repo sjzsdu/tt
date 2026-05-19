@@ -19,6 +19,7 @@ Examples:
 tt repo2skill ./my-library
 tt repo2skill https://github.com/colinhacks/zod
 tt repo2skill github.com/gin-gonic/gin --dry-run
+tt repo2skill ./repo --analyzer agent --model gpt-5.4
 tt repo2skill ./repo --target-dir ./.agents/skills
 ```
 
@@ -35,6 +36,12 @@ skills/<repo-name>/
 
 The generated skill is optimized for the `use-library` intent: help an agent understand what the repo solves, how to install it, which public APIs and entrypoints to start from, and which documented snippets/recipes are safe to reuse.
 
+## Analyzer modes
+
+- `--analyzer auto` uses the embedded Picoclaw `repo2skill` agent when configuration/model access is available, then falls back to deterministic heuristics.
+- `--analyzer agent` requires Picoclaw and the embedded `repo2skill` agent. Use `--model` to override the model.
+- `--analyzer heuristic` disables LLM analysis and uses only deterministic extraction.
+
 ## Current implementation
 
 - Resolves local directories, full Git URLs, and GitHub shorthand.
@@ -42,6 +49,7 @@ The generated skill is optimized for the `use-library` intent: help an agent und
 - Reads README, docs, examples, tests, and language entrypoints.
 - Extracts code snippets and public symbols using deterministic heuristics.
 - Renders `SKILL.md` plus API, recipes, and evidence references.
+- Includes an embedded `repo2skill` Picoclaw agent for evidence-constrained library skill synthesis.
 
 ## Agent guidance
 

@@ -16,7 +16,11 @@ func Run(input string, opts Options, stdout io.Writer) error {
 		return err
 	}
 	defer cleanup()
-	model, err := HeuristicAnalyzer{}.Analyze(profile)
+	analyzer := opts.Analyzer
+	if analyzer == nil {
+		analyzer = HeuristicAnalyzer{}
+	}
+	model, err := analyzer.Analyze(profile)
 	if err != nil {
 		return err
 	}

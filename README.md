@@ -304,6 +304,7 @@ Analyze a local or remote repository and generate an agent-oriented skill for us
 tt repo2skill ./my-library
 tt repo2skill https://github.com/colinhacks/zod
 tt repo2skill github.com/gin-gonic/gin --dry-run
+tt repo2skill ./repo --analyzer agent --model gpt-5.4
 tt repo2skill ./repo --target-dir ./.agents/skills
 ```
 
@@ -318,6 +319,10 @@ Flags:
 - `--max-file-size int`: maximum bytes per collected file, default `262144`.
 - `--timeout duration`: timeout for git clone and analysis steps, default `2m`.
 - `--keep-temp`: keep cloned temporary repository for debugging.
+- `--analyzer string`: analysis mode, `auto`, `agent`, or `heuristic`, default `auto`. Auto uses the embedded Picoclaw `repo2skill` agent when available and falls back to deterministic heuristics.
+- `--model string`: Picoclaw model override for agent analysis.
+- `--session string`: Picoclaw session key for agent analysis, default `cli:repo2skill`.
+- `-d, --debug`: enable debug logging for agent analysis.
 
 Generated structure:
 

@@ -12,6 +12,7 @@ type Options struct {
 	MaxFileSize int64
 	Timeout     time.Duration
 	KeepTemp    bool
+	Analyzer    Analyzer
 }
 
 type RepoProfile struct {
