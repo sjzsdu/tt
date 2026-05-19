@@ -464,10 +464,41 @@ button, input, textarea { font: inherit; }
   padding: 12px;
   border-radius: 16px;
   border: 1px solid rgba(125, 211, 252, 0.12);
-  background: rgba(4, 9, 18, 0.72);
+  background:
+    radial-gradient(circle at top left, rgba(102, 227, 196, 0.08), transparent 30%),
+    rgba(4, 9, 18, 0.82);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   line-height: 1.7;
+}
+
+.json-output-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: -12px -12px 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.12);
+  background: rgba(4, 9, 18, 0.94);
+  color: #7dd3fc;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.json-output-actions .ant-btn {
+  color: #99f6e4;
+}
+
+.json-output-actions .ant-btn:hover {
+  color: #ccfbf1 !important;
+  background: rgba(20, 184, 166, 0.1) !important;
 }
 
 .json-node {
@@ -480,6 +511,7 @@ button, input, textarea { font: inherit; }
   padding: 4px 6px;
   border-radius: 10px;
   color: #dbeafe;
+  list-style-position: inside;
 }
 
 .json-node summary:hover {
@@ -508,6 +540,7 @@ button, input, textarea { font: inherit; }
 .json-key {
   color: #93c5fd;
   font-weight: 600;
+  word-break: break-word;
 }
 
 .json-separator,

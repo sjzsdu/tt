@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { Modal, Table, Tag } from 'antd';
+import { Button, Modal, Table, Tag } from 'antd';
 import { marked, type TokensList } from 'marked';
 
 type MarkdownPart =
@@ -9,7 +9,7 @@ type MarkdownPart =
 type OutputKind = 'json' | 'markdown' | 'text' | 'empty';
 
 type ParsedOutput =
-  | { kind: 'json'; value: unknown }
+  | { kind: 'json'; value: unknown; source: string }
   | { kind: 'markdown' | 'text' | 'empty'; content: string };
 
 function renderInlineMarkdown(markdown: string) {
@@ -51,10 +51,17 @@ function parseOutput(content: string): ParsedOutput {
   const jsonCandidate = extractJsonCandidate(trimmed);
   if (jsonCandidate) {
     try {
-      return { kind: 'json', value: JSON.parse(jsonCandidate) };
+      const parsed = normalizeJsonValue(JSON.parse(jsonCandidate));
+      return { kind: 'json', value: parsed, source: JSON.stringify(parsed, null, 2) };
     } catch {
       // fall through to markdown/text detection
     }
+  }
+
+  const parsedStringJson = parseJsonString(trimmed);
+  if (parsedStringJson.ok) {
+    const parsed = normalizeJsonValue(parsedStringJson.value);
+    return { kind: 'json', value: parsed, source: JSON.stringify(parsed, null, 2) };
   }
 
   if (looksLikeMarkdown(trimmed)) {
@@ -64,13 +71,56 @@ function parseOutput(content: string): ParsedOutput {
 }
 
 function extractJsonCandidate(input: string) {
-  const fenced = input.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const fenced = input.match(/^```(?:json|javascript|js)?\s*([\s\S]*?)\s*```$/i);
   const candidate = fenced ? fenced[1].trim() : input;
   if (!candidate) return '';
   if ((candidate.startsWith('{') && candidate.endsWith('}')) || (candidate.startsWith('[') && candidate.endsWith(']'))) {
     return candidate;
   }
   return '';
+}
+
+function parseJsonString(input: string): { ok: true; value: unknown } | { ok: false } {
+  const unwrapped = unwrapStringLiteral(input);
+  if (!unwrapped) return { ok: false };
+  const nestedCandidate = extractJsonCandidate(unwrapped.trim());
+  if (!nestedCandidate) return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(nestedCandidate) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function unwrapStringLiteral(input: string) {
+  try {
+    const parsed = JSON.parse(input);
+    return typeof parsed === 'string' ? parsed : '';
+  } catch {
+    if ((input.startsWith('"') && input.endsWith('"')) || (input.startsWith("'") && input.endsWith("'"))) {
+      return input.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\'/g, "'");
+    }
+    return '';
+  }
+}
+
+function normalizeJsonValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    const nestedCandidate = extractJsonCandidate(value.trim());
+    if (nestedCandidate) {
+      try {
+        return normalizeJsonValue(JSON.parse(nestedCandidate));
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(normalizeJsonValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, normalizeJsonValue(item)]));
+  }
+  return value;
 }
 
 function looksLikeMarkdown(input: string) {
@@ -131,9 +181,17 @@ export function MarkdownOutput({ content, className = '' }: { content: string; c
   );
 }
 
-function JsonOutput({ value }: { value: unknown }) {
+function JsonOutput({ value, source }: { value: unknown; source: string }) {
+  const copyJson = async () => {
+    await navigator.clipboard?.writeText(source);
+  };
+
   return (
     <div className="json-output-shell">
+      <div className="json-output-actions">
+        <span>Structured JSON</span>
+        <Button size="small" type="text" onClick={copyJson}>Copy pretty JSON</Button>
+      </div>
       <JsonValue value={value} depth={0} name="root" />
     </div>
   );
@@ -177,7 +235,7 @@ function JsonValue({ value, name, depth }: { value: unknown; name?: string; dept
 function PrimitiveValue({ value }: { value: unknown }) {
   const type = jsonType(value);
   if (value === null) return <span className="json-primitive null">null</span>;
-  if (typeof value === 'string') return <span className="json-primitive string">"{value}"</span>;
+  if (typeof value === 'string') return <span className="json-primitive string">{JSON.stringify(value)}</span>;
   if (typeof value === 'number') return <span className="json-primitive number">{value}</span>;
   if (typeof value === 'boolean') return <span className="json-primitive boolean">{String(value)}</span>;
   return <span className={`json-primitive ${type}`}>{String(value)}</span>;
@@ -198,7 +256,7 @@ export function AutoOutput({ content, className = '' }: { content: string; class
         <span>Auto rendered</span>
         <Tag>{outputLabel(parsed.kind)}</Tag>
       </div>
-      {parsed.kind === 'json' && <JsonOutput value={parsed.value} />}
+      {parsed.kind === 'json' && <JsonOutput value={parsed.value} source={parsed.source} />}
       {parsed.kind === 'markdown' && <MarkdownOutput content={parsed.content} />}
       {parsed.kind === 'text' && <pre className="code-block auto-output-text">{parsed.content}</pre>}
       {parsed.kind === 'empty' && <div className="auto-output-empty">No output</div>}
