@@ -103,9 +103,12 @@ func buildRepo2SkillAnalyzer() (repo2skillpkg.Analyzer, func(), error) {
 type repo2SkillDirectProcessor struct {
 	runner *pcwrap.DirectRunner
 	base   pcwrap.RunOptions
+	debug  bool
 }
 
 func (p repo2SkillDirectProcessor) ProcessDirect(message string) (string, error) {
+	loading := startLLMLoading("正在用 repo2skill agent 分析仓库", p.debug)
+	defer loading.Stop()
 	opt := p.base
 	opt.Message = message
 	return p.runner.ProcessDirect(opt)
@@ -139,6 +142,6 @@ func newRepo2SkillAgentAnalyzer() (repo2skillpkg.Analyzer, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	processor := repo2SkillDirectProcessor{runner: runner, base: pcwrap.RunOptions{Session: repo2skillAgentSession, Agent: agents.Repo2SkillID, Model: merged.Agent.Model, Workspace: workspace, Debug: repo2skillAgentDebug, Quiet: !repo2skillAgentDebug, EmbeddedAgents: embedded}}
+	processor := repo2SkillDirectProcessor{runner: runner, base: pcwrap.RunOptions{Session: repo2skillAgentSession, Agent: agents.Repo2SkillID, Model: merged.Agent.Model, Workspace: workspace, Debug: repo2skillAgentDebug, Quiet: !repo2skillAgentDebug, EmbeddedAgents: embedded}, debug: repo2skillAgentDebug}
 	return repo2skillpkg.AgentAnalyzer{Processor: processor}, runner.Close, nil
 }
