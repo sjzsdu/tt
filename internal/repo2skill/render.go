@@ -121,7 +121,7 @@ func RenderAll(m *SkillModel, out io.Writer) error {
 
 func RenderMainSkill(m *SkillModel, out io.Writer) error {
 	p := m.Profile
-	fmt.Fprintf(out, "---\nname: %s\ndescription: Use the %s repository/library correctly in development. Generated from repo evidence for intent: %s.\n---\n\n", skillName(p.Name), p.Name, p.Intent)
+	fmt.Fprintf(out, "---\nname: %s\ndescription: %s\n---\n\n", yamlQuote(skillName(p.Name)), yamlQuote(fmt.Sprintf("Use the %s repository/library correctly in development. Generated from repo evidence for intent: %s.", p.Name, p.Intent)))
 	fmt.Fprintf(out, "# %s repo skill\n\n", p.Name)
 	fmt.Fprint(out, "Use this skill when you need to use this repository/library as a dependency or implementation reference in a coding task. Prefer documented public APIs, README guidance, examples, and package exports over internal implementation details.\n\n")
 	fmt.Fprint(out, "## What it is for\n\n")
@@ -211,3 +211,10 @@ func anchor(s string) string {
 }
 func table(s string) string   { return strings.ReplaceAll(s, "|", "\\|") }
 func oneLine(s string) string { return strings.ReplaceAll(strings.TrimSpace(s), "\n", " ") }
+
+func yamlQuote(s string) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(s), "\r", " "), "\n", " ")
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	return "\"" + s + "\""
+}

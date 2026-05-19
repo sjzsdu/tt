@@ -55,6 +55,26 @@ func TestRenderAllIncludesReferences(t *testing.T) {
 	}
 }
 
+func TestRenderMainSkillQuotesFrontmatter(t *testing.T) {
+	p := &RepoProfile{Name: "scope/pkg:demo", Intent: "use-library"}
+	m := &SkillModel{Profile: p, Purpose: "Demo"}
+	var b bytes.Buffer
+	if err := RenderMainSkill(m, &b); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if !strings.Contains(out, "name: \"") || !strings.Contains(out, "description: \"") {
+		t.Fatalf("frontmatter is not quoted:\n%s", out[:min(len(out), 160)])
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
