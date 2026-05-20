@@ -1978,6 +1978,8 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 				return
 			}
 			switch result.Status {
+			case executor.StatusRunning:
+				dashboard.markStepRunning(result.StepID, result.Title, "script", "", "")
 			case executor.StatusCompleted:
 				dashboard.markStepCompleted(result.StepID, result.Output)
 			case executor.StatusFailed:
@@ -2205,6 +2207,8 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 				return
 			}
 			switch result.Status {
+			case executor.StatusRunning:
+				dashboard.markStepRunning(result.StepID, result.Title, "script", "", "")
 			case executor.StatusCompleted:
 				dashboard.markStepCompleted(result.StepID, result.Output)
 			case executor.StatusFailed:

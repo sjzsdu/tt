@@ -259,6 +259,7 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		Status: StatusRunning,
 	}
 	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning})
 
 	if e.opts.DryRun {
 		e.mu.Lock()
