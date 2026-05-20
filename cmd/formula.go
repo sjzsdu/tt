@@ -1906,12 +1906,18 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	embeddedAgents, err := agents.List()
+	if err != nil {
+		return fmt.Errorf("list embedded agents failed: %w", err)
+	}
+
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
-		Session:   formulaSession,
-		Model:     formulaModel,
-		Debug:     formulaDebug,
-		Quiet:     true,
-		Workspace: projectRoot,
+		Session:        formulaSession,
+		Model:          formulaModel,
+		Debug:          formulaDebug,
+		Quiet:          true,
+		Workspace:      projectRoot,
+		EmbeddedAgents: embeddedAgents,
 	})
 	restoreSessionsDir()
 	if err != nil {
@@ -2174,7 +2180,15 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 	if err != nil {
 		return err
 	}
-	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: runStore.Meta.Session, Model: runStore.Meta.Model, Debug: formulaDebug, Quiet: true, Workspace: projectRoot})
+	embeddedAgents, err := agents.List()
+	if err != nil {
+		return fmt.Errorf("list embedded agents failed: %w", err)
+	}
+	defaultAgent := defaultFormulaAgent(runStore.Meta.Agent)
+	if err := validateFormulaAgentConfiguration(rt, recipe, defaultAgent, runStore.Meta.Model, runStore.Meta.Session); err != nil {
+		return err
+	}
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: runStore.Meta.Session, Model: runStore.Meta.Model, Debug: formulaDebug, Quiet: true, Workspace: projectRoot, EmbeddedAgents: embeddedAgents})
 	restoreSessionsDir()
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
@@ -2222,7 +2236,7 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
 		agent := step.Agent
 		if agent == nil || agent.Name == "" {
-			agent = &formula.AgentConfig{Name: defaultFormulaAgent(runStore.Meta.Agent), Model: runStore.Meta.Model}
+			agent = &formula.AgentConfig{Name: defaultAgent, Model: runStore.Meta.Model}
 		}
 		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, runStore.Meta.Session, step.ID)
 		if agent.Session != "" {
