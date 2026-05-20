@@ -3,6 +3,9 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,6 +83,56 @@ func TestExecutorRunsScriptStepAndCapturesJSON(t *testing.T) {
 		t.Fatalf("captured = %+v", captured)
 	}
 }
+
+func TestExecutorInfersRepoHintFromGitRemote(t *testing.T) {
+	tmp := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = tmp
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init")
+	runGit("remote", "add", "origin", "git@github.com:flexcompute/flex.git")
+	subdir := filepath.Join(tmp, "frontend", "flow360-ui-next")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatal(err)
+	}
+
+	recipe := &formula.Recipe{Vars: map[string]*formula.VarDef{"repo_hint": {Default: stringPtr("")}}}
+	exec := New(recipe, RunOptions{})
+	if got := exec.Context()["repo_hint"]; got != "flexcompute/flex" {
+		t.Fatalf("repo_hint = %q, want flexcompute/flex", got)
+	}
+}
+
+func TestParseGitRemoteRepo(t *testing.T) {
+	cases := map[string]string{
+		"git@github.com:flexcompute/flex.git":        "flexcompute/flex",
+		"git@github_fc:cmsflexc/flexcompute.com.git": "cmsflexc/flexcompute.com",
+		"https://github.com/flexcompute/flex.git":    "flexcompute/flex",
+		"ssh://git@github.com/flexcompute/flex.git":  "flexcompute/flex",
+		"/Users/me/src/flexcompute/flex.git":         "flexcompute/flex",
+		"":                                           "",
+	}
+	for input, want := range cases {
+		if got := parseGitRemoteRepo(input); got != want {
+			t.Fatalf("parseGitRemoteRepo(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func stringPtr(s string) *string { return &s }
 
 func TestExecutorDeniesDangerousScriptCommand(t *testing.T) {
 	recipe := &formula.Recipe{Name: "script-deny", Steps: []formula.RecipeStep{

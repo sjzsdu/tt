@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,6 +84,7 @@ func New(recipe *formula.Recipe, opts RunOptions) *Executor {
 	for k, v := range opts.InitialContext {
 		vars[k] = v
 	}
+	hydrateImplicitVars(vars)
 	results := make(map[string]*StepResult)
 	for _, result := range opts.InitialResults {
 		result := result
@@ -94,6 +96,60 @@ func New(recipe *formula.Recipe, opts RunOptions) *Executor {
 		context: vars,
 		results: results,
 	}
+}
+
+func hydrateImplicitVars(vars map[string]string) {
+	if vars == nil {
+		return
+	}
+	if value, ok := vars["repo_hint"]; ok && strings.TrimSpace(value) == "" {
+		if repo, err := inferGitRemoteRepo("origin"); err == nil && repo != "" {
+			vars["repo_hint"] = repo
+		}
+	}
+}
+
+func inferGitRemoteRepo(remote string) (string, error) {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		remote = "origin"
+	}
+	cmd := exec.Command("git", "remote", "get-url", remote)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return parseGitRemoteRepo(string(out)), nil
+}
+
+func parseGitRemoteRepo(remoteURL string) string {
+	raw := strings.TrimSpace(remoteURL)
+	if raw == "" {
+		return ""
+	}
+
+	var path string
+	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
+		path = u.Path
+	} else if idx := strings.Index(raw, ":"); idx >= 0 && !strings.Contains(raw[:idx], "/") {
+		// SCP-style git URL, e.g. git@github.com:owner/repo.git or git@github_alias:owner/repo.git.
+		path = raw[idx+1:]
+	} else {
+		path = raw
+	}
+
+	path = strings.Trim(path, "/")
+	path = strings.TrimSuffix(path, ".git")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	owner := strings.TrimSpace(parts[len(parts)-2])
+	repo := strings.TrimSpace(parts[len(parts)-1])
+	if owner == "" || repo == "" {
+		return ""
+	}
+	return owner + "/" + repo
 }
 
 func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, error) {
