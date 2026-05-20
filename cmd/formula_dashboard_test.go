@@ -31,6 +31,19 @@ func TestBuildFormulaDashboardGraphHidesGeneratedNoopBoundaries(t *testing.T) {
 	}
 }
 
+func TestFormulaRunWebDashboardEnabledByDefault(t *testing.T) {
+	webFlag := formulaRunCmd.Flags().Lookup("web")
+	if webFlag == nil {
+		t.Fatal("missing --web flag")
+	}
+	if webFlag.DefValue != "true" {
+		t.Fatalf("--web default = %q, want true", webFlag.DefValue)
+	}
+	if noWebFlag := formulaRunCmd.Flags().Lookup("no-web"); noWebFlag == nil {
+		t.Fatal("missing --no-web opt-out flag")
+	}
+}
+
 func TestBuildFormulaDashboardGraphKeepsExplicitBoundaryWork(t *testing.T) {
 	recipe := &formula.Recipe{
 		Name: "demo",

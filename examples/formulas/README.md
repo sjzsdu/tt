@@ -57,9 +57,11 @@ tt formula run script-pr-review-demo 123 --dir examples/formulas --dry-run
 ## Run with agents
 
 ```bash
-tt formula run runtime-control-demo --dir examples/formulas --agent coder --web
-tt formula run script-pr-review-demo 123 --dir examples/formulas --agent coder --web
+tt formula run runtime-control-demo --dir examples/formulas --agent coder
+tt formula run script-pr-review-demo 123 --dir examples/formulas --agent coder
 ```
+
+Formula runs open the live web dashboard by default. Use `--no-web` only for automation or headless runs.
 
 After running, inspect persisted state:
 

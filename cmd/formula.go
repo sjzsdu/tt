@@ -34,6 +34,7 @@ var (
 	formulaModel          string
 	formulaSession        string
 	formulaWeb            bool
+	formulaNoWeb          bool
 	formulaWebPort        int
 	formulaDryRun         bool
 	formulaDebug          bool
@@ -268,7 +269,8 @@ func init() {
 	formulaRunCmd.Flags().StringVar(&formulaAgent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
 	formulaRunCmd.Flags().StringVar(&formulaModel, "model", "", "default model override")
 	formulaRunCmd.Flags().StringVar(&formulaSession, "session", "cli:formula", "session key prefix")
-	formulaRunCmd.Flags().BoolVar(&formulaWeb, "web", false, "show a live web dashboard while the formula runs")
+	formulaRunCmd.Flags().BoolVar(&formulaWeb, "web", true, "show a live web dashboard while the formula runs (default true; kept for compatibility)")
+	formulaRunCmd.Flags().BoolVar(&formulaNoWeb, "no-web", false, "do not open or keep a live web dashboard for this formula run")
 	formulaRunCmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
 	formulaRunCmd.Flags().BoolVar(&formulaDryRun, "dry-run", false, "print execution plan without running")
 	formulaRunCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
@@ -1935,15 +1937,17 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "Saved to: %s\n", runStore.Dir)
 	}
 
+	showWeb := formulaWeb && !formulaNoWeb
+
 	var dashboard *formulaDashboardServer
-	if runStore != nil || formulaWeb {
+	if runStore != nil || showWeb {
 		dashboard = newFormulaDashboardServer(recipe)
 		dashboard.state.WorkspaceDir = formulaDashboardWorkspace(projectRoot)
 		if runStore != nil {
 			dashboard.attachStore(runStore)
 		}
 	}
-	if formulaWeb {
+	if showWeb {
 		if err := dashboard.start(formulaWebPort); err != nil {
 			return err
 		}
@@ -2132,7 +2136,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if formulaWeb {
+	if showWeb {
 		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
 		fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
 		waitForFormulaDashboardExit(dashboard)
