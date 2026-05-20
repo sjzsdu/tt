@@ -947,7 +947,21 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 	}
 	optimized, err := validateFormulaTOMLContent(toml)
 	if err != nil {
-		return fmt.Errorf("optimized formula failed validation: %w", err)
+		repairMessage := buildFormulaOptimizeRepairPrompt(name, suggestion, toml, err)
+		loading := startLLMLoading("生成结果校验失败，正在让 formula-writer 修复 TOML", formulaDebug)
+		resp, repairErr := runner.ProcessDirect(pcwrap.RunOptions{Message: repairMessage, Session: session + ":repair", Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: projectRoot, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+		loading.Stop()
+		if repairErr != nil {
+			return fmt.Errorf("optimized formula failed validation: %w; repair attempt failed: %w", err, repairErr)
+		}
+		toml = extractFormulaTOML(resp)
+		if toml == "" {
+			return fmt.Errorf("optimized formula failed validation: %w; repair attempt returned empty formula", err)
+		}
+		optimized, err = validateFormulaTOMLContent(toml)
+		if err != nil {
+			return fmt.Errorf("optimized formula failed validation after repair: %w", err)
+		}
 	}
 	if optimized.Formula != f.Formula {
 		return fmt.Errorf("optimized formula changed name from %q to %q", f.Formula, optimized.Formula)
@@ -1015,9 +1029,37 @@ Requirements:
 - Prefer script steps for deterministic context collection or validation.
 - Prefer agent steps for reasoning, planning, implementation, review, and reporting.
 - Use safe argv-style script commands; avoid shell.
+- For agent config, use exactly one TOML style per step: either agent.name = "coder" OR [steps.agent] name = "coder", never both in the same [[steps]].
+- Prefer preserving the current file's style. If the current formula uses agent.name = "...", keep using dotted agent.name and do not add [steps.agent] tables.
 - Do not remove important variables or steps unless the suggestion asks for simplification.
 - Ensure all depends_on references point to existing local step ids.
 `, name, suggestion, currentTOML, name)
+}
+
+func buildFormulaOptimizeRepairPrompt(name, suggestion, invalidTOML string, validationErr error) string {
+	return fmt.Sprintf(`The optimized tt formula TOML failed local validation.
+
+Formula name: %s
+Original optimization request:
+%s
+
+Validation error:
+%v
+
+Invalid TOML to repair:
+---BEGIN TOML---
+%s
+---END TOML---
+
+Return only the full repaired TOML.
+
+Hard requirements:
+- Preserve formula = %q exactly.
+- Fix the validation error without changing the user's intent.
+- Do not mix dotted agent keys and agent tables in the same step. If a step has agent.name = "...", do not also add [steps.agent] for that step.
+- Prefer dotted agent.name = "..." style for consistency with the current formula.
+- Ensure all TOML tables are valid and every [[steps]] table is closed before starting the next step.
+`, name, suggestion, validationErr, invalidTOML, name)
 }
 
 func validateFormulaTOMLContent(content string) (*formula.Formula, error) {

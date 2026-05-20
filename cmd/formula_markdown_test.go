@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -292,5 +293,23 @@ version = 1
 type = "invalid"
 `); err == nil {
 		t.Fatalf("expected validation error for invalid formula type")
+	}
+}
+
+func TestBuildFormulaOptimizePromptWarnsAgainstAgentTableMixing(t *testing.T) {
+	prompt := buildFormulaOptimizePrompt("demo", "agent.name = \"coder\"", "improve")
+	for _, want := range []string{"never both", "keep using dotted agent.name", "do not add [steps.agent]"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("optimize prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestBuildFormulaOptimizeRepairPromptIncludesValidationError(t *testing.T) {
+	prompt := buildFormulaOptimizeRepairPrompt("demo", "improve", "agent.name = \"coder\"\n[steps.agent]\nname = \"coder\"", fmt.Errorf("Key 'steps.agent' has already been defined"))
+	for _, want := range []string{"failed local validation", "Key 'steps.agent' has already been defined", "Do not mix dotted agent keys", "Preserve formula = \"demo\" exactly"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, prompt)
+		}
 	}
 }
