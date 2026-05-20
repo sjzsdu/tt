@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -45,6 +46,49 @@ func TestExecutorSkipsInitialCompletedResults(t *testing.T) {
 	}
 	if result.Completed != 3 {
 		t.Fatalf("completed = %d, want 3", result.Completed)
+	}
+}
+
+func TestExecutorRunsScriptStepAndCapturesJSON(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "script-demo",
+		Steps: []formula.RecipeStep{
+			{ID: "script-demo", Title: "Root", IsRoot: true},
+			{ID: "script-demo.fetch", Title: "Fetch", Execution: "script", OutputKey: "data", Script: &formula.ScriptSpec{Command: []string{"printf", `{"ok":true}`}, Format: "json"}},
+		},
+		Deps: []formula.RecipeDep{{StepID: "script-demo.fetch", DependsOnID: "script-demo", Type: "parent-child"}},
+	}
+	result, err := New(recipe, RunOptions{}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+		t.Fatalf("agent runner should not be called for script steps")
+		return "", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Completed != 2 {
+		t.Fatalf("completed = %d, want 2", result.Completed)
+	}
+	var captured struct {
+		ExitCode int             `json:"exit_code"`
+		Stdout   string          `json:"stdout"`
+		JSON     json.RawMessage `json:"json"`
+	}
+	if err := json.Unmarshal([]byte(result.FinalOutput), &captured); err != nil {
+		t.Fatalf("script output is not json envelope: %v\n%s", err, result.FinalOutput)
+	}
+	if captured.ExitCode != 0 || !strings.Contains(captured.Stdout, `"ok":true`) || len(captured.JSON) == 0 {
+		t.Fatalf("captured = %+v", captured)
+	}
+}
+
+func TestExecutorDeniesDangerousScriptCommand(t *testing.T) {
+	recipe := &formula.Recipe{Name: "script-deny", Steps: []formula.RecipeStep{
+		{ID: "script-deny", Title: "Root", IsRoot: true},
+		{ID: "script-deny.rm", Title: "Remove", Execution: "script", Script: &formula.ScriptSpec{Command: []string{"rm", "-rf", "/tmp/nope"}}},
+	}, Deps: []formula.RecipeDep{{StepID: "script-deny.rm", DependsOnID: "script-deny", Type: "parent-child"}}}
+	_, err := New(recipe, RunOptions{}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) { return "", nil })
+	if err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("err = %v, want denied error", err)
 	}
 }
 

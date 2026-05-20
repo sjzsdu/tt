@@ -2,9 +2,14 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/formula"
 )
@@ -200,8 +205,36 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	if e.opts.DryRun {
 		e.mu.Lock()
 		e.results[step.ID].Status = StatusCompleted
-		e.results[step.ID].Output = "[dry-run] would execute with agent: " + e.resolveAgent(step).Name
+		if step.Execution == "script" {
+			e.results[step.ID].Output = "[dry-run] would execute script: " + strings.Join(renderScriptCommand(step.Script, e.renderTemplate), " ")
+		} else {
+			e.results[step.ID].Output = "[dry-run] would execute with agent: " + e.resolveAgent(step).Name
+		}
 		e.mu.Unlock()
+		return nil
+	}
+
+	if step.Execution == "script" {
+		output, err := e.executeScriptStep(ctx, step)
+		if err != nil {
+			failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
+			e.mu.Lock()
+			e.results[step.ID].Status = StatusFailed
+			e.results[step.ID].Error = err.Error()
+			e.results[step.ID].Output = output
+			e.mu.Unlock()
+			e.emitStepUpdate(failed)
+			return fmt.Errorf("step %s failed: %w", step.ID, err)
+		}
+		completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: output}
+		e.mu.Lock()
+		e.results[step.ID].Status = StatusCompleted
+		e.results[step.ID].Output = output
+		if step.OutputKey != "" {
+			e.context[step.OutputKey] = output
+		}
+		e.mu.Unlock()
+		e.emitStepUpdate(completed)
 		return nil
 	}
 
@@ -226,6 +259,132 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	e.mu.Unlock()
 
 	return nil
+}
+
+type scriptOutput struct {
+	Command    []string        `json:"command"`
+	Cwd        string          `json:"cwd,omitempty"`
+	ExitCode   int             `json:"exit_code"`
+	Stdout     string          `json:"stdout"`
+	Stderr     string          `json:"stderr,omitempty"`
+	JSON       json.RawMessage `json:"json,omitempty"`
+	DurationMS int64           `json:"duration_ms"`
+}
+
+func (e *Executor) executeScriptStep(ctx context.Context, step *formula.RecipeStep) (string, error) {
+	spec := step.Script
+	if spec == nil {
+		return "", fmt.Errorf("script spec is required")
+	}
+	argv := renderScriptCommand(spec, e.renderTemplate)
+	if len(argv) == 0 {
+		return "", fmt.Errorf("script command is required")
+	}
+	if err := validateScriptDenylist(argv); err != nil {
+		return "", err
+	}
+	timeout := firstDuration(spec.Timeout, step.Timeout, 5*time.Minute)
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
+	if cwd := strings.TrimSpace(e.renderTemplate(spec.Cwd)); cwd != "" {
+		if !filepath.IsAbs(cwd) {
+			if wd, err := os.Getwd(); err == nil {
+				cwd = filepath.Join(wd, cwd)
+			}
+		}
+		cmd.Dir = cwd
+	}
+	cmd.Env = os.Environ()
+	for k, v := range spec.Env {
+		cmd.Env = append(cmd.Env, k+"="+e.renderTemplate(v))
+	}
+	started := time.Now()
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+		if ee, ok := err.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		}
+	}
+	if runCtx.Err() == context.DeadlineExceeded {
+		err = fmt.Errorf("script timed out after %s", timeout)
+	}
+	out := scriptOutput{Command: argv, Cwd: cmd.Dir, ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String(), DurationMS: time.Since(started).Milliseconds()}
+	if strings.EqualFold(spec.Format, "json") && strings.TrimSpace(out.Stdout) != "" {
+		var raw json.RawMessage
+		if parseErr := json.Unmarshal([]byte(out.Stdout), &raw); parseErr != nil {
+			if err == nil {
+				err = fmt.Errorf("script stdout is not valid json: %w", parseErr)
+			}
+		} else {
+			out.JSON = raw
+		}
+	}
+	data, marshalErr := json.MarshalIndent(out, "", "  ")
+	if marshalErr != nil {
+		return strings.TrimSpace(out.Stdout), marshalErr
+	}
+	if err != nil && !spec.ContinueOnError {
+		return string(data), err
+	}
+	return string(data), nil
+}
+
+func renderScriptCommand(spec *formula.ScriptSpec, render func(string) string) []string {
+	if spec == nil {
+		return nil
+	}
+	if strings.TrimSpace(spec.Shell) != "" {
+		return []string{spec.Shell, "-c", render(strings.Join(spec.Command, " "))}
+	}
+	out := make([]string, 0, len(spec.Command))
+	for _, part := range spec.Command {
+		part = strings.TrimSpace(render(part))
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func validateScriptDenylist(argv []string) error {
+	base := filepath.Base(argv[0])
+	dangerous := map[string]bool{"rm": true, "rmdir": true, "mkfs": true, "dd": true, "shutdown": true, "reboot": true, "halt": true, "poweroff": true, "sudo": true, "su": true, "chmod": true, "chown": true}
+	if dangerous[base] {
+		return fmt.Errorf("script command %q is denied by formula safety policy", base)
+	}
+	joined := strings.ToLower(strings.Join(argv, " "))
+	patterns := []string{"rm -rf", ":(){", "> /dev/", "mkfs.", "curl | sh", "wget | sh"}
+	for _, p := range patterns {
+		if strings.Contains(joined, p) {
+			return fmt.Errorf("script command contains denied pattern %q", p)
+		}
+	}
+	return nil
+}
+
+func firstDuration(values ...any) time.Duration {
+	for _, value := range values {
+		s, _ := value.(string)
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		if d, err := time.ParseDuration(s); err == nil {
+			return d
+		}
+	}
+	if len(values) > 0 {
+		if d, ok := values[len(values)-1].(time.Duration); ok {
+			return d
+		}
+	}
+	return 5 * time.Minute
 }
 
 func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
@@ -254,13 +413,20 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 			e.results[bodyStep.ID] = &StepResult{StepID: bodyStep.ID, Title: bodyStep.Title, Status: StatusRunning}
 			e.mu.Unlock()
 
-			prompt := e.buildPrompt(&bodyStep)
-			output, err := runner(ctx, &bodyStep, prompt)
+			var output string
+			var err error
+			if bodyStep.Execution == "script" {
+				output, err = e.executeScriptStep(ctx, &bodyStep)
+			} else {
+				prompt := e.buildPrompt(&bodyStep)
+				output, err = runner(ctx, &bodyStep, prompt)
+			}
 			if err != nil {
-				failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Error: err.Error()}
+				failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
 				e.mu.Lock()
 				e.results[bodyStep.ID].Status = StatusFailed
 				e.results[bodyStep.ID].Error = err.Error()
+				e.results[bodyStep.ID].Output = output
 				e.results[step.ID].Status = StatusFailed
 				e.results[step.ID].Error = err.Error()
 				e.mu.Unlock()
@@ -316,6 +482,7 @@ func recipeStepFromLoopBody(parent *formula.RecipeStep, body *formula.Step, iter
 		Assignee:    body.Assignee,
 		Metadata:    body.Metadata,
 		Agent:       body.Agent,
+		Script:      body.Script,
 		OutputKey:   body.OutputKey,
 		InputCtx:    append([]string(nil), body.InputCtx...),
 		Execution:   body.Execution,

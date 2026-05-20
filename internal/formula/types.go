@@ -241,6 +241,9 @@ type Step struct {
 	// Agent specifies the agent configuration for executing this step.
 	Agent *AgentConfig `json:"agent,omitempty" toml:"agent,omitempty"`
 
+	// Script specifies a deterministic local command for execution="script" steps.
+	Script *ScriptSpec `json:"script,omitempty" toml:"script,omitempty"`
+
 	// OutputKey stores the step's output for downstream steps to reference.
 	OutputKey string `json:"output_key,omitempty" toml:"output_key,omitempty"`
 
@@ -352,6 +355,7 @@ type stepTOMLAlias struct {
 	Retry           *RetrySpec        `json:"retry,omitempty"`
 	Timeout         string            `json:"timeout,omitempty"`
 	Agent           *AgentConfig      `json:"agent,omitempty"`
+	Script          *ScriptSpec       `json:"script,omitempty"`
 	OutputKey       string            `json:"output_key,omitempty"`
 	InputCtx        []string          `json:"input_context,omitempty"`
 	Execution       string            `json:"execution,omitempty"`
@@ -437,6 +441,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Retry:           retry,
 		Timeout:         a.Timeout,
 		Agent:           a.Agent,
+		Script:          a.Script,
 		OutputKey:       a.OutputKey,
 		InputCtx:        a.InputCtx,
 		Execution:       a.Execution,
@@ -577,20 +582,32 @@ type AgentConfig struct {
 	Retries int    `json:"retries,omitempty" toml:"retries,omitempty"`
 }
 
+// ScriptSpec describes a deterministic local command step. Prefer Command argv
+// form for safety; Shell is an explicit opt-in for shell evaluation.
+type ScriptSpec struct {
+	Command         []string          `json:"command,omitempty" toml:"command,omitempty"`
+	Shell           string            `json:"shell,omitempty" toml:"shell,omitempty"`
+	Cwd             string            `json:"cwd,omitempty" toml:"cwd,omitempty"`
+	Env             map[string]string `json:"env,omitempty" toml:"env,omitempty"`
+	Format          string            `json:"format,omitempty" toml:"format,omitempty"`
+	Timeout         string            `json:"timeout,omitempty" toml:"timeout,omitempty"`
+	ContinueOnError bool              `json:"continue_on_error,omitempty" toml:"continue_on_error,omitempty"`
+}
+
 // RetrySpec defines first-class transient retry semantics.
 type RetrySpec struct {
-	MaxAttempts   int    `json:"max_attempts,omitempty" toml:"max_attempts,omitempty"`
-	OnExhausted   string `json:"on_exhausted,omitempty" toml:"on_exhausted,omitempty"`
+	MaxAttempts int    `json:"max_attempts,omitempty" toml:"max_attempts,omitempty"`
+	OnExhausted string `json:"on_exhausted,omitempty" toml:"on_exhausted,omitempty"`
 }
 
 // LoopSpec defines iteration over a body of steps.
 type LoopSpec struct {
-	Count int              `json:"count,omitempty" toml:"count,omitempty"`
-	Until string           `json:"until,omitempty" toml:"until,omitempty"`
-	Max   int              `json:"max,omitempty" toml:"max,omitempty"`
-	Range string           `json:"range,omitempty" toml:"range,omitempty"`
-	Var   string           `json:"var,omitempty" toml:"var,omitempty"`
-	Body  []*Step          `json:"body" toml:"body"`
+	Count int     `json:"count,omitempty" toml:"count,omitempty"`
+	Until string  `json:"until,omitempty" toml:"until,omitempty"`
+	Max   int     `json:"max,omitempty" toml:"max,omitempty"`
+	Range string  `json:"range,omitempty" toml:"range,omitempty"`
+	Var   string  `json:"var,omitempty" toml:"var,omitempty"`
+	Body  []*Step `json:"body" toml:"body"`
 }
 
 // OnCompleteSpec defines actions triggered when a step completes.
@@ -666,10 +683,10 @@ type Pointcut struct {
 
 // AdviceRule defines a step transformation rule.
 type AdviceRule struct {
-	Target string         `json:"target" toml:"target"`
-	Before *AdviceStep    `json:"before,omitempty" toml:"before,omitempty"`
-	After  *AdviceStep    `json:"after,omitempty" toml:"after,omitempty"`
-	Around *AroundAdvice  `json:"around,omitempty" toml:"around,omitempty"`
+	Target string        `json:"target" toml:"target"`
+	Before *AdviceStep   `json:"before,omitempty" toml:"before,omitempty"`
+	After  *AdviceStep   `json:"after,omitempty" toml:"after,omitempty"`
+	Around *AroundAdvice `json:"around,omitempty" toml:"around,omitempty"`
 }
 
 // AdviceStep defines a step to insert via advice.

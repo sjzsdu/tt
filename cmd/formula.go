@@ -359,7 +359,7 @@ func collectFormulaAgentRequirements(recipe *formula.Recipe, defaultAgent string
 	var walkSteps func([]formula.RecipeStep)
 	walkSteps = func(steps []formula.RecipeStep) {
 		for _, step := range steps {
-			if step.IsRoot || step.Execution == "noop" {
+			if step.IsRoot || step.Execution == "noop" || step.Execution == "script" {
 				continue
 			}
 			if step.Agent != nil && strings.TrimSpace(step.Agent.Name) != "" {
@@ -367,7 +367,7 @@ func collectFormulaAgentRequirements(recipe *formula.Recipe, defaultAgent string
 			}
 			if step.Loop != nil {
 				for _, body := range step.Loop.Body {
-					if body == nil || strings.TrimSpace(body.Execution) == "noop" {
+					if body == nil || strings.TrimSpace(body.Execution) == "noop" || strings.TrimSpace(body.Execution) == "script" {
 						continue
 					}
 					if body.Agent != nil && strings.TrimSpace(body.Agent.Name) != "" {
@@ -1601,6 +1601,17 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		DryRun:  formulaDryRun,
 		Debug:   formulaDebug,
 		OnStepUpdate: func(result executor.StepResult) {
+			if runStore != nil {
+				switch result.Status {
+				case executor.StatusCompleted:
+					_ = runStore.SaveStepOutput(result.StepID, result.Output)
+				case executor.StatusFailed:
+					_ = runStore.SaveStepError(result.StepID, result.Error)
+					if result.Output != "" {
+						_ = runStore.SaveStepOutput(result.StepID, result.Output)
+					}
+				}
+			}
 			if dashboard == nil {
 				return
 			}
@@ -1815,6 +1826,17 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 		Session:        runStore.Meta.Session,
 		Debug:          formulaDebug,
 		OnStepUpdate: func(result executor.StepResult) {
+			if runStore != nil {
+				switch result.Status {
+				case executor.StatusCompleted:
+					_ = runStore.SaveStepOutput(result.StepID, result.Output)
+				case executor.StatusFailed:
+					_ = runStore.SaveStepError(result.StepID, result.Error)
+					if result.Output != "" {
+						_ = runStore.SaveStepOutput(result.StepID, result.Output)
+					}
+				}
+			}
 			if dashboard == nil {
 				return
 			}
@@ -1928,6 +1950,8 @@ func runFormulaDryRun(recipe *formula.Recipe) error {
 			agent := "default"
 			if step.Execution == "noop" {
 				agent = "noop"
+			} else if step.Execution == "script" {
+				agent = "script"
 			}
 			if step.Agent != nil && step.Agent.Name != "" {
 				agent = step.Agent.Name
