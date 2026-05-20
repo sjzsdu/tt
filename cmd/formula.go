@@ -24,28 +24,31 @@ import (
 )
 
 var (
-	formulaDir         string
-	formulaVars        []string
-	formulaOutput      string
-	formulaTitle       string
-	formulaMarkdown    bool
-	formulaPort        int
-	formulaAgent       string
-	formulaModel       string
-	formulaSession     string
-	formulaWeb         bool
-	formulaWebPort     int
-	formulaDryRun      bool
-	formulaDebug       bool
-	formulaVerbose     bool
-	formulaNoSave      bool
-	formulaNoScript    bool
-	formulaAllowShell  bool
-	formulaRunsLimit   int
-	formulaRunsFormula string
-	formulaRunsStatus  string
-	formulaRunShowStep string
-	formulaRunRmYes    bool
+	formulaDir          string
+	formulaVars         []string
+	formulaOutput       string
+	formulaTitle        string
+	formulaMarkdown     bool
+	formulaPort         int
+	formulaAgent        string
+	formulaModel        string
+	formulaSession      string
+	formulaWeb          bool
+	formulaWebPort      int
+	formulaDryRun       bool
+	formulaDebug        bool
+	formulaVerbose      bool
+	formulaNoSave       bool
+	formulaNoScript     bool
+	formulaAllowShell   bool
+	formulaCreateOutput string
+	formulaCreateForce  bool
+	formulaCreateStdout bool
+	formulaRunsLimit    int
+	formulaRunsFormula  string
+	formulaRunsStatus   string
+	formulaRunShowStep  string
+	formulaRunRmYes     bool
 )
 
 var formulaCmd = &cobra.Command{
@@ -165,6 +168,18 @@ var formulaValidateCmd = &cobra.Command{
 	RunE:  runFormulaValidate,
 }
 
+var formulaCreateCmd = &cobra.Command{
+	Use:   "create <name> <prompt...>",
+	Short: "Create a formula with the embedded formula-writer agent",
+	Long: `Create a formula template from a natural-language prompt.
+
+The embedded formula-writer agent designs the workflow, chooses agent/script
+steps, and emits TOML. By default the result is written to .tt/formulas/<name>.toml
+or to --output when provided, then validated locally. Use --stdout to print only.`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: runFormulaCreate,
+}
+
 var formulaRunCmd = &cobra.Command{
 	Use:   "run <name> [required-var-value]",
 	Short: "Execute a formula with picoclaw agents",
@@ -221,6 +236,11 @@ func init() {
 
 	formulaInstantiateCmd.Flags().StringVarP(&formulaOutput, "output", "o", "json", "output format: json, yaml, text, prompt")
 	formulaInstantiateCmd.Flags().StringVarP(&formulaTitle, "title", "t", "", "override root task title")
+	formulaCreateCmd.Flags().StringVarP(&formulaCreateOutput, "output", "o", "", "output formula file path (default: .tt/formulas/<name>.toml or --dir/<name>.toml)")
+	formulaCreateCmd.Flags().BoolVarP(&formulaCreateForce, "force", "f", false, "overwrite an existing formula file")
+	formulaCreateCmd.Flags().BoolVar(&formulaCreateStdout, "stdout", false, "print generated formula instead of writing a file")
+	formulaCreateCmd.Flags().StringVar(&formulaModel, "model", "", "model override for formula-writer agent")
+	formulaCreateCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 
 	formulaShowCmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
 	formulaShowCmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
@@ -252,6 +272,7 @@ func init() {
 	formulaCmd.AddCommand(formulaCompileCmd)
 	formulaCmd.AddCommand(formulaInstantiateCmd)
 	formulaCmd.AddCommand(formulaValidateCmd)
+	formulaCmd.AddCommand(formulaCreateCmd)
 	formulaCmd.AddCommand(formulaRunCmd)
 	formulaCmd.AddCommand(formulaRunsCmd)
 
@@ -764,6 +785,144 @@ func runFormulaValidate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Formula %q is valid.\n", f.Formula)
 	return nil
+}
+
+func runFormulaCreate(cmd *cobra.Command, args []string) error {
+	name := strings.TrimSpace(args[0])
+	if name == "" {
+		return fmt.Errorf("formula name is required")
+	}
+	prompt := strings.TrimSpace(strings.Join(args[1:], " "))
+	if prompt == "" {
+		return fmt.Errorf("formula prompt is required")
+	}
+
+	projectRoot, _ := os.Getwd()
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return err
+	}
+	merged := loaded.Merged
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
+	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
+	if err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	embedded := []pcwrap.EmbeddedAgent{agents.FormulaWriter()}
+	session := "cli:formula:create:" + name
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: projectRoot, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	if err != nil {
+		return err
+	}
+	defer runner.Close()
+
+	message := buildFormulaCreatePrompt(name, prompt)
+	loading := startLLMLoading("正在用 formula-writer agent 生成 formula", formulaDebug)
+	resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: message, Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: projectRoot, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	loading.Stop()
+	if err != nil {
+		return err
+	}
+	toml := extractFormulaTOML(resp)
+	if toml == "" {
+		return fmt.Errorf("formula-writer returned empty formula")
+	}
+
+	if formulaCreateStdout {
+		fmt.Fprintln(cmd.OutOrStdout(), toml)
+		return nil
+	}
+
+	outPath := formulaCreateOutputPath(name)
+	if !formulaCreateForce {
+		if _, err := os.Stat(outPath); err == nil {
+			return fmt.Errorf("formula file already exists: %s (use --force to overwrite)", outPath)
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(outPath, []byte(toml+"\n"), 0o644); err != nil {
+		return err
+	}
+
+	p := formula.NewParser()
+	f, err := p.ParseFile(outPath)
+	if err != nil {
+		return fmt.Errorf("generated formula written to %s but failed to parse: %w", outPath, err)
+	}
+	if err := f.Validate(); err != nil {
+		return fmt.Errorf("generated formula written to %s but failed validation: %w", outPath, err)
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Created formula: %s\n", outPath)
+	fmt.Fprintf(out, "Formula %q is valid.\n", f.Formula)
+	fmt.Fprintf(out, "Next: tt formula compile %s --dir %s\n", f.Formula, filepath.Dir(outPath))
+	return nil
+}
+
+func buildFormulaCreatePrompt(name, userPrompt string) string {
+	return fmt.Sprintf(`Create a tt formula TOML file.
+
+Formula name: %s
+User request:
+%s
+
+Requirements:
+- Output only valid TOML, preferably no Markdown fences.
+- Set formula = %q exactly.
+- Use version = 1 and type = "workflow".
+- Prefer script steps for deterministic context collection or validation.
+- Prefer agent steps for reasoning, planning, implementation, review, and reporting.
+- Use safe argv-style script commands; avoid shell.
+- Add output_key for data consumed downstream.
+- Add depends_on and input_context where data flows between steps.
+- If a condition or loop depends on agent output, make that step output ONLY compact JSON.
+- Use embedded agents where appropriate: coder, planner, tester, product-manager, ui, full-stack, reporter.
+`, name, userPrompt, name)
+}
+
+func formulaCreateOutputPath(name string) string {
+	if strings.TrimSpace(formulaCreateOutput) != "" {
+		return formulaCreateOutput
+	}
+	dir := strings.TrimSpace(formulaDir)
+	if dir == "" {
+		cwd, err := os.Getwd()
+		if err == nil {
+			dir = filepath.Join(cwd, ".tt", "formulas")
+		} else {
+			dir = filepath.Join(".tt", "formulas")
+		}
+	}
+	return filepath.Join(dir, name+".toml")
+}
+
+func extractFormulaTOML(resp string) string {
+	resp = strings.TrimSpace(resp)
+	if resp == "" {
+		return ""
+	}
+	for _, fence := range []string{"```toml", "```TOML", "```"} {
+		idx := strings.Index(resp, fence)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(fence)
+		if nl := strings.Index(resp[start:], "\n"); nl >= 0 {
+			start += nl + 1
+		}
+		end := strings.Index(resp[start:], "```")
+		if end >= 0 {
+			return strings.TrimSpace(resp[start : start+end])
+		}
+	}
+	return strings.TrimSpace(resp)
 }
 
 func runFormulaShowMarkdown(resolved *formula.Formula) error {

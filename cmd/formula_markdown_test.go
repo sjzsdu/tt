@@ -239,3 +239,26 @@ func TestGenerateMermaidGraphConvergesRootOnlyRecipe(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractFormulaTOMLFromFencedResponse(t *testing.T) {
+	resp := "Here is the formula:\n```toml\nformula = \"demo\"\nversion = 1\ntype = \"workflow\"\n```\n"
+	got := extractFormulaTOML(resp)
+	if got != "formula = \"demo\"\nversion = 1\ntype = \"workflow\"" {
+		t.Fatalf("extractFormulaTOML() = %q", got)
+	}
+}
+
+func TestFormulaCreateOutputPathUsesDir(t *testing.T) {
+	oldDir, oldOutput := formulaDir, formulaCreateOutput
+	defer func() { formulaDir, formulaCreateOutput = oldDir, oldOutput }()
+	formulaDir = "/tmp/formulas"
+	formulaCreateOutput = ""
+	got := formulaCreateOutputPath("demo")
+	if got != "/tmp/formulas/demo.toml" {
+		t.Fatalf("formulaCreateOutputPath() = %q", got)
+	}
+	formulaCreateOutput = "/tmp/custom.toml"
+	if got := formulaCreateOutputPath("demo"); got != "/tmp/custom.toml" {
+		t.Fatalf("formulaCreateOutputPath() with output = %q", got)
+	}
+}
