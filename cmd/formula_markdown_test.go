@@ -262,3 +262,35 @@ func TestFormulaCreateOutputPathUsesDir(t *testing.T) {
 		t.Fatalf("formulaCreateOutputPath() with output = %q", got)
 	}
 }
+
+func TestBuildFormulaOptimizePromptPreservesNameAndSuggestion(t *testing.T) {
+	prompt := buildFormulaOptimizePrompt("demo", "formula = \"demo\"", "add script validation")
+	for _, want := range []string{"Formula name: demo", "add script validation", "Preserve formula = \"demo\" exactly", "formula = \"demo\""} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("optimize prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestValidateFormulaTOMLContent(t *testing.T) {
+	f, err := validateFormulaTOMLContent(`formula = "demo"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "plan"
+title = "Plan"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Formula != "demo" {
+		t.Fatalf("formula = %q", f.Formula)
+	}
+	if _, err := validateFormulaTOMLContent(`formula = "bad"
+version = 1
+type = "invalid"
+`); err == nil {
+		t.Fatalf("expected validation error for invalid formula type")
+	}
+}

@@ -24,31 +24,33 @@ import (
 )
 
 var (
-	formulaDir          string
-	formulaVars         []string
-	formulaOutput       string
-	formulaTitle        string
-	formulaMarkdown     bool
-	formulaPort         int
-	formulaAgent        string
-	formulaModel        string
-	formulaSession      string
-	formulaWeb          bool
-	formulaWebPort      int
-	formulaDryRun       bool
-	formulaDebug        bool
-	formulaVerbose      bool
-	formulaNoSave       bool
-	formulaNoScript     bool
-	formulaAllowShell   bool
-	formulaCreateOutput string
-	formulaCreateForce  bool
-	formulaCreateStdout bool
-	formulaRunsLimit    int
-	formulaRunsFormula  string
-	formulaRunsStatus   string
-	formulaRunShowStep  string
-	formulaRunRmYes     bool
+	formulaDir            string
+	formulaVars           []string
+	formulaOutput         string
+	formulaTitle          string
+	formulaMarkdown       bool
+	formulaPort           int
+	formulaAgent          string
+	formulaModel          string
+	formulaSession        string
+	formulaWeb            bool
+	formulaWebPort        int
+	formulaDryRun         bool
+	formulaDebug          bool
+	formulaVerbose        bool
+	formulaNoSave         bool
+	formulaNoScript       bool
+	formulaAllowShell     bool
+	formulaCreateOutput   string
+	formulaCreateForce    bool
+	formulaCreateStdout   bool
+	formulaOptimizeOutput string
+	formulaOptimizeStdout bool
+	formulaRunsLimit      int
+	formulaRunsFormula    string
+	formulaRunsStatus     string
+	formulaRunShowStep    string
+	formulaRunRmYes       bool
 )
 
 var formulaCmd = &cobra.Command{
@@ -180,6 +182,20 @@ or to --output when provided, then validated locally. Use --stdout to print only
 	RunE: runFormulaCreate,
 }
 
+var formulaOptimizeCmd = &cobra.Command{
+	Use:   "optimize <name> <suggestion...>",
+	Short: "Optimize an existing formula with the embedded formula-writer agent",
+	Long: `Optimize an existing formula from natural-language suggestions.
+
+The command first resolves <name> from the formula search paths. If the formula
+does not exist, it fails immediately and does not call the agent. Otherwise it
+sends the current formula TOML plus your suggestions to the embedded
+formula-writer agent, writes the improved formula back to the source file by
+default, and validates the result locally. Use --stdout to preview only.`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: runFormulaOptimize,
+}
+
 var formulaRunCmd = &cobra.Command{
 	Use:   "run <name> [required-var-value]",
 	Short: "Execute a formula with picoclaw agents",
@@ -241,6 +257,10 @@ func init() {
 	formulaCreateCmd.Flags().BoolVar(&formulaCreateStdout, "stdout", false, "print generated formula instead of writing a file")
 	formulaCreateCmd.Flags().StringVar(&formulaModel, "model", "", "model override for formula-writer agent")
 	formulaCreateCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
+	formulaOptimizeCmd.Flags().StringVarP(&formulaOptimizeOutput, "output", "o", "", "write optimized formula to this path instead of overwriting the source")
+	formulaOptimizeCmd.Flags().BoolVar(&formulaOptimizeStdout, "stdout", false, "print optimized formula instead of writing a file")
+	formulaOptimizeCmd.Flags().StringVar(&formulaModel, "model", "", "model override for formula-writer agent")
+	formulaOptimizeCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 
 	formulaShowCmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
 	formulaShowCmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
@@ -273,6 +293,7 @@ func init() {
 	formulaCmd.AddCommand(formulaInstantiateCmd)
 	formulaCmd.AddCommand(formulaValidateCmd)
 	formulaCmd.AddCommand(formulaCreateCmd)
+	formulaCmd.AddCommand(formulaOptimizeCmd)
 	formulaCmd.AddCommand(formulaRunCmd)
 	formulaCmd.AddCommand(formulaRunsCmd)
 
@@ -866,6 +887,93 @@ func runFormulaCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runFormulaOptimize(cmd *cobra.Command, args []string) error {
+	name := strings.TrimSpace(args[0])
+	if name == "" {
+		return fmt.Errorf("formula name is required")
+	}
+	suggestion := strings.TrimSpace(strings.Join(args[1:], " "))
+	if suggestion == "" {
+		return fmt.Errorf("optimization suggestion is required")
+	}
+
+	p := formula.NewParser(getSearchPaths()...)
+	f, err := p.LoadByName(name)
+	if err != nil {
+		return fmt.Errorf("formula %q not found: %w", name, err)
+	}
+	if strings.TrimSpace(f.Source) == "" {
+		return fmt.Errorf("formula %q source path is unknown", name)
+	}
+	if !formula.IsTOMLFilename(f.Source) && strings.TrimSpace(formulaOptimizeOutput) == "" && !formulaOptimizeStdout {
+		return fmt.Errorf("formula %q is not a TOML file (%s); use --output <path.toml> or --stdout", name, f.Source)
+	}
+	existing, err := os.ReadFile(f.Source)
+	if err != nil {
+		return fmt.Errorf("read formula %s: %w", f.Source, err)
+	}
+
+	projectRoot, _ := os.Getwd()
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return err
+	}
+	merged := loaded.Merged
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+		return err
+	}
+	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
+	if err != nil {
+		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+	}
+	embedded := []pcwrap.EmbeddedAgent{agents.FormulaWriter()}
+	session := "cli:formula:optimize:" + name
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: projectRoot, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	if err != nil {
+		return err
+	}
+	defer runner.Close()
+
+	message := buildFormulaOptimizePrompt(name, string(existing), suggestion)
+	loading := startLLMLoading("正在用 formula-writer agent 优化 formula", formulaDebug)
+	resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: message, Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: projectRoot, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	loading.Stop()
+	if err != nil {
+		return err
+	}
+	toml := extractFormulaTOML(resp)
+	if toml == "" {
+		return fmt.Errorf("formula-writer returned empty optimized formula")
+	}
+	optimized, err := validateFormulaTOMLContent(toml)
+	if err != nil {
+		return fmt.Errorf("optimized formula failed validation: %w", err)
+	}
+	if optimized.Formula != f.Formula {
+		return fmt.Errorf("optimized formula changed name from %q to %q", f.Formula, optimized.Formula)
+	}
+
+	if formulaOptimizeStdout {
+		fmt.Fprintln(cmd.OutOrStdout(), toml)
+		return nil
+	}
+	outPath := strings.TrimSpace(formulaOptimizeOutput)
+	if outPath == "" {
+		outPath = f.Source
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(outPath, []byte(toml+"\n"), 0o644); err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Optimized formula: %s\n", outPath)
+	fmt.Fprintf(out, "Formula %q is valid.\n", optimized.Formula)
+	fmt.Fprintf(out, "Next: tt formula compile %s --dir %s\n", optimized.Formula, filepath.Dir(outPath))
+	return nil
+}
+
 func buildFormulaCreatePrompt(name, userPrompt string) string {
 	return fmt.Sprintf(`Create a tt formula TOML file.
 
@@ -885,6 +993,43 @@ Requirements:
 - If a condition or loop depends on agent output, make that step output ONLY compact JSON.
 - Use embedded agents where appropriate: coder, planner, tester, product-manager, ui, full-stack, reporter.
 `, name, userPrompt, name)
+}
+
+func buildFormulaOptimizePrompt(name, currentTOML, suggestion string) string {
+	return fmt.Sprintf(`Optimize an existing tt formula TOML file.
+
+Formula name: %s
+User optimization request:
+%s
+
+Current formula TOML:
+---BEGIN TOML---
+%s
+---END TOML---
+
+Requirements:
+- Output only the full optimized TOML, preferably no Markdown fences.
+- Preserve formula = %q exactly.
+- Preserve the user's existing intent unless the suggestion explicitly changes it.
+- Improve step boundaries, data flow, output_key, input_context, conditions, loops, script safety, descriptions, and agent choices where useful.
+- Prefer script steps for deterministic context collection or validation.
+- Prefer agent steps for reasoning, planning, implementation, review, and reporting.
+- Use safe argv-style script commands; avoid shell.
+- Do not remove important variables or steps unless the suggestion asks for simplification.
+- Ensure all depends_on references point to existing local step ids.
+`, name, suggestion, currentTOML, name)
+}
+
+func validateFormulaTOMLContent(content string) (*formula.Formula, error) {
+	p := formula.NewParser()
+	f, err := p.ParseTOML([]byte(content))
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Validate(); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 func formulaCreateOutputPath(name string) string {
