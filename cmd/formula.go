@@ -39,6 +39,8 @@ var (
 	formulaDebug       bool
 	formulaVerbose     bool
 	formulaNoSave      bool
+	formulaNoScript    bool
+	formulaAllowShell  bool
 	formulaRunsLimit   int
 	formulaRunsFormula string
 	formulaRunsStatus  string
@@ -232,6 +234,8 @@ func init() {
 	formulaRunCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 	formulaRunCmd.Flags().BoolVarP(&formulaVerbose, "verbose", "v", false, "show full output of each step")
 	formulaRunCmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
+	formulaRunCmd.Flags().BoolVar(&formulaNoScript, "no-script", false, "disable formula script steps for this run")
+	formulaRunCmd.Flags().BoolVar(&formulaAllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
 	formulaRunsCmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsFormula, "formula", "", "filter runs by formula name")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
@@ -1594,12 +1598,14 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	}
 
 	exec := executor.New(recipe, executor.RunOptions{
-		Vars:    vars,
-		Agent:   runAgent,
-		Model:   formulaModel,
-		Session: formulaSession,
-		DryRun:  formulaDryRun,
-		Debug:   formulaDebug,
+		Vars:         vars,
+		Agent:        runAgent,
+		Model:        formulaModel,
+		Session:      formulaSession,
+		DryRun:       formulaDryRun,
+		Debug:        formulaDebug,
+		AllowScripts: !formulaNoScript,
+		AllowShell:   formulaAllowShell,
 		OnStepUpdate: func(result executor.StepResult) {
 			if runStore != nil {
 				switch result.Status {
@@ -1825,6 +1831,8 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 		Model:          runStore.Meta.Model,
 		Session:        runStore.Meta.Session,
 		Debug:          formulaDebug,
+		AllowScripts:   !formulaNoScript,
+		AllowShell:     formulaAllowShell,
 		OnStepUpdate: func(result executor.StepResult) {
 			if runStore != nil {
 				switch result.Status {

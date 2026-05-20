@@ -1,0 +1,67 @@
+formula = "script-pr-review-demo"
+description = "Collect deterministic PR context with scripts, then hand it to an agent for review."
+version = 1
+type = "workflow"
+
+[vars]
+pr = { description = "Pull request number", required = true }
+
+[[steps]]
+id = "fetch-pr"
+title = "Fetch PR metadata"
+description = "Fetch PR metadata through GitHub CLI and save the structured result."
+execution = "script"
+output_key = "pr_metadata"
+
+[steps.script]
+command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,body,author,files,commits,reviews"]
+format = "json"
+timeout = "30s"
+
+[[steps]]
+id = "diff-stat"
+title = "Collect diff stat"
+depends_on = ["fetch-pr"]
+execution = "script"
+output_key = "diff_stat"
+
+[steps.script]
+command = ["git", "diff", "--stat", "origin/main...HEAD"]
+format = "text"
+timeout = "15s"
+continue_on_error = true
+
+[[steps]]
+id = "review"
+title = "Review PR risk"
+depends_on = ["fetch-pr", "diff-stat"]
+input_context = ["pr_metadata", "diff_stat"]
+description = "Review the PR metadata and diff stat. Summarize risks, missing tests, and suggested reviewer focus areas."
+output_key = "review_summary"
+
+[steps.agent]
+name = "coder"
+
+[[steps]]
+id = "test"
+title = "Run Go tests"
+depends_on = ["review"]
+execution = "script"
+output_key = "test_result"
+
+[steps.script]
+command = ["go", "test", "./..."]
+format = "text"
+timeout = "2m"
+continue_on_error = true
+
+[[steps]]
+id = "report"
+title = "Write final report"
+depends_on = ["test"]
+input_context = ["review_summary", "test_result"]
+description = "Write a concise final PR review report using the analysis and test result."
+output_key = "final_report"
+
+[steps.agent]
+name = "reporter"

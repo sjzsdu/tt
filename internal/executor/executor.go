@@ -27,6 +27,8 @@ type RunOptions struct {
 	Session        string
 	DryRun         bool
 	Debug          bool
+	AllowScripts   bool
+	AllowShell     bool
 	OnStepUpdate   func(StepResult)
 }
 
@@ -215,6 +217,9 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	}
 
 	if step.Execution == "script" {
+		if !e.opts.AllowScripts {
+			return fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", step.ID)
+		}
 		output, err := e.executeScriptStep(ctx, step)
 		if err != nil {
 			failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
@@ -279,6 +284,9 @@ func (e *Executor) executeScriptStep(ctx context.Context, step *formula.RecipeSt
 	argv := renderScriptCommand(spec, e.renderTemplate)
 	if len(argv) == 0 {
 		return "", fmt.Errorf("script command is required")
+	}
+	if strings.TrimSpace(spec.Shell) != "" && !e.opts.AllowShell {
+		return "", fmt.Errorf("script shell mode is disabled by default; use argv command or rerun with --allow-shell-script")
 	}
 	if err := validateScriptDenylist(argv); err != nil {
 		return "", err
@@ -416,7 +424,11 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 			var output string
 			var err error
 			if bodyStep.Execution == "script" {
-				output, err = e.executeScriptStep(ctx, &bodyStep)
+				if !e.opts.AllowScripts {
+					err = fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", bodyStep.ID)
+				} else {
+					output, err = e.executeScriptStep(ctx, &bodyStep)
+				}
 			} else {
 				prompt := e.buildPrompt(&bodyStep)
 				output, err = runner(ctx, &bodyStep, prompt)

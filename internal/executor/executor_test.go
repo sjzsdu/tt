@@ -58,7 +58,7 @@ func TestExecutorRunsScriptStepAndCapturesJSON(t *testing.T) {
 		},
 		Deps: []formula.RecipeDep{{StepID: "script-demo.fetch", DependsOnID: "script-demo", Type: "parent-child"}},
 	}
-	result, err := New(recipe, RunOptions{}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+	result, err := New(recipe, RunOptions{AllowScripts: true}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
 		t.Fatalf("agent runner should not be called for script steps")
 		return "", nil
 	})
@@ -86,9 +86,31 @@ func TestExecutorDeniesDangerousScriptCommand(t *testing.T) {
 		{ID: "script-deny", Title: "Root", IsRoot: true},
 		{ID: "script-deny.rm", Title: "Remove", Execution: "script", Script: &formula.ScriptSpec{Command: []string{"rm", "-rf", "/tmp/nope"}}},
 	}, Deps: []formula.RecipeDep{{StepID: "script-deny.rm", DependsOnID: "script-deny", Type: "parent-child"}}}
-	_, err := New(recipe, RunOptions{}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) { return "", nil })
+	_, err := New(recipe, RunOptions{AllowScripts: true}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) { return "", nil })
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("err = %v, want denied error", err)
+	}
+}
+
+func TestExecutorCanDisableScriptSteps(t *testing.T) {
+	recipe := &formula.Recipe{Name: "script-disabled", Steps: []formula.RecipeStep{
+		{ID: "script-disabled", Title: "Root", IsRoot: true},
+		{ID: "script-disabled.echo", Title: "Echo", Execution: "script", Script: &formula.ScriptSpec{Command: []string{"printf", "ok"}}},
+	}, Deps: []formula.RecipeDep{{StepID: "script-disabled.echo", DependsOnID: "script-disabled", Type: "parent-child"}}}
+	_, err := New(recipe, RunOptions{AllowScripts: false}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) { return "", nil })
+	if err == nil || !strings.Contains(err.Error(), "uses script execution") {
+		t.Fatalf("err = %v, want disabled script error", err)
+	}
+}
+
+func TestExecutorDisablesShellScriptByDefault(t *testing.T) {
+	recipe := &formula.Recipe{Name: "script-shell", Steps: []formula.RecipeStep{
+		{ID: "script-shell", Title: "Root", IsRoot: true},
+		{ID: "script-shell.echo", Title: "Echo", Execution: "script", Script: &formula.ScriptSpec{Shell: "sh", Command: []string{"printf ok"}}},
+	}, Deps: []formula.RecipeDep{{StepID: "script-shell.echo", DependsOnID: "script-shell", Type: "parent-child"}}}
+	_, err := New(recipe, RunOptions{AllowScripts: true}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) { return "", nil })
+	if err == nil || !strings.Contains(err.Error(), "shell mode is disabled") {
+		t.Fatalf("err = %v, want shell disabled error", err)
 	}
 }
 
