@@ -1275,15 +1275,17 @@ func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string 
 	b.WriteString("\n")
 
 	b.WriteString("## Steps\n\n")
-	for i, step := range recipe.Steps {
-		if step.IsRoot {
+	displayIndex := 1
+	for _, step := range recipe.Steps {
+		if step.IsRoot || isGeneratedBoundaryRecipeStep(step) {
 			continue
 		}
 		priority := ""
 		if step.Priority != nil {
 			priority = fmt.Sprintf(" [P%d]", *step.Priority)
 		}
-		b.WriteString(fmt.Sprintf("### %d. `%s`%s\n\n", i, step.ID, priority))
+		b.WriteString(fmt.Sprintf("### %d. `%s`%s\n\n", displayIndex, step.ID, priority))
+		displayIndex++
 		b.WriteString(fmt.Sprintf("**%s**\n\n", step.Title))
 		if step.Description != "" {
 			b.WriteString(fmt.Sprintf("%s\n\n", step.Description))
@@ -1404,7 +1406,7 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 	}
 
 	for _, step := range recipe.Steps {
-		if step.IsRoot {
+		if step.IsRoot || isGeneratedBoundaryRecipeStep(step) {
 			continue
 		}
 		nodeID := mermaidNodeID(step.ID)
@@ -1430,7 +1432,7 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 	}
 
 	for _, step := range recipe.Steps {
-		if step.IsRoot {
+		if step.IsRoot || isGeneratedBoundaryRecipeStep(step) {
 			continue
 		}
 		appendMermaidLoopBody(&b, step)
@@ -1448,10 +1450,10 @@ func generateMermaidGraph(recipe *formula.Recipe) string {
 		}
 		from := mermaidNodeID(dep.DependsOnID)
 		to := mermaidNodeID(dep.StepID)
-		if dep.StepID == "" || stepByID[dep.StepID].ID == "" || stepByID[dep.StepID].IsRoot {
+		if dep.StepID == "" || stepByID[dep.StepID].ID == "" || stepByID[dep.StepID].IsRoot || isGeneratedBoundaryRecipeStep(stepByID[dep.StepID]) {
 			continue
 		}
-		if dep.DependsOnID == "" || stepByID[dep.DependsOnID].ID == "" || stepByID[dep.DependsOnID].IsRoot {
+		if dep.DependsOnID == "" || stepByID[dep.DependsOnID].ID == "" || stepByID[dep.DependsOnID].IsRoot || isGeneratedBoundaryRecipeStep(stepByID[dep.DependsOnID]) {
 			continue
 		}
 		edgeStyle := " -->"
@@ -1484,6 +1486,10 @@ func realRecipeSteps(recipe *formula.Recipe) []formula.RecipeStep {
 
 func isMermaidBoundaryStep(step formula.RecipeStep) bool {
 	return step.Metadata != nil && step.Metadata["formula_boundary"] != ""
+}
+
+func isGeneratedBoundaryRecipeStep(step formula.RecipeStep) bool {
+	return isMermaidBoundaryStep(step) && step.Execution == "noop"
 }
 
 func appendMermaidLoopBody(b *strings.Builder, step formula.RecipeStep) {

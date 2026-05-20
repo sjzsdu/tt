@@ -159,10 +159,6 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 
 	graph := generateMermaidGraph(recipe)
 	for _, want := range []string{
-		"start([\"start: start\"])",
-		"end([\"end: end\"])",
-		"start --> decide",
-		"improve --> end",
 		"frontend_plan{\"frontend-plan:",
 		"class frontend_plan nodeCondition",
 		"if: decision.path == frontend",
@@ -183,6 +179,11 @@ func TestGenerateMermaidGraphShowsRuntimeControlSemantics(t *testing.T) {
 	}
 	if strings.Contains(graph, "root:") {
 		t.Fatalf("mermaid graph should use synthetic start instead of rendering recipe root:\n%s", graph)
+	}
+	for _, unwanted := range []string{"start([\"start: start\"])", "end([\"end: end\"])", "start --> decide", "improve --> end"} {
+		if strings.Contains(graph, unwanted) {
+			t.Fatalf("mermaid graph should hide generated boundary %q:\n%s", unwanted, graph)
+		}
 	}
 }
 
@@ -220,6 +221,25 @@ func TestGenerateFormulaMarkdownShowsLoopDetails(t *testing.T) {
 	}
 }
 
+func TestGenerateFormulaMarkdownHidesGeneratedBoundarySteps(t *testing.T) {
+	f := &formula.Formula{Formula: "demo", Version: 1, Type: formula.TypeWorkflow, Steps: []*formula.Step{{ID: "work", Title: "Work"}}}
+	recipe := &formula.Recipe{Steps: []formula.RecipeStep{
+		{ID: "demo", Title: "Root", IsRoot: true},
+		{ID: "demo.start", Title: "start", Execution: "noop", Metadata: map[string]string{"formula_boundary": "start"}},
+		{ID: "demo.work", Title: "Work"},
+		{ID: "demo.end", Title: "end", Execution: "noop", Metadata: map[string]string{"formula_boundary": "end"}},
+	}}
+	md := generateFormulaMarkdown(f, recipe)
+	if !strings.Contains(md, "### 1. `demo.work`") {
+		t.Fatalf("markdown should include real step with display index 1:\n%s", md)
+	}
+	for _, unwanted := range []string{"`demo.start`", "`demo.end`", "start: start", "end: end"} {
+		if strings.Contains(md, unwanted) {
+			t.Fatalf("markdown should hide generated boundary %q:\n%s", unwanted, md)
+		}
+	}
+}
+
 func TestGenerateMermaidGraphConvergesRootOnlyRecipe(t *testing.T) {
 	recipe := &formula.Recipe{
 		Steps: []formula.RecipeStep{
@@ -230,13 +250,9 @@ func TestGenerateMermaidGraphConvergesRootOnlyRecipe(t *testing.T) {
 		Deps: []formula.RecipeDep{{StepID: "start", DependsOnID: "root"}, {StepID: "end", DependsOnID: "start"}},
 	}
 	graph := generateMermaidGraph(recipe)
-	for _, want := range []string{
-		"start([\"start: start\"])",
-		"end([\"end: end\"])",
-		"start --> end",
-	} {
-		if !strings.Contains(graph, want) {
-			t.Fatalf("mermaid graph missing %q:\n%s", want, graph)
+	for _, unwanted := range []string{"start([\"start: start\"])", "end([\"end: end\"])", "start --> end", "root:"} {
+		if strings.Contains(graph, unwanted) {
+			t.Fatalf("root-only mermaid graph should hide generated boundary %q:\n%s", unwanted, graph)
 		}
 	}
 }
