@@ -907,6 +907,11 @@ button, input, textarea { font: inherit; }
   border-radius: 28px;
 }
 
+.final-output-modal .ant-modal-body {
+  max-height: min(78vh, 860px);
+  overflow: auto;
+}
+
 .formula-markdown-output h1,
 .formula-markdown-output h2,
 .formula-markdown-output h3,
@@ -949,6 +954,11 @@ button, input, textarea { font: inherit; }
   border-collapse: separate;
   border-spacing: 0;
   table-layout: auto;
+  background: rgba(11, 20, 34, 0.92) !important;
+}
+
+.formula-markdown-table tr {
+  background: transparent !important;
 }
 
 .formula-markdown-table th,
@@ -971,23 +981,50 @@ button, input, textarea { font: inherit; }
   position: sticky;
   top: 0;
   z-index: 1;
-  background: linear-gradient(180deg, rgba(17, 35, 58, 0.98), rgba(12, 24, 41, 0.98));
-  color: #f8fbff;
+  background: linear-gradient(180deg, rgba(17, 35, 58, 0.98), rgba(12, 24, 41, 0.98)) !important;
+  color: #f8fbff !important;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .formula-markdown-table tbody td {
-  color: var(--text);
-  background: rgba(11, 20, 34, 0.92);
+  color: var(--text) !important;
+  background: rgba(11, 20, 34, 0.92) !important;
 }
 
 .formula-markdown-table tbody tr:nth-child(even) td {
-  background: rgba(15, 27, 45, 0.92);
+  background: rgba(12, 22, 37, 0.92) !important;
 }
 
 .formula-markdown-table tbody tr:hover td {
-  background: rgba(31, 53, 83, 0.92);
+  background: rgba(31, 53, 83, 0.92) !important;
+}
+
+.final-output-modal .markdown-table-block {
+  margin: 14px 0;
+}
+
+.final-output-modal .markdown-table-scroll {
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.final-output-modal .formula-markdown-table {
+  font-size: 12px;
+  line-height: 1.45;
+  table-layout: fixed;
+}
+
+.final-output-modal .formula-markdown-table th,
+.final-output-modal .formula-markdown-table td {
+  min-width: 120px;
+  max-width: 260px;
+  padding: 9px 10px;
+}
+
+.final-output-modal .formula-markdown-table tbody td,
+.final-output-modal .formula-markdown-table tbody tr:nth-child(even) td {
+  background: rgba(11, 20, 34, 0.92) !important;
 }
 
 .formula-markdown-table td > div,
