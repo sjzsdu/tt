@@ -22,7 +22,7 @@ import {
   UnorderedListOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { api } from '../api';
+import { api, normalizeSnapshot } from '../api';
 import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import { MarkdownOutput, OutputModal, OutputSurface } from './MarkdownOutput';
 import type {
@@ -476,7 +476,7 @@ export function App() {
         try {
           const msg = JSON.parse(event.data) as FormulaDashboardMessage;
           if (msg.type === 'state') {
-            setSnapshot(msg.state);
+            setSnapshot(normalizeSnapshot(msg.state));
             setError('');
           }
         } catch (err) {
