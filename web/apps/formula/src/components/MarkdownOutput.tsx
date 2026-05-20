@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from 'react';
-import { Button, Modal, Table, Tag } from 'antd';
+import { Fragment, useMemo, type ReactNode } from 'react';
+import { Button, Modal, Tag } from 'antd';
 import { marked, type TokensList } from 'marked';
 
 type MarkdownPart =
@@ -150,35 +150,47 @@ export function MarkdownOutput({ content, className = '' }: { content: string; c
           return <div key={index} className="markdown-html-block" dangerouslySetInnerHTML={{ __html: part.html }} />;
         }
 
-        const columns = part.headers.map((header, columnIndex) => ({
-          title: <span dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(header) }} />,
-          dataIndex: `col_${columnIndex}`,
-          key: `col_${columnIndex}`,
-          render: (value: string) => <div dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(value) }} />,
-        }));
-        const dataSource = part.rows.map((row, rowIndex) => {
-          const record: Record<string, string> = { key: `row_${rowIndex}` };
-          row.forEach((cell, columnIndex) => {
-            record[`col_${columnIndex}`] = cell;
-          });
-          return record;
-        });
-
         return (
           <div key={index} className="markdown-table-block">
-            <Table
-              size="small"
-              pagination={false}
-              columns={columns}
-              dataSource={dataSource}
-              scroll={{ x: 'max-content' }}
-              className="formula-ant-table"
-            />
+            <div className="markdown-table-scroll">
+              <table className="formula-markdown-table">
+                <thead>
+                  <tr>
+                    {part.headers.map((header, columnIndex) => (
+                      <th key={`head_${columnIndex}`}>
+                        <span dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(header) }} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {part.rows.map((row, rowIndex) => (
+                    <tr key={`row_${rowIndex}`}>
+                      {row.map((cell, columnIndex) => (
+                        <td key={`cell_${rowIndex}_${columnIndex}`}>
+                          <div dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(cell) }} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       })}
     </article>
   );
+}
+
+function renderJsonKeyLabel(name: string) {
+  const segments = name.split(/([._\-/]+)/);
+  return segments.map((segment, index) => (
+    <Fragment key={`${segment}-${index}`}>
+      {segment}
+      {index < segments.length - 1 ? <wbr /> : null}
+    </Fragment>
+  ));
 }
 
 function JsonOutput({ value, source }: { value: unknown; source: string }) {
@@ -199,14 +211,14 @@ function JsonOutput({ value, source }: { value: unknown; source: string }) {
 
 function JsonValue({ value, name, depth }: { value: unknown; name?: string; depth: number }): ReactNode {
   const type = jsonType(value);
-  const label = name ? <span className="json-key">{name}</span> : null;
+  const label = name ? <span className="json-key">{renderJsonKeyLabel(name)}</span> : null;
 
   if (value === null || type !== 'object') {
     return (
       <div className="json-row" style={{ paddingLeft: depth * 16 }}>
-        {label}
+        {label ? <span className="json-key-label">{label}</span> : null}
         {label && <span className="json-separator">:</span>}
-        <PrimitiveValue value={value} />
+        <span className="json-value-slot"><PrimitiveValue value={value} /></span>
       </div>
     );
   }
@@ -217,8 +229,8 @@ function JsonValue({ value, name, depth }: { value: unknown; name?: string; dept
 
   return (
     <details className="json-node" open={depth < 2} style={{ marginLeft: depth * 12 }}>
-      <summary>
-        {label}
+      <summary className="json-summary">
+        {label ? <span className="json-key-label">{label}</span> : null}
         {label && <span className="json-separator">:</span>}
         <Tag className="json-type-tag">{Array.isArray(value) ? 'array' : 'object'}</Tag>
         <span className="json-count">{entries.length} item{entries.length === 1 ? '' : 's'}</span>

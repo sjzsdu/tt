@@ -781,6 +781,14 @@ button, input, textarea { font: inherit; }
   list-style-position: inside;
 }
 
+.json-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
 .json-node summary:hover {
   background: rgba(125, 211, 252, 0.08);
 }
@@ -792,7 +800,8 @@ button, input, textarea { font: inherit; }
 }
 
 .json-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(12ch, 32ch) auto minmax(0, 1fr);
   gap: 6px;
   align-items: baseline;
   min-width: 0;
@@ -804,10 +813,20 @@ button, input, textarea { font: inherit; }
   background: rgba(255, 255, 255, 0.035);
 }
 
+.json-key-label {
+  min-width: 0;
+}
+
 .json-key {
+  display: inline;
   color: #93c5fd;
   font-weight: 600;
-  word-break: break-word;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.json-value-slot {
+  min-width: 0;
 }
 
 .json-separator,
@@ -917,40 +936,64 @@ button, input, textarea { font: inherit; }
   margin: 18px 0;
 }
 
-.formula-ant-table {
-  overflow: hidden;
+.markdown-table-scroll {
+  overflow-x: auto;
   border: 1px solid rgba(125, 211, 252, 0.12);
   border-radius: 14px;
-  background: rgba(255,255,255,0.02);
+  background: linear-gradient(180deg, rgba(9, 16, 29, 0.96), rgba(6, 12, 24, 0.98));
 }
 
-.formula-ant-table .ant-table {
-  background: transparent;
+.formula-markdown-table {
+  width: 100%;
+  min-width: min(100%, 720px);
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
 }
 
-.formula-ant-table .ant-table-container {
-  background: transparent;
-}
-
-.formula-ant-table .ant-table-thead > tr > th {
-  background: rgba(125, 211, 252, 0.08) !important;
-  color: #e8f3ff !important;
-  border-bottom-color: rgba(125, 211, 252, 0.12) !important;
-}
-
-.formula-ant-table .ant-table-tbody > tr > td {
-  background: rgba(11, 20, 34, 0.92) !important;
-  color: var(--text) !important;
-  border-bottom-color: rgba(125, 211, 252, 0.1) !important;
+.formula-markdown-table th,
+.formula-markdown-table td {
+  min-width: 160px;
+  max-width: 420px;
+  padding: 12px 14px;
+  text-align: left;
   vertical-align: top;
+  border-right: 1px solid rgba(125, 211, 252, 0.08);
+  border-bottom: 1px solid rgba(125, 211, 252, 0.1);
 }
 
-.formula-ant-table .ant-table-tbody > tr:nth-child(even) > td {
-  background: rgba(255,255,255,0.02) !important;
+.formula-markdown-table th:last-child,
+.formula-markdown-table td:last-child {
+  border-right: none;
 }
 
-.formula-ant-table .ant-table-cell {
-  white-space: normal;
+.formula-markdown-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(17, 35, 58, 0.98), rgba(12, 24, 41, 0.98));
+  color: #f8fbff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.formula-markdown-table tbody td {
+  color: var(--text);
+  background: rgba(11, 20, 34, 0.92);
+}
+
+.formula-markdown-table tbody tr:nth-child(even) td {
+  background: rgba(15, 27, 45, 0.92);
+}
+
+.formula-markdown-table tbody tr:hover td {
+  background: rgba(31, 53, 83, 0.92);
+}
+
+.formula-markdown-table td > div,
+.formula-markdown-table th > span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .formula-markdown-output pre,
@@ -1464,6 +1507,10 @@ button, input, textarea { font: inherit; }
     grid-template-columns: 1fr;
   }
 
+  .json-row {
+    grid-template-columns: minmax(10ch, 24ch) auto minmax(0, 1fr);
+  }
+
   .hero-panel,
   .graph-header {
     flex-direction: column;
@@ -1483,5 +1530,24 @@ button, input, textarea { font: inherit; }
   .workspace-main,
   .step-card {
     padding: 16px;
+  }
+
+  .json-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .json-row .json-separator {
+    display: none;
+  }
+
+  .json-value-slot {
+    grid-column: 1;
+    padding-left: 14px;
+  }
+
+  .formula-markdown-table th,
+  .formula-markdown-table td {
+    min-width: 140px;
+    padding: 10px 12px;
   }
 }
