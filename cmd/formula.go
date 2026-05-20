@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formularun"
@@ -306,6 +308,138 @@ func defaultFormulaAgent(agent string) string {
 		return pcwrap.DefaultAgentID
 	}
 	return agent
+}
+
+type formulaAgentRequirement struct {
+	Name      string
+	StepID    string
+	StepTitle string
+	Source    string
+}
+
+func validateFormulaAgentConfiguration(rt *pcwrap.Runtime, recipe *formula.Recipe, defaultAgent, model, session string) error {
+	if rt == nil {
+		return fmt.Errorf("picoclaw runtime not loaded")
+	}
+	requirements := collectFormulaAgentRequirements(recipe, defaultAgent)
+	embeddedAgents, err := agents.List()
+	if err != nil {
+		return fmt.Errorf("list embedded agents failed: %w", err)
+	}
+	availableConfigured := uniqueSortedStrings(rt.Summary().Agents)
+	availableEmbedded := embeddedAgentIDs(embeddedAgents)
+	for _, req := range requirements {
+		_, err := rt.ResolveRunOptions(pcwrap.RunOptions{
+			Session:        session,
+			Agent:          req.Name,
+			Model:          model,
+			EmbeddedAgents: embeddedAgents,
+		})
+		if err != nil {
+			return fmt.Errorf("formula agent preflight failed for %s %q (%s): %w\navailable configured agents: %s\navailable embedded agents: %s", req.Source, req.Name, formulaAgentRequirementLabel(req), err, joinOrNone(availableConfigured), joinOrNone(availableEmbedded))
+		}
+	}
+	return nil
+}
+
+func collectFormulaAgentRequirements(recipe *formula.Recipe, defaultAgent string) []formulaAgentRequirement {
+	seen := map[string]formulaAgentRequirement{}
+	add := func(name, stepID, stepTitle, source string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		key := strings.ToLower(name) + "|" + stepID + "|" + source
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = formulaAgentRequirement{Name: name, StepID: stepID, StepTitle: stepTitle, Source: source}
+	}
+	add(defaultAgent, "", "", "default agent")
+	var walkSteps func([]formula.RecipeStep)
+	walkSteps = func(steps []formula.RecipeStep) {
+		for _, step := range steps {
+			if step.IsRoot || step.Execution == "noop" {
+				continue
+			}
+			if step.Agent != nil && strings.TrimSpace(step.Agent.Name) != "" {
+				add(step.Agent.Name, step.ID, step.Title, "step agent")
+			}
+			if step.Loop != nil {
+				for _, body := range step.Loop.Body {
+					if body == nil || strings.TrimSpace(body.Execution) == "noop" {
+						continue
+					}
+					if body.Agent != nil && strings.TrimSpace(body.Agent.Name) != "" {
+						add(body.Agent.Name, step.ID+".loop."+body.ID, body.Title, "loop body agent")
+					}
+				}
+			}
+		}
+	}
+	if recipe != nil {
+		walkSteps(recipe.Steps)
+	}
+	out := make([]formulaAgentRequirement, 0, len(seen))
+	for _, req := range seen {
+		out = append(out, req)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Source != out[j].Source {
+			return out[i].Source < out[j].Source
+		}
+		if out[i].StepID != out[j].StepID {
+			return out[i].StepID < out[j].StepID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func formulaAgentRequirementLabel(req formulaAgentRequirement) string {
+	if strings.TrimSpace(req.StepID) == "" {
+		return "formula default"
+	}
+	if strings.TrimSpace(req.StepTitle) == "" {
+		return req.StepID
+	}
+	return fmt.Sprintf("%s / %s", req.StepID, req.StepTitle)
+}
+
+func embeddedAgentIDs(items []pcwrap.EmbeddedAgent) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			out = append(out, id)
+		}
+	}
+	return uniqueSortedStrings(out)
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func joinOrNone(values []string) string {
+	if len(values) == 0 {
+		return "(none)"
+	}
+	return strings.Join(values, ", ")
 }
 
 func runFormulaList(cmd *cobra.Command, args []string) error {
@@ -1428,6 +1562,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	defer runner.Close()
 
 	runAgent := defaultFormulaAgent(formulaAgent)
+	if err := validateFormulaAgentConfiguration(rt, recipe, runAgent, formulaModel, formulaSession); err != nil {
+		return err
+	}
 
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()

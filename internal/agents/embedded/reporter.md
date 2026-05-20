@@ -1,5 +1,5 @@
 ---
-id: nvwa-agent
+id: reporter
 name: "报告文案整理"
 no_history: false
 enable_research_tools: false

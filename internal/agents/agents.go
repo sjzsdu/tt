@@ -14,7 +14,8 @@ import (
 const (
 	TranslateMasterID     = "translate-master"
 	CoderID               = "coder"
-	ReporterID            = "nvwa-agent"
+	ReporterID            = "reporter"
+	legacyReporterID      = "nvwa-agent"
 	FullStackID           = "full-stack"
 	PlannerID             = "planner"
 	ProductManagerID      = "product-manager"
@@ -96,7 +97,7 @@ func StockDiscussion() []pcwrap.EmbeddedAgent {
 }
 
 func Get(id string) (pcwrap.EmbeddedAgent, error) {
-	id = strings.TrimSpace(id)
+	id = canonicalAgentID(strings.TrimSpace(id))
 	if id == "" {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("agent id is required")
 	}
@@ -168,7 +169,7 @@ func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
 	if err := yaml.Unmarshal([]byte(meta), &def); err != nil {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("parse embedded agent %s frontmatter failed: %w", path, err)
 	}
-	def.ID = strings.TrimSpace(def.ID)
+	def.ID = canonicalAgentID(strings.TrimSpace(def.ID))
 	def.Name = strings.TrimSpace(def.Name)
 	if def.ID == "" {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("embedded agent %s missing id", path)
@@ -185,6 +186,15 @@ func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
 		NoHistory:           def.NoHistory,
 		EnableResearchTools: def.EnableResearchTools,
 	}, nil
+}
+
+func canonicalAgentID(id string) string {
+	switch strings.TrimSpace(id) {
+	case legacyReporterID:
+		return ReporterID
+	default:
+		return strings.TrimSpace(id)
+	}
 }
 
 func splitFrontMatter(content string) (string, string, error) {
