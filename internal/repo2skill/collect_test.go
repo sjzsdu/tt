@@ -40,18 +40,39 @@ func TestCollectNPMRepo(t *testing.T) {
 	}
 }
 
-func TestRenderAllIncludesReferences(t *testing.T) {
+func TestRenderAllOmitsEvidenceByDefault(t *testing.T) {
 	p := &RepoProfile{Name: "demo", Source: "local", Intent: "use-library", PublicAPIs: []APISymbol{{Name: "DoThing", Kind: "symbol", Source: "demo.go", Evidence: "demo.go exports DoThing"}}}
 	m, err := HeuristicAnalyzer{}.Analyze(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var b bytes.Buffer
-	if err := RenderAll(m, &b); err != nil {
+	if err := RenderAll(m, &b, false); err != nil {
 		t.Fatal(err)
 	}
 	out := b.String()
-	for _, want := range []string{"# demo repo skill", "Public API starting points", "# demo API reference", "# demo usage recipes", "# demo evidence map"} {
+	for _, want := range []string{"# demo repo skill", "Public API starting points", "# demo API reference", "# demo usage recipes", "## Avoid"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in output:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Evidence map") || strings.Contains(out, "# demo evidence map") {
+		t.Fatalf("evidence map should be omitted by default:\n%s", out)
+	}
+}
+
+func TestRenderAllIncludesEvidenceWhenRequested(t *testing.T) {
+	p := &RepoProfile{Name: "demo", Source: "local", Intent: "use-library", PublicAPIs: []APISymbol{{Name: "DoThing", Kind: "symbol", Source: "demo.go", Evidence: "demo.go exports DoThing"}}}
+	m, err := HeuristicAnalyzer{}.Analyze(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	if err := RenderAll(m, &b, true); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{"- [Evidence map](references/evidence.md)", "# demo evidence map"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in output:\n%s", want, out)
 		}
@@ -62,7 +83,7 @@ func TestRenderMainSkillQuotesFrontmatter(t *testing.T) {
 	p := &RepoProfile{Name: "scope/pkg:demo", Intent: "use-library"}
 	m := &SkillModel{Profile: p, Purpose: "Demo"}
 	var b bytes.Buffer
-	if err := RenderMainSkill(m, &b); err != nil {
+	if err := RenderMainSkill(m, &b, false); err != nil {
 		t.Fatal(err)
 	}
 	out := b.String()

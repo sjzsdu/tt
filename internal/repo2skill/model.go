@@ -3,16 +3,17 @@ package repo2skill
 import "time"
 
 type Options struct {
-	TargetDir   string
-	DryRun      bool
-	Markdown    bool
-	Intent      string
-	Language    string
-	MaxFiles    int
-	MaxFileSize int64
-	Timeout     time.Duration
-	KeepTemp    bool
-	Analyzer    Analyzer
+	TargetDir       string
+	DryRun          bool
+	Markdown        bool
+	Intent          string
+	Language        string
+	MaxFiles        int
+	MaxFileSize     int64
+	Timeout         time.Duration
+	KeepTemp        bool
+	IncludeEvidence bool
+	Analyzer        Analyzer
 }
 
 type RepoProfile struct {

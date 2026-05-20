@@ -298,7 +298,7 @@ Flags:
 
 ### `tt repo2skill`
 
-Analyze a local or remote repository and generate an agent-oriented skill for using that library in development. The generated skill emphasizes repository purpose, installation hints, public API starting points, documented recipes, best practices, validation notes, and an evidence map. It has first-class deterministic collector coverage for TypeScript/JavaScript, Python, Go, and Rust repository layouts.
+Analyze a local or remote repository and generate an agent-oriented skill for using that library in development. The generated skill emphasizes repository purpose, installation hints, public API starting points, documented recipes, best practices, avoid rules, and validation notes. It has first-class deterministic collector coverage for TypeScript/JavaScript, Python, Go, and Rust repository layouts.
 
 ```bash
 tt repo2skill ./my-library
@@ -319,6 +319,7 @@ Flags:
 - `--max-file-size int`: maximum bytes per collected file, default `262144`.
 - `--timeout duration`: timeout for git clone and analysis steps, default `2m`.
 - `--keep-temp`: keep cloned temporary repository for debugging.
+- `--include-evidence`: write `references/evidence.md` and link it from `SKILL.md` for audit/debugging. Omitted by default to keep coding-agent skills focused.
 - `--analyzer string`: analysis mode, `auto`, `agent`, or `heuristic`, default `auto`. Auto uses the embedded Picoclaw `repo2skill` agent when available and falls back to deterministic heuristics.
 - `--model string`: Picoclaw model override for agent analysis.
 - `--session string`: Picoclaw session key for agent analysis, default `cli:repo2skill`.
@@ -332,7 +333,7 @@ skills/<repo-name>/
   references/
     api.md
     recipes.md
-    evidence.md
+    evidence.md  # only with --include-evidence
 ```
 
 ### `tt mirror`

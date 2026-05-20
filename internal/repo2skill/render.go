@@ -26,7 +26,7 @@ func Run(input string, opts Options, stdout io.Writer) error {
 	}
 	model = NormalizeSkillModel(model)
 	if opts.DryRun {
-		return RenderAll(model, stdout)
+		return RenderAll(model, stdout, opts.IncludeEvidence)
 	}
 	if opts.Markdown {
 		tmp, err := os.MkdirTemp("", "repo2skill-skill-*")
@@ -34,7 +34,7 @@ func Run(input string, opts Options, stdout io.Writer) error {
 			return err
 		}
 		defer os.RemoveAll(tmp)
-		if err := WriteSkillFiles(model, tmp, stdout); err != nil {
+		if err := WriteSkillFiles(model, tmp, stdout, opts.IncludeEvidence); err != nil {
 			return err
 		}
 		cmd := exec.Command(os.Args[0], "markdown", tmp)
@@ -49,7 +49,7 @@ func Run(input string, opts Options, stdout io.Writer) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := WriteSkillFiles(model, dir, stdout); err != nil {
+	if err := WriteSkillFiles(model, dir, stdout, opts.IncludeEvidence); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Generated repo skill for %s in %s/\n", profile.Name, dir)
@@ -73,7 +73,7 @@ func resolveSkillDir(targetDir, name string) (string, error) {
 	return filepath.Join(targetDir, name), nil
 }
 
-func WriteSkillFiles(m *SkillModel, dir string, log io.Writer) error {
+func WriteSkillFiles(m *SkillModel, dir string, log io.Writer, includeEvidence bool) error {
 	if err := os.MkdirAll(filepath.Join(dir, "references"), 0o755); err != nil {
 		return err
 	}
@@ -81,13 +81,16 @@ func WriteSkillFiles(m *SkillModel, dir string, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := RenderMainSkill(m, f); err != nil {
+	if err := RenderMainSkill(m, f, includeEvidence); err != nil {
 		f.Close()
 		return err
 	}
 	f.Close()
 	fmt.Fprintln(log, "  wrote: SKILL.md")
-	refs := map[string]func(io.Writer, *SkillModel) error{"api.md": RenderAPIReference, "recipes.md": RenderRecipesReference, "evidence.md": RenderEvidenceReference}
+	refs := map[string]func(io.Writer, *SkillModel) error{"api.md": RenderAPIReference, "recipes.md": RenderRecipesReference}
+	if includeEvidence {
+		refs["evidence.md"] = RenderEvidenceReference
+	}
 	names := []string{}
 	for n := range refs {
 		names = append(names, n)
@@ -107,11 +110,15 @@ func WriteSkillFiles(m *SkillModel, dir string, log io.Writer) error {
 	}
 	return nil
 }
-func RenderAll(m *SkillModel, out io.Writer) error {
-	if err := RenderMainSkill(m, out); err != nil {
+func RenderAll(m *SkillModel, out io.Writer, includeEvidence bool) error {
+	if err := RenderMainSkill(m, out, includeEvidence); err != nil {
 		return err
 	}
-	for _, fn := range []func(io.Writer, *SkillModel) error{RenderAPIReference, RenderRecipesReference, RenderEvidenceReference} {
+	fns := []func(io.Writer, *SkillModel) error{RenderAPIReference, RenderRecipesReference}
+	if includeEvidence {
+		fns = append(fns, RenderEvidenceReference)
+	}
+	for _, fn := range fns {
 		fmt.Fprint(out, "\n---\n\n")
 		if err := fn(out, m); err != nil {
 			return err
@@ -120,7 +127,7 @@ func RenderAll(m *SkillModel, out io.Writer) error {
 	return nil
 }
 
-func RenderMainSkill(m *SkillModel, out io.Writer) error {
+func RenderMainSkill(m *SkillModel, out io.Writer, includeEvidence bool) error {
 	p := m.Profile
 	fmt.Fprintf(out, "---\nname: %s\ndescription: %s\n---\n\n", yamlQuote(skillName(p.Name)), yamlQuote(fmt.Sprintf("Use the %s repository/library correctly in development. Generated from repo evidence for intent: %s.", p.Name, p.Intent)))
 	fmt.Fprintf(out, "# %s repo skill\n\n", p.Name)
@@ -149,13 +156,22 @@ func RenderMainSkill(m *SkillModel, out io.Writer) error {
 		}
 		fmt.Fprint(out, "\nSee [API reference](references/api.md) for more.\n")
 	}
+	if len(m.WhenNotToUse) > 0 {
+		fmt.Fprint(out, "\n## Avoid\n\n")
+		for _, x := range m.WhenNotToUse {
+			fmt.Fprintf(out, "- %s\n", x)
+		}
+	}
 	if len(m.Recipes) > 0 {
 		fmt.Fprint(out, "\n## Common recipes\n\n")
 		for _, r := range m.Recipes {
 			fmt.Fprintf(out, "- [%s](references/recipes.md#%s) - %s\n", r.Title, anchor(r.Title), r.Description)
 		}
 	}
-	fmt.Fprint(out, "\n## Agent operating rules\n\n- Treat repository docs, examples, and package entrypoints as source of truth.\n- Do not recommend internal/private APIs unless the docs explicitly say they are public.\n- When using generated examples, run the target project's type checker or tests.\n- If a needed API is missing from this skill, inspect upstream docs before coding.\n\n## References\n\n- [API reference](references/api.md)\n- [Recipes](references/recipes.md)\n- [Evidence map](references/evidence.md)\n")
+	fmt.Fprint(out, "\n## Agent operating rules\n\n- Treat repository docs, examples, and package entrypoints as source of truth.\n- Do not recommend internal/private APIs unless the docs explicitly say they are public.\n- When using generated examples, run the target project's type checker or tests.\n- If a needed API is missing from this skill, inspect upstream docs before coding.\n\n## References\n\n- [API reference](references/api.md)\n- [Recipes](references/recipes.md)\n")
+	if includeEvidence {
+		fmt.Fprint(out, "- [Evidence map](references/evidence.md)\n")
+	}
 	return nil
 }
 func RenderAPIReference(out io.Writer, m *SkillModel) error {

@@ -13,19 +13,20 @@ import (
 )
 
 var (
-	repo2skillTargetDir    string
-	repo2skillDryRun       bool
-	repo2skillMarkdown     bool
-	repo2skillIntent       string
-	repo2skillLanguage     string
-	repo2skillMaxFiles     int
-	repo2skillMaxFileSize  int64
-	repo2skillTimeout      time.Duration
-	repo2skillKeepTemp     bool
-	repo2skillAnalyzerMode string
-	repo2skillAgentModel   string
-	repo2skillAgentSession string
-	repo2skillAgentDebug   bool
+	repo2skillTargetDir       string
+	repo2skillDryRun          bool
+	repo2skillMarkdown        bool
+	repo2skillIntent          string
+	repo2skillLanguage        string
+	repo2skillMaxFiles        int
+	repo2skillMaxFileSize     int64
+	repo2skillTimeout         time.Duration
+	repo2skillKeepTemp        bool
+	repo2skillIncludeEvidence bool
+	repo2skillAnalyzerMode    string
+	repo2skillAgentModel      string
+	repo2skillAgentSession    string
+	repo2skillAgentDebug      bool
 )
 
 var repo2skillCmd = &cobra.Command{
@@ -56,6 +57,7 @@ func init() {
 	repo2skillCmd.Flags().Int64Var(&repo2skillMaxFileSize, "max-file-size", 256*1024, "maximum bytes per collected file")
 	repo2skillCmd.Flags().DurationVar(&repo2skillTimeout, "timeout", 2*time.Minute, "timeout for git clone and analysis steps")
 	repo2skillCmd.Flags().BoolVar(&repo2skillKeepTemp, "keep-temp", false, "keep cloned temporary repository for debugging")
+	repo2skillCmd.Flags().BoolVar(&repo2skillIncludeEvidence, "include-evidence", false, "write references/evidence.md and link it from SKILL.md for audit/debugging")
 	repo2skillCmd.Flags().StringVar(&repo2skillAnalyzerMode, "analyzer", "auto", "analysis mode: auto, agent, or heuristic")
 	repo2skillCmd.Flags().StringVar(&repo2skillAgentModel, "model", "", "Picoclaw model override for --analyzer agent/auto")
 	repo2skillCmd.Flags().StringVar(&repo2skillAgentSession, "session", "cli:repo2skill", "Picoclaw session key for agent analysis")
@@ -71,7 +73,7 @@ func runRepo2Skill(args []string) error {
 		return err
 	}
 	defer cleanup()
-	return repo2skillpkg.Run(args[0], repo2skillpkg.Options{TargetDir: repo2skillTargetDir, DryRun: repo2skillDryRun, Markdown: repo2skillMarkdown, Intent: repo2skillIntent, Language: repo2skillLanguage, MaxFiles: repo2skillMaxFiles, MaxFileSize: repo2skillMaxFileSize, Timeout: repo2skillTimeout, KeepTemp: repo2skillKeepTemp, Analyzer: analyzer}, os.Stdout)
+	return repo2skillpkg.Run(args[0], repo2skillpkg.Options{TargetDir: repo2skillTargetDir, DryRun: repo2skillDryRun, Markdown: repo2skillMarkdown, Intent: repo2skillIntent, Language: repo2skillLanguage, MaxFiles: repo2skillMaxFiles, MaxFileSize: repo2skillMaxFileSize, Timeout: repo2skillTimeout, KeepTemp: repo2skillKeepTemp, IncludeEvidence: repo2skillIncludeEvidence, Analyzer: analyzer}, os.Stdout)
 }
 
 func buildRepo2SkillAnalyzer() (repo2skillpkg.Analyzer, func(), error) {
