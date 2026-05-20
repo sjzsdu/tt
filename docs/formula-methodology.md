@@ -10,7 +10,7 @@ Use deterministic steps for facts and validation, and agent steps for judgment a
 script collects facts -> agent reasons -> script validates -> agent reports
 ```
 
-This keeps the workflow auditable and reduces hallucination. If a command can reliably fetch data, run it as a script step. If a human would need to weigh tradeoffs, explain risks, design a solution, or produce a report, use an agent step.
+This keeps the workflow auditable and reduces hallucination. If a command can reliably fetch data, run it as a script step. If a human would need to weigh tradeoffs, explain risks, design a solution, or produce a report, use an agent step. For script implementation, prefer direct argv commands first, short bash argv scripts for light glue, and Python only when bash/CLI/jq cannot express the required structured processing cleanly.
 
 ## Formula design process
 

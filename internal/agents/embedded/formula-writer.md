@@ -125,7 +125,9 @@ output_key = "classification"
 
 规则：
 
-- 使用 argv command，不要 shell string。
+- 单个工具调用优先使用直接 argv command，例如 `command = ["gh", "pr", "view", "{{pr}}", "--json", "..."]`，不要为了调用 `gh/git/jq/curl` 再包一层 Python。
+- 需要少量 glue logic、管道、变量、fallback、或组合多个 CLI 输出时，优先使用 bash argv：`command = ["bash", "-lc", "..."]`。保持脚本短小、可审计，并用 `set -euo pipefail`。
+- 只有当 bash/CLI/jq 很难安全表达复杂 JSON 变换、跨平台文本处理、或多步骤结构化合并时，才使用 `python3 -c`。
 - 设置 `timeout`。
 - `format = "json"` 时 stdout 必须只有合法 JSON。
 - 测试/验证类命令可设置 `continue_on_error = true`，让失败进入报告。

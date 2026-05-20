@@ -150,7 +150,7 @@ Use `tt agent --list` to inspect available agents. If an agent is missing, formu
 
 ## Script steps
 
-Use script steps for deterministic local commands. They do not call an agent.
+Use script steps for deterministic local commands. They do not call an agent. Prefer direct argv commands for one tool call; use short bash argv scripts for light glue; reserve Python for cases where bash/CLI/jq cannot express the transformation cleanly.
 
 ```toml
 [[steps]]
@@ -197,7 +197,10 @@ Later steps should consume the `output_key` via `input_context` or conditions.
 
 Treat formula files as executable workflow definitions.
 
-- Prefer argv `command = [...]`; avoid shell strings.
+- Prefer direct argv `command = [...]` for a single command such as `gh`, `git`, `go test`, `npm test`, `jq`, or `curl`.
+- For short multi-command glue, prefer bash argv, for example `command = ["bash", "-lc", "set -euo pipefail; gh pr view ..."]`. Keep bash scripts small and auditable.
+- Do not wrap simple `gh/git/jq/curl` calls in `python3 -c`; use Python only for complex JSON/text transformations that are awkward or unsafe in bash/jq.
+- Avoid formula `shell = "bash"` mode unless explicitly needed; `command = ["bash", "-lc", "..."]` remains an argv command.
 - Dangerous commands and patterns are denied, including `rm`, `rmdir`, `sudo`, `su`, `chmod`, `chown`, `dd`, `mkfs`, `shutdown`, `reboot`, `rm -rf`, and pipe-to-shell patterns.
 - Users can disable scripts for a run with `tt formula run ... --no-script`.
 - Shell mode requires explicit opt-in: `tt formula run ... --allow-shell-script`.

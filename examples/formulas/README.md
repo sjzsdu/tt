@@ -20,7 +20,7 @@ This directory contains small formulas demonstrating runtime decisions, loops, a
 
 ## Script steps
 
-Use `execution = "script"` when a step should run a deterministic local command instead of an agent. Prefer argv-style commands because they avoid shell injection and are easier to audit:
+Use `execution = "script"` when a step should run a deterministic local command instead of an agent. Prefer direct argv-style commands because they avoid shell injection and are easier to audit. For light multi-command glue, prefer short bash argv scripts such as `command = ["bash", "-lc", "set -euo pipefail; ..."]`; use Python only when bash/CLI/jq is not enough for complex structured processing:
 
 ```toml
 [[steps]]
