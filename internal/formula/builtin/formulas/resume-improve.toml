@@ -1,0 +1,62 @@
+formula = "resume-improve"
+title = "简历优化"
+description = "根据目标岗位，从影响力、关键词和清晰度角度优化简历。"
+version = 1
+type = "workflow"
+category = "职业"
+tags = ["内置", "职业"]
+
+[vars]
+target = { description = "目标岗位、JD 或简历内容", required = true }
+
+[[steps]]
+id = "extract-profile"
+title = "提取候选人画像"
+description = """
+从目标/简历背景 {{target}} 中提取目标岗位、候选人优势、项目、指标和缺口。
+"""
+output_key = "profile"
+agent.name = "reporter"
+
+[[steps]]
+id = "jd-alignment"
+title = "对齐目标岗位"
+depends_on = ["extract-profile"]
+input_context = ["profile"]
+description = """
+识别目标关键词、职责、所需证据和与岗位的差距。
+"""
+output_key = "alignment"
+agent.name = "product-manager"
+
+[[steps]]
+id = "rewrite-bullets"
+title = "重写简历要点"
+depends_on = ["jd-alignment"]
+input_context = ["profile", "alignment"]
+description = """
+用动作、范围、影响、指标和岗位相关语言重写关键 bullet。
+"""
+output_key = "bullets"
+agent.name = "reporter"
+
+[[steps]]
+id = "ats-review"
+title = "ATS 和招聘者视角检查"
+depends_on = ["rewrite-bullets"]
+input_context = ["alignment", "bullets"]
+description = """
+检查清晰度、ATS 友好度、关键词匹配、夸大风险和缺失量化。
+"""
+output_key = "review"
+agent.name = "reporter"
+
+[[steps]]
+id = "final-resume-notes"
+title = "输出简历优化包"
+depends_on = ["ats-review"]
+input_context = ["profile", "alignment", "bullets", "review"]
+description = """
+输出优化后的 summary、bullet 重写、缺口列表和投递定制清单。
+"""
+agent.name = "reporter"

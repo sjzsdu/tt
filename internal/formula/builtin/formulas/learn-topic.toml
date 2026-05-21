@@ -1,0 +1,62 @@
+formula = "learn-topic"
+title = "学习一个主题"
+description = "为一个主题生成学习路径、概念解释和练习。"
+version = 1
+type = "workflow"
+category = "学习"
+tags = ["内置", "学习"]
+
+[vars]
+topic = { description = "想学习的主题", required = true }
+
+[[steps]]
+id = "diagnose"
+title = "诊断学习者水平"
+description = """
+针对主题 {{topic}}，推断或询问当前水平、学习目标、时间预算和偏好的学习方式。
+"""
+output_key = "learner"
+agent.name = "planner"
+
+[[steps]]
+id = "knowledge-map"
+title = "生成知识地图"
+depends_on = ["diagnose"]
+input_context = ["learner"]
+description = """
+梳理前置概念、核心知识、高阶主题和常见误解。
+"""
+output_key = "map"
+agent.name = "docs-analyst"
+
+[[steps]]
+id = "learning-path"
+title = "设计学习路径"
+depends_on = ["knowledge-map"]
+input_context = ["learner", "map"]
+description = """
+生成分阶段学习路径，包含时间估算、建议寻找的资源类型和检查点。
+"""
+output_key = "path"
+agent.name = "planner"
+
+[[steps]]
+id = "practice"
+title = "生成练习"
+depends_on = ["learning-path"]
+input_context = ["map", "path"]
+description = """
+生成练习题、反思问题、小项目和自测评分标准。
+"""
+output_key = "practice"
+agent.name = "tester"
+
+[[steps]]
+id = "study-plan"
+title = "输出学习计划"
+depends_on = ["practice"]
+input_context = ["learner", "map", "path", "practice"]
+description = """
+输出完整学习指南，包含第一节课安排、检查点、练习和复习节奏。
+"""
+agent.name = "reporter"

@@ -72,6 +72,15 @@ type Formula struct {
 	// Description explains what this formula does.
 	Description string `json:"description,omitempty" toml:"description,omitempty"`
 
+	// Title is a human-friendly display name.
+	Title string `json:"title,omitempty" toml:"title,omitempty"`
+
+	// Category groups formulas in catalogs and list output.
+	Category string `json:"category,omitempty" toml:"category,omitempty"`
+
+	// Tags provide lightweight discovery keywords.
+	Tags []string `json:"tags,omitempty" toml:"tags,omitempty"`
+
 	// Version is the formula revision.
 	Version int `json:"version" toml:"version"`
 

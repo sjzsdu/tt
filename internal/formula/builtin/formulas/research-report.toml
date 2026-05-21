@@ -1,0 +1,62 @@
+formula = "research-report"
+title = "研究报告"
+description = "围绕一个问题或主题生成结构化研究报告。"
+version = 1
+type = "workflow"
+category = "研究"
+tags = ["内置", "研究"]
+
+[vars]
+question = { description = "研究问题或主题", required = true }
+
+[[steps]]
+id = "scope"
+title = "界定研究范围"
+description = """
+澄清研究问题：{{question}}。定义范围、假设、所需证据和输出格式。
+"""
+output_key = "scope"
+agent.name = "docs-analyst"
+
+[[steps]]
+id = "decompose"
+title = "拆分子问题"
+depends_on = ["scope"]
+input_context = ["scope"]
+description = """
+把研究问题拆成子问题，并说明回答每个子问题需要什么证据。
+"""
+output_key = "subquestions"
+agent.name = "docs-analyst"
+
+[[steps]]
+id = "synthesize"
+title = "综合发现"
+depends_on = ["decompose"]
+input_context = ["scope", "subquestions"]
+description = """
+综合可能的发现、不同观点、置信度和开放问题。如果未提供资料，必须明确标记假设。
+"""
+output_key = "findings"
+agent.name = "docs-analyst"
+
+[[steps]]
+id = "red-flags"
+title = "检查不确定性和偏差"
+depends_on = ["synthesize"]
+input_context = ["findings"]
+description = """
+识别证据薄弱处、偏差风险、缺失视角和需要验证的主张。
+"""
+output_key = "caveats"
+agent.name = "docs-analyst"
+
+[[steps]]
+id = "report"
+title = "撰写研究报告"
+depends_on = ["red-flags"]
+input_context = ["scope", "subquestions", "findings", "caveats"]
+description = """
+输出结构化报告，包含摘要、主要发现、证据需求、限制和下一步研究建议。
+"""
+agent.name = "reporter"

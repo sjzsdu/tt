@@ -1,0 +1,62 @@
+formula = "business-idea-evaluate"
+title = "商业想法评估"
+description = "从用户、痛点、市场、GTM、商业模式和风险评估一个商业想法。"
+version = 1
+type = "workflow"
+category = "商业"
+tags = ["内置", "商业"]
+
+[vars]
+idea = { description = "商业想法", required = true }
+
+[[steps]]
+id = "define-idea"
+title = "定义想法和客户"
+description = """
+澄清商业想法：{{idea}}。定义客户群体、痛点、现有替代方案和价值主张。
+"""
+output_key = "definition"
+agent.name = "product-manager"
+
+[[steps]]
+id = "market"
+title = "分析市场和替代方案"
+depends_on = ["define-idea"]
+input_context = ["definition"]
+description = """
+分析市场规模假设、紧迫性、竞品、替代品和差异化。
+"""
+output_key = "market"
+agent.name = "product-manager"
+
+[[steps]]
+id = "model"
+title = "分析商业模式"
+depends_on = ["market"]
+input_context = ["definition", "market"]
+description = """
+评估定价、获客渠道、单位经济假设、留存和运营复杂度。
+"""
+output_key = "model"
+agent.name = "product-manager"
+
+[[steps]]
+id = "mvp"
+title = "设计 MVP 实验"
+depends_on = ["model"]
+input_context = ["definition", "market", "model"]
+description = """
+设计最小验证实验、目标用户、成功标准和时间线。
+"""
+output_key = "mvp"
+agent.name = "product-manager"
+
+[[steps]]
+id = "verdict"
+title = "输出评估结论"
+depends_on = ["mvp"]
+input_context = ["definition", "market", "model", "mvp"]
+description = """
+输出评分卡、风险、证伪测试、MVP 计划和建议。
+"""
+agent.name = "reporter"

@@ -1,0 +1,62 @@
+formula = "goal-breakdown"
+title = "目标拆解"
+description = "把模糊目标拆成里程碑、每周行动、指标和风险。"
+version = 1
+type = "workflow"
+category = "规划"
+tags = ["内置", "规划"]
+
+[vars]
+goal = { description = "想要达成的目标", required = true }
+
+[[steps]]
+id = "define-goal"
+title = "定义可衡量目标"
+description = """
+把目标转成清晰、可衡量的结果：{{goal}}。识别截止时间、当前基线、约束和动机。
+"""
+output_key = "goal_spec"
+agent.name = "planner"
+
+[[steps]]
+id = "milestones"
+title = "拆分里程碑"
+depends_on = ["define-goal"]
+input_context = ["goal_spec"]
+description = """
+把目标拆成若干里程碑，并为每个里程碑定义客观完成标准。
+"""
+output_key = "milestones"
+agent.name = "planner"
+
+[[steps]]
+id = "weekly-actions"
+title = "规划每周行动"
+depends_on = ["milestones"]
+input_context = ["goal_spec", "milestones"]
+description = """
+生成每周行动、习惯、复盘节奏和备选方案。
+"""
+output_key = "actions"
+agent.name = "planner"
+
+[[steps]]
+id = "risk-review"
+title = "检查风险"
+depends_on = ["weekly-actions"]
+input_context = ["actions"]
+description = """
+识别常见阻碍、领先指标和缓解策略。
+"""
+output_key = "risks"
+agent.name = "planner"
+
+[[steps]]
+id = "action-plan"
+title = "输出行动计划"
+depends_on = ["risk-review"]
+input_context = ["goal_spec", "milestones", "actions", "risks"]
+description = """
+输出简洁目标计划，包含里程碑、每周清单、追踪指标和未来 48 小时行动。
+"""
+agent.name = "reporter"

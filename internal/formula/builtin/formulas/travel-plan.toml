@@ -1,0 +1,62 @@
+formula = "travel-plan"
+title = "旅行计划"
+description = "规划旅行行程、预算、节奏、后勤和打包清单。"
+version = 1
+type = "workflow"
+category = "生活"
+tags = ["内置", "生活"]
+
+[vars]
+trip = { description = "目的地、日期、预算和偏好", required = true }
+
+[[steps]]
+id = "trip-brief"
+title = "澄清旅行需求"
+description = """
+澄清旅行需求：{{trip}}。提取目的地、日期、预算、同行人、兴趣、约束和节奏偏好。
+"""
+output_key = "brief"
+agent.name = "planner"
+
+[[steps]]
+id = "route-options"
+title = "生成路线方案"
+depends_on = ["trip-brief"]
+input_context = ["brief"]
+description = """
+生成 2-3 个行程概念，说明取舍、交通时间假设和预算影响。
+"""
+output_key = "options"
+agent.name = "planner"
+
+[[steps]]
+id = "daily-itinerary"
+title = "生成每日行程"
+depends_on = ["route-options"]
+input_context = ["brief", "options"]
+description = """
+生成平衡的逐日行程，包含餐饮、交通、休息和备选方案。
+"""
+output_key = "itinerary"
+agent.name = "planner"
+
+[[steps]]
+id = "logistics"
+title = "检查后勤和风险"
+depends_on = ["daily-itinerary"]
+input_context = ["brief", "itinerary"]
+description = """
+检查签证、天气、交通、预订风险、无障碍、安全和预算风险。明确标记假设。
+"""
+output_key = "logistics"
+agent.name = "planner"
+
+[[steps]]
+id = "travel-pack"
+title = "输出旅行方案"
+depends_on = ["logistics"]
+input_context = ["brief", "options", "itinerary", "logistics"]
+description = """
+输出最终行程、预算估算、预订清单、打包清单和备用方案。
+"""
+agent.name = "reporter"

@@ -1,0 +1,51 @@
+formula = "meeting-summary"
+title = "会议纪要"
+description = "把会议记录整理成决策、行动项、风险和跟进消息。"
+version = 1
+type = "workflow"
+category = "工作"
+tags = ["内置", "工作"]
+
+[vars]
+notes = { description = "会议记录或转录文本", required = true }
+
+[[steps]]
+id = "extract-topics"
+title = "提取议题"
+description = """
+从会议记录 {{notes}} 中提取参会人、议题、决策、问题和重要上下文。
+"""
+output_key = "topics"
+agent.name = "reporter"
+
+[[steps]]
+id = "actions"
+title = "提取行动项"
+depends_on = ["extract-topics"]
+input_context = ["topics"]
+description = """
+提取行动项，包含负责人、截止时间、依赖和模糊点。标记缺失负责人或时间的事项。
+"""
+output_key = "actions"
+agent.name = "planner"
+
+[[steps]]
+id = "risks"
+title = "识别风险和开放问题"
+depends_on = ["actions"]
+input_context = ["topics", "actions"]
+description = """
+识别风险、未解决决策、跟进问题和需要确认的话题。
+"""
+output_key = "risks"
+agent.name = "planner"
+
+[[steps]]
+id = "final-summary"
+title = "输出会议纪要"
+depends_on = ["risks"]
+input_context = ["topics", "actions", "risks"]
+description = """
+输出简洁会议纪要、行动项表格、决策、开放问题和跟进消息草稿。
+"""
+agent.name = "reporter"

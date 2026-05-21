@@ -1,0 +1,51 @@
+formula = "daily-plan"
+title = "每日计划"
+description = "根据任务、时间约束和优先级，生成可执行的一日计划。"
+version = 1
+type = "workflow"
+category = "效率"
+tags = ["内置", "效率"]
+
+[vars]
+focus = { description = "今天要完成的目标或任务背景", required = true }
+
+[[steps]]
+id = "capture-context"
+title = "收集今日上下文"
+description = """
+梳理今天的可用时间、固定安排、精力状态、未完成事项、硬截止时间和目标：{{focus}}。输出紧凑 JSON，包含 tasks、constraints 和 assumptions。
+"""
+output_key = "context"
+agent.name = "planner"
+
+[[steps]]
+id = "prioritize"
+title = "任务优先级排序"
+depends_on = ["capture-context"]
+input_context = ["context"]
+description = """
+把任务分为必须做、应该做、可选、委派/放弃。简要说明取舍，并标记是否过载。输出按优先级排序的 JSON。
+"""
+output_key = "priorities"
+agent.name = "planner"
+
+[[steps]]
+id = "time-block"
+title = "生成时间块安排"
+depends_on = ["prioritize"]
+input_context = ["context", "priorities"]
+description = """
+基于上下文和优先级，生成现实可执行的时间块计划，包含缓冲、休息和备选方案。
+"""
+output_key = "schedule"
+agent.name = "planner"
+
+[[steps]]
+id = "final-checklist"
+title = "输出每日执行清单"
+depends_on = ["time-block"]
+input_context = ["schedule"]
+description = """
+输出简洁的一日计划：Top 3 结果、时间安排、执行清单、风险提醒和日终复盘问题。
+"""
+agent.name = "reporter"
