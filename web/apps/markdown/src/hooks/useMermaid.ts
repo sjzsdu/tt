@@ -7,6 +7,34 @@ mermaid.initialize({
   securityLevel: 'loose',
   logLevel: 'error',
   flowchart: { useMaxWidth: true, htmlLabels: false, curve: 'basis' },
+  themeCSS: `
+    .node rect, .node circle, .node ellipse, .node polygon, .node path {
+      fill: #fff;
+      stroke: #cbd5e1;
+      stroke-width: 1.5px;
+      rx: 6px;
+      ry: 6px;
+    }
+    .edgePath .path {
+      stroke: #94a3b8;
+      stroke-width: 1.5px;
+    }
+    .edgeLabel {
+      background-color: #fff;
+      color: #475569;
+      font-size: 12px;
+    }
+    .cluster rect {
+      fill: #f8fafc;
+      stroke: #e2e8f0;
+      stroke-width: 1px;
+    }
+    .label {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #0f172a;
+      font-size: 13px;
+    }
+  `,
 });
 
 export function useMermaid(code: string, index: number) {

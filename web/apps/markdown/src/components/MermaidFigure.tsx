@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useMermaid } from '../hooks/useMermaid';
 import { usePanZoom } from '../hooks/usePanZoom';
 import { svgToBlob, svgMarkupToPngBlob, downloadBlob } from '../utils/svgExport';
@@ -15,6 +15,13 @@ interface SvgSize {
   width: number;
   height: number;
 }
+
+interface PanZoomState {
+  scale: number;
+  position: { x: number; y: number };
+}
+
+const MIN_VIEWPORT_HEIGHT = 300;
 
 function transformedBox(el: SVGGraphicsElement): SvgSize | null {
   const box = el.getBBox();
@@ -45,23 +52,44 @@ function transformedBox(el: SVGGraphicsElement): SvgSize | null {
 }
 
 function readSvgSize(svg: SVGSVGElement): SvgSize {
+  const rect = svg.getBoundingClientRect();
+  const viewBox = svg.viewBox?.baseVal;
+  if (rect.width > 0 && rect.height > 0) {
+    return {
+      minX: viewBox?.x ?? 0,
+      minY: viewBox?.y ?? 0,
+      width: Math.max(1, Math.ceil(rect.width)),
+      height: Math.max(1, Math.ceil(rect.height)),
+    };
+  }
+
   try {
-    const contentEl = svg.querySelector<SVGGraphicsElement>('g') || svg;
-    const box = transformedBox(contentEl);
-    if (box) {
+    const box = svg.getBBox();
+    if (box.width > 0 && box.height > 0) {
       const padding = 12;
       return {
-        minX: Math.floor(box.minX - padding),
-        minY: Math.floor(box.minY - padding),
+        minX: Math.floor(box.x - padding),
+        minY: Math.floor(box.y - padding),
         width: Math.ceil(box.width + padding * 2),
         height: Math.ceil(box.height + padding * 2),
+      };
+    }
+
+    const contentEl = svg.querySelector<SVGGraphicsElement>('g');
+    const transformed = contentEl ? transformedBox(contentEl) : null;
+    if (transformed) {
+      const padding = 12;
+      return {
+        minX: Math.floor(transformed.minX - padding),
+        minY: Math.floor(transformed.minY - padding),
+        width: Math.ceil(transformed.width + padding * 2),
+        height: Math.ceil(transformed.height + padding * 2),
       };
     }
   } catch {
     // getBBox may fail for detached or not-yet-painted SVGs. Fall back below.
   }
 
-  const viewBox = svg.viewBox?.baseVal;
   if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
     return {
       minX: viewBox.x,
@@ -71,7 +99,6 @@ function readSvgSize(svg: SVGSVGElement): SvgSize {
     };
   }
 
-  const rect = svg.getBoundingClientRect();
   const width = Number(svg.getAttribute('width')) || rect.width || 600;
   const height = Number(svg.getAttribute('height')) || rect.height || 300;
   return {
@@ -89,6 +116,36 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
   const { svg, err } = useMermaid(code, index);
   const [panZoomTarget, setPanZoomTarget] = useState<HTMLDivElement | null>(null);
   const [baseSize, setBaseSize] = useState<SvgSize>({ minX: 0, minY: 0, width: 600, height: 300 });
+  const [initialState, setInitialState] = useState<PanZoomState>({ scale: 1, position: { x: 0, y: 0 } });
+  const [viewportHeight, setViewportHeight] = useState(MIN_VIEWPORT_HEIGHT);
+
+  const updateInitialView = useCallback(() => {
+    const viewport = viewportRef.current;
+    const styles = viewport ? window.getComputedStyle(viewport) : null;
+    const paddingLeft = styles ? parseFloat(styles.paddingLeft || '0') : 0;
+    const paddingRight = styles ? parseFloat(styles.paddingRight || '0') : 0;
+    const paddingTop = styles ? parseFloat(styles.paddingTop || '0') : 0;
+    const paddingBottom = styles ? parseFloat(styles.paddingBottom || '0') : 0;
+    const paddingX = paddingLeft + paddingRight;
+    const paddingY = paddingTop + paddingBottom;
+    const availableWidth = Math.max(1, (viewport?.clientWidth || 600) - paddingX);
+
+    const widthFitScale = baseSize.width > 0 ? availableWidth / baseSize.width : 1;
+    const scale = Number.isFinite(widthFitScale) && widthFitScale > 0 ? widthFitScale : 1;
+    const scaledWidth = baseSize.width * scale;
+    const scaledHeight = baseSize.height * scale;
+    const nextViewportHeight = Math.max(MIN_VIEWPORT_HEIGHT, Math.ceil(scaledHeight + paddingY));
+    const availableHeight = Math.max(1, nextViewportHeight - paddingY);
+
+    setViewportHeight(nextViewportHeight);
+    setInitialState({
+      scale,
+      position: {
+        x: Math.max(0, (availableWidth - scaledWidth) / 2),
+        y: Math.max(0, (availableHeight - scaledHeight) / 2),
+      },
+    });
+  }, [baseSize.width, baseSize.height]);
 
   useEffect(() => {
     if (!svg || !containerRef.current) return;
@@ -96,7 +153,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     if (!el) return;
 
     const nextBaseSize = readSvgSize(el);
-    const originalViewBox = `${nextBaseSize.minX} ${nextBaseSize.minY} ${nextBaseSize.width} ${nextBaseSize.height}`;
+    const originalViewBox = el.getAttribute('viewBox') || `${nextBaseSize.minX} ${nextBaseSize.minY} ${nextBaseSize.width} ${nextBaseSize.height}`;
 
     svgElRef.current = el;
     el.setAttribute('viewBox', originalViewBox);
@@ -114,7 +171,19 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     setPanZoomTarget(containerRef.current);
   }, [svg]);
 
-  const panZoom = usePanZoom(panZoomTarget);
+  useEffect(() => {
+    updateInitialView();
+  }, [baseSize, updateInitialView]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => updateInitialView());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [updateInitialView]);
+
+  const panZoom = usePanZoom(panZoomTarget, { initialState });
 
   useEffect(() => {
     const eventTarget = viewportRef.current;
@@ -125,6 +194,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     eventTarget.addEventListener('pointerup', panZoom.onPointerUp);
     eventTarget.addEventListener('pointercancel', panZoom.onPointerUp);
     eventTarget.addEventListener('lostpointercapture', panZoom.onPointerUp);
+    eventTarget.addEventListener('dblclick', panZoom.zoomIn);
     return () => {
       eventTarget.removeEventListener('wheel', panZoom.onWheel);
       eventTarget.removeEventListener('pointerdown', panZoom.onPointerDown);
@@ -132,6 +202,7 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       eventTarget.removeEventListener('pointerup', panZoom.onPointerUp);
       eventTarget.removeEventListener('pointercancel', panZoom.onPointerUp);
       eventTarget.removeEventListener('lostpointercapture', panZoom.onPointerUp);
+      eventTarget.removeEventListener('dblclick', panZoom.zoomIn);
     };
   }, [panZoom]);
 
@@ -171,22 +242,29 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
       <div
         className="mermaid-viewport"
         ref={viewportRef}
-        style={{ height: Math.max(80, baseSize.height) }}
+        style={{ height: viewportHeight }}
       >
         <div
           className="mermaid-stage"
           style={{
-            width: Math.ceil(baseSize.width * panZoom.scale),
-            height: Math.ceil(baseSize.height * panZoom.scale),
+            width: baseSize.width,
+            height: baseSize.height,
           }}
         >
           <div className="mermaid" ref={containerRef}>
             {err ? (
-              <pre className="mermaid-error">{err}</pre>
+              <div className="mermaid-error">
+                <div className="mermaid-error-icon">️</div>
+                <div className="mermaid-error-text">Render failed</div>
+                <pre>{err}</pre>
+              </div>
             ) : svg ? (
               <div dangerouslySetInnerHTML={{ __html: svg }} />
             ) : (
-              'Rendering Mermaid...'
+              <div className="mermaid-loading">
+                <div className="mermaid-loading-spinner" />
+                <span>Rendering diagram...</span>
+              </div>
             )}
           </div>
         </div>

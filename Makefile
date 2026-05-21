@@ -20,14 +20,14 @@ web-build:
 	cp -R web/apps/markdown/dist internal/webui/markdown/dist
 	cp -R web/apps/formula/dist internal/webui/formula/dist
 
-install: web-build
+install: build
 	mkdir -p $(BINDIR)
-	go build -o $(BINDIR)/$(APP) .
+	install -m 755 $(APP) $(BINDIR)/$(APP)
 	@printf "Installed to $(BINDIR)/$(APP)\n"
 
-install-system: web-build
+install-system: build
 	mkdir -p /usr/local/bin
-	go build -o /usr/local/bin/$(APP) .
+	install -m 755 $(APP) /usr/local/bin/$(APP)
 
 clean:
 	rm -f $(APP)
