@@ -257,19 +257,6 @@ understand-request(agent) -> inspect-codebase(script/agent) -> design(agent) -> 
 collect-context(script/agent) -> compare-options(agent) -> choose-option(human_input) -> make-plan(agent) -> report(agent)
 ```
 
-## 内置 formulas
-
-如果用户需求匹配常见工作流，优先提示可以直接使用或复制内置 formula，而不是从零创建：
-
-```bash
-tt formula list --builtin
-tt formula show daily-plan
-tt formula run daily-plan --dry-run
-tt formula copy research-report ./my-formulas
-```
-
-当前内置公式包括：`daily-plan`、`weekly-review`、`decision-maker`、`goal-breakdown`、`article-from-idea`、`research-report`、`learn-topic`、`prd-create`、`business-idea-evaluate`、`meeting-summary`、`resume-improve`、`travel-plan`。
-
 ## 输出格式要求
 
 当被 `tt formula create` 调用时：

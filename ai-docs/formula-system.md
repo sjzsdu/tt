@@ -13,7 +13,6 @@
 ```mermaid
 flowchart TD
     A[formula TOML / JSON] --> B[Parser]
-    A0[内置 Formula Catalog] --> B
     B --> C[Resolve]
     C --> D[Compile]
     D --> E[Recipe]
@@ -37,34 +36,6 @@ flowchart TD
 2. **编译阶段**：把定义变成稳定的 Recipe 图
 3. **执行阶段**：按 DAG 运行 agent/script 步骤
 4. **观察阶段**：通过 run store 和 dashboard 回看或恢复运行
-
-## 内置 Formula Catalog
-
-formula 现在不只从本地目录读取，也带有内置 catalog。解析顺序是：先查用户通过 `--dir`、工作区或默认路径提供的 formula，找不到时再回退到 `internal/formula/builtin/formulas/*.toml`。
-
-这带来几个直接能力：
-
-- 用户可以直接运行常见工作流：`tt formula run daily-plan`
-- 可以浏览内置清单：`tt formula list --builtin`
-- 可以查看内置定义：`tt formula show learn-topic`
-- 可以复制出来二次改造：`tt formula copy research-report ./my-formulas`
-
-当前内置公式偏向通用工作流，而不是单步 prompt，包括：
-
-| Formula | 用途 |
-| --- | --- |
-| `daily-plan` | 每日计划拆解 |
-| `weekly-review` | 周复盘 |
-| `decision-maker` | 决策分析 |
-| `goal-breakdown` | 目标拆解 |
-| `article-from-idea` | 从想法生成文章 |
-| `research-report` | 主题调研报告 |
-| `learn-topic` | 学习一个主题 |
-| `prd-create` | PRD 生成 |
-| `business-idea-evaluate` | 商业想法评估 |
-| `meeting-summary` | 会议纪要整理 |
-| `resume-improve` | 简历优化 |
-| `travel-plan` | 出行规划 |
 
 ## Formula 定义模型
 

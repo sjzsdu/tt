@@ -1,6 +1,6 @@
 ---
 name: formula-writer
-description: 'Write, edit, validate, and troubleshoot tt formula templates (TOML/JSON) for structured agent/script/human-input workflows. Use when user asks to create a formula, edit a formula, design a workflow template, decompose tasks, add runtime branching/loops, use script steps, add human intervention forms, use built-in formulas, or debug formula compile/run issues.'
+description: 'Write, edit, validate, and troubleshoot tt formula templates (TOML/JSON) for structured agent/script/human-input workflows. Use when user asks to create a formula, edit a formula, design a workflow template, decompose tasks, add runtime branching/loops, use script steps, add human intervention forms, or debug formula compile/run issues.'
 license: MIT
 ---
 
@@ -29,19 +29,6 @@ Do **not** put every action into an agent step. If a step can be expressed as a 
 
 Do **not** write prompts that say “ask the user” inside an autonomous formula. If the workflow needs user input during execution, use `execution = "human_input"` or instruct the agent to emit a dynamic `tt-human-input` block.
 
-## Built-in formulas
-
-`tt` ships ready-to-use built-in formulas. Prefer pointing users to these before creating a new formula when the request matches a common workflow:
-
-```bash
-tt formula list --builtin
-tt formula show daily-plan
-tt formula run daily-plan --dry-run
-tt formula copy research-report ./my-formulas
-```
-
-Current built-ins include `daily-plan`, `weekly-review`, `decision-maker`, `goal-breakdown`, `article-from-idea`, `research-report`, `learn-topic`, `prd-create`, `business-idea-evaluate`, `meeting-summary`, `resume-improve`, and `travel-plan`.
-
 ## File location and naming
 
 Formula files are usually TOML:
@@ -49,7 +36,6 @@ Formula files are usually TOML:
 - Project-level: `.tt/formulas/<name>.toml`
 - User-level: `~/.tt/formulas/<name>.toml`
 - Examples: `examples/formulas/*.toml`
-- Built-in fallback: `internal/formula/builtin/formulas/*.toml`
 
 The `formula` field should match the intended name:
 

@@ -1,15 +1,6 @@
 # Formula runtime control flow demos
 
-This directory contains small formulas demonstrating runtime decisions, loops, and deterministic script steps.
-
-For ready-to-use general workflows, `tt` also ships built-in formulas. They do not need files in this directory:
-
-```bash
-tt formula list --builtin
-tt formula show daily-plan
-tt formula run daily-plan --dry-run
-tt formula copy research-report ./my-formulas
-```
+This directory contains small formulas demonstrating runtime decisions, loops, deterministic script steps, and human input pauses.
 
 ## Demo formulas
 
