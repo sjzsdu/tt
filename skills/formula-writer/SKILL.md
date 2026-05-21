@@ -1,6 +1,6 @@
 ---
 name: formula-writer
-description: 'Write, edit, validate, and troubleshoot tt formula templates (TOML/JSON) for structured agent/script workflows. Use when user asks to create a formula, edit a formula, design a workflow template, decompose tasks, add runtime branching/loops, use script steps, or debug formula compile/run issues.'
+description: 'Write, edit, validate, and troubleshoot tt formula templates (TOML/JSON) for structured agent/script/human-input workflows. Use when user asks to create a formula, edit a formula, design a workflow template, decompose tasks, add runtime branching/loops, use script steps, add human intervention forms, use built-in formulas, or debug formula compile/run issues.'
 license: MIT
 ---
 
@@ -10,6 +10,7 @@ Use this skill to author and debug `tt formula` templates. A formula is a struct
 
 - **agent steps** for reasoning, planning, coding, reviewing, and reporting.
 - **script steps** for deterministic local commands such as `gh pr view`, `git diff`, `go test`, `jq`, or `curl`.
+- **human input steps** for explicit user choices, confirmations, and missing private context.
 - **runtime control flow** through `output_key`, `input_context`, `condition`, and `loop.until`.
 
 The goal is to write formulas that are reusable, auditable, safe to run, and easy for future agents to debug.
@@ -22,8 +23,24 @@ Use a formula when the user wants a repeatable workflow, for example:
 - Feature workflow: design -> implement -> test -> review -> summarize.
 - Incident workflow: collect logs -> branch by symptom -> diagnose -> propose fix.
 - Research workflow: gather deterministic context -> synthesize -> produce decision memo.
+- Human-gated workflow: propose options -> collect user choice -> continue with the selected path.
 
 Do **not** put every action into an agent step. If a step can be expressed as a deterministic command, prefer `execution = "script"` and pass its output to later agent steps.
+
+Do **not** write prompts that say “ask the user” inside an autonomous formula. If the workflow needs user input during execution, use `execution = "human_input"` or instruct the agent to emit a dynamic `tt-human-input` block.
+
+## Built-in formulas
+
+`tt` ships ready-to-use built-in formulas. Prefer pointing users to these before creating a new formula when the request matches a common workflow:
+
+```bash
+tt formula list --builtin
+tt formula show daily-plan
+tt formula run daily-plan --dry-run
+tt formula copy research-report ./my-formulas
+```
+
+Current built-ins include `daily-plan`, `weekly-review`, `decision-maker`, `goal-breakdown`, `article-from-idea`, `research-report`, `learn-topic`, `prd-create`, `business-idea-evaluate`, `meeting-summary`, `resume-improve`, and `travel-plan`.
 
 ## File location and naming
 
@@ -32,6 +49,7 @@ Formula files are usually TOML:
 - Project-level: `.tt/formulas/<name>.toml`
 - User-level: `~/.tt/formulas/<name>.toml`
 - Examples: `examples/formulas/*.toml`
+- Built-in fallback: `internal/formula/builtin/formulas/*.toml`
 
 The `formula` field should match the intended name:
 
@@ -112,9 +130,10 @@ Important fields:
 | `condition` | Runtime condition, often based on previous `output_key` JSON. |
 | `input_context` | Output keys to inject into the agent prompt. |
 | `output_key` | Saves step output into runtime context. |
-| `execution` | `script` or `noop`; omit for normal agent execution. |
+| `execution` | `script`, `human_input`, or `noop`; omit for normal agent execution. |
 | `agent` | Agent configuration for agent steps. |
 | `script` | Script configuration for script steps. |
+| `form` | Form configuration for `human_input` steps. |
 | `timeout` | Step-level timeout string such as `30s`, `5m`, `1h`. |
 
 Compiled recipes always include start/end boundary steps. You usually do not need to write them manually.
@@ -192,6 +211,81 @@ Script output is saved as a JSON envelope:
 ```
 
 Later steps should consume the `output_key` via `input_context` or conditions.
+
+## Human input steps
+
+Use human input when the workflow must pause for a real user decision, confirmation, or missing private context. The run enters `waiting_input`, saves a form request, and resumes after the user submits the response through the live dashboard or CLI.
+
+### Static form step
+
+```toml
+[[steps]]
+id = "confirm-scope"
+title = "Confirm scope"
+execution = "human_input"
+output_key = "scope_confirmation"
+
+[steps.form]
+title = "Confirm project scope"
+description = "The workflow will continue after this form is submitted."
+
+[[steps.form.fields]]
+name = "scope"
+label = "Scope"
+type = "select"
+required = true
+options = ["small", "medium", "large"]
+
+[[steps.form.fields]]
+name = "notes"
+label = "Additional notes"
+type = "textarea"
+required = false
+```
+
+Supported field types:
+
+- `input`
+- `textarea`
+- `radio`
+- `checkbox`
+- `select`
+
+`radio`, `checkbox`, and `select` fields must declare `options`.
+
+Submit from CLI:
+
+```bash
+tt formula run input latest confirm-scope --field scope=medium --field notes="Prefer a pragmatic plan"
+```
+
+For checkbox fields, repeat the same key:
+
+```bash
+tt formula run input latest choose-tools --field tools=search --field tools=browser
+```
+
+### Dynamic human input from an agent
+
+If an agent discovers at runtime that continuing would require guessing, instruct it to emit a fenced `tt-human-input` JSON block:
+
+````markdown
+```tt-human-input
+{
+  "reason": "Cannot choose a travel style without the user's budget preference.",
+  "form": {
+    "title": "Budget preference",
+    "fields": [
+      {"name":"budget","label":"Budget level","type":"radio","required":true,"options":["low","medium","high"]}
+    ]
+  }
+}
+```
+````
+
+The submitted response becomes the step output. Give the step an `output_key` and make downstream steps consume it with `input_context`.
+
+Live dashboard runs show the form as a modal and resume automatically after submission. Historical dashboards opened with `tt formula run open` are read-only, so use the CLI input command for saved runs.
 
 ### Script safety rules
 
@@ -336,6 +430,39 @@ depends_on = ["classify"]
 condition = "classification.kind == feature"
 ```
 
+### Pattern: human-gated decision
+
+```toml
+[[steps]]
+id = "compare-options"
+title = "Compare options"
+description = "Output concise Markdown with 2-3 viable options and tradeoffs."
+output_key = "options"
+
+[[steps]]
+id = "choose-option"
+title = "Choose option"
+depends_on = ["compare-options"]
+input_context = ["options"]
+execution = "human_input"
+output_key = "chosen_option"
+
+[steps.form]
+title = "Choose an option"
+
+[[steps.form.fields]]
+name = "option"
+label = "Selected option"
+type = "input"
+required = true
+
+[[steps]]
+id = "make-plan"
+title = "Make execution plan"
+depends_on = ["choose-option"]
+input_context = ["options", "chosen_option"]
+```
+
 ## Validation commands
 
 Always validate formulas before telling the user they are ready.
@@ -360,6 +487,7 @@ tt formula runs --formula <name>
 tt formula run show latest
 tt formula run show latest --step <step-id>
 tt formula run open latest
+tt formula run input latest <step-id> --field key=value
 ```
 
 ## Troubleshooting playbook
@@ -415,6 +543,13 @@ tt formula run open latest
 - Ensure the output is valid JSON if using JSON path conditions.
 - Always set a reasonable `max`.
 
+### Run is waiting for input
+
+- Inspect the waiting step: `tt formula run show latest --step <step-id>`.
+- Submit values: `tt formula run input latest <step-id> --field key=value`.
+- For checkbox fields, repeat `--field name=value`.
+- If using dashboard, submit from the live run dashboard. Historical dashboards are read-only.
+
 ### Resume or saved run debugging
 
 Use saved run commands:
@@ -428,6 +563,8 @@ tt formula run resume latest
 
 Step artifacts are saved under `.tt/runs/formula/<formula>/<run-id>/steps/`.
 
+Human input artifacts include `<step>.human_input_request.json`, `<step>.human_input_response.json`, and `<step>.output.md`.
+
 ## Authoring checklist
 
 Before finishing a formula:
@@ -438,9 +575,11 @@ Before finishing a formula:
 4. Dependencies reference existing local step IDs.
 5. Agent steps use appropriate embedded agents.
 6. Script steps use argv `command = [...]`, timeout, and safe read-only commands where possible.
-7. Steps that feed later logic have `output_key`.
-8. Steps that consume prior output have both `depends_on` and `input_context`.
-9. Conditions use bare names and JSON paths correctly.
-10. Runtime loops have `max` and body outputs matching `until`.
-11. Run `tt formula validate`, `compile`, and `run --dry-run`.
-12. If scripts are present, document what local tools are required, such as `gh`, `git`, `go`, or `jq`.
+7. Human input steps are used instead of “ask the user” wording when the workflow needs runtime user input.
+8. Human input forms have clear labels, required fields, and options for choice fields.
+9. Steps that feed later logic have `output_key`.
+10. Steps that consume prior output have both `depends_on` and `input_context`.
+11. Conditions use bare names and JSON paths correctly.
+12. Runtime loops have `max` and body outputs matching `until`.
+13. Run `tt formula validate`, `compile`, and `run --dry-run`.
+14. If scripts are present, document what local tools are required, such as `gh`, `git`, `go`, or `jq`.
