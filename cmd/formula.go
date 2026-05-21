@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -2088,6 +2089,8 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 					if result.Output != "" {
 						_ = runStore.SaveStepOutput(result.StepID, result.Output)
 					}
+				case executor.StatusWaitingInput:
+					_ = runStore.SaveStepHumanInputRequest(result.StepID, result.HumanInputRequest)
 				}
 			}
 			if dashboard == nil {
@@ -2100,6 +2103,8 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 				dashboard.markStepCompleted(result.StepID, result.Output)
 			case executor.StatusFailed:
 				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
+			case executor.StatusWaitingInput:
+				dashboard.markStepWaitingInput(result.StepID, result.Title)
 			}
 		},
 	})
@@ -2207,6 +2212,14 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		if executor.ParseHumanInputRequest(resp) != nil {
+			logLine("  ⏸ Waiting for human input requested by agent")
+			if runStore != nil {
+				_ = runStore.SaveStepOutput(step.ID, resp)
+			}
+			return resp, nil
+		}
+
 		if dashboard != nil {
 			dashboard.markStepCompleted(step.ID, resp)
 		}
@@ -2229,6 +2242,8 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopRunSignals()
 	result, err := exec.Run(runCtx, stepRunner)
+	var waitingErr executor.WaitingInputError
+	waitingForInput := errors.As(err, &waitingErr)
 	if runCtx.Err() != nil && err == nil {
 		err = runCtx.Err()
 	}
@@ -2241,17 +2256,25 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if runStore != nil {
 		status := formularun.StatusCompleted
 		errMsg := ""
-		if runCtx.Err() != nil {
+		if waitingForInput {
+			status = formularun.StatusWaitingInput
+			_ = runStore.MarkWaitingInput(waitingErr.StepID)
+		} else if runCtx.Err() != nil {
 			status = formularun.StatusInterrupted
 			errMsg = runCtx.Err().Error()
 		} else if err != nil {
 			status = formularun.StatusFailed
 			errMsg = err.Error()
 		}
-		_ = runStore.Finish(status, errMsg)
+		if status != formularun.StatusWaitingInput {
+			_ = runStore.Finish(status, errMsg)
+		}
 		if dashboard != nil {
 			_ = dashboard.persistSnapshot()
 		}
+	}
+	if waitingForInput {
+		fmt.Fprintf(out, "Formula paused: waiting for human input at step %s\n", waitingErr.StepID)
 	}
 
 	if showWeb {
@@ -2260,6 +2283,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		waitForFormulaDashboardExit(dashboard)
 	}
 
+	if waitingForInput {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -2328,6 +2354,8 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 					if result.Output != "" {
 						_ = runStore.SaveStepOutput(result.StepID, result.Output)
 					}
+				case executor.StatusWaitingInput:
+					_ = runStore.SaveStepHumanInputRequest(result.StepID, result.HumanInputRequest)
 				}
 			}
 			if dashboard == nil {
@@ -2340,6 +2368,8 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 				dashboard.markStepCompleted(result.StepID, result.Output)
 			case executor.StatusFailed:
 				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
+			case executor.StatusWaitingInput:
+				dashboard.markStepWaitingInput(result.StepID, result.Title)
 			}
 		},
 	})
@@ -2385,6 +2415,11 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 			}
 			return resp, err
 		}
+		if executor.ParseHumanInputRequest(resp) != nil {
+			logLine("  ⏸ Waiting for human input requested by agent")
+			_ = runStore.SaveStepOutput(step.ID, resp)
+			return resp, nil
+		}
 		_ = runStore.SaveStepOutput(step.ID, resp)
 		_ = runStore.AppendEvent(formularun.Event{Type: "step_completed", StepID: step.ID, Status: "completed", DurationMS: time.Since(started).Milliseconds()})
 		if dashboard != nil {
@@ -2397,6 +2432,8 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	result, err := exec.Run(runCtx, stepRunner)
+	var waitingErr executor.WaitingInputError
+	waitingForInput := errors.As(err, &waitingErr)
 	if runCtx.Err() != nil && err == nil {
 		err = runCtx.Err()
 	}
@@ -2406,16 +2443,25 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 	}
 	status := formularun.StatusCompleted
 	errMsg := ""
-	if runCtx.Err() != nil {
+	if waitingForInput {
+		status = formularun.StatusWaitingInput
+		_ = runStore.MarkWaitingInput(waitingErr.StepID)
+		fmt.Fprintf(out, "Formula paused: waiting for human input at step %s\n", waitingErr.StepID)
+	} else if runCtx.Err() != nil {
 		status = formularun.StatusInterrupted
 		errMsg = runCtx.Err().Error()
 	} else if err != nil {
 		status = formularun.StatusFailed
 		errMsg = err.Error()
 	}
-	_ = runStore.Finish(status, errMsg)
+	if status != formularun.StatusWaitingInput {
+		_ = runStore.Finish(status, errMsg)
+	}
 	if dashboard != nil {
 		_ = dashboard.persistSnapshot()
+	}
+	if waitingForInput {
+		return nil
 	}
 	return err
 }
@@ -2471,8 +2517,8 @@ func renderRunResult(cmd *cobra.Command, result *executor.RunResult, hasError bo
 	out := cmd.OutOrStdout()
 
 	fmt.Fprintf(out, "\nExecution Result: %s\n", result.RecipeName)
-	fmt.Fprintf(out, "Total: %d | Completed: %d | Failed: %d | Skipped: %d\n\n",
-		result.Total, result.Completed, result.Failed, result.Skipped)
+	fmt.Fprintf(out, "Total: %d | Completed: %d | Failed: %d | Skipped: %d | Waiting input: %d\n\n",
+		result.Total, result.Completed, result.Failed, result.Skipped, result.WaitingInput)
 
 	for _, r := range result.Steps {
 		status := string(r.Status)
@@ -2483,8 +2529,13 @@ func renderRunResult(cmd *cobra.Command, result *executor.RunResult, hasError bo
 			status = "✗ " + status
 		case executor.StatusSkipped:
 			status = "⊘ " + status
+		case executor.StatusWaitingInput:
+			status = "⏸ " + status
 		}
 		fmt.Fprintf(out, "  [%s] %s\n", status, r.Title)
+		if r.HumanInputRequest != nil && r.HumanInputRequest.Reason != "" {
+			fmt.Fprintf(out, "    Waiting reason: %s\n", r.HumanInputRequest.Reason)
+		}
 		if r.Error != "" {
 			fmt.Fprintf(out, "    Error: %s\n", r.Error)
 		}

@@ -36,29 +36,48 @@ type RunOptions struct {
 type StepStatus string
 
 const (
-	StatusPending   StepStatus = "pending"
-	StatusRunning   StepStatus = "running"
-	StatusCompleted StepStatus = "completed"
-	StatusFailed    StepStatus = "failed"
-	StatusSkipped   StepStatus = "skipped"
+	StatusPending      StepStatus = "pending"
+	StatusRunning      StepStatus = "running"
+	StatusCompleted    StepStatus = "completed"
+	StatusFailed       StepStatus = "failed"
+	StatusSkipped      StepStatus = "skipped"
+	StatusWaitingInput StepStatus = "waiting_input"
 )
 
+const HumanInputExecution = "human_input"
+
+type HumanInputRequest struct {
+	Reason string            `json:"reason,omitempty"`
+	Form   *formula.FormSpec `json:"form,omitempty"`
+}
+
+type WaitingInputError struct {
+	StepID  string
+	Request *HumanInputRequest
+}
+
+func (e WaitingInputError) Error() string {
+	return "formula waiting for human input at step " + e.StepID
+}
+
 type StepResult struct {
-	StepID string     `json:"step_id"`
-	Title  string     `json:"title"`
-	Status StepStatus `json:"status"`
-	Output string     `json:"output,omitempty"`
-	Error  string     `json:"error,omitempty"`
+	StepID            string             `json:"step_id"`
+	Title             string             `json:"title"`
+	Status            StepStatus         `json:"status"`
+	Output            string             `json:"output,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	HumanInputRequest *HumanInputRequest `json:"human_input_request,omitempty"`
 }
 
 type RunResult struct {
-	RecipeName  string       `json:"recipe_name"`
-	Steps       []StepResult `json:"steps"`
-	FinalOutput string       `json:"final_output,omitempty"`
-	Total       int          `json:"total"`
-	Completed   int          `json:"completed"`
-	Failed      int          `json:"failed"`
-	Skipped     int          `json:"skipped"`
+	RecipeName   string       `json:"recipe_name"`
+	Steps        []StepResult `json:"steps"`
+	FinalOutput  string       `json:"final_output,omitempty"`
+	Total        int          `json:"total"`
+	Completed    int          `json:"completed"`
+	Failed       int          `json:"failed"`
+	Skipped      int          `json:"skipped"`
+	WaitingInput int          `json:"waiting_input"`
 }
 
 type Executor struct {
@@ -173,6 +192,7 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 
 		for _, step := range batch {
 			if err := <-errCh; err != nil {
+				e.collectRunResults(result)
 				return result, err
 			}
 			if !step.IsRoot && step.Execution != "noop" {
@@ -181,6 +201,29 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 		}
 	}
 
+	e.collectRunResults(result)
+
+	if lastStepID != "" {
+		e.mu.RLock()
+		if final, ok := e.results[lastStepID]; ok && final.Output != "" {
+			result.FinalOutput = final.Output
+		}
+		e.mu.RUnlock()
+	}
+
+	return result, nil
+}
+
+func (e *Executor) collectRunResults(result *RunResult) {
+	if result == nil {
+		return
+	}
+	result.Steps = nil
+	result.Total = 0
+	result.Completed = 0
+	result.Failed = 0
+	result.Skipped = 0
+	result.WaitingInput = 0
 	e.mu.RLock()
 	for _, r := range e.results {
 		result.Steps = append(result.Steps, *r)
@@ -192,19 +235,11 @@ func (e *Executor) Run(ctx context.Context, runner StepRunner) (*RunResult, erro
 			result.Failed++
 		case StatusSkipped:
 			result.Skipped++
+		case StatusWaitingInput:
+			result.WaitingInput++
 		}
 	}
 	e.mu.RUnlock()
-
-	if lastStepID != "" {
-		e.mu.RLock()
-		if final, ok := e.results[lastStepID]; ok && final.Output != "" {
-			result.FinalOutput = final.Output
-		}
-		e.mu.RUnlock()
-	}
-
-	return result, nil
 }
 
 func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
@@ -250,6 +285,14 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		}
 		e.mu.Unlock()
 		return nil
+	}
+
+	if step.Execution == HumanInputExecution {
+		request := &HumanInputRequest{Reason: strings.TrimSpace(step.Description), Form: step.Form}
+		if request.Reason == "" {
+			request.Reason = "step requires human input"
+		}
+		return e.pauseForHumanInput(step, request)
 	}
 
 	e.mu.Lock()
@@ -311,6 +354,10 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		return fmt.Errorf("step %s failed: %w", step.ID, err)
 	}
 
+	if request := ParseHumanInputRequest(output); request != nil {
+		return e.pauseForHumanInput(step, request)
+	}
+
 	e.mu.Lock()
 	e.results[step.ID].Status = StatusCompleted
 	e.results[step.ID].Output = output
@@ -321,6 +368,51 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	e.mu.Unlock()
 
 	return nil
+}
+
+func (e *Executor) pauseForHumanInput(step *formula.RecipeStep, request *HumanInputRequest) error {
+	if request == nil {
+		request = &HumanInputRequest{Reason: "step requires human input"}
+	}
+	waiting := StepResult{StepID: step.ID, Title: step.Title, Status: StatusWaitingInput, HumanInputRequest: request}
+	e.mu.Lock()
+	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusWaitingInput, HumanInputRequest: request}
+	e.mu.Unlock()
+	e.emitStepUpdate(waiting)
+	return WaitingInputError{StepID: step.ID, Request: request}
+}
+
+func ParseHumanInputRequest(output string) *HumanInputRequest {
+	block := extractHumanInputBlock(output)
+	if block == "" {
+		return nil
+	}
+	var req HumanInputRequest
+	if err := json.Unmarshal([]byte(block), &req); err != nil {
+		return nil
+	}
+	if req.Form == nil && strings.TrimSpace(req.Reason) == "" {
+		return nil
+	}
+	return &req
+}
+
+func extractHumanInputBlock(output string) string {
+	const marker = "```tt-human-input"
+	idx := strings.Index(output, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := output[idx+len(marker):]
+	rest = strings.TrimLeft(rest, " \t\r\n")
+	if strings.HasPrefix(rest, "json") {
+		rest = strings.TrimLeft(rest[len("json"):], " \t\r\n")
+	}
+	end := strings.Index(rest, "```")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
 }
 
 type scriptOutput struct {
@@ -480,6 +572,13 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 
 			var output string
 			var err error
+			if bodyStep.Execution == HumanInputExecution {
+				request := &HumanInputRequest{Reason: strings.TrimSpace(bodyStep.Description), Form: bodyStep.Form}
+				if request.Reason == "" {
+					request.Reason = "step requires human input"
+				}
+				return e.pauseForHumanInput(&bodyStep, request)
+			}
 			if bodyStep.Execution == "script" {
 				if !e.opts.AllowScripts {
 					err = fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", bodyStep.ID)
@@ -501,6 +600,9 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 				e.mu.Unlock()
 				e.emitStepUpdate(failed)
 				return fmt.Errorf("loop %s iteration %d step %s failed: %w", step.ID, iter, bodyStep.ID, err)
+			}
+			if request := ParseHumanInputRequest(output); request != nil {
+				return e.pauseForHumanInput(&bodyStep, request)
 			}
 
 			e.mu.Lock()
@@ -552,6 +654,7 @@ func recipeStepFromLoopBody(parent *formula.RecipeStep, body *formula.Step, iter
 		Metadata:    body.Metadata,
 		Agent:       body.Agent,
 		Script:      body.Script,
+		Form:        body.Form,
 		OutputKey:   body.OutputKey,
 		InputCtx:    append([]string(nil), body.InputCtx...),
 		Execution:   body.Execution,

@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	StatusRunning     = "running"
-	StatusCompleted   = "completed"
-	StatusFailed      = "failed"
-	StatusInterrupted = "interrupted"
-	StatusStale       = "stale"
+	StatusRunning      = "running"
+	StatusCompleted    = "completed"
+	StatusFailed       = "failed"
+	StatusWaitingInput = "waiting_input"
+	StatusInterrupted  = "interrupted"
+	StatusStale        = "stale"
 )
 
 type Metadata struct {
@@ -201,6 +202,16 @@ func (s *Store) Finish(status, errMsg string) error {
 	return s.AppendEvent(Event{Type: "run_finished", Status: status, Error: s.Meta.Error})
 }
 
+func (s *Store) MarkWaitingInput(stepID string) error {
+	s.Meta.Status = StatusWaitingInput
+	s.Meta.Error = ""
+	s.Meta.FinishedAt = ""
+	if err := s.SaveMetadata(); err != nil {
+		return err
+	}
+	return s.AppendEvent(Event{Type: "human_input_required", StepID: stepID, Status: StatusWaitingInput})
+}
+
 func (s *Store) AppendEvent(event Event) error {
 	if s == nil {
 		return nil
@@ -240,6 +251,10 @@ func (s *Store) SaveStepOutput(stepID, content string) error {
 }
 func (s *Store) SaveStepError(stepID, content string) error {
 	return writeText(s.stepPath(stepID, "error.txt"), content)
+}
+
+func (s *Store) SaveStepHumanInputRequest(stepID string, request any) error {
+	return writeJSON(s.stepPath(stepID, "human_input_request.json"), request)
 }
 
 func StepArtifactPath(runDir, stepID, suffix string) string {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -622,6 +623,31 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.broadcast()
 }
 
+func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string) {
+	s.mu.Lock()
+	found := false
+	for i := range s.state.Steps {
+		if s.state.Steps[i].ID != stepID {
+			continue
+		}
+		found = true
+		if title != "" {
+			s.state.Steps[i].Title = title
+		}
+		s.state.Steps[i].Status = "waiting_input"
+		s.state.Steps[i].FinishedAt = ""
+		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
+		break
+	}
+	if !found {
+		s.markLoopActivityLocked(stepID, title, "waiting_input", "Waiting for human input", "", "", 0)
+	}
+	s.state.Status = "waiting_input"
+	s.state.Error = ""
+	s.mu.Unlock()
+	s.broadcast()
+}
+
 func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, detail, output, errMsg string, durationMS int64) {
 	parentID := loopParentStepID(stepID)
 	if parentID == "" {
@@ -674,7 +700,11 @@ func (s *formulaDashboardServer) finalize(result *executor.RunResult, runErr err
 		s.state.RecipeName = result.RecipeName
 		s.state.FinalOutput = result.FinalOutput
 		s.state.Status = "completed"
-		if runErr != nil {
+		if result.WaitingInput > 0 {
+			s.state.Status = "waiting_input"
+		}
+		var waitingErr executor.WaitingInputError
+		if runErr != nil && !errors.As(runErr, &waitingErr) {
 			s.state.Status = "failed"
 			s.state.Error = runErr.Error()
 		}
