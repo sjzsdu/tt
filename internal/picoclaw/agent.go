@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
@@ -112,9 +113,10 @@ func cloneConfig(cfg *pcconfig.Config) *pcconfig.Config {
 	return &cp
 }
 
-// configureProjectWorkspace points picoclaw filesystem and shell tools at the
-// current tt project. Relative tool paths such as "." must resolve to the
-// user's project root, not to picoclaw's private state directory.
+// configureProjectWorkspace points picoclaw agents at the requested workspace
+// while still allowing tools to access the surrounding project when needed.
+// Formula runs use <project>/.tt as the agent workspace, but must retain read
+// and write access to the project root for real code changes.
 func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) {
 	if cfg == nil || workspace == "" {
 		return
@@ -122,8 +124,25 @@ func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) {
 	setAgentWorkspaces(cfg, workspace)
 	cfg.Agents.Defaults.RestrictToWorkspace = false
 	cfg.Agents.Defaults.AllowReadOutsideWorkspace = true
-	cfg.Tools.AllowReadPaths = append(cfg.Tools.AllowReadPaths, workspace)
-	cfg.Tools.AllowWritePaths = append(cfg.Tools.AllowWritePaths, workspace)
+	for _, path := range workspaceAccessPaths(workspace) {
+		cfg.Tools.AllowReadPaths = append(cfg.Tools.AllowReadPaths, path)
+		cfg.Tools.AllowWritePaths = append(cfg.Tools.AllowWritePaths, path)
+	}
+}
+
+func workspaceAccessPaths(workspace string) []string {
+	workspace = filepath.Clean(strings.TrimSpace(workspace))
+	if workspace == "" {
+		return nil
+	}
+	paths := []string{workspace}
+	if filepath.Base(workspace) == ".tt" {
+		parent := filepath.Dir(workspace)
+		if parent != "" && parent != workspace {
+			paths = append(paths, parent)
+		}
+	}
+	return paths
 }
 
 func resolveRunWorkspace(workspace string) string {

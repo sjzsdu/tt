@@ -733,6 +733,10 @@ func waitForFormulaDashboardExit(d *formulaDashboardServer) {
 	d.waitForInterrupt()
 }
 
+func formulaAgentWorkspace(cwd string) string {
+	return formulaDashboardWorkspace(cwd)
+}
+
 func formulaDashboardWorkspace(cwd string) string {
 	if cwd == "" {
 		return ""

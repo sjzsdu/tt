@@ -159,6 +159,13 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	if cmd.Flags().Changed("picoclaw-config") {
 		merged.Picoclaw.Config = nvwaConfig
 	}
+	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+	if err != nil {
+		return nvwa.Files{}, err
+	}
+	defer restoreStorage()
+	merged.Picoclaw.Home = resolvedHome
+	merged.Picoclaw.Config = resolvedConfig
 	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
 		return nvwa.Files{}, err
 	}

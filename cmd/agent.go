@@ -88,11 +88,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if agentList {
 		return runAgentList(cmd, merged, loaded.Sources)
 	}
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+	if err != nil {
 		return err
 	}
-	workspace, err := ensureTTWorkspace()
-	if err != nil {
+	defer restoreStorage()
+	merged.Picoclaw.Home = resolvedHome
+	merged.Picoclaw.Config = resolvedConfig
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
 		return err
 	}
 

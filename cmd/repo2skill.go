@@ -128,11 +128,14 @@ func newRepo2SkillAgentAnalyzer() (repo2skillpkg.Analyzer, func(), error) {
 	if repo2skillAgentDebug {
 		merged.Agent.Debug = &repo2skillAgentDebug
 	}
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+	if err != nil {
 		return nil, nil, err
 	}
-	workspace, err := ensureTTWorkspace()
-	if err != nil {
+	defer restoreStorage()
+	merged.Picoclaw.Home = resolvedHome
+	merged.Picoclaw.Config = resolvedConfig
+	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
 		return nil, nil, err
 	}
 	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
