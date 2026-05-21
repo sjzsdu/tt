@@ -257,6 +257,14 @@ func (s *Store) SaveStepHumanInputRequest(stepID string, request any) error {
 	return writeJSON(s.stepPath(stepID, "human_input_request.json"), request)
 }
 
+func (s *Store) LoadStepHumanInputRequest(stepID string, out any) error {
+	return readJSON(s.stepPath(stepID, "human_input_request.json"), out)
+}
+
+func (s *Store) SaveStepHumanInputResponse(stepID string, response any) error {
+	return writeJSON(s.stepPath(stepID, "human_input_response.json"), response)
+}
+
 func StepArtifactPath(runDir, stepID, suffix string) string {
 	return filepath.Join(runDir, "steps", safeStepID(stepID)+"."+suffix)
 }

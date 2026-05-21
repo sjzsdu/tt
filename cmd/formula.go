@@ -53,6 +53,7 @@ var (
 	formulaRunsStatus     string
 	formulaRunShowStep    string
 	formulaRunRmYes       bool
+	formulaInputFields    []string
 	formulaListBuiltin    bool
 	formulaListUser       bool
 	formulaListCategory   string
@@ -258,6 +259,13 @@ var formulaRunResumeCmd = &cobra.Command{
 	RunE:  runFormulaRunResume,
 }
 
+var formulaRunInputCmd = &cobra.Command{
+	Use:   "input [run-id|latest] <step-id>",
+	Short: "Submit human input for a waiting formula step and resume the run",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runFormulaRunInput,
+}
+
 func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
@@ -298,10 +306,12 @@ func init() {
 	formulaRunOpenCmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
 	formulaRunShowCmd.Flags().StringVar(&formulaRunShowStep, "step", "", "show details for a specific step id")
 	formulaRunRmCmd.Flags().BoolVarP(&formulaRunRmYes, "yes", "y", false, "confirm deletion without prompting")
+	formulaRunInputCmd.Flags().StringArrayVar(&formulaInputFields, "field", nil, "human input field value (key=value, repeatable; duplicate keys become arrays)")
 	formulaRunCmd.AddCommand(formulaRunOpenCmd)
 	formulaRunCmd.AddCommand(formulaRunShowCmd)
 	formulaRunCmd.AddCommand(formulaRunRmCmd)
 	formulaRunCmd.AddCommand(formulaRunResumeCmd)
+	formulaRunCmd.AddCommand(formulaRunInputCmd)
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -2717,6 +2727,190 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	dashboard.readonly = false
 	dashboard.attachStore(store)
 	return executeFormulaRecipe(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+}
+
+func runFormulaRunInput(cmd *cobra.Command, args []string) error {
+	id := "latest"
+	stepID := ""
+	if len(args) == 1 {
+		stepID = args[0]
+	} else {
+		id = args[0]
+		stepID = args[1]
+	}
+	record, err := formularun.Resolve("", id)
+	if err != nil {
+		return err
+	}
+	if record.Metadata.Status != formularun.StatusWaitingInput {
+		return fmt.Errorf("formula run %s is not waiting for input (status: %s)", record.ID, record.Metadata.Status)
+	}
+	recipe, err := formularun.LoadRecipe(record.Dir)
+	if err != nil {
+		return err
+	}
+	var snapshot formulaDashboardSnapshot
+	if err := formularun.LoadState(record.Dir, &snapshot); err != nil {
+		return fmt.Errorf("load formula run state failed: %w", err)
+	}
+	resolvedStepID, err := resolveFormulaRunStepID(snapshot, stepID)
+	if err != nil {
+		return err
+	}
+	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
+	var request executor.HumanInputRequest
+	if err := store.LoadStepHumanInputRequest(resolvedStepID, &request); err != nil {
+		return fmt.Errorf("load human input request for step %s failed: %w", resolvedStepID, err)
+	}
+	response, err := parseHumanInputFields(formulaInputFields)
+	if err != nil {
+		return err
+	}
+	if err := validateHumanInputResponse(&request, response); err != nil {
+		return err
+	}
+	outputBytes, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return err
+	}
+	output := string(outputBytes)
+	if err := store.SaveStepHumanInputResponse(resolvedStepID, response); err != nil {
+		return err
+	}
+	if err := store.SaveStepOutput(resolvedStepID, output); err != nil {
+		return err
+	}
+	if err := markSnapshotStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
+		return err
+	}
+	snapshot.Status = "running"
+	snapshot.Error = ""
+	if err := store.SaveState(snapshot); err != nil {
+		return err
+	}
+	if err := store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"}); err != nil {
+		return err
+	}
+	initialResults, initialContext := buildResumeState(recipe, snapshot)
+	store.Meta.Status = formularun.StatusRunning
+	store.Meta.Error = ""
+	store.Meta.FinishedAt = ""
+	store.Meta.PID = os.Getpid()
+	store.Meta.TTVersion = version
+	_ = store.SaveMetadata()
+	_ = store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
+	resetSnapshotForResume(&snapshot)
+	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
+	dashboard.readonly = false
+	dashboard.attachStore(store)
+	fmt.Fprintf(cmd.OutOrStdout(), "Submitted human input for step %s\n", resolvedStepID)
+	return executeFormulaRecipe(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+}
+
+func parseHumanInputFields(fields []string) (map[string]any, error) {
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("at least one --field key=value is required")
+	}
+	response := map[string]any{}
+	for _, raw := range fields {
+		key, value, ok := strings.Cut(raw, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			return nil, fmt.Errorf("invalid --field %q, expected key=value", raw)
+		}
+		if existing, exists := response[key]; exists {
+			switch vals := existing.(type) {
+			case []string:
+				response[key] = append(vals, value)
+			case string:
+				response[key] = []string{vals, value}
+			default:
+				response[key] = []string{fmt.Sprint(vals), value}
+			}
+		} else {
+			response[key] = value
+		}
+	}
+	return response, nil
+}
+
+func validateHumanInputResponse(request *executor.HumanInputRequest, response map[string]any) error {
+	if request == nil || request.Form == nil {
+		return nil
+	}
+	fields := map[string]*formula.FormField{}
+	for _, field := range request.Form.Fields {
+		if field == nil || strings.TrimSpace(field.Name) == "" {
+			continue
+		}
+		fields[field.Name] = field
+		if field.Required {
+			value, ok := response[field.Name]
+			if !ok || isEmptyHumanInputValue(value) {
+				return fmt.Errorf("required field %q is missing", field.Name)
+			}
+		}
+	}
+	for name := range response {
+		if _, ok := fields[name]; !ok && len(fields) > 0 {
+			return fmt.Errorf("unknown field %q for this human input request", name)
+		}
+	}
+	return nil
+}
+
+func isEmptyHumanInputValue(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []string:
+		return len(v) == 0
+	default:
+		return value == nil
+	}
+}
+
+func resolveFormulaRunStepID(snapshot formulaDashboardSnapshot, stepID string) (string, error) {
+	stepID = strings.TrimSpace(stepID)
+	if stepID == "" {
+		return "", fmt.Errorf("step id is required")
+	}
+	var matches []string
+	for _, step := range snapshot.Steps {
+		if step.ID == stepID || shortStepID(step.ID) == stepID || strings.HasSuffix(step.ID, "."+stepID) {
+			matches = append(matches, step.ID)
+		}
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("step %q not found in run", stepID)
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("step %q is ambiguous: %s", stepID, strings.Join(matches, ", "))
+	}
+	for _, step := range snapshot.Steps {
+		if step.ID == matches[0] && step.Status != string(executor.StatusWaitingInput) {
+			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", matches[0], step.Status)
+		}
+	}
+	return matches[0], nil
+}
+
+func markSnapshotStepCompletedWithOutput(snapshot *formulaDashboardSnapshot, stepID, output string) error {
+	if snapshot == nil {
+		return fmt.Errorf("snapshot is required")
+	}
+	for i := range snapshot.Steps {
+		if snapshot.Steps[i].ID != stepID {
+			continue
+		}
+		snapshot.Steps[i].Status = string(executor.StatusCompleted)
+		snapshot.Steps[i].Output = output
+		snapshot.Steps[i].Error = ""
+		snapshot.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
+		appendStepActivity(&snapshot.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: snapshot.Steps[i].Title, Status: string(executor.StatusCompleted), Detail: "Human input submitted", Output: output})
+		return nil
+	}
+	return fmt.Errorf("step %q not found in snapshot", stepID)
 }
 
 func buildResumeState(recipe *formula.Recipe, snapshot formulaDashboardSnapshot) ([]executor.StepResult, map[string]string) {
