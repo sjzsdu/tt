@@ -7,7 +7,6 @@
 - Local web UI for Markdown files with live reload.
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
-- Local web UI for skill Markdown files with frontmatter support.
 - Embedded Picoclaw agent runtime command.
 - Embedded casual stock investor chat command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
@@ -139,24 +138,6 @@ Flags:
 - `-p, --port int`: service port, default `9680`.
 - `-f, --file string`: open a specific JSON file.
 - `--pattern strings`: filter JSON files by glob patterns.
-
-### `tt skill`
-
-Start a local web UI for skill files. It extracts frontmatter, renders the remaining Markdown body, and supports editing plus saving the full document.
-
-```bash
-tt skill
-tt skill create-cmd
-tt skill --file .forge/skills/create-cmd/SKILL.md --edit
-tt skill --root ~/.config/skills
-```
-
-Flags:
-
-- `-p, --port int`: service port, default `9695`.
-- `-f, --file string`: open a specific skill Markdown file.
-- `--root string`: override the skill root directory.
-- `--edit`: open the current document in edit mode by default.
 
 ### `tt agent`
 
