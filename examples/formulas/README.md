@@ -2,6 +2,15 @@
 
 This directory contains small formulas demonstrating runtime decisions, loops, and deterministic script steps.
 
+For ready-to-use general workflows, `tt` also ships built-in formulas. They do not need files in this directory:
+
+```bash
+tt formula list --builtin
+tt formula show daily-plan
+tt formula run daily-plan --dry-run
+tt formula copy research-report ./my-formulas
+```
+
 ## Demo formulas
 
 - `runtime-control-demo.toml` demonstrates agent-driven runtime branching and loops.
@@ -37,6 +46,36 @@ timeout = "30s"
 
 The saved output is a JSON envelope containing `command`, `cwd`, `exit_code`, `stdout`, `stderr`, parsed `json` when `format = "json"`, and `duration_ms`. Downstream steps can consume it with `input_context = ["pr_metadata"]` or conditions.
 
+## Human input pauses
+
+Use `execution = "human_input"` when a formula must stop and collect structured user input before continuing. This is preferred over asking an agent to “ask the user”, because formula runs are autonomous and need an explicit pause state.
+
+```toml
+[[steps]]
+id = "choose-path"
+title = "Choose path"
+execution = "human_input"
+output_key = "path_choice"
+
+[steps.form]
+title = "Choose the next path"
+
+[[steps.form.fields]]
+name = "path"
+label = "Path"
+type = "radio"
+required = true
+options = ["frontend", "backend", "infra"]
+```
+
+When a run reaches this step, it enters `waiting_input`. Submit through the live dashboard modal or through the CLI:
+
+```bash
+tt formula run input latest choose-path --field path=frontend
+```
+
+Agents can also pause dynamically by outputting a fenced `tt-human-input` JSON block when they detect missing information. The submitted response is saved as the step output and can be consumed by downstream `input_context`.
+
 Safety policy:
 
 - Script execution is local to your machine and should be treated like running code from the formula file.
@@ -63,6 +102,8 @@ tt formula run script-pr-review-demo 123 --dir examples/formulas --agent coder
 
 Formula runs open the live web dashboard by default. Use `--no-web` only for automation or headless runs.
 
+If the run enters `waiting_input`, keep the live dashboard open and submit the displayed form, or use `tt formula run input latest <step-id> --field key=value` from the terminal. Historical dashboards opened with `tt formula run open` are read-only.
+
 After running, inspect persisted state:
 
 ```bash
@@ -77,3 +118,4 @@ tt formula run open latest
 - Only the matching branch step should execute.
 - The `improve` loop runs its body until the `review` step outputs JSON like `{"approved":true}` or reaches `max = 3`.
 - Script steps run without invoking agents and save their command result under the configured `output_key`.
+- Human input steps pause the run, save `human_input_request.json`, then resume after a response is submitted.

@@ -13,6 +13,7 @@
 ```mermaid
 flowchart TD
     A[formula TOML / JSON] --> B[Parser]
+    A0[内置 Formula Catalog] --> B
     B --> C[Resolve]
     C --> D[Compile]
     D --> E[Recipe]
@@ -20,7 +21,11 @@ flowchart TD
     F --> G[Agent Steps]
     F --> H[Script Steps]
     F --> I[Runtime Context]
-    F --> J[Run Store]
+    F --> X{需要人工输入?}
+    X -->|否| J[Run Store]
+    X -->|是| Y[waiting_input]
+    Y --> Z[CLI / Dashboard Form]
+    Z --> F
     J --> K[run.json / recipe.json / state.json / logs.jsonl]
     J --> L[steps/*.prompt output error]
     F --> M[Dashboard]
@@ -32,6 +37,34 @@ flowchart TD
 2. **编译阶段**：把定义变成稳定的 Recipe 图
 3. **执行阶段**：按 DAG 运行 agent/script 步骤
 4. **观察阶段**：通过 run store 和 dashboard 回看或恢复运行
+
+## 内置 Formula Catalog
+
+formula 现在不只从本地目录读取，也带有内置 catalog。解析顺序是：先查用户通过 `--dir`、工作区或默认路径提供的 formula，找不到时再回退到 `internal/formula/builtin/formulas/*.toml`。
+
+这带来几个直接能力：
+
+- 用户可以直接运行常见工作流：`tt formula run daily-plan`
+- 可以浏览内置清单：`tt formula list --builtin`
+- 可以查看内置定义：`tt formula show learn-topic`
+- 可以复制出来二次改造：`tt formula copy research-report ./my-formulas`
+
+当前内置公式偏向通用工作流，而不是单步 prompt，包括：
+
+| Formula | 用途 |
+| --- | --- |
+| `daily-plan` | 每日计划拆解 |
+| `weekly-review` | 周复盘 |
+| `decision-maker` | 决策分析 |
+| `goal-breakdown` | 目标拆解 |
+| `article-from-idea` | 从想法生成文章 |
+| `research-report` | 主题调研报告 |
+| `learn-topic` | 学习一个主题 |
+| `prd-create` | PRD 生成 |
+| `business-idea-evaluate` | 商业想法评估 |
+| `meeting-summary` | 会议纪要整理 |
+| `resume-improve` | 简历优化 |
+| `travel-plan` | 出行规划 |
 
 ## Formula 定义模型
 
@@ -70,8 +103,9 @@ flowchart TD
 - `output_key`
 - `input_context`
 - `execution`
+- `form`
 
-也就是说，step 已经是一个相当丰富的工作单元定义，而不是简单字符串任务。
+也就是说，step 已经是一个相当丰富的工作单元定义，而不是简单字符串任务。其中 `form` 用于描述人工介入时要展示给用户的表单。
 
 ## 编译前后：为什么要有 `Recipe`
 
@@ -259,6 +293,79 @@ flowchart LR
 
 这张图解释的是：**formula 执行器不是纯 LLM 调度器，它也能跑可控的本地确定性步骤。**
 
+### 3. human input step
+
+当步骤声明 `execution = "human_input"` 时，它不会调用 agent 或 script，而是把运行挂起到 `waiting_input`，并把步骤里的 `form` 保存为待填写请求。
+
+```toml
+[[steps]]
+id = "choose-direction"
+title = "选择方向"
+execution = "human_input"
+output_key = "direction"
+
+[steps.form]
+title = "请选择继续方向"
+description = "用户提交后，工作流会从后续步骤继续。"
+
+[[steps.form.fields]]
+name = "direction"
+label = "方向"
+type = "radio"
+required = true
+options = ["技术", "产品", "市场"]
+```
+
+支持的字段类型：`input`、`textarea`、`radio`、`checkbox`、`select`。
+
+## 人工介入：静态 Form 与动态澄清
+
+人工介入有两种入口：
+
+1. **静态入口**：formula 作者在 TOML 里写 `execution = "human_input"` 和 `[steps.form]`。适合工作流中明确需要用户选择、确认或补充材料的节点。
+2. **动态入口**：agent 在执行过程中发现缺少关键信息，可以输出 fenced block：
+
+````markdown
+```tt-human-input
+{
+  "reason": "需要用户确认目标受众，否则后续文章结构会偏离。",
+  "form": {
+    "title": "确认目标受众",
+    "fields": [
+      {"name":"audience","label":"目标受众","type":"input","required":true}
+    ]
+  }
+}
+```
+````
+
+执行器会解析这段 JSON，将当前 run 标为 `waiting_input`，并保存请求。用户提交后，该步骤会以提交内容作为输出完成，后续 DAG 继续运行。
+
+### 提交方式
+
+CLI：
+
+```bash
+tt formula run input latest choose-direction --field direction=技术
+```
+
+Dashboard：
+
+- live run dashboard 会自动弹出表单。
+- 用户提交后服务端保存响应、标记等待步骤完成，并继续执行剩余步骤。
+
+### 持久化文件
+
+人工介入会额外写入：
+
+```text
+steps/<step>.human_input_request.json
+steps/<step>.human_input_response.json
+steps/<step>.output.md
+```
+
+其中 `output.md` 是提交内容的 JSON 表示，便于后续步骤通过 `input_context` 消费。
+
 ## 运行持久化：为什么它很重要
 
 没有 `internal/formularun`，formula 只能算一次性执行；有了它，formula 才更像一个真正的工作流系统。
@@ -275,6 +382,8 @@ flowchart LR
     <step>.prompt.md
     <step>.output.md
     <step>.error.txt
+    <step>.human_input_request.json
+    <step>.human_input_response.json
 ```
 
 ### 这些文件分别回答什么问题
@@ -296,9 +405,11 @@ stateDiagram-v2
     running --> failed
     running --> interrupted
     running --> stale
+    running --> waiting_input
+    waiting_input --> running
 ```
 
-`stale` 这个状态很有意思：如果一个 run 还标记为 running，但对应进程已经不存在，系统会把它标成 stale。这说明 run store 已经在承担“运行恢复”和“状态清理”的职责。
+`waiting_input` 表示工作流主动挂起，等待用户通过 CLI 或 dashboard 提交表单。`stale` 表示一个 run 还标记为 running，但对应进程已经不存在，系统会把它标成 stale。这说明 run store 已经在承担“运行恢复”和“状态清理”的职责。
 
 ## Dashboard 的角色
 
@@ -306,10 +417,14 @@ formula 不只是把结果写盘，还会通过 dashboard 展示：
 
 - 哪些步骤在运行
 - 哪些已完成/失败
+- 哪些在等待人工输入
 - 日志和输出
+- 人工输入表单与提交后继续执行
 - Workspace 关联目录
 
 因此 dashboard 不只是一个 UI 点缀，而是把“执行时可观察性”补齐的重要一环。
+
+当前需要注意：实时运行中的 dashboard 可以提交人工输入；通过 `tt formula run open` 打开的历史只读 dashboard 主要用于查看，不能直接恢复提交，需使用 CLI input 或重新启动可写运行服务。
 
 ## create / optimize：让 formula 可以被 agent 生产
 
