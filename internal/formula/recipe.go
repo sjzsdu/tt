@@ -41,6 +41,7 @@ type RecipeStep struct {
 	Gate        *RecipeGate
 	Agent       *AgentConfig
 	Script      *ScriptSpec
+	Form        *FormSpec
 	OutputKey   string
 	InputCtx    []string
 	Execution   string
@@ -247,6 +248,7 @@ func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, o
 			Metadata:    step.Metadata,
 			Agent:       step.Agent,
 			Script:      step.Script,
+			Form:        step.Form,
 			OutputKey:   step.OutputKey,
 			InputCtx:    step.InputCtx,
 			Execution:   step.Execution,

@@ -253,6 +253,9 @@ type Step struct {
 	// Script specifies a deterministic local command for execution="script" steps.
 	Script *ScriptSpec `json:"script,omitempty" toml:"script,omitempty"`
 
+	// Form describes fields required by execution="human_input" steps.
+	Form *FormSpec `json:"form,omitempty" toml:"form,omitempty"`
+
 	// OutputKey stores the step's output for downstream steps to reference.
 	OutputKey string `json:"output_key,omitempty" toml:"output_key,omitempty"`
 
@@ -365,6 +368,7 @@ type stepTOMLAlias struct {
 	Timeout         string            `json:"timeout,omitempty"`
 	Agent           *AgentConfig      `json:"agent,omitempty"`
 	Script          *ScriptSpec       `json:"script,omitempty"`
+	Form            *FormSpec         `json:"form,omitempty"`
 	OutputKey       string            `json:"output_key,omitempty"`
 	InputCtx        []string          `json:"input_context,omitempty"`
 	Execution       string            `json:"execution,omitempty"`
@@ -451,6 +455,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Timeout:         a.Timeout,
 		Agent:           a.Agent,
 		Script:          a.Script,
+		Form:            a.Form,
 		OutputKey:       a.OutputKey,
 		InputCtx:        a.InputCtx,
 		Execution:       a.Execution,
@@ -601,6 +606,31 @@ type ScriptSpec struct {
 	Format          string            `json:"format,omitempty" toml:"format,omitempty"`
 	Timeout         string            `json:"timeout,omitempty" toml:"timeout,omitempty"`
 	ContinueOnError bool              `json:"continue_on_error,omitempty" toml:"continue_on_error,omitempty"`
+}
+
+// FormSpec describes a human input form for execution="human_input" steps.
+// Runtime support is layered on top of this schema: the compiled recipe carries
+// the form so CLI and dashboard implementations can pause, render, validate, and
+// resume a workflow around structured user input.
+type FormSpec struct {
+	Title       string       `json:"title,omitempty" toml:"title,omitempty"`
+	Description string       `json:"description,omitempty" toml:"description,omitempty"`
+	SubmitLabel string       `json:"submit_label,omitempty" toml:"submit_label,omitempty"`
+	Fields      []*FormField `json:"fields,omitempty" toml:"fields,omitempty"`
+}
+
+// FormField describes one input control in a human input form.
+// Supported Type values are intentionally small for the first version:
+// input, textarea, radio, checkbox, and select.
+type FormField struct {
+	Name        string   `json:"name" toml:"name"`
+	Label       string   `json:"label" toml:"label"`
+	Type        string   `json:"type" toml:"type"`
+	Required    bool     `json:"required,omitempty" toml:"required,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty" toml:"placeholder,omitempty"`
+	Default     string   `json:"default,omitempty" toml:"default,omitempty"`
+	Options     []string `json:"options,omitempty" toml:"options,omitempty"`
+	Help        string   `json:"help,omitempty" toml:"help,omitempty"`
 }
 
 // RetrySpec defines first-class transient retry semantics.
@@ -814,6 +844,8 @@ func (f *Formula) Validate() error {
 			validateRetry(step.Retry, &errs, fmt.Sprintf("%s (%s)", prefix, step.ID), step)
 		}
 
+		validateFormSpec(step.Form, &errs, fmt.Sprintf("%s (%s).form", prefix, step.ID))
+
 		collectChildIDs(step.Children, stepIDLocations, &errs, prefix)
 	}
 
@@ -866,6 +898,54 @@ func (f *Formula) Validate() error {
 	}
 
 	return nil
+}
+
+func validateFormSpec(form *FormSpec, errs *[]string, prefix string) {
+	if form == nil {
+		return
+	}
+	if len(form.Fields) == 0 {
+		*errs = append(*errs, fmt.Sprintf("%s: fields are required", prefix))
+		return
+	}
+	seen := map[string]struct{}{}
+	for i, field := range form.Fields {
+		fieldPrefix := fmt.Sprintf("%s.fields[%d]", prefix, i)
+		if field == nil {
+			*errs = append(*errs, fmt.Sprintf("%s: field cannot be null", fieldPrefix))
+			continue
+		}
+		name := strings.TrimSpace(field.Name)
+		if name == "" {
+			*errs = append(*errs, fmt.Sprintf("%s: name is required", fieldPrefix))
+		} else if _, ok := seen[name]; ok {
+			*errs = append(*errs, fmt.Sprintf("%s: duplicate field name %q", fieldPrefix, name))
+		} else {
+			seen[name] = struct{}{}
+		}
+		if strings.TrimSpace(field.Label) == "" {
+			*errs = append(*errs, fmt.Sprintf("%s (%s): label is required", fieldPrefix, name))
+		}
+		fieldType := strings.TrimSpace(field.Type)
+		if fieldType == "" {
+			fieldType = "input"
+		}
+		if !isValidFormFieldType(fieldType) {
+			*errs = append(*errs, fmt.Sprintf("%s (%s): invalid type %q (must be input, textarea, radio, checkbox, or select)", fieldPrefix, name, field.Type))
+		}
+		if (fieldType == "radio" || fieldType == "checkbox" || fieldType == "select") && len(field.Options) == 0 {
+			*errs = append(*errs, fmt.Sprintf("%s (%s): options are required for %s fields", fieldPrefix, name, fieldType))
+		}
+	}
+}
+
+func isValidFormFieldType(fieldType string) bool {
+	switch fieldType {
+	case "input", "textarea", "radio", "checkbox", "select":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateStepTimeout(prefix, stepID, raw string, hasRetry bool, allowedLoopVars map[string]struct{}, allowUnresolvedVars bool) string {
