@@ -1,0 +1,154 @@
+formula = "fresh-topic-docs"
+title = "新鲜事物系列文档"
+description = "根据用户输入的新鲜事物、概念、趋势或话题，生成一组结构化 Markdown 文档，帮助用户快速理解背景、原理、应用、风险和继续学习路径。"
+version = 1
+type = "workflow"
+category = "learning"
+tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理"]
+
+[vars]
+topic = { description = "想了解的新鲜事物、概念、趋势、产品、人物、技术或现象", required = true }
+focus = { description = "可选关注角度，例如商业、技术、历史、投资、产品、社会影响", default = "通用理解" }
+audience = { description = "目标读者", default = "对该话题好奇但缺少系统背景的中文读者" }
+depth = { description = "文档深度", default = "入门到进阶", enum = ["快速入门", "入门到进阶", "深入研究"] }
+
+[[steps]]
+id = "scope-map"
+title = "建立话题范围和文档地图"
+output_key = "scope_map"
+description = """
+围绕“{{topic}}”建立系列文档的范围。
+关注角度：{{focus}}
+目标读者：{{audience}}
+深度：{{depth}}
+
+请输出 Markdown，必须包含：
+1. 这个话题一句话是什么。
+2. 为什么它最近值得了解，区分事实、趋势和推测。
+3. 读者最应该先弄懂的 5-8 个关键词。
+4. 推荐生成的系列文档目录，目录必须覆盖：入门、背景脉络、核心机制、应用案例、争议风险、行动/学习路径。
+5. 明确哪些内容需要谨慎表述，不能编造数据或具体新闻。
+"""
+
+[[steps]]
+id = "doc-01-primer"
+title = "文档 01：快速入门"
+depends_on = ["scope-map"]
+input_context = ["scope_map"]
+output_key = "doc_primer"
+description = """
+基于 scope_map，写系列文档第 1 篇：`01-快速入门.md`。
+
+要求：
+- 面向 {{audience}}，中文输出。
+- 用简单语言解释 {{topic}} 是什么、解决什么问题、和哪些旧事物不同。
+- 包含“一个生活化类比”、“3 分钟版本”、“常见误解”。
+- 不要假装掌握实时新闻；涉及不确定信息时标注“需要进一步核实”。
+"""
+
+[[steps]]
+id = "doc-02-context"
+title = "文档 02：背景脉络"
+depends_on = ["scope-map"]
+input_context = ["scope_map"]
+output_key = "doc_context"
+description = """
+写系列文档第 2 篇：`02-背景脉络.md`。
+
+要求：
+- 梳理 {{topic}} 出现的背景、前置条件、相关领域和关键参与者类型。
+- 用时间线或阶段表表达演进，但不要编造精确日期。
+- 说明它为什么在现在这个时间点变得重要。
+- 输出 Markdown，包含“背景”、“演进阶段”、“生态角色”、“和相邻概念的区别”。
+"""
+
+[[steps]]
+id = "doc-03-mechanism"
+title = "文档 03：核心机制"
+depends_on = ["doc-01-primer", "doc-02-context"]
+input_context = ["doc_primer", "doc_context"]
+output_key = "doc_mechanism"
+description = """
+写系列文档第 3 篇：`03-核心机制.md`。
+
+要求：
+- 解释 {{topic}} 的核心机制、组成部分、工作流程或价值链。
+- 如果是技术/产品，说明输入、处理、输出和关键瓶颈。
+- 如果是社会/商业现象，说明参与者、激励、传播路径和约束。
+- 包含一个 ASCII 或 Markdown 流程图。
+- 用“如果只记住三件事”收尾。
+"""
+
+[[steps]]
+id = "doc-04-cases"
+title = "文档 04：应用案例和影响"
+depends_on = ["doc-02-context", "doc-03-mechanism"]
+input_context = ["doc_context", "doc_mechanism"]
+output_key = "doc_cases"
+description = """
+写系列文档第 4 篇：`04-应用案例和影响.md`。
+
+要求：
+- 从 {{focus}} 角度优先选择案例类型。
+- 至少列出 5 类应用场景或影响路径。
+- 每类包含：适用条件、价值、限制、适合观察的信号。
+- 不要编造具体公司数据；可以使用“例如某类产品/组织”这种类型化表达。
+"""
+
+[[steps]]
+id = "doc-05-risks"
+title = "文档 05：争议、风险和反方观点"
+depends_on = ["doc-01-primer", "doc-03-mechanism", "doc-04-cases"]
+input_context = ["doc_primer", "doc_mechanism", "doc_cases"]
+output_key = "doc_risks"
+description = """
+写系列文档第 5 篇：`05-争议风险和反方观点.md`。
+
+要求：
+- 从事实风险、认知风险、商业风险、伦理/社会风险、执行风险五类分析。
+- 写出强反方观点，避免只有宣传口径。
+- 区分“已经发生的问题”、“合理担忧”、“过度炒作”。
+- 给出普通读者判断该话题是否被高估的检查清单。
+"""
+
+[[steps]]
+id = "doc-06-learning-path"
+title = "文档 06：学习路径和行动清单"
+depends_on = ["doc-01-primer", "doc-02-context", "doc-03-mechanism", "doc-04-cases", "doc-05-risks"]
+input_context = ["doc_primer", "doc_context", "doc_mechanism", "doc_cases", "doc_risks"]
+output_key = "doc_learning_path"
+description = """
+写系列文档第 6 篇：`06-学习路径和行动清单.md`。
+
+要求：
+- 给出 7 天学习计划，每天 30-60 分钟。
+- 给出搜索关键词、应该关注的问题、验证信息可靠性的办法。
+- 给出“如果我是普通读者/产品人/投资人/技术人/创作者，各该怎么继续观察”的分支建议。
+- 不要给虚假的具体链接；可以给检索方向和资料类型。
+"""
+
+[[steps]]
+id = "series-package"
+title = "汇总为系列文档包"
+depends_on = ["doc-01-primer", "doc-02-context", "doc-03-mechanism", "doc-04-cases", "doc-05-risks", "doc-06-learning-path"]
+input_context = ["scope_map", "doc_primer", "doc_context", "doc_mechanism", "doc_cases", "doc_risks", "doc_learning_path"]
+output_key = "series_docs"
+description = """
+把前面内容汇总成一个可直接保存的 Markdown 文档包。
+
+输出必须包含：
+1. `README.md`：系列标题、适合谁读、阅读顺序、每篇摘要。
+2. `01-快速入门.md`
+3. `02-背景脉络.md`
+4. `03-核心机制.md`
+5. `04-应用案例和影响.md`
+6. `05-争议风险和反方观点.md`
+7. `06-学习路径和行动清单.md`
+8. `附录-问题清单.md`：列出 20 个后续可以继续追问的问题。
+
+格式要求：
+- 每个文件用二级标题 `## 文件：xxx.md` 开始。
+- 统一术语，删除重复内容。
+- 明确标注不确定信息和需要进一步核实的地方。
+- 最终结果要像一个完整的小型知识库，而不是一篇长文章。
+"""

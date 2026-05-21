@@ -2,6 +2,14 @@
 
 This directory contains small formulas demonstrating runtime decisions, loops, deterministic script steps, and human input pauses.
 
+`tt` also includes a small curated builtin formula for generating a multi-document learning pack about a new topic:
+
+```bash
+tt formula show fresh-topic-docs
+tt formula run fresh-topic-docs "空间计算" --dry-run
+tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
+```
+
 ## Demo formulas
 
 - `runtime-control-demo.toml` demonstrates agent-driven runtime branching and loops.

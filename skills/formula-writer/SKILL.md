@@ -1,6 +1,6 @@
 ---
 name: formula-writer
-description: 'Write, edit, validate, and troubleshoot tt formula templates (TOML/JSON) for structured agent/script/human-input workflows. Use when user asks to create a formula, edit a formula, design a workflow template, decompose tasks, add runtime branching/loops, use script steps, add human intervention forms, or debug formula compile/run issues.'
+description: 'Write, edit, validate, and troubleshoot tt formula templates (TOML/JSON) for structured agent/script/human-input workflows. Use when user asks to create a formula, edit a formula, design a workflow template, decompose tasks, add runtime branching/loops, use script steps, add human intervention forms, use curated builtin formulas, or debug formula compile/run issues.'
 license: MIT
 ---
 
@@ -29,6 +29,21 @@ Do **not** put every action into an agent step. If a step can be expressed as a 
 
 Do **not** write prompts that say “ask the user” inside an autonomous formula. If the workflow needs user input during execution, use `execution = "human_input"` or instruct the agent to emit a dynamic `tt-human-input` block.
 
+## Curated builtin formula
+
+`tt` keeps only a small curated builtin set. Current builtin:
+
+- `fresh-topic-docs`: generate a multi-document Markdown learning pack for a new thing, trend, concept, product, person, technology, or phenomenon.
+
+Useful commands:
+
+```bash
+tt formula list --builtin
+tt formula show fresh-topic-docs
+tt formula run fresh-topic-docs "空间计算" --dry-run
+tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
+```
+
 ## File location and naming
 
 Formula files are usually TOML:
@@ -36,6 +51,7 @@ Formula files are usually TOML:
 - Project-level: `.tt/formulas/<name>.toml`
 - User-level: `~/.tt/formulas/<name>.toml`
 - Examples: `examples/formulas/*.toml`
+- Builtin curated formulas: `internal/formula/builtin/formulas/*.toml`
 
 The `formula` field should match the intended name:
 

@@ -257,6 +257,21 @@ understand-request(agent) -> inspect-codebase(script/agent) -> design(agent) -> 
 collect-context(script/agent) -> compare-options(agent) -> choose-option(human_input) -> make-plan(agent) -> report(agent)
 ```
 
+## Curated builtin formula
+
+当前只保留少量经过筛选的内置 formula。已有内置：
+
+- `fresh-topic-docs`：根据用户输入的新鲜事物、趋势、概念、产品、人物、技术或现象，生成一组 Markdown 系列学习文档。
+
+常用命令：
+
+```bash
+tt formula list --builtin
+tt formula show fresh-topic-docs
+tt formula run fresh-topic-docs "空间计算" --dry-run
+tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
+```
+
 ## 输出格式要求
 
 当被 `tt formula create` 调用时：

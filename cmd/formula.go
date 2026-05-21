@@ -54,6 +54,8 @@ var (
 	formulaRunShowStep    string
 	formulaRunRmYes       bool
 	formulaInputFields    []string
+	formulaListBuiltin    bool
+	formulaListUser       bool
 	formulaListCategory   string
 )
 
@@ -174,6 +176,13 @@ var formulaValidateCmd = &cobra.Command{
 	RunE:  runFormulaValidate,
 }
 
+var formulaCopyCmd = &cobra.Command{
+	Use:   "copy <name> [output]",
+	Short: "Copy a builtin formula to a local TOML file",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runFormulaCopy,
+}
+
 var formulaCreateCmd = &cobra.Command{
 	Use:   "create <name> <prompt...>",
 	Short: "Create a formula with the embedded formula-writer agent",
@@ -275,6 +284,8 @@ func init() {
 
 	formulaShowCmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
 	formulaShowCmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
+	formulaListCmd.Flags().BoolVar(&formulaListBuiltin, "builtin", false, "show only builtin formulas")
+	formulaListCmd.Flags().BoolVar(&formulaListUser, "user", false, "show only user formulas from search paths")
 	formulaListCmd.Flags().StringVar(&formulaListCategory, "category", "", "filter formulas by category")
 
 	formulaRunCmd.Flags().StringVar(&formulaAgent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
@@ -307,6 +318,7 @@ func init() {
 	formulaCmd.AddCommand(formulaCompileCmd)
 	formulaCmd.AddCommand(formulaInstantiateCmd)
 	formulaCmd.AddCommand(formulaValidateCmd)
+	formulaCmd.AddCommand(formulaCopyCmd)
 	formulaCmd.AddCommand(formulaCreateCmd)
 	formulaCmd.AddCommand(formulaOptimizeCmd)
 	formulaCmd.AddCommand(formulaRunCmd)
@@ -505,7 +517,36 @@ func joinOrNone(values []string) string {
 
 func runFormulaList(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
+	showBuiltin := !formulaListUser
+	showUser := !formulaListBuiltin
 	category := strings.TrimSpace(formulaListCategory)
+
+	if showBuiltin {
+		entries, err := formula.BuiltinFormulas()
+		if err != nil {
+			return err
+		}
+		if len(entries) > 0 {
+			fmt.Fprintln(out, "BUILTIN")
+			for _, entry := range entries {
+				if category != "" && entry.Category != category {
+					continue
+				}
+				desc := entry.Description
+				if desc == "" {
+					desc = "(no description)"
+				}
+				fmt.Fprintf(out, "  %-22s %-14s %s\n", entry.Name, entry.Category, desc)
+			}
+			if showUser {
+				fmt.Fprintln(out)
+			}
+		}
+	}
+
+	if !showUser {
+		return nil
+	}
 
 	paths := getSearchPaths()
 	if len(paths) == 0 {
@@ -515,6 +556,7 @@ func runFormulaList(cmd *cobra.Command, args []string) error {
 	}
 
 	found := false
+	fmt.Fprintln(out, "USER")
 	for _, dir := range paths {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -838,6 +880,36 @@ func runFormulaValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Formula %q is valid.\n", f.Formula)
+	return nil
+}
+
+func runFormulaCopy(cmd *cobra.Command, args []string) error {
+	name := strings.TrimSpace(args[0])
+	data, ok, err := formula.BuiltinFormulaContent(name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("builtin formula %q not found", name)
+	}
+	outPath := ""
+	if len(args) > 1 {
+		outPath = args[1]
+	} else {
+		outPath = filepath.Join(".tt", "formulas", name+formula.CanonicalTOMLExt)
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(outPath); err == nil {
+		return fmt.Errorf("output file already exists: %s", outPath)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Copied builtin formula %q to %s\n", name, outPath)
 	return nil
 }
 

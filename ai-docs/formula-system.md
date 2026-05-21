@@ -13,6 +13,7 @@
 ```mermaid
 flowchart TD
     A[formula TOML / JSON] --> B[Parser]
+    A0[Curated builtin formulas] --> B
     B --> C[Resolve]
     C --> D[Compile]
     D --> E[Recipe]
@@ -36,6 +37,21 @@ flowchart TD
 2. **编译阶段**：把定义变成稳定的 Recipe 图
 3. **执行阶段**：按 DAG 运行 agent/script 步骤
 4. **观察阶段**：通过 run store 和 dashboard 回看或恢复运行
+
+## Curated builtin formula
+
+系统保留少量经过筛选的内置 formula，而不是维护一个大而泛的低质量 catalog。当前内置：
+
+- `fresh-topic-docs`：根据用户输入的新鲜事物、概念、趋势或话题，生成一组 Markdown 系列文档，包括快速入门、背景脉络、核心机制、应用影响、争议风险、学习路径和问题清单。
+
+常用命令：
+
+```bash
+tt formula list --builtin
+tt formula show fresh-topic-docs
+tt formula run fresh-topic-docs "空间计算" --dry-run
+tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
+```
 
 ## Formula 定义模型
 

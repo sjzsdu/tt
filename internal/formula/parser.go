@@ -212,6 +212,12 @@ func (p *Parser) loadFormula(name string) (*Formula, error) {
 		}
 	}
 
+	if f, err := p.ParseBuiltin(name); err == nil {
+		return f, nil
+	} else if !strings.Contains(err.Error(), "not found") {
+		return nil, err
+	}
+
 	return nil, fmt.Errorf("formula %q not found in search paths", name)
 }
 
