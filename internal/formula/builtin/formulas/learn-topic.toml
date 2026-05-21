@@ -13,7 +13,7 @@ topic = { description = "想学习的主题", required = true }
 id = "diagnose"
 title = "诊断学习者水平"
 description = """
-针对主题 {{topic}}，推断或询问当前水平、学习目标、时间预算和偏好的学习方式。
+针对主题 {{topic}}，基于已提供信息推断学习者当前水平、学习目标、时间预算和偏好的学习方式。若信息不足，列出明确假设和待确认问题，不要中断工作流。
 """
 output_key = "learner"
 agent.name = "planner"
