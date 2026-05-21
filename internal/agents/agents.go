@@ -27,6 +27,7 @@ const (
 	NvwaPromptDesignerID  = "nvwa-prompt-designer"
 	Repo2SkillID          = "repo2skill"
 	FormulaWriterID       = "formula-writer"
+	DocsAnalystID         = "docs-analyst"
 )
 
 //go:embed embedded/*.md
@@ -83,6 +84,10 @@ func Repo2Skill() pcwrap.EmbeddedAgent {
 
 func FormulaWriter() pcwrap.EmbeddedAgent {
 	return mustGet(FormulaWriterID)
+}
+
+func DocsAnalyst() pcwrap.EmbeddedAgent {
+	return mustGet(DocsAnalystID)
 }
 
 func Core() []pcwrap.EmbeddedAgent {
