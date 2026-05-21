@@ -36,6 +36,29 @@ export type FormulaDashboardLoop = {
   body?: FormulaDashboardLoopBody[];
 };
 
+export type FormulaFormField = {
+  name: string;
+  label: string;
+  type: 'input' | 'textarea' | 'radio' | 'checkbox' | 'select' | string;
+  required?: boolean;
+  placeholder?: string;
+  default?: string;
+  options?: string[];
+  help?: string;
+};
+
+export type FormulaFormSpec = {
+  title?: string;
+  description?: string;
+  submit_label?: string;
+  fields?: FormulaFormField[];
+};
+
+export type HumanInputRequest = {
+  reason?: string;
+  form?: FormulaFormSpec;
+};
+
 export type FormulaDashboardStep = {
   id: string;
   title: string;
@@ -61,6 +84,7 @@ export type FormulaDashboardStep = {
   loop?: FormulaDashboardLoop;
   depends_on?: string[];
   activities?: FormulaStepActivity[];
+  human_input_request?: HumanInputRequest;
   depth?: number;
   index: number;
 };

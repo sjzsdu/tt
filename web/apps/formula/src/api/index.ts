@@ -31,4 +31,12 @@ export const api = {
     const msg = await r.json() as FormulaDashboardMessage;
     return normalizeSnapshot(msg.state);
   },
+  async submitHumanInput(stepID: string, response: Record<string, unknown>): Promise<void> {
+    const r = await fetch('/api/human-input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step_id: stepID, response }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
 };

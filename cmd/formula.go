@@ -2114,7 +2114,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			case executor.StatusFailed:
 				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
 			case executor.StatusWaitingInput:
-				dashboard.markStepWaitingInput(result.StepID, result.Title)
+				dashboard.markStepWaitingInput(result.StepID, result.Title, result.HumanInputRequest)
 			}
 		},
 	})
@@ -2379,7 +2379,7 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 			case executor.StatusFailed:
 				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
 			case executor.StatusWaitingInput:
-				dashboard.markStepWaitingInput(result.StepID, result.Title)
+				dashboard.markStepWaitingInput(result.StepID, result.Title, result.HumanInputRequest)
 			}
 		},
 	})

@@ -3,12 +3,17 @@ import {
   App as AntdApp,
   Button,
   Card,
+  Checkbox,
   Descriptions,
   Drawer,
   Empty,
+  Form,
+  Input,
   Modal,
   Progress,
+  Radio,
   Segmented,
+  Select,
   Tag,
   Timeline,
 } from 'antd';
@@ -32,17 +37,21 @@ import type {
   FormulaDashboardStep,
 } from '../types';
 
+const { TextArea } = Input;
+
 const statusOrder: Record<string, number> = {
   running: 0,
-  failed: 1,
-  pending: 2,
-  skipped: 3,
-  completed: 4,
+  waiting_input: 1,
+  failed: 2,
+  pending: 3,
+  skipped: 4,
+  completed: 5,
 };
 
 const statusTone: Record<string, string> = {
   pending: 'default',
   running: 'processing',
+  waiting_input: 'warning',
   completed: 'success',
   failed: 'error',
   skipped: 'warning',
@@ -64,6 +73,8 @@ function statusIcon(status: string) {
       return <CheckCircleOutlined />;
     case 'running':
       return <LoadingOutlined />;
+    case 'waiting_input':
+      return <ClockCircleOutlined />;
     case 'failed':
       return <WarningOutlined />;
     default:
@@ -450,6 +461,66 @@ function StepInspector({ step, open, onClose }: { step: FormulaDashboardStep | n
   );
 }
 
+function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep | undefined; onSubmit: (stepID: string, values: Record<string, unknown>) => Promise<void> }) {
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+  const request = step?.human_input_request;
+  const fields = request?.form?.fields || [];
+
+  useEffect(() => {
+    if (!step) return;
+    const initial: Record<string, unknown> = {};
+    for (const field of fields) {
+      if (field.default) initial[field.name] = field.default;
+      if (field.type === 'checkbox' && !initial[field.name]) initial[field.name] = [];
+    }
+    form.setFieldsValue(initial);
+  }, [step?.id]);
+
+  const submit = async () => {
+    if (!step) return;
+    const values = await form.validateFields();
+    setSubmitting(true);
+    try {
+      await onSubmit(step.id, values);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={!!step}
+      title={request?.form?.title || `Input needed: ${step?.title || ''}`}
+      okText={request?.form?.submit_label || 'Submit and resume'}
+      onOk={submit}
+      confirmLoading={submitting}
+      closable={false}
+      maskClosable={false}
+      cancelButtonProps={{ style: { display: 'none' } }}
+    >
+      {request?.reason && <p className="human-input-reason">{request.reason}</p>}
+      {request?.form?.description && <p>{request.form.description}</p>}
+      <Form form={form} layout="vertical" preserve={false}>
+        {fields.map(field => {
+          const rules = field.required ? [{ required: true, message: `${field.label || field.name} is required` }] : undefined;
+          const options = (field.options || []).map(value => ({ label: value, value }));
+          let control = <Input placeholder={field.placeholder} />;
+          if (field.type === 'textarea') control = <TextArea rows={4} placeholder={field.placeholder} />;
+          if (field.type === 'radio') control = <Radio.Group options={options} />;
+          if (field.type === 'checkbox') control = <Checkbox.Group options={options} />;
+          if (field.type === 'select') control = <Select options={options} placeholder={field.placeholder} />;
+          return (
+            <Form.Item key={field.name} name={field.name} label={field.label || field.name} rules={rules} extra={field.help}>
+              {control}
+            </Form.Item>
+          );
+        })}
+      </Form>
+    </Modal>
+  );
+}
+
 export function App() {
   const { message } = AntdApp.useApp();
   const [snapshot, setSnapshot] = useState<FormulaDashboardSnapshot | null>(null);
@@ -516,6 +587,7 @@ export function App() {
 
   const progress = summary?.steps ? Math.round(((summary.completed + summary.skipped) / summary.steps) * 100) : 0;
   const runningStep = snapshot?.steps.find(step => step.status === 'running');
+  const waitingInputStep = snapshot?.steps.find(step => step.status === 'waiting_input' && step.human_input_request);
 
   const orderedSteps = useMemo(() => {
     return [...(snapshot?.steps || [])].sort((a, b) => {
@@ -529,6 +601,11 @@ export function App() {
   const setDashboardView = (next: DashboardView) => {
     localStorage.setItem('formula-dashboard-view', next);
     setView(next);
+  };
+
+  const submitHumanInput = async (stepID: string, values: Record<string, unknown>) => {
+    await api.submitHumanInput(stepID, values);
+    message.success('Human input submitted. Resuming workflow…');
   };
 
   if (error && !snapshot) {
@@ -611,6 +688,7 @@ export function App() {
       </section>
 
       <StepInspector step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} />
+      <HumanInputModal step={waitingInputStep} onSubmit={submitHumanInput} />
       {snapshot.final_output ? (
         <OutputModal
           open={finalOutputOpen}

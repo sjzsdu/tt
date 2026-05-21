@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formularun"
@@ -49,6 +51,9 @@ func (s *formulaDashboardServer) attachStore(store *formularun.Store) {
 		return
 	}
 	s.store = store
+	if store != nil {
+		s.state.RunID = store.Meta.RunID
+	}
 	_ = s.persistSnapshot()
 }
 
@@ -63,37 +68,39 @@ type formulaDashboardSnapshot struct {
 	Edges        []formulaDashboardEdge     `json:"edges,omitempty"`
 	Logs         []formulaDashboardLogEntry `json:"logs,omitempty"`
 	WorkspaceDir string                     `json:"workspace_dir,omitempty"`
+	RunID        string                     `json:"run_id,omitempty"`
 }
 
 type formulaDashboardStep struct {
-	ID          string                `json:"id"`
-	Title       string                `json:"title"`
-	Description string                `json:"description,omitempty"`
-	Notes       string                `json:"notes,omitempty"`
-	Type        string                `json:"type,omitempty"`
-	Agent       string                `json:"agent"`
-	Model       string                `json:"model,omitempty"`
-	Session     string                `json:"session,omitempty"`
-	Status      string                `json:"status"`
-	Output      string                `json:"output,omitempty"`
-	Error       string                `json:"error,omitempty"`
-	StartedAt   string                `json:"-"`
-	FinishedAt  string                `json:"-"`
-	DurationMS  int64                 `json:"duration_ms,omitempty"`
-	Priority    *int                  `json:"priority,omitempty"`
-	Labels      []string              `json:"labels,omitempty"`
-	Assignee    string                `json:"assignee,omitempty"`
-	OutputKey   string                `json:"output_key,omitempty"`
-	InputCtx    []string              `json:"input_ctx,omitempty"`
-	Execution   string                `json:"execution,omitempty"`
-	Condition   string                `json:"condition,omitempty"`
-	Metadata    map[string]string     `json:"metadata,omitempty"`
-	Gate        *formulaDashboardGate `json:"gate,omitempty"`
-	Loop        *formulaDashboardLoop `json:"loop,omitempty"`
-	DependsOn   []string              `json:"depends_on,omitempty"`
-	Activities  []formulaStepActivity `json:"activities,omitempty"`
-	Depth       int                   `json:"depth,omitempty"`
-	Index       int                   `json:"index"`
+	ID                string                      `json:"id"`
+	Title             string                      `json:"title"`
+	Description       string                      `json:"description,omitempty"`
+	Notes             string                      `json:"notes,omitempty"`
+	Type              string                      `json:"type,omitempty"`
+	Agent             string                      `json:"agent"`
+	Model             string                      `json:"model,omitempty"`
+	Session           string                      `json:"session,omitempty"`
+	Status            string                      `json:"status"`
+	Output            string                      `json:"output,omitempty"`
+	Error             string                      `json:"error,omitempty"`
+	StartedAt         string                      `json:"-"`
+	FinishedAt        string                      `json:"-"`
+	DurationMS        int64                       `json:"duration_ms,omitempty"`
+	Priority          *int                        `json:"priority,omitempty"`
+	Labels            []string                    `json:"labels,omitempty"`
+	Assignee          string                      `json:"assignee,omitempty"`
+	OutputKey         string                      `json:"output_key,omitempty"`
+	InputCtx          []string                    `json:"input_ctx,omitempty"`
+	Execution         string                      `json:"execution,omitempty"`
+	Condition         string                      `json:"condition,omitempty"`
+	Metadata          map[string]string           `json:"metadata,omitempty"`
+	Gate              *formulaDashboardGate       `json:"gate,omitempty"`
+	Loop              *formulaDashboardLoop       `json:"loop,omitempty"`
+	DependsOn         []string                    `json:"depends_on,omitempty"`
+	Activities        []formulaStepActivity       `json:"activities,omitempty"`
+	HumanInputRequest *executor.HumanInputRequest `json:"human_input_request,omitempty"`
+	Depth             int                         `json:"depth,omitempty"`
+	Index             int                         `json:"index"`
 }
 
 type formulaStepActivity struct {
@@ -191,27 +198,32 @@ func buildFormulaDashboardGraph(recipe *formula.Recipe) ([]formulaDashboardStep,
 			gate = &formulaDashboardGate{Type: step.Gate.Type, ID: step.Gate.ID, Timeout: step.Gate.Timeout}
 		}
 		loop := buildFormulaDashboardLoop(step.Loop)
+		var humanInputRequest *executor.HumanInputRequest
+		if step.Execution == executor.HumanInputExecution && step.Form != nil {
+			humanInputRequest = &executor.HumanInputRequest{Reason: step.Description, Form: step.Form}
+		}
 		steps = append(steps, formulaDashboardStep{
-			ID:          step.ID,
-			Title:       step.Title,
-			Description: step.Description,
-			Notes:       step.Notes,
-			Type:        step.Type,
-			Agent:       agentName,
-			Model:       modelName,
-			Status:      "pending",
-			Priority:    step.Priority,
-			Labels:      append([]string(nil), step.Labels...),
-			Assignee:    step.Assignee,
-			OutputKey:   step.OutputKey,
-			InputCtx:    append([]string(nil), step.InputCtx...),
-			Execution:   step.Execution,
-			Condition:   step.Condition,
-			Metadata:    cloneStringMap(step.Metadata),
-			Gate:        gate,
-			Loop:        loop,
-			Depth:       depths[step.ID],
-			Index:       index,
+			ID:                step.ID,
+			Title:             step.Title,
+			Description:       step.Description,
+			Notes:             step.Notes,
+			Type:              step.Type,
+			Agent:             agentName,
+			Model:             modelName,
+			Status:            "pending",
+			Priority:          step.Priority,
+			Labels:            append([]string(nil), step.Labels...),
+			Assignee:          step.Assignee,
+			OutputKey:         step.OutputKey,
+			InputCtx:          append([]string(nil), step.InputCtx...),
+			Execution:         step.Execution,
+			Condition:         step.Condition,
+			Metadata:          cloneStringMap(step.Metadata),
+			Gate:              gate,
+			Loop:              loop,
+			HumanInputRequest: humanInputRequest,
+			Depth:             depths[step.ID],
+			Index:             index,
 		})
 	}
 
@@ -385,6 +397,7 @@ func (s *formulaDashboardServer) start(port int) error {
 	mux.Handle("/assets/", webui.FormulaAssetsHandler())
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
+	mux.HandleFunc("/api/human-input", s.handleHumanInput)
 	mux.HandleFunc("/ws", s.handleWS)
 
 	maxPort := port + 20
@@ -457,6 +470,103 @@ func (s *formulaDashboardServer) handleState(w http.ResponseWriter, r *http.Requ
 		Type  string                   `json:"type"`
 		State formulaDashboardSnapshot `json:"state"`
 	}{Type: "state", State: s.snapshot()})
+}
+
+type formulaHumanInputSubmitRequest struct {
+	StepID   string         `json:"step_id"`
+	Response map[string]any `json:"response"`
+}
+
+func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.readonly || s.store == nil {
+		http.Error(w, "dashboard is read-only or not attached to a run store", http.StatusBadRequest)
+		return
+	}
+	var req formulaHumanInputSubmitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.StepID) == "" {
+		http.Error(w, "step_id is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Response) == 0 {
+		http.Error(w, "response is required", http.StatusBadRequest)
+		return
+	}
+	snapshot := s.snapshot()
+	resolvedStepID, err := resolveFormulaRunStepID(snapshot, req.StepID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var request executor.HumanInputRequest
+	if err := s.store.LoadStepHumanInputRequest(resolvedStepID, &request); err != nil {
+		http.Error(w, fmt.Sprintf("load human input request failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := validateHumanInputResponse(&request, req.Response); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	outputBytes, err := json.MarshalIndent(req.Response, "", "  ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	output := string(outputBytes)
+	if err := s.store.SaveStepHumanInputResponse(resolvedStepID, req.Response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.SaveStepOutput(resolvedStepID, output); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := markSnapshotStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	snapshot.Status = "running"
+	snapshot.Error = ""
+	if err := s.store.SaveState(snapshot); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"})
+	recipe, err := formularun.LoadRecipe(s.store.Dir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	initialResults, initialContext := buildResumeState(recipe, snapshot)
+	s.store.Meta.Status = formularun.StatusRunning
+	s.store.Meta.Error = ""
+	s.store.Meta.FinishedAt = ""
+	s.store.Meta.PID = os.Getpid()
+	s.store.Meta.TTVersion = version
+	_ = s.store.SaveMetadata()
+	_ = s.store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
+	resetSnapshotForResume(&snapshot)
+	s.mu.Lock()
+	s.state = cloneFormulaDashboardSnapshot(snapshot)
+	s.readonly = false
+	s.mu.Unlock()
+	s.broadcast()
+	go func() {
+		if err := executeFormulaRecipe(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext); err != nil {
+			s.logf("resume after human input failed: %v", err)
+		}
+	}()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		OK bool `json:"ok"`
+	}{OK: true})
 }
 
 func (s *formulaDashboardServer) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -623,7 +733,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.broadcast()
 }
 
-func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string) {
+func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, request *executor.HumanInputRequest) {
 	s.mu.Lock()
 	found := false
 	for i := range s.state.Steps {
@@ -635,6 +745,9 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string) {
 			s.state.Steps[i].Title = title
 		}
 		s.state.Steps[i].Status = "waiting_input"
+		if request != nil {
+			s.state.Steps[i].HumanInputRequest = request
+		}
 		s.state.Steps[i].FinishedAt = ""
 		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
 		break
@@ -739,6 +852,7 @@ func cloneFormulaDashboardSnapshot(s formulaDashboardSnapshot) formulaDashboardS
 		cp.Steps[i].Activities = append([]formulaStepActivity(nil), step.Activities...)
 		cp.Steps[i].Loop = cloneDashboardLoop(step.Loop)
 		cp.Steps[i].Metadata = cloneStringMap(step.Metadata)
+		cp.Steps[i].HumanInputRequest = cloneHumanInputRequest(step.HumanInputRequest)
 		if step.Gate != nil {
 			gate := *step.Gate
 			cp.Steps[i].Gate = &gate
@@ -747,6 +861,27 @@ func cloneFormulaDashboardSnapshot(s formulaDashboardSnapshot) formulaDashboardS
 	cp.Edges = append([]formulaDashboardEdge(nil), s.Edges...)
 	cp.Logs = append([]formulaDashboardLogEntry(nil), s.Logs...)
 	return cp
+}
+
+func cloneHumanInputRequest(src *executor.HumanInputRequest) *executor.HumanInputRequest {
+	if src == nil {
+		return nil
+	}
+	cp := *src
+	if src.Form != nil {
+		form := *src.Form
+		form.Fields = make([]*formula.FormField, len(src.Form.Fields))
+		for i, field := range src.Form.Fields {
+			if field == nil {
+				continue
+			}
+			fieldCopy := *field
+			fieldCopy.Options = append([]string(nil), field.Options...)
+			form.Fields[i] = &fieldCopy
+		}
+		cp.Form = &form
+	}
+	return &cp
 }
 
 func renderFormulaPrompt(cwd, prompt string) string {
