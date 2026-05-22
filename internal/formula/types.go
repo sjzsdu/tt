@@ -383,12 +383,15 @@ type stepTOMLAlias struct {
 }
 
 type loopTOMLAlias struct {
-	Count int              `json:"count,omitempty"`
-	Until string           `json:"until,omitempty"`
-	Max   int              `json:"max,omitempty"`
-	Range string           `json:"range,omitempty"`
-	Var   string           `json:"var,omitempty"`
-	Body  []*stepTOMLAlias `json:"body"`
+	Count          int              `json:"count,omitempty"`
+	Until          string           `json:"until,omitempty"`
+	Max            int              `json:"max,omitempty"`
+	Range          string           `json:"range,omitempty"`
+	ForEach        string           `json:"for_each,omitempty"`
+	Var            string           `json:"var,omitempty"`
+	Parallel       bool             `json:"parallel,omitempty"`
+	MaxConcurrency int              `json:"max_concurrency,omitempty"`
+	Body           []*stepTOMLAlias `json:"body"`
 }
 
 func (a stepTOMLAlias) toStep() (Step, error) {
@@ -490,12 +493,15 @@ func (a *loopTOMLAlias) toLoopSpec() (*LoopSpec, error) {
 	}
 
 	return &LoopSpec{
-		Count: a.Count,
-		Until: a.Until,
-		Max:   a.Max,
-		Range: a.Range,
-		Var:   a.Var,
-		Body:  body,
+		Count:          a.Count,
+		Until:          a.Until,
+		Max:            a.Max,
+		Range:          a.Range,
+		ForEach:        a.ForEach,
+		Var:            a.Var,
+		Parallel:       a.Parallel,
+		MaxConcurrency: a.MaxConcurrency,
+		Body:           body,
 	}, nil
 }
 
@@ -651,12 +657,15 @@ type RetrySpec struct {
 
 // LoopSpec defines iteration over a body of steps.
 type LoopSpec struct {
-	Count int     `json:"count,omitempty" toml:"count,omitempty"`
-	Until string  `json:"until,omitempty" toml:"until,omitempty"`
-	Max   int     `json:"max,omitempty" toml:"max,omitempty"`
-	Range string  `json:"range,omitempty" toml:"range,omitempty"`
-	Var   string  `json:"var,omitempty" toml:"var,omitempty"`
-	Body  []*Step `json:"body" toml:"body"`
+	Count          int     `json:"count,omitempty" toml:"count,omitempty"`
+	Until          string  `json:"until,omitempty" toml:"until,omitempty"`
+	Max            int     `json:"max,omitempty" toml:"max,omitempty"`
+	Range          string  `json:"range,omitempty" toml:"range,omitempty"`
+	ForEach        string  `json:"for_each,omitempty" toml:"for_each,omitempty"`
+	Var            string  `json:"var,omitempty" toml:"var,omitempty"`
+	Parallel       bool    `json:"parallel,omitempty" toml:"parallel,omitempty"`
+	MaxConcurrency int     `json:"max_concurrency,omitempty" toml:"max_concurrency,omitempty"`
+	Body           []*Step `json:"body" toml:"body"`
 }
 
 // OnCompleteSpec defines actions triggered when a step completes.

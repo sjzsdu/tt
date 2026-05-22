@@ -222,6 +222,56 @@ func TestExecutorRuntimeUntilLoopUsesAgentOutput(t *testing.T) {
 	}
 }
 
+func TestExecutorRuntimeForEachLoopRunsBodyForJSONItems(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "foreach-loop",
+		Steps: []formula.RecipeStep{
+			{ID: "foreach-loop", Title: "Root", IsRoot: true},
+			{ID: "foreach-loop.plan", Title: "Plan", OutputKey: "tasks"},
+			{
+				ID:    "foreach-loop.each",
+				Title: "Execute each task",
+				Loop: &formula.LoopSpec{ForEach: "tasks", Var: "task", Parallel: true, MaxConcurrency: 2, Body: []*formula.Step{
+					{ID: "review", Title: "Review {{task.title}}", OutputKey: "review"},
+					{ID: "execute", Title: "Execute {{task.title}}", DependsOn: []string{"review"}, InputCtx: []string{"task", "review"}, OutputKey: "execute"},
+				}},
+			},
+		},
+		Deps: []formula.RecipeDep{
+			{StepID: "foreach-loop.plan", DependsOnID: "foreach-loop", Type: "blocks"},
+			{StepID: "foreach-loop.each", DependsOnID: "foreach-loop.plan", Type: "blocks"},
+		},
+	}
+	var prompts []string
+	result, err := New(recipe, RunOptions{}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+		prompts = append(prompts, prompt)
+		switch step.ID {
+		case "foreach-loop.plan":
+			return `[{"title":"alpha"},{"title":"beta"}]`, nil
+		case "foreach-loop.each.iter1.review", "foreach-loop.each.iter2.review":
+			return `reviewed`, nil
+		case "foreach-loop.each.iter1.execute", "foreach-loop.each.iter2.execute":
+			if !strings.Contains(prompt, "reviewed") {
+				t.Fatalf("execute prompt missing local review output: %s", prompt)
+			}
+			return `executed`, nil
+		default:
+			t.Fatalf("unexpected step %s", step.ID)
+			return "", nil
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Completed != 7 { // root + plan + foreach parent + 2*2 body steps
+		t.Fatalf("completed = %d, want 7; result=%+v", result.Completed, result)
+	}
+	joined := strings.Join(prompts, "\n")
+	if !strings.Contains(joined, "Review alpha") || !strings.Contains(joined, "Review beta") {
+		t.Fatalf("prompts missing rendered task titles: %s", joined)
+	}
+}
+
 func TestExecutorRuntimeUntilLoopEmitsParentCompletionUpdate(t *testing.T) {
 	recipe := &formula.Recipe{
 		Name: "runtime-loop",

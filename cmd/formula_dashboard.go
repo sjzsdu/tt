@@ -115,13 +115,16 @@ type formulaStepActivity struct {
 }
 
 type formulaDashboardLoop struct {
-	Count   int                        `json:"count,omitempty"`
-	Until   string                     `json:"until,omitempty"`
-	Max     int                        `json:"max,omitempty"`
-	Range   string                     `json:"range,omitempty"`
-	Var     string                     `json:"var,omitempty"`
-	Summary string                     `json:"summary,omitempty"`
-	Body    []formulaDashboardLoopBody `json:"body,omitempty"`
+	Count          int                        `json:"count,omitempty"`
+	Until          string                     `json:"until,omitempty"`
+	Max            int                        `json:"max,omitempty"`
+	Range          string                     `json:"range,omitempty"`
+	ForEach        string                     `json:"for_each,omitempty"`
+	Var            string                     `json:"var,omitempty"`
+	Parallel       bool                       `json:"parallel,omitempty"`
+	MaxConcurrency int                        `json:"max_concurrency,omitempty"`
+	Summary        string                     `json:"summary,omitempty"`
+	Body           []formulaDashboardLoopBody `json:"body,omitempty"`
 }
 
 type formulaDashboardLoopBody struct {
@@ -318,13 +321,16 @@ func buildFormulaDashboardLoop(loop *formula.LoopSpec) *formulaDashboardLoop {
 		return nil
 	}
 	dashboardLoop := &formulaDashboardLoop{
-		Count:   loop.Count,
-		Until:   loop.Until,
-		Max:     loop.Max,
-		Range:   loop.Range,
-		Var:     loop.Var,
-		Summary: dashboardLoopSummary(loop),
-		Body:    make([]formulaDashboardLoopBody, 0, len(loop.Body)),
+		Count:          loop.Count,
+		Until:          loop.Until,
+		Max:            loop.Max,
+		Range:          loop.Range,
+		ForEach:        loop.ForEach,
+		Var:            loop.Var,
+		Parallel:       loop.Parallel,
+		MaxConcurrency: loop.MaxConcurrency,
+		Summary:        dashboardLoopSummary(loop),
+		Body:           make([]formulaDashboardLoopBody, 0, len(loop.Body)),
 	}
 	for _, body := range loop.Body {
 		if body == nil {
@@ -355,6 +361,15 @@ func dashboardLoopSummary(loop *formula.LoopSpec) string {
 		return ""
 	}
 	switch {
+	case loop.ForEach != "":
+		mode := "sequential"
+		if loop.Parallel {
+			mode = "parallel"
+		}
+		if loop.MaxConcurrency > 0 {
+			return fmt.Sprintf("foreach %s as %s · %s · max concurrency %d", loop.ForEach, loop.Var, mode, loop.MaxConcurrency)
+		}
+		return fmt.Sprintf("foreach %s as %s · %s", loop.ForEach, loop.Var, mode)
 	case loop.Until != "":
 		max := loop.Max
 		if max <= 0 {

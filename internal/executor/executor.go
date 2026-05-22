@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -273,6 +275,10 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		return nil
 	}
 
+	if step.Loop != nil && step.Loop.ForEach != "" {
+		return e.executeForEachLoop(ctx, runner, step)
+	}
+
 	if step.Loop != nil && step.Loop.Until != "" {
 		return e.executeRuntimeLoop(ctx, runner, step)
 	}
@@ -427,11 +433,15 @@ type scriptOutput struct {
 }
 
 func (e *Executor) executeScriptStep(ctx context.Context, step *formula.RecipeStep) (string, error) {
+	return e.executeScriptStepWithRender(ctx, step, e.renderTemplate)
+}
+
+func (e *Executor) executeScriptStepWithRender(ctx context.Context, step *formula.RecipeStep, render func(string) string) (string, error) {
 	spec := step.Script
 	if spec == nil {
 		return "", fmt.Errorf("script spec is required")
 	}
-	argv := renderScriptCommand(spec, e.renderTemplate)
+	argv := renderScriptCommand(spec, render)
 	if len(argv) == 0 {
 		return "", fmt.Errorf("script command is required")
 	}
@@ -446,7 +456,7 @@ func (e *Executor) executeScriptStep(ctx context.Context, step *formula.RecipeSt
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
-	if cwd := strings.TrimSpace(e.renderTemplate(spec.Cwd)); cwd != "" {
+	if cwd := strings.TrimSpace(render(spec.Cwd)); cwd != "" {
 		if !filepath.IsAbs(cwd) {
 			if wd, err := os.Getwd(); err == nil {
 				cwd = filepath.Join(wd, cwd)
@@ -456,7 +466,7 @@ func (e *Executor) executeScriptStep(ctx context.Context, step *formula.RecipeSt
 	}
 	cmd.Env = os.Environ()
 	for k, v := range spec.Env {
-		cmd.Env = append(cmd.Env, k+"="+e.renderTemplate(v))
+		cmd.Env = append(cmd.Env, k+"="+render(v))
 	}
 	started := time.Now()
 	stdout, stderr := &strings.Builder{}, &strings.Builder{}
@@ -543,6 +553,243 @@ func firstDuration(values ...any) time.Duration {
 		}
 	}
 	return 5 * time.Minute
+}
+
+func (e *Executor) executeForEachLoop(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
+	items, err := e.loopItems(step.Loop.ForEach)
+	if err != nil {
+		return fmt.Errorf("loop %s: %w", step.ID, err)
+	}
+	varName := strings.TrimSpace(step.Loop.Var)
+	if varName == "" {
+		varName = "item"
+	}
+	e.mu.Lock()
+	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning}
+	e.mu.Unlock()
+
+	maxConcurrency := 1
+	if step.Loop.Parallel {
+		maxConcurrency = len(items)
+		if step.Loop.MaxConcurrency > 0 && step.Loop.MaxConcurrency < maxConcurrency {
+			maxConcurrency = step.Loop.MaxConcurrency
+		}
+	}
+	if maxConcurrency < 1 {
+		maxConcurrency = 1
+	}
+
+	sem := make(chan struct{}, maxConcurrency)
+	errCh := make(chan error, len(items))
+	outputs := make([]json.RawMessage, len(items))
+	for i, item := range items {
+		i, item := i, item
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			out, err := e.executeForEachItem(ctx, runner, step, varName, i, item)
+			if strings.TrimSpace(out) == "" {
+				out = "{}"
+			}
+			outputs[i] = json.RawMessage(out)
+			errCh <- err
+		}()
+		if !step.Loop.Parallel {
+			if err := <-errCh; err != nil {
+				e.markLoopFailed(step, err.Error())
+				return err
+			}
+		}
+	}
+	if step.Loop.Parallel {
+		for range items {
+			if err := <-errCh; err != nil {
+				e.markLoopFailed(step, err.Error())
+				return err
+			}
+		}
+	}
+
+	data, _ := json.MarshalIndent(outputs, "", "  ")
+	completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: string(data)}
+	e.mu.Lock()
+	e.results[step.ID].Status = StatusCompleted
+	e.results[step.ID].Output = completed.Output
+	if step.OutputKey != "" {
+		e.context[step.OutputKey] = completed.Output
+	}
+	e.mu.Unlock()
+	e.emitStepUpdate(completed)
+	return nil
+}
+
+func (e *Executor) loopItems(source string) ([]json.RawMessage, error) {
+	key := strings.TrimSpace(source)
+	key = strings.TrimPrefix(key, "output.")
+	if key == "" {
+		return nil, fmt.Errorf("for_each is required")
+	}
+	e.mu.RLock()
+	raw := strings.TrimSpace(e.context[key])
+	e.mu.RUnlock()
+	if raw == "" {
+		return nil, fmt.Errorf("for_each source %q is empty", source)
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil, fmt.Errorf("for_each source %q must be a JSON array: %w", source, err)
+	}
+	return items, nil
+}
+
+func (e *Executor) executeForEachItem(ctx context.Context, runner StepRunner, parent *formula.RecipeStep, varName string, index int, item json.RawMessage) (string, error) {
+	local := map[string]string{
+		varName:            string(item),
+		varName + ".index": fmt.Sprintf("%d", index+1),
+		"iteration":        fmt.Sprintf("%d", index+1),
+	}
+	batches, err := loopBodyBatches(parent.Loop.Body)
+	if err != nil {
+		return "", fmt.Errorf("loop %s item %d: %w", parent.ID, index+1, err)
+	}
+	for _, batch := range batches {
+		for _, body := range batch {
+			bodyStep := recipeStepFromLoopBody(parent, body, index+1)
+			if err := e.executeLoopBodyStep(ctx, runner, &bodyStep, local); err != nil {
+				return "", err
+			}
+		}
+	}
+	out := map[string]string{}
+	for k, v := range local {
+		if strings.HasPrefix(k, "_output.") {
+			out[strings.TrimPrefix(k, "_output.")] = v
+		}
+	}
+	data, _ := json.Marshal(out)
+	return string(data), nil
+}
+
+func (e *Executor) executeLoopBodyStep(ctx context.Context, runner StepRunner, step *formula.RecipeStep, local map[string]string) error {
+	if e.shouldSkipWithContext(step, local) {
+		e.mu.Lock()
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped}
+		e.mu.Unlock()
+		e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped})
+		return nil
+	}
+	if step.Execution == HumanInputExecution {
+		return fmt.Errorf("step %s uses human_input inside parallel foreach; this is not supported yet", step.ID)
+	}
+	e.mu.Lock()
+	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning}
+	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning})
+
+	var output string
+	var err error
+	if step.Execution == "script" {
+		if !e.opts.AllowScripts {
+			err = fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", step.ID)
+		} else {
+			output, err = e.executeScriptStepWithRender(ctx, step, func(s string) string { return e.renderTemplateWithContext(s, local) })
+		}
+	} else {
+		prompt := e.buildPromptWithContext(step, local)
+		output, err = runner(ctx, step, prompt)
+	}
+	if err != nil {
+		failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
+		e.mu.Lock()
+		e.results[step.ID].Status = StatusFailed
+		e.results[step.ID].Error = err.Error()
+		e.results[step.ID].Output = output
+		e.mu.Unlock()
+		e.emitStepUpdate(failed)
+		return fmt.Errorf("step %s failed: %w", step.ID, err)
+	}
+	if request := ParseHumanInputRequest(output); request != nil {
+		return fmt.Errorf("step %s requested human input inside foreach; this is not supported yet", step.ID)
+	}
+	completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: output}
+	e.mu.Lock()
+	e.results[step.ID].Status = StatusCompleted
+	e.results[step.ID].Output = output
+	e.mu.Unlock()
+	if step.OutputKey != "" {
+		local[step.OutputKey] = output
+		local["_output."+step.OutputKey] = output
+	}
+	e.emitStepUpdate(completed)
+	return nil
+}
+
+func (e *Executor) markLoopFailed(step *formula.RecipeStep, errMsg string) {
+	e.mu.Lock()
+	if e.results[step.ID] == nil {
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title}
+	}
+	e.results[step.ID].Status = StatusFailed
+	e.results[step.ID].Error = errMsg
+	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Error: errMsg})
+}
+
+func loopBodyBatches(body []*formula.Step) ([][]*formula.Step, error) {
+	stepMap := map[string]*formula.Step{}
+	inDegree := map[string]int{}
+	adj := map[string][]string{}
+	for _, step := range body {
+		if step == nil {
+			continue
+		}
+		if step.ID == "" {
+			return nil, fmt.Errorf("loop body step id is required")
+		}
+		if _, exists := stepMap[step.ID]; exists {
+			return nil, fmt.Errorf("duplicate loop body step id %q", step.ID)
+		}
+		stepMap[step.ID] = step
+		inDegree[step.ID] = 0
+	}
+	for _, step := range body {
+		if step == nil {
+			continue
+		}
+		for _, dep := range append([]string{}, append(step.DependsOn, step.Needs...)...) {
+			if _, ok := stepMap[dep]; !ok {
+				return nil, fmt.Errorf("loop body step %s depends on unknown step %q", step.ID, dep)
+			}
+			adj[dep] = append(adj[dep], step.ID)
+			inDegree[step.ID]++
+		}
+	}
+	var batches [][]*formula.Step
+	remaining := len(stepMap)
+	for remaining > 0 {
+		var ids []string
+		for id, deg := range inDegree {
+			if deg == 0 && stepMap[id] != nil {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		if len(ids) == 0 {
+			return nil, fmt.Errorf("cycle detected in loop body")
+		}
+		batch := make([]*formula.Step, 0, len(ids))
+		for _, id := range ids {
+			batch = append(batch, stepMap[id])
+			delete(inDegree, id)
+			delete(stepMap, id)
+			remaining--
+			for _, next := range adj[id] {
+				inDegree[next]--
+			}
+		}
+		batches = append(batches, batch)
+	}
+	return batches, nil
 }
 
 func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, step *formula.RecipeStep) error {
@@ -656,6 +903,7 @@ func recipeStepFromLoopBody(parent *formula.RecipeStep, body *formula.Step, iter
 		Agent:       body.Agent,
 		Script:      body.Script,
 		Form:        body.Form,
+		Timeout:     body.Timeout,
 		OutputKey:   body.OutputKey,
 		InputCtx:    append([]string(nil), body.InputCtx...),
 		Execution:   body.Execution,
@@ -672,28 +920,40 @@ func (e *Executor) shouldSkip(step *formula.RecipeStep) bool {
 	return !EvaluateCondition(step.Condition, e.context)
 }
 
+func (e *Executor) shouldSkipWithContext(step *formula.RecipeStep, local map[string]string) bool {
+	if step.Condition == "" {
+		return false
+	}
+	return !EvaluateCondition(step.Condition, e.mergedContext(local))
+}
+
 func (e *Executor) buildPrompt(step *formula.RecipeStep) string {
+	return e.buildPromptWithContext(step, nil)
+}
+
+func (e *Executor) buildPromptWithContext(step *formula.RecipeStep, local map[string]string) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("# Task: %s\n\n", e.renderTemplate(step.Title)))
+	render := func(s string) string { return e.renderTemplateWithContext(s, local) }
+	ctx := e.mergedContext(local)
+
+	b.WriteString(fmt.Sprintf("# Task: %s\n\n", render(step.Title)))
 
 	if step.Description != "" {
-		b.WriteString(fmt.Sprintf("## Description\n\n%s\n\n", e.renderTemplate(step.Description)))
+		b.WriteString(fmt.Sprintf("## Description\n\n%s\n\n", render(step.Description)))
 	}
 
 	if len(step.InputCtx) > 0 {
-		e.mu.RLock()
 		b.WriteString("## Context from previous steps\n\n")
 		for _, key := range step.InputCtx {
-			if val, ok := e.context[key]; ok {
+			if val, ok := ctx[key]; ok {
 				b.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", key, val))
 			}
 		}
-		e.mu.RUnlock()
 	}
 
 	if step.Notes != "" {
-		b.WriteString(fmt.Sprintf("## Notes\n\n%s\n\n", e.renderTemplate(step.Notes)))
+		b.WriteString(fmt.Sprintf("## Notes\n\n%s\n\n", render(step.Notes)))
 	}
 
 	if advice := strings.TrimSpace(e.opts.StepAdvice[step.ID]); advice != "" {
@@ -706,14 +966,47 @@ func (e *Executor) buildPrompt(step *formula.RecipeStep) string {
 }
 
 func (e *Executor) renderTemplate(s string) string {
+	return e.renderTemplateWithContext(s, nil)
+}
+
+var templatePathPattern = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)*)\s*\}\}`)
+
+func (e *Executor) renderTemplateWithContext(s string, local map[string]string) string {
 	if s == "" {
 		return s
 	}
+	ctx := e.mergedContext(local)
+	out := templatePathPattern.ReplaceAllStringFunc(s, func(match string) string {
+		parts := templatePathPattern.FindStringSubmatch(match)
+		if len(parts) < 2 {
+			return match
+		}
+		key := parts[1]
+		if val, ok := ctx[key]; ok {
+			return val
+		}
+		if strings.Contains(key, ".") {
+			path := strings.Split(key, ".")
+			if raw, ok := ctx[path[0]]; ok {
+				if val, ok := resolveJSONPath(raw, path[1:]); ok {
+					return val
+				}
+			}
+		}
+		return match
+	})
+	return out
+}
+
+func (e *Executor) mergedContext(local map[string]string) map[string]string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	out := s
+	out := make(map[string]string, len(e.context)+len(local))
 	for k, v := range e.context {
-		out = strings.ReplaceAll(out, "{{"+k+"}}", v)
+		out[k] = v
+	}
+	for k, v := range local {
+		out[k] = v
 	}
 	return out
 }

@@ -48,7 +48,7 @@ func ApplyLoopsWithVars(steps []*Step, vars map[string]string) ([]*Step, error) 
 			return nil, err
 		}
 
-		if step.Loop.Until != "" {
+		if step.Loop.Until != "" || step.Loop.ForEach != "" {
 			clone := cloneStep(step)
 			result = append(result, clone)
 			continue
@@ -79,12 +79,15 @@ func validateLoopSpec(loop *LoopSpec, stepID string) error {
 	if loop.Range != "" {
 		loopTypes++
 	}
+	if loop.ForEach != "" {
+		loopTypes++
+	}
 
 	if loopTypes == 0 {
-		return fmt.Errorf("loop %q: one of count, until, or range is required", stepID)
+		return fmt.Errorf("loop %q: one of count, until, range, or for_each is required", stepID)
 	}
 	if loopTypes > 1 {
-		return fmt.Errorf("loop %q: only one of count, until, or range can be specified", stepID)
+		return fmt.Errorf("loop %q: only one of count, until, range, or for_each can be specified", stepID)
 	}
 
 	if loop.Until != "" && loop.Max == 0 {
@@ -97,6 +100,12 @@ func validateLoopSpec(loop *LoopSpec, stepID string) error {
 
 	if loop.Max < 0 {
 		return fmt.Errorf("loop %q: max must be positive", stepID)
+	}
+	if loop.MaxConcurrency < 0 {
+		return fmt.Errorf("loop %q: max_concurrency must be positive", stepID)
+	}
+	if loop.ForEach != "" && strings.TrimSpace(loop.Var) == "" {
+		return fmt.Errorf("loop %q: var is required when for_each is set", stepID)
 	}
 
 	if loop.Until != "" {

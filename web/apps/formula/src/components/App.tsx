@@ -387,7 +387,10 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
                   {!!step.loop.max && <div><span>Max</span><code>{step.loop.max}</code></div>}
                   {!!step.loop.count && <div><span>Count</span><code>{step.loop.count}</code></div>}
                   {step.loop.range && <div><span>Range</span><code>{step.loop.range}</code></div>}
+                  {step.loop.for_each && <div><span>For each</span><code>{step.loop.for_each}</code></div>}
                   {step.loop.var && <div><span>Var</span><code>{step.loop.var}</code></div>}
+                  {step.loop.parallel && <div><span>Mode</span><code>parallel</code></div>}
+                  {!!step.loop.max_concurrency && <div><span>Max concurrency</span><code>{step.loop.max_concurrency}</code></div>}
                 </div>
                 {loopBody.length > 0 && (
                   <div className="loop-body-list">

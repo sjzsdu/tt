@@ -31,7 +31,10 @@ export type FormulaDashboardLoop = {
   until?: string;
   max?: number;
   range?: string;
+  for_each?: string;
   var?: string;
+  parallel?: boolean;
+  max_concurrency?: number;
   summary?: string;
   body?: FormulaDashboardLoopBody[];
 };
