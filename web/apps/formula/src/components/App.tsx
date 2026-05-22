@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   App as AntdApp,
   Button,
   Card,
@@ -466,6 +467,7 @@ function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep | unde
   const [submitting, setSubmitting] = useState(false);
   const request = step?.human_input_request;
   const fields = request?.form?.fields || [];
+  const title = request?.form?.title || `Input needed${step?.title ? `: ${step.title}` : ''}`;
 
   useEffect(() => {
     if (!step) return;
@@ -491,17 +493,18 @@ function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep | unde
   return (
     <Modal
       open={!!step}
-      title={request?.form?.title || `Input needed: ${step?.title || ''}`}
+      title={title}
       okText={request?.form?.submit_label || 'Submit and resume'}
       onOk={submit}
       confirmLoading={submitting}
       closable={false}
       maskClosable={false}
+      width={640}
       cancelButtonProps={{ style: { display: 'none' } }}
     >
-      {request?.reason && <p className="human-input-reason">{request.reason}</p>}
-      {request?.form?.description && <p>{request.form.description}</p>}
-      <Form form={form} layout="vertical" preserve={false}>
+      {request?.reason && <Alert type="warning" showIcon message={request.reason} style={{ marginBottom: 16 }} />}
+      {request?.form?.description && <Alert type="info" showIcon message={request.form.description} style={{ marginBottom: 16 }} />}
+      <Form form={form} layout="vertical" preserve={false} requiredMark="optional">
         {fields.map(field => {
           const rules = field.required ? [{ required: true, message: `${field.label || field.name} is required` }] : undefined;
           const options = (field.options || []).map(value => ({ label: value, value }));
