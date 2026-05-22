@@ -617,6 +617,14 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!snapshot) return;
+    setSelectedStep(current => {
+      if (!current) return current;
+      return snapshot.steps.find(step => step.id === current.id) || current;
+    });
+  }, [snapshot]);
+
   const summary = useMemo(() => {
     if (!snapshot) return null;
     const counts = snapshot.steps.reduce<Record<string, number>>((acc, step) => {
