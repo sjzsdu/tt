@@ -115,6 +115,30 @@ func TestBuildResumeStateExcludingRetriedStep(t *testing.T) {
 	}
 }
 
+func TestResolveFormulaDashboardStepIDAllowsFailedRetryTargets(t *testing.T) {
+	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
+	}}
+
+	got, err := resolveFormulaDashboardStepID(snapshot, "write-articles")
+	if err != nil {
+		t.Fatalf("resolveFormulaDashboardStepID returned error: %v", err)
+	}
+	if got != "fresh-topic-docs.write-articles" {
+		t.Fatalf("resolved step = %q, want fresh-topic-docs.write-articles", got)
+	}
+}
+
+func TestResolveFormulaRunStepIDStillRequiresWaitingInput(t *testing.T) {
+	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
+	}}
+
+	if _, err := resolveFormulaRunStepID(snapshot, "write-articles"); err == nil {
+		t.Fatal("resolveFormulaRunStepID succeeded for failed step, want waiting-input error")
+	}
+}
+
 func TestBuildFormulaDashboardGraphIncludesLoopPlan(t *testing.T) {
 	recipe := &formula.Recipe{
 		Name: "demo",

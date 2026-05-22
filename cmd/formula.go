@@ -2894,6 +2894,19 @@ func isEmptyHumanInputValue(value any) bool {
 }
 
 func resolveFormulaRunStepID(snapshot formulaDashboardSnapshot, stepID string) (string, error) {
+	resolvedStepID, err := resolveFormulaDashboardStepID(snapshot, stepID)
+	if err != nil {
+		return "", err
+	}
+	for _, step := range snapshot.Steps {
+		if step.ID == resolvedStepID && step.Status != string(executor.StatusWaitingInput) {
+			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", resolvedStepID, step.Status)
+		}
+	}
+	return resolvedStepID, nil
+}
+
+func resolveFormulaDashboardStepID(snapshot formulaDashboardSnapshot, stepID string) (string, error) {
 	stepID = strings.TrimSpace(stepID)
 	if stepID == "" {
 		return "", fmt.Errorf("step id is required")
@@ -2909,11 +2922,6 @@ func resolveFormulaRunStepID(snapshot formulaDashboardSnapshot, stepID string) (
 	}
 	if len(matches) > 1 {
 		return "", fmt.Errorf("step %q is ambiguous: %s", stepID, strings.Join(matches, ", "))
-	}
-	for _, step := range snapshot.Steps {
-		if step.ID == matches[0] && step.Status != string(executor.StatusWaitingInput) {
-			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", matches[0], step.Status)
-		}
 	}
 	return matches[0], nil
 }

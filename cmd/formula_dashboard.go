@@ -519,7 +519,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		return
 	}
 	snapshot := s.snapshot()
-	resolvedStepID, err := resolveFormulaRunStepID(snapshot, req.StepID)
+	resolvedStepID, err := resolveFormulaDashboardStepID(snapshot, req.StepID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

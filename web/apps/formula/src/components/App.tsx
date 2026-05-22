@@ -766,15 +766,23 @@ export function App() {
   };
 
   const submitHumanInput = async (stepID: string, values: Record<string, unknown>) => {
-    await api.submitHumanInput(stepID, values);
-    message.success('Human input submitted. Resuming workflow…');
+    try {
+      await api.submitHumanInput(stepID, values);
+      message.success('Human input submitted. Resuming workflow…');
+    } catch (err) {
+      message.error(`Human input submit failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const submitRetryStep = async (stepID: string, advice?: string) => {
-    await api.retryStep(stepID, advice);
-    setRetryStep(null);
-    setSelectedStep(null);
-    message.success('Step restarted. Workflow is resuming…');
+    try {
+      await api.retryStep(stepID, advice);
+      setRetryStep(null);
+      setSelectedStep(null);
+      message.success('Step restarted. Workflow is resuming…');
+    } catch (err) {
+      message.error(`Step restart failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const copyRunID = async () => {
