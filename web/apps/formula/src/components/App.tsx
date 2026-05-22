@@ -21,6 +21,7 @@ import {
 import {
   ApartmentOutlined,
   CheckCircleOutlined,
+  CopyOutlined,
   ClockCircleOutlined,
   ExpandOutlined,
   LoadingOutlined,
@@ -671,6 +672,13 @@ export function App() {
     message.success('Step restarted. Workflow is resuming…');
   };
 
+  const copyRunID = async () => {
+    const runID = snapshot?.run_id;
+    if (!runID) return;
+    await navigator.clipboard.writeText(runID);
+    message.success('Run ID copied');
+  };
+
   if (error && !snapshot) {
     return <main className="formula-app empty-screen"><Empty description={error} /></main>;
   }
@@ -687,6 +695,13 @@ export function App() {
             <h1>{snapshot.recipe_name}</h1>
             <Tag color={statusTone[snapshot.status] || 'processing'} icon={statusIcon(snapshot.status)}>{statusLabel(snapshot.status)}</Tag>
           </div>
+          {snapshot.run_id && (
+            <button type="button" className="run-id-copy" onClick={copyRunID} title="Copy run id">
+              <span>Run ID</span>
+              <code>{snapshot.run_id}</code>
+              <CopyOutlined />
+            </button>
+          )}
           <p>{snapshot.description || 'Live execution control room for formula runs.'}</p>
         </div>
         <div className="hero-actions">

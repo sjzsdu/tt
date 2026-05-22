@@ -111,6 +111,7 @@ export type FormulaDashboardSnapshot = {
   edges: FormulaDashboardEdge[];
   logs: FormulaDashboardLogEntry[];
   workspace_dir?: string;
+  run_id?: string;
 };
 
 export type FormulaDashboardMessage = {
