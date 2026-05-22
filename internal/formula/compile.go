@@ -71,6 +71,12 @@ func compileFormula(name string, searchPaths []string, vars map[string]string, v
 		resolved.Steps = expandedSteps
 	}
 
+	embeddedSteps, err := ApplyEmbedsWithVars(resolved.Steps, parser, compileVars, []string{name})
+	if err != nil {
+		return nil, fmt.Errorf("applying embeds to %q: %w", name, err)
+	}
+	resolved.Steps = embeddedSteps
+
 	filteredSteps, err := FilterStepsByCondition(resolved.Steps, compileVars)
 	if err != nil {
 		return nil, fmt.Errorf("filtering steps by condition: %w", err)

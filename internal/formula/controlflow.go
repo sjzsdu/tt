@@ -517,6 +517,13 @@ func cloneStep(s *Step) *Step {
 		}
 		clone.ExpandVars = v
 	}
+	if s.EmbedVars != nil {
+		v := make(map[string]string, len(s.EmbedVars))
+		for k, val := range s.EmbedVars {
+			v[k] = val
+		}
+		clone.EmbedVars = v
+	}
 	if s.Agent != nil {
 		agentClone := *s.Agent
 		clone.Agent = &agentClone

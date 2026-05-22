@@ -226,6 +226,12 @@ type Step struct {
 	// ExpandVars are variable overrides for the expansion.
 	ExpandVars map[string]string `json:"expand_vars,omitempty" toml:"expand_vars,omitempty"`
 
+	// Embed references a workflow formula to inline here as a reusable sub-flow.
+	Embed string `json:"embed,omitempty" toml:"embed,omitempty"`
+
+	// EmbedVars are variable overrides for the embedded workflow.
+	EmbedVars map[string]string `json:"embed_vars,omitempty" toml:"embed_vars,omitempty"`
+
 	// Condition makes this step optional based on a variable.
 	Condition string `json:"condition,omitempty" toml:"condition,omitempty"`
 
@@ -357,6 +363,8 @@ type stepTOMLAlias struct {
 	Assignee        string            `json:"assignee,omitempty"`
 	Expand          string            `json:"expand,omitempty"`
 	ExpandVars      map[string]string `json:"expand_vars,omitempty"`
+	Embed           string            `json:"embed,omitempty"`
+	EmbedVars       map[string]string `json:"embed_vars,omitempty"`
 	Condition       string            `json:"condition,omitempty"`
 	Children        []*stepTOMLAlias  `json:"children,omitempty"`
 	Gate            *Gate             `json:"gate,omitempty"`
@@ -446,6 +454,8 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Assignee:        a.Assignee,
 		Expand:          a.Expand,
 		ExpandVars:      a.ExpandVars,
+		Embed:           a.Embed,
+		EmbedVars:       a.EmbedVars,
 		Condition:       a.Condition,
 		Children:        children,
 		Gate:            a.Gate,
@@ -827,8 +837,23 @@ func (f *Formula) Validate() error {
 			stepIDLocations[step.ID] = prefix
 		}
 
-		if step.Title == "" && step.Expand == "" {
-			errs = append(errs, fmt.Sprintf("%s (%s): title is required (unless using expand)", prefix, step.ID))
+		if step.Title == "" && step.Expand == "" && step.Embed == "" {
+			errs = append(errs, fmt.Sprintf("%s (%s): title is required (unless using expand/embed)", prefix, step.ID))
+		}
+
+		if step.Expand != "" && step.Embed != "" {
+			errs = append(errs, fmt.Sprintf("%s (%s): expand and embed cannot be used together", prefix, step.ID))
+		}
+		if step.Embed != "" {
+			if len(step.Children) > 0 {
+				errs = append(errs, fmt.Sprintf("%s (%s): embed cannot be combined with children", prefix, step.ID))
+			}
+			if step.Loop != nil {
+				errs = append(errs, fmt.Sprintf("%s (%s): embed cannot be combined with loop", prefix, step.ID))
+			}
+			if step.Agent != nil || step.Script != nil || step.Form != nil {
+				errs = append(errs, fmt.Sprintf("%s (%s): embed cannot be combined with agent/script/form", prefix, step.ID))
+			}
 		}
 
 		if step.Priority != nil && (*step.Priority < 0 || *step.Priority > 4) {
@@ -1038,8 +1063,23 @@ func collectChildIDs(children []*Step, idLocations map[string]string, errs *[]st
 			idLocations[child.ID] = childPrefix
 		}
 
-		if child.Title == "" && child.Expand == "" {
+		if child.Title == "" && child.Expand == "" && child.Embed == "" {
 			*errs = append(*errs, fmt.Sprintf("%s (%s): title is required", childPrefix, child.ID))
+		}
+
+		if child.Expand != "" && child.Embed != "" {
+			*errs = append(*errs, fmt.Sprintf("%s (%s): expand and embed cannot be used together", childPrefix, child.ID))
+		}
+		if child.Embed != "" {
+			if len(child.Children) > 0 {
+				*errs = append(*errs, fmt.Sprintf("%s (%s): embed cannot be combined with children", childPrefix, child.ID))
+			}
+			if child.Loop != nil {
+				*errs = append(*errs, fmt.Sprintf("%s (%s): embed cannot be combined with loop", childPrefix, child.ID))
+			}
+			if child.Agent != nil || child.Script != nil || child.Form != nil {
+				*errs = append(*errs, fmt.Sprintf("%s (%s): embed cannot be combined with agent/script/form", childPrefix, child.ID))
+			}
 		}
 
 		if child.Priority != nil && (*child.Priority < 0 || *child.Priority > 4) {
