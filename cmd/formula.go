@@ -1263,44 +1263,9 @@ func runFormulaShowMarkdown(resolved *formula.Formula) error {
 }
 
 func runFormulaShowAllMarkdown() error {
-	paths := getSearchPaths()
-	if len(paths) == 0 {
-		return fmt.Errorf("no formula search paths configured")
-	}
-
-	var formulas []*formula.Formula
-	seen := make(map[string]bool)
-
-	for _, dir := range paths {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if entry.IsDir() || !isFormulaFile(entry.Name()) {
-				continue
-			}
-			name := extractFormulaName(entry.Name())
-			if seen[name] {
-				continue
-			}
-
-			p := formula.NewParser(dir)
-			f, err := p.ParseFile(filepath.Join(dir, entry.Name()))
-			if err != nil {
-				continue
-			}
-			resolved, err := p.Resolve(f)
-			if err != nil {
-				continue
-			}
-			formulas = append(formulas, resolved)
-			seen[name] = true
-		}
-	}
-
+	formulas := collectFormulaShowAllMarkdownFormulas()
 	if len(formulas) == 0 {
-		return fmt.Errorf("no formulas found in search paths")
+		return fmt.Errorf("no formulas found in search paths or builtins")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "tt-formulas-*")
@@ -1330,6 +1295,59 @@ func runFormulaShowAllMarkdown() error {
 	fmt.Printf("Generated %d formula files in %s\n", len(formulas), tmpDir)
 	defer os.RemoveAll(tmpDir)
 	return runMarkdownServer()
+}
+
+func collectFormulaShowAllMarkdownFormulas() []*formula.Formula {
+	paths := getSearchPaths()
+
+	var formulas []*formula.Formula
+	seen := make(map[string]bool)
+	p := formula.NewParser(paths...)
+
+	if entries, err := formula.BuiltinFormulas(); err == nil {
+		for _, entry := range entries {
+			f, err := p.LoadByName(entry.Name)
+			if err != nil {
+				continue
+			}
+			resolved, err := p.Resolve(f)
+			if err != nil {
+				continue
+			}
+			formulas = append(formulas, resolved)
+			seen[resolved.Formula] = true
+		}
+	}
+
+	for _, dir := range paths {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !isFormulaFile(entry.Name()) {
+				continue
+			}
+			name := extractFormulaName(entry.Name())
+			if seen[name] {
+				continue
+			}
+
+			p := formula.NewParser(dir)
+			f, err := p.ParseFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			resolved, err := p.Resolve(f)
+			if err != nil {
+				continue
+			}
+			formulas = append(formulas, resolved)
+			seen[name] = true
+		}
+	}
+
+	return formulas
 }
 
 func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string {

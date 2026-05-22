@@ -46,6 +46,23 @@ func TestGenerateFormulaMarkdownDetailsAndRunExamples(t *testing.T) {
 	}
 }
 
+func TestCollectFormulaShowAllMarkdownIncludesBuiltins(t *testing.T) {
+	oldDir := formulaDir
+	t.Cleanup(func() { formulaDir = oldDir })
+	formulaDir = t.TempDir()
+
+	formulas := collectFormulaShowAllMarkdownFormulas()
+	seen := map[string]bool{}
+	for _, f := range formulas {
+		seen[f.Formula] = true
+	}
+	for _, want := range []string{"fresh-topic-docs", "san-sheng-liu-bu"} {
+		if !seen[want] {
+			t.Fatalf("show --markdown all formulas missing builtin %q; got %v", want, seen)
+		}
+	}
+}
+
 func TestGenerateFormulaMarkdownCountsAuthoredStepsOnly(t *testing.T) {
 	f := &formula.Formula{Formula: "runtime-control", Version: 1, Type: formula.TypeWorkflow, Steps: []*formula.Step{
 		{ID: "decide", Title: "Decide"},
