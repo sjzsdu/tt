@@ -61,3 +61,11 @@ func TestParseHumanInputRequestIgnoresInvalidBlocks(t *testing.T) {
 		t.Fatalf("expected nil for invalid block, got %+v", req)
 	}
 }
+
+func TestParseHumanInputRequestAcceptsUppercaseJSONInfo(t *testing.T) {
+	output := "```tt-human-input JSON\n{\"reason\":\"need context\",\"form\":{\"title\":\"Context\",\"fields\":[{\"name\":\"goal\",\"label\":\"Goal\",\"type\":\"textarea\"}]}}\n```"
+	req := ParseHumanInputRequest(output)
+	if req == nil || req.Form == nil || req.Form.Title != "Context" {
+		t.Fatalf("request mismatch: %+v", req)
+	}
+}

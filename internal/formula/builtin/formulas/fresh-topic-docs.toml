@@ -40,7 +40,28 @@ description = """
 4. 有疑问时，倾向于弹表单让用户确认，而不是自作主张。
 5. 只有极其简单的话题才跳过表单。
 
-如果需要向用户了解信息，在分析文本末尾附加一个 ```tt-human-input JSON 块。分析文本在前，JSON 块在后。
+如果需要向用户了解信息，必须在分析文本末尾追加下面这种精确格式的 fenced block。注意第一行只能是 ```tt-human-input 或 ```tt-human-input json，不要写成“JSON 块”等自然语言：
+
+```tt-human-input
+{
+  "reason": "说明为什么这些信息对写「{{topic}}」有帮助",
+  "form": {
+    "title": "表单标题",
+    "description": "表单描述，说明用户需要做什么",
+    "submit_label": "开始生成文档",
+    "fields": [
+      {
+        "name": "focus",
+        "label": "你最关注的方向",
+        "type": "input",
+        "required": true,
+        "placeholder": "例如：原理、应用、风险、入门路线",
+        "help": "字段必须根据话题动态设计，这里只是格式示例"
+      }
+    ]
+  }
+}
+```
 
 输出要求：
 - 输出分析文本。

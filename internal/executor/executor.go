@@ -412,8 +412,8 @@ func extractHumanInputBlock(output string) string {
 	}
 	rest := output[idx+len(marker):]
 	rest = strings.TrimLeft(rest, " \t\r\n")
-	if strings.HasPrefix(rest, "json") {
-		rest = strings.TrimLeft(rest[len("json"):], " \t\r\n")
+	if len(rest) >= 4 && strings.EqualFold(rest[:4], "json") {
+		rest = strings.TrimLeft(rest[4:], " \t\r\n")
 	}
 	end := strings.Index(rest, "```")
 	if end < 0 {
