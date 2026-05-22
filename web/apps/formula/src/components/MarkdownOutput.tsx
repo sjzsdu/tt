@@ -211,9 +211,10 @@ function JsonOutput({ value, source }: { value: unknown; source: string }) {
 
 function JsonValue({ value, name, depth }: { value: unknown; name?: string; depth: number }): ReactNode {
   const type = jsonType(value);
+  const isContainer = type === 'object' || type === 'array';
   const label = name ? <span className="json-key">{renderJsonKeyLabel(name)}</span> : null;
 
-  if (value === null || type !== 'object') {
+  if (value === null || !isContainer) {
     return (
       <div className="json-row" style={{ paddingLeft: depth * 16 }}>
         {label ? <span className="json-key-label">{label}</span> : null}
