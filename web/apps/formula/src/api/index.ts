@@ -39,4 +39,12 @@ export const api = {
     });
     if (!r.ok) throw new Error(await r.text());
   },
+  async retryStep(stepID: string, advice?: string): Promise<void> {
+    const r = await fetch('/api/retry-step', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step_id: stepID, advice: advice || '' }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
 };

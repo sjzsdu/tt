@@ -52,6 +52,16 @@ func TestExecutorSkipsInitialCompletedResults(t *testing.T) {
 	}
 }
 
+func TestExecutorAddsRetryAdviceToPrompt(t *testing.T) {
+	recipe := &formula.Recipe{Name: "retry-demo"}
+	step := &formula.RecipeStep{ID: "retry-demo.agent", Title: "Fix issue"}
+	exec := New(recipe, RunOptions{StepAdvice: map[string]string{step.ID: "Please focus on the failing assertion."}})
+	prompt := exec.buildPrompt(step)
+	if !strings.Contains(prompt, "## User retry instructions") || !strings.Contains(prompt, "Please focus on the failing assertion.") {
+		t.Fatalf("prompt = %q, want retry advice section", prompt)
+	}
+}
+
 func TestExecutorRunsScriptStepAndCapturesJSON(t *testing.T) {
 	recipe := &formula.Recipe{
 		Name: "script-demo",

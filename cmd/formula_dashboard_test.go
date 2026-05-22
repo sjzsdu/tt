@@ -3,6 +3,7 @@ package cmd
 import (
 	"testing"
 
+	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 )
 
@@ -87,6 +88,30 @@ func TestFormulaDashboardLoopBodyActivityRollsUpToParentStep(t *testing.T) {
 	activity := snapshot.Steps[0].Activities[0]
 	if activity.StepID != "demo.review.iter1.check" || activity.Status != "completed" || activity.Output != "approved=false" {
 		t.Fatalf("activity = %+v, want completed loop body output", activity)
+	}
+}
+
+func TestBuildResumeStateExcludingRetriedStep(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "demo",
+		Steps: []formula.RecipeStep{
+			{ID: "demo.done", Title: "Done", OutputKey: "done"},
+			{ID: "demo.retry", Title: "Retry", OutputKey: "retry"},
+		},
+	}
+	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+		{ID: "demo.done", Title: "Done", Status: string(executor.StatusCompleted), Output: "done-output"},
+		{ID: "demo.retry", Title: "Retry", Status: string(executor.StatusCompleted), Output: "old-output"},
+	}}
+	results, ctx := buildResumeStateExcluding(recipe, snapshot, map[string]bool{"demo.retry": true})
+	if len(results) != 1 || results[0].StepID != "demo.done" {
+		t.Fatalf("results = %+v, want only non-retried completed step", results)
+	}
+	if ctx["done"] != "done-output" {
+		t.Fatalf("ctx[done] = %q, want done-output", ctx["done"])
+	}
+	if _, ok := ctx["retry"]; ok {
+		t.Fatalf("ctx contains retried output: %+v", ctx)
 	}
 }
 

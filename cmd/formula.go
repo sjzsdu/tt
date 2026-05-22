@@ -2303,6 +2303,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 }
 
 func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string) error {
+	return executeFormulaRecipeWithAdvice(cmd, recipe, runStore, dashboard, vars, initialResults, initialContext, nil)
+}
+
+func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
 	loaded, err := loadTTConfig()
 	if err != nil {
 		return err
@@ -2354,6 +2358,7 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 		Debug:          formulaDebug,
 		AllowScripts:   !formulaNoScript,
 		AllowShell:     formulaAllowShell,
+		StepAdvice:     stepAdvice,
 		OnStepUpdate: func(result executor.StepResult) {
 			if runStore != nil {
 				switch result.Status {
@@ -2914,6 +2919,10 @@ func markSnapshotStepCompletedWithOutput(snapshot *formulaDashboardSnapshot, ste
 }
 
 func buildResumeState(recipe *formula.Recipe, snapshot formulaDashboardSnapshot) ([]executor.StepResult, map[string]string) {
+	return buildResumeStateExcluding(recipe, snapshot, nil)
+}
+
+func buildResumeStateExcluding(recipe *formula.Recipe, snapshot formulaDashboardSnapshot, exclude map[string]bool) ([]executor.StepResult, map[string]string) {
 	stepByID := map[string]*formula.RecipeStep{}
 	for i := range recipe.Steps {
 		stepByID[recipe.Steps[i].ID] = &recipe.Steps[i]
@@ -2921,6 +2930,9 @@ func buildResumeState(recipe *formula.Recipe, snapshot formulaDashboardSnapshot)
 	var results []executor.StepResult
 	ctx := map[string]string{}
 	for _, step := range snapshot.Steps {
+		if exclude != nil && exclude[step.ID] {
+			continue
+		}
 		status := executor.StepStatus(step.Status)
 		if status != executor.StatusCompleted && status != executor.StatusSkipped {
 			continue
@@ -2931,6 +2943,24 @@ func buildResumeState(recipe *formula.Recipe, snapshot formulaDashboardSnapshot)
 		}
 	}
 	return results, ctx
+}
+
+func resetSnapshotStepForRetry(snapshot *formulaDashboardSnapshot, stepID string) {
+	if snapshot == nil {
+		return
+	}
+	for i := range snapshot.Steps {
+		if snapshot.Steps[i].ID != stepID {
+			continue
+		}
+		snapshot.Steps[i].Status = "pending"
+		snapshot.Steps[i].Error = ""
+		snapshot.Steps[i].Output = ""
+		snapshot.Steps[i].StartedAt = ""
+		snapshot.Steps[i].FinishedAt = ""
+		snapshot.Steps[i].DurationMS = 0
+		return
+	}
 }
 
 func resetSnapshotForResume(snapshot *formulaDashboardSnapshot) {

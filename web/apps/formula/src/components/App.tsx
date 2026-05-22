@@ -284,7 +284,7 @@ function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (s
   );
 }
 
-function StepInspector({ step, open, onClose }: { step: FormulaDashboardStep | null; open: boolean; onClose: () => void }) {
+function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboardStep | null; open: boolean; onClose: () => void; onRetry: (step: FormulaDashboardStep) => void }) {
   if (!step) return null;
   const metadataEntries = Object.entries(step.metadata || {});
   const labels = step.labels || [];
@@ -297,6 +297,9 @@ function StepInspector({ step, open, onClose }: { step: FormulaDashboardStep | n
       <div className="inspector-title-block">
         <div className="step-card-kicker">{step.id}</div>
         <h2>{step.title}</h2>
+        {step.status === 'failed' && (
+          <Button type="primary" danger onClick={() => onRetry(step)}>Retry this step</Button>
+        )}
       </div>
       <div className="step-modal-tagbar">
         <Tag color={statusTone[step.status] || 'default'}>{step.status}</Tag>
@@ -462,6 +465,47 @@ function StepInspector({ step, open, onClose }: { step: FormulaDashboardStep | n
   );
 }
 
+function RetryStepModal({ step, open, onCancel, onSubmit }: { step: FormulaDashboardStep | null; open: boolean; onCancel: () => void; onSubmit: (stepID: string, advice?: string) => Promise<void> }) {
+  const [advice, setAdvice] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const isScript = step?.execution === 'script';
+
+  useEffect(() => {
+    if (open) setAdvice('');
+  }, [open, step?.id]);
+
+  const submit = async () => {
+    if (!step) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(step.id, isScript ? '' : advice);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={isScript ? `Retry script step: ${step?.title || ''}` : `Retry agent step: ${step?.title || ''}`}
+      okText="Restart step"
+      onOk={submit}
+      onCancel={onCancel}
+      confirmLoading={submitting}
+      width={640}
+    >
+      {isScript ? (
+        <Alert type="info" showIcon message="This script step will be restarted with the same command and context." />
+      ) : (
+        <>
+          <Alert type="info" showIcon message="Add optional guidance. It will be appended to the agent prompt for this retry." style={{ marginBottom: 16 }} />
+          <TextArea rows={6} value={advice} onChange={event => setAdvice(event.target.value)} placeholder="Tell the agent what to adjust before retrying…" />
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep | undefined; onSubmit: (stepID: string, values: Record<string, unknown>) => Promise<void> }) {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
@@ -529,6 +573,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<FormulaDashboardSnapshot | null>(null);
   const [view, setView] = useState<DashboardView>(currentView());
   const [selectedStep, setSelectedStep] = useState<FormulaDashboardStep | null>(null);
+  const [retryStep, setRetryStep] = useState<FormulaDashboardStep | null>(null);
   const [finalOutputOpen, setFinalOutputOpen] = useState(false);
   const [error, setError] = useState('');
 
@@ -611,6 +656,13 @@ export function App() {
     message.success('Human input submitted. Resuming workflow…');
   };
 
+  const submitRetryStep = async (stepID: string, advice?: string) => {
+    await api.retryStep(stepID, advice);
+    setRetryStep(null);
+    setSelectedStep(null);
+    message.success('Step restarted. Workflow is resuming…');
+  };
+
   if (error && !snapshot) {
     return <main className="formula-app empty-screen"><Empty description={error} /></main>;
   }
@@ -690,7 +742,8 @@ export function App() {
         </aside>
       </section>
 
-      <StepInspector step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} />
+      <StepInspector step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} onRetry={setRetryStep} />
+      <RetryStepModal step={retryStep} open={!!retryStep} onCancel={() => setRetryStep(null)} onSubmit={submitRetryStep} />
       <HumanInputModal step={waitingInputStep} onSubmit={submitHumanInput} />
       {snapshot.final_output ? (
         <OutputModal

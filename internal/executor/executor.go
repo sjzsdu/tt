@@ -30,6 +30,7 @@ type RunOptions struct {
 	Debug          bool
 	AllowScripts   bool
 	AllowShell     bool
+	StepAdvice     map[string]string
 	OnStepUpdate   func(StepResult)
 }
 
@@ -693,6 +694,12 @@ func (e *Executor) buildPrompt(step *formula.RecipeStep) string {
 
 	if step.Notes != "" {
 		b.WriteString(fmt.Sprintf("## Notes\n\n%s\n\n", e.renderTemplate(step.Notes)))
+	}
+
+	if advice := strings.TrimSpace(e.opts.StepAdvice[step.ID]); advice != "" {
+		b.WriteString("## User retry instructions\n\n")
+		b.WriteString(advice)
+		b.WriteString("\n\n")
 	}
 
 	return b.String()

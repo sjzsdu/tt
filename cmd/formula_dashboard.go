@@ -398,6 +398,7 @@ func (s *formulaDashboardServer) start(port int) error {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/human-input", s.handleHumanInput)
+	mux.HandleFunc("/api/retry-step", s.handleRetryStep)
 	mux.HandleFunc("/ws", s.handleWS)
 
 	maxPort := port + 20
@@ -475,6 +476,87 @@ func (s *formulaDashboardServer) handleState(w http.ResponseWriter, r *http.Requ
 type formulaHumanInputSubmitRequest struct {
 	StepID   string         `json:"step_id"`
 	Response map[string]any `json:"response"`
+}
+
+type formulaRetryStepRequest struct {
+	StepID string `json:"step_id"`
+	Advice string `json:"advice,omitempty"`
+}
+
+func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.readonly || s.store == nil {
+		http.Error(w, "dashboard is read-only or not attached to a run store", http.StatusBadRequest)
+		return
+	}
+	var req formulaRetryStepRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.StepID) == "" {
+		http.Error(w, "step_id is required", http.StatusBadRequest)
+		return
+	}
+	snapshot := s.snapshot()
+	resolvedStepID, err := resolveFormulaRunStepID(snapshot, req.StepID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var target *formulaDashboardStep
+	for i := range snapshot.Steps {
+		if snapshot.Steps[i].ID == resolvedStepID {
+			target = &snapshot.Steps[i]
+			break
+		}
+	}
+	if target == nil {
+		http.Error(w, fmt.Sprintf("step %q not found", resolvedStepID), http.StatusBadRequest)
+		return
+	}
+	if target.Status != string(executor.StatusFailed) {
+		http.Error(w, "only failed steps can be retried", http.StatusBadRequest)
+		return
+	}
+	if snapshot.Status == "running" || snapshot.Status == "waiting_input" {
+		http.Error(w, "run is already active", http.StatusConflict)
+		return
+	}
+	recipe, err := formularun.LoadRecipe(s.store.Dir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	initialResults, initialContext := buildResumeStateExcluding(recipe, snapshot, map[string]bool{resolvedStepID: true})
+	resetSnapshotStepForRetry(&snapshot, resolvedStepID)
+	snapshot.Status = "running"
+	snapshot.Error = ""
+	s.store.Meta.Status = formularun.StatusRunning
+	s.store.Meta.Error = ""
+	s.store.Meta.FinishedAt = ""
+	s.store.Meta.PID = os.Getpid()
+	s.store.Meta.TTVersion = version
+	_ = s.store.SaveMetadata()
+	_ = s.store.AppendEvent(formularun.Event{Type: "step_retry_requested", StepID: resolvedStepID, Status: formularun.StatusRunning})
+	s.mu.Lock()
+	s.state = cloneFormulaDashboardSnapshot(snapshot)
+	s.readonly = false
+	s.mu.Unlock()
+	s.broadcast()
+	advice := strings.TrimSpace(req.Advice)
+	go func() {
+		if err := executeFormulaRecipeWithAdvice(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext, map[string]string{resolvedStepID: advice}); err != nil {
+			s.logf("retry step %s failed: %v", resolvedStepID, err)
+		}
+	}()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		OK bool `json:"ok"`
+	}{OK: true})
 }
 
 func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http.Request) {
