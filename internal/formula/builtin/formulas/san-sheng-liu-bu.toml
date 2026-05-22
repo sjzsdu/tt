@@ -1,6 +1,6 @@
 formula = "san-sheng-liu-bu"
 title = "三省六部工作流"
-description = "三省六部工作流：皇上提出宏观需求，中书省接旨调研完善，门下省审核，门下省通过后尚书省拆分执行"
+description = "三省六部工作流：皇上提出宏观需求，中书省先调研并形成可审议方案，门下省循环审核，中书省按反馈修订，审核通过后尚书省先产出已拆分的执行文档，再分配各部执行。"
 version = 1
 type = "workflow"
 category = "workflow"
@@ -9,124 +9,278 @@ tags = ["工作流", "需求", "审批", "任务拆分"]
 [vars]
 requirement = { description = "皇上的宏观需求", required = true }
 
-# ========== 中书省 ==========
 [[steps]]
-id = "zhongshu-receive"
-title = "中书省接旨并调研完善"
+id = "zhongshu-draft"
+title = "中书省调研并起草需求方案"
+output_key = "draft_requirement"
 description = """
-中书省接收皇上的宏观需求 {{requirement}}，进行深入调研和分析：
-1. 调研现有代码库，了解当前实现、架构、技术债务
-2. 分析需求的可行性和风险
-3. 如有不清之处，向皇上提问澄清
-4. 结合调研结果和皇上回复，对需求进行完善和丰富
-最终输出详细的需求文档。
+你是中书省。基于皇上的宏观需求 {{requirement}}，先完成需求澄清、调研和方案起草。
+
+目标：
+1. 将宏观需求改写成可执行的问题定义。
+2. 识别目标、范围、非目标、约束、风险、依赖和验收标准。
+3. 结合现有项目上下文，提出一个适合后续审核的完整需求方案。
+4. 如果信息足够，不要反问；只有在缺少关键前提、继续会明显变成猜测时，才输出动态人工介入块。
+
+输出要求：
+- 输出 Markdown 文档。
+- 结构至少包含：背景、目标、范围、非目标、现状假设、方案摘要、风险与权衡、验收标准、待确认问题。
+- 不要直接拆成执行任务清单，那是尚书省的职责。
+- 若缺失关键上下文且无法继续，请输出 tt-human-input 请求，而不是臆测。
 """
-output_key = "enriched_requirement"
+agent.name = "planner"
 
 [[steps]]
 id = "zhongshu-submit"
-title = "中书省提交门下省"
-description = "中书省将完善后的需求文档提交给门下省审核。"
-depends_on = ["zhongshu-receive"]
-output_key = "document_submitted"
+title = "中书省提交门下省审核"
+depends_on = ["zhongshu-draft"]
+input_context = ["draft_requirement"]
+output_key = "submitted_requirement"
+description = """
+整理并确认要提交门下省审核的版本。
 
-# ========== 审核循环：包含首次审核和驳回循环 ==========
+输入使用方式：
+- 直接使用 draft_requirement 作为提交底稿。
+
+输出要求：
+- 输出 Markdown。
+- 保留完整需求方案内容，并在文首补一段简短“送审说明”，说明这是提交门下省审核的正式版本。
+- 不新增执行拆分内容。
+"""
+agent.name = "planner"
+
 [[steps]]
 id = "review-loop"
-title = "审核循环"
+title = "门下省审核循环"
 depends_on = ["zhongshu-submit"]
 
   [steps.loop]
   until = "loop_approval.approved == true"
   max = 5
 
-  # 门下省审核（每次循环都执行）
   [[steps.loop.body]]
   id = "loop-review"
-  title = "门下省审核（第 {{iteration}} 轮）"
-  description = """
-  门下省对公文进行逐条核实：
-  1. 判断每条是否可行
-  2. 识别潜在风险
-  3. 给出具体的修改建议
-  输出审核结论：approved=true 表示通过，approved=false 表示驳回并说明原因和建议。
-  """
-  input_context = ["enriched_requirement", "improved_requirement"]
+  title = "门下省审核送审版本（第 {{iteration}} 轮）"
+  input_context = ["submitted_requirement", "revised_requirement"]
   output_key = "review_result"
+  description = """
+你是门下省。审核当前版本的需求方案。
 
-  # 门下省判断（每次审核后执行）
+输入使用方式：
+- 第 1 轮优先审核 submitted_requirement。
+- 若 revised_requirement 存在，则审核最新的 revised_requirement，并将其视为当前有效版本。
+- 不要混合两个版本给出冲突结论，应以最新修订版为准。
+
+审核重点：
+1. 需求表述是否清晰、无明显歧义。
+2. 目标、范围、非目标、约束、依赖是否完整。
+3. 风险与权衡是否合理。
+4. 验收标准是否可验证。
+5. 是否已经具备下发尚书省拆分执行的条件。
+
+输出要求：
+- 输出 ONLY compact JSON。
+- 格式必须为：
+{"approved":true,"summary":"...","issues":[],"suggestions":[]}
+或
+{"approved":false,"summary":"...","issues":["..."],"suggestions":["..."]}
+- issues 和 suggestions 必须具体、可操作，不要空泛。
+"""
+agent.name = "planner"
+
   [[steps.loop.body]]
   id = "loop-decide"
-  title = "门下省判断"
+  title = "门下省形成审核结论（第 {{iteration}} 轮）"
   depends_on = ["loop-review"]
   input_context = ["review_result"]
   output_key = "loop_approval"
+  description = """
+读取 review_result 并标准化为循环控制结果。
 
-  # 如果驳回：中书省完善
+输出要求：
+- 输出 ONLY compact JSON。
+- 格式必须为：
+{"approved":true,"summary":"..."}
+或
+{"approved":false,"summary":"..."}
+- 不要输出额外文本。
+"""
+agent.name = "planner"
+
   [[steps.loop.body]]
-  id = "loop-reject"
-  title = "门下省驳回"
+  id = "loop-feedback"
+  title = "门下省下发驳回意见（第 {{iteration}} 轮）"
   depends_on = ["loop-decide"]
   condition = "loop_approval.approved == false"
-  input_context = ["loop_approval"]
+  input_context = ["review_result"]
   output_key = "rejection_feedback"
+  description = """
+将 review_result 中的未通过意见整理成中书省可直接修订的反馈。
+
+输出要求：
+- 输出 Markdown。
+- 包含：审核结论摘要、必须修改项、建议修改项、通过标准。
+- 内容要与 review_result 一致，不要新增无根据要求。
+"""
+agent.name = "planner"
 
   [[steps.loop.body]]
   id = "loop-improve"
-  title = "中书省完善"
-  depends_on = ["loop-reject"]
-  input_context = ["rejection_feedback", "enriched_requirement"]
-  output_key = "improved_requirement"
+  title = "中书省按意见修订需求方案（第 {{iteration}} 轮）"
+  depends_on = ["loop-feedback"]
+  input_context = ["submitted_requirement", "revised_requirement", "rejection_feedback"]
+  output_key = "revised_requirement"
+  description = """
+你是中书省。根据门下省的 rejection_feedback 修订需求方案。
 
-  [[steps.loop.body]]
-  id = "loop-resubmit"
-  title = "中书省重新提交"
-  depends_on = ["loop-improve"]
-  output_key = "document_resubmitted"
+输入使用方式：
+- 第 1 次修订时，以 submitted_requirement 为基底。
+- 若 revised_requirement 已存在，则以最新 revised_requirement 为基底继续修订。
+- 必须逐条回应 rejection_feedback 中的必须修改项。
 
-# ========== 通过：门下省 -> 尚书省 ==========
-[[steps]]
-id = "menshou-approve"
-title = "门下省通过，下发尚书省"
-description = "门下省审核通过，将最终的需求文档下发给尚书省执行。"
-depends_on = ["review-loop"]
-input_context = ["enriched_requirement"]
-output_key = "final_requirement"
-
-# ========== 尚书省 ==========
-[[steps]]
-id = "lingshang-receive"
-title = "尚书省接收计划"
-description = "尚书省接收门下省下发的最终需求文档，准备进行任务拆分。"
-depends_on = ["menshou-approve"]
-input_context = ["final_requirement"]
-output_key = "plan_received"
-
-[[steps]]
-id = "lingshang-decompose"
-title = "尚书省任务拆分"
-description = """
-尚书省将最终需求拆分成多条互不影响的工作线：
-1. 识别可并行执行的任务
-2. 确定任务间的依赖关系
-3. 分配到相应部门
+输出要求：
+- 输出 Markdown。
+- 结构沿用原需求方案，并新增“修订说明”章节，逐条说明本轮改动如何回应审核意见。
+- 不要进入执行拆分，不要生成任务分派。
 """
-depends_on = ["lingshang-receive"]
-input_context = ["plan_received"]
-output_key = "workstreams"
+agent.name = "planner"
+
+[[steps]]
+id = "menshou-finalize"
+title = "门下省确认通过版本"
+depends_on = ["review-loop"]
+input_context = ["submitted_requirement", "revised_requirement", "loop_approval"]
+output_key = "final_requirement"
+description = """
+在审核循环结束后，确认最终通过的需求版本。
+
+输入使用方式：
+- 若 revised_requirement 存在，则优先将其视为最终通过版本。
+- 否则使用 submitted_requirement。
+- loop_approval 必须已表明 approved == true。
+
+输出要求：
+- 输出 Markdown。
+- 文首添加“门下省核可”说明，简述通过理由。
+- 后续尚书省将直接基于该文档进行任务拆分，因此要保持完整、清晰、可执行。
+"""
+agent.name = "planner"
+
+[[steps]]
+id = "lingshang-execution-doc"
+title = "尚书省先生成拆分后的执行文档"
+depends_on = ["menshou-finalize"]
+input_context = ["final_requirement"]
+output_key = "execution_document"
+description = """
+你是尚书省。基于 final_requirement，先生成一份“已经完成任务拆分的执行文档”，这是后续六部分工的依据，也是本工作流中尚书省的首要交付物。
+
+目标：
+1. 将最终需求拆解为可执行的任务包，而不是泛泛的想法。
+2. 识别并行工作线、前后依赖、里程碑、交付件和验收方式。
+3. 给出每个任务包的建议承接部门类型。
+4. 让后续分配步骤可以直接消费该文档，而无需再次重做拆分。
+
+输出要求：
+- 输出 Markdown。
+- 文档结构至少包含：执行总览、任务拆分原则、工作线列表、任务包清单、里程碑与顺序、并行与串行关系说明。
+- 每个任务包必须包含：编号、名称、目标、输入、输出、依赖、风险、建议承接部门、验收标准。
+- 任务拆分要边界清晰、依赖明确、避免大而全任务。
+- 不要写成纯叙述，应写成可下发执行的文档。
+"""
+agent.name = "planner"
 
 [[steps]]
 id = "lingshang-assign"
-title = "尚书省分配各部执行"
-description = "尚书省将拆分后的各条工作线分配给相应的部门去执行。"
-depends_on = ["lingshang-decompose"]
-input_context = ["workstreams"]
+title = "尚书省输出各部任务数组"
+depends_on = ["lingshang-execution-doc"]
+input_context = ["execution_document"]
 output_key = "assignments"
+description = """
+你是尚书省。根据 execution_document 进行任务分配，并输出可被 foreach loop 直接消费的任务数组。
+
+目标：
+1. 将已拆分任务包映射到相应部门或角色。
+2. 明确每个任务包的负责部门、前置依赖、交付物和协作接口。
+3. 保持与 execution_document 一致，不重新定义任务边界。
+4. 让后续“各部并发执行启动”步骤可以逐项处理每个任务包。
+
+输出要求：
+- 输出 ONLY compact JSON array，不要 Markdown，不要代码块。
+- 数组中每个对象格式如下：
+{"id":"T01","title":"任务名称","department":"吏部/户部/礼部/兵部/刑部/工部/跨部门","objective":"目标","inputs":["输入1"],"outputs":["交付物1"],"depends_on":["T00"],"collaboration":["需要协作方"],"acceptance":["验收标准"],"risks":["风险"]}
+- id 必须稳定、唯一，建议 T01、T02 递增。
+- department 必须是建议承接部门或“跨部门”。
+- depends_on 引用任务 id，不要引用不存在的 id。
+- 可以并行推进的任务应体现在 depends_on 为空或只依赖共同前置任务。
+"""
+agent.name = "planner"
 
 [[steps]]
 id = "execute"
-title = "各部执行工作"
-description = "各部门根据分配的工作线开始执行任务。"
+title = "各部按任务数组并发生成执行启动文稿"
 depends_on = ["lingshang-assign"]
-input_context = ["assignments"]
+input_context = ["execution_document", "assignments"]
 output_key = "execution_results"
+
+  [steps.loop]
+  for_each = "assignments"
+  var = "assignment"
+  parallel = true
+  max_concurrency = 6
+
+  [[steps.loop.body]]
+  id = "brief"
+  title = "{{assignment.department}}启动 {{assignment.id}} {{assignment.title}}"
+  input_context = ["execution_document", "assignment"]
+  output_key = "department_brief"
+  description = """
+你是 assignment.department 对应部门的执行负责人。基于 execution_document 和当前 assignment 对象，生成该任务包的执行启动文稿。
+
+当前 assignment 对象包含：id、title、department、objective、inputs、outputs、depends_on、collaboration、acceptance、risks。
+
+输出要求：
+- 输出 Markdown。
+- 包含：任务编号与名称、部门职责、目标、输入、首批动作、依赖与协作接口、交付物、验收标准、风险提示。
+- 不要声称任务已经实现完成；这里只是进入执行阶段的启动文稿。
+- 内容必须只针对当前 assignment，不要展开其他任务。
+"""
+agent.name = "planner"
+
+  [[steps.loop.body]]
+  id = "handoff"
+  title = "整理 {{assignment.id}} 的交接与统筹信息"
+  depends_on = ["brief"]
+  input_context = ["assignment", "department_brief"]
+  output_key = "execution_entry"
+  description = """
+将当前任务包的部门启动文稿整理为尚书省后续汇总可消费的 JSON 对象。
+
+输出要求：
+- 输出 ONLY compact JSON object。
+- 格式：
+{"id":"...","title":"...","department":"...","summary":"...","brief_markdown":"完整启动文稿","needs_coordination":["..."],"next_checkpoint":"..."}
+- brief_markdown 必须保留 department_brief 的完整 Markdown 内容。
+"""
+agent.name = "planner"
+
+[[steps]]
+id = "shangshu-summary"
+title = "尚书省汇总各部并发启动结果"
+depends_on = ["execute"]
+input_context = ["execution_document", "assignments", "execution_results"]
+output_key = "final_report"
+description = """
+你是尚书省。汇总 execution_results 中 foreach loop 产生的各任务包执行启动结果，形成最终统筹报告。
+
+输入说明：
+- assignments 是任务数组。
+- execution_results 是 JSON array，每个元素包含 execution_entry。
+
+输出要求：
+- 输出 Markdown。
+- 包含：总体启动结论、任务-部门总表、并行推进分组、跨部门协调点、下一轮检查节点、主要风险。
+- 保持与 execution_document 和 assignments 一致。
+- 不要声称任务已经完成，只说明已完成分派和启动文稿生成。
+"""
+agent.name = "planner"
