@@ -56,7 +56,14 @@ func TestExecutorPausesForDynamicHumanInputBlock(t *testing.T) {
 	}
 }
 
-func TestParseHumanInputRequestIgnoresInvalidBlocks(t *testing.T) {
+func TestParseHumanInputRequestStrictRejectsInvalidBlocks(t *testing.T) {
+	req, found, err := ParseHumanInputRequestStrict("```tt-human-input\nnot-json\n```")
+	if req != nil || !found || err == nil {
+		t.Fatalf("strict parse = req:%+v found:%v err:%v, want found error", req, found, err)
+	}
+}
+
+func TestParseHumanInputRequestCompatibilityIgnoresInvalidBlocks(t *testing.T) {
 	if req := ParseHumanInputRequest("```tt-human-input\nnot-json\n```"); req != nil {
 		t.Fatalf("expected nil for invalid block, got %+v", req)
 	}
@@ -67,5 +74,23 @@ func TestParseHumanInputRequestAcceptsUppercaseJSONInfo(t *testing.T) {
 	req := ParseHumanInputRequest(output)
 	if req == nil || req.Form == nil || req.Form.Title != "Context" {
 		t.Fatalf("request mismatch: %+v", req)
+	}
+}
+
+func TestParseHumanInputRequestStrictUnwrapsCommonEnvelope(t *testing.T) {
+	output := "```tt-human-input json\n{\"human_input_request\":{\"reason\":\"need context\",\"form\":{\"fields\":[{\"name\":\"focus\",\"label\":\"Focus\",\"type\":\"text\"}]}}}\n```"
+	req, found, err := ParseHumanInputRequestStrict(output)
+	if err != nil || !found || req == nil || req.Form == nil {
+		t.Fatalf("strict parse mismatch: req:%+v found:%v err:%v", req, found, err)
+	}
+	if got := req.Form.Fields[0].Type; got != "input" {
+		t.Fatalf("normalized field type = %q, want input", got)
+	}
+}
+
+func TestParseHumanInputRequestStrictRejectsChoiceWithoutOptions(t *testing.T) {
+	output := "```tt-human-input\n{\"form\":{\"fields\":[{\"name\":\"focus\",\"label\":\"Focus\",\"type\":\"select\"}]}}\n```"
+	if _, _, err := ParseHumanInputRequestStrict(output); err == nil {
+		t.Fatal("expected options validation error")
 	}
 }

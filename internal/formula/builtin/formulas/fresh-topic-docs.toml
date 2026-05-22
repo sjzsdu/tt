@@ -40,7 +40,16 @@ description = """
 4. 有疑问时，倾向于弹表单让用户确认，而不是自作主张。
 5. 只有极其简单的话题才跳过表单。
 
-如果需要向用户了解信息，必须在分析文本末尾追加下面这种精确格式的 fenced block。注意第一行只能是 ```tt-human-input 或 ```tt-human-input json，不要写成“JSON 块”等自然语言：
+如果需要向用户了解信息，必须在分析文本末尾追加下面这种精确格式的 fenced block。注意第一行只能是 ```tt-human-input 或 ```tt-human-input json，不要写成“JSON 块”等自然语言。
+
+动态表单是运行时强约束协议，必须严格满足：
+- fenced block 内必须是合法 JSON object，不允许注释、尾逗号、Markdown、自然语言解释。
+- 顶层必须直接包含 `reason` 和 `form`，不要再包一层 `human_input_request`。
+- `form.fields` 必须是非空数组。
+- 每个 field 必须有 `name`、`label`、`type`。
+- `type` 只能是 `input`、`textarea`、`radio`、`checkbox`、`select`。
+- `radio`、`checkbox`、`select` 必须提供非空 `options` 字符串数组。
+- `name` 只能用英文小写、数字、下划线，不能重复。
 
 ```tt-human-input
 {

@@ -361,7 +361,15 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		return fmt.Errorf("step %s failed: %w", step.ID, err)
 	}
 
-	if request := ParseHumanInputRequest(output); request != nil {
+	request, foundHumanInput, parseHumanInputErr := ParseHumanInputRequestStrict(output)
+	if parseHumanInputErr != nil {
+		e.mu.Lock()
+		e.results[step.ID].Status = StatusFailed
+		e.results[step.ID].Error = parseHumanInputErr.Error()
+		e.mu.Unlock()
+		return fmt.Errorf("step %s produced invalid human input request: %w", step.ID, parseHumanInputErr)
+	}
+	if foundHumanInput && request != nil {
 		return e.pauseForHumanInput(step, request)
 	}
 
@@ -390,25 +398,141 @@ func (e *Executor) pauseForHumanInput(step *formula.RecipeStep, request *HumanIn
 }
 
 func ParseHumanInputRequest(output string) *HumanInputRequest {
-	block := extractHumanInputBlock(output)
-	if block == "" {
+	req, _, err := ParseHumanInputRequestStrict(output)
+	if err != nil {
 		return nil
+	}
+	return req
+}
+
+func ParseHumanInputRequestStrict(output string) (*HumanInputRequest, bool, error) {
+	block, found := extractHumanInputBlock(output)
+	if !found {
+		return nil, false, nil
 	}
 	var req HumanInputRequest
 	if err := json.Unmarshal([]byte(block), &req); err != nil {
-		return nil
+		return nil, true, fmt.Errorf("tt-human-input block must be valid JSON: %w", err)
 	}
 	if req.Form == nil && strings.TrimSpace(req.Reason) == "" {
-		return nil
+		wrapped, err := unwrapHumanInputRequest(block)
+		if err != nil {
+			return nil, true, err
+		}
+		if wrapped != nil {
+			req = *wrapped
+		}
 	}
-	return &req
+	if err := validateHumanInputRequest(&req); err != nil {
+		return nil, true, err
+	}
+	return &req, true, nil
 }
 
-func extractHumanInputBlock(output string) string {
+func unwrapHumanInputRequest(block string) (*HumanInputRequest, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(block), &envelope); err != nil {
+		return nil, fmt.Errorf("tt-human-input block must be a JSON object: %w", err)
+	}
+	for _, key := range []string{"human_input_request", "humanInputRequest", "human_input", "request"} {
+		raw, ok := envelope[key]
+		if !ok {
+			continue
+		}
+		var req HumanInputRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, fmt.Errorf("%s must match human input request schema: %w", key, err)
+		}
+		return &req, nil
+	}
+	return nil, nil
+}
+
+func validateHumanInputRequest(req *HumanInputRequest) error {
+	if req == nil {
+		return fmt.Errorf("tt-human-input request is required")
+	}
+	if req.Form == nil && strings.TrimSpace(req.Reason) == "" {
+		return fmt.Errorf("tt-human-input request must include reason or form")
+	}
+	if req.Form == nil {
+		return nil
+	}
+	if len(req.Form.Fields) == 0 {
+		return fmt.Errorf("tt-human-input form.fields must contain at least one field")
+	}
+	seen := map[string]bool{}
+	for i, field := range req.Form.Fields {
+		if field == nil {
+			return fmt.Errorf("tt-human-input form.fields[%d] is null", i)
+		}
+		field.Name = strings.TrimSpace(field.Name)
+		field.Label = strings.TrimSpace(field.Label)
+		field.Type = normalizeHumanInputFieldType(field.Type)
+		if field.Name == "" {
+			return fmt.Errorf("tt-human-input form.fields[%d].name is required", i)
+		}
+		if !regexp.MustCompile(`^[a-z][a-z0-9_]*$`).MatchString(field.Name) {
+			return fmt.Errorf("tt-human-input form field name %q must match ^[a-z][a-z0-9_]*$", field.Name)
+		}
+		if seen[field.Name] {
+			return fmt.Errorf("tt-human-input form field %q is duplicated", field.Name)
+		}
+		seen[field.Name] = true
+		if field.Label == "" {
+			field.Label = field.Name
+		}
+		if field.Type == "" {
+			field.Type = "input"
+		}
+		if !isSupportedHumanInputFieldType(field.Type) {
+			return fmt.Errorf("tt-human-input form field %q has unsupported type %q; supported: input, textarea, radio, checkbox, select", field.Name, field.Type)
+		}
+		if requiresHumanInputOptions(field.Type) && len(field.Options) == 0 {
+			return fmt.Errorf("tt-human-input form field %q type %q requires options", field.Name, field.Type)
+		}
+	}
+	return nil
+}
+
+func normalizeHumanInputFieldType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "text", "string", "short_text":
+		return "input"
+	case "long_text", "multiline":
+		return "textarea"
+	case "dropdown", "choice":
+		return "select"
+	case "multi_select", "multiselect":
+		return "checkbox"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func isSupportedHumanInputFieldType(value string) bool {
+	switch value {
+	case "input", "textarea", "radio", "checkbox", "select":
+		return true
+	default:
+		return false
+	}
+}
+
+func requiresHumanInputOptions(value string) bool {
+	switch value {
+	case "radio", "checkbox", "select":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractHumanInputBlock(output string) (string, bool) {
 	const marker = "```tt-human-input"
 	idx := strings.Index(output, marker)
 	if idx < 0 {
-		return ""
+		return "", false
 	}
 	rest := output[idx+len(marker):]
 	rest = strings.TrimLeft(rest, " \t\r\n")
@@ -417,9 +541,9 @@ func extractHumanInputBlock(output string) string {
 	}
 	end := strings.Index(rest, "```")
 	if end < 0 {
-		return ""
+		return "", true
 	}
-	return strings.TrimSpace(rest[:end])
+	return strings.TrimSpace(rest[:end]), true
 }
 
 type scriptOutput struct {
