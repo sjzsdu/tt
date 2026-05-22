@@ -24,6 +24,7 @@ export type FormulaDashboardLoopBody = {
   output_key?: string;
   input_ctx?: string[];
   condition?: string;
+  depends_on?: string[];
 };
 
 export type FormulaDashboardLoop = {

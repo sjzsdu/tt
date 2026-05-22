@@ -527,9 +527,34 @@ button, input, textarea { font: inherit; }
   filter: drop-shadow(0 0 10px rgba(125, 211, 252, 0.08));
 }
 
+.react-flow-canvas .react-flow__edge.flow-edge.completed .react-flow__edge-path {
+  stroke: #34d399;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.24));
+}
+
+.react-flow-canvas .react-flow__edge.flow-edge.active .react-flow__edge-path,
 .react-flow-canvas .react-flow__edge.animated .react-flow__edge-path {
   stroke: #67e8f9;
+  stroke-width: 3;
   stroke-dasharray: 8 8;
+  filter: drop-shadow(0 0 14px rgba(103, 232, 249, 0.42));
+}
+
+.react-flow-canvas .react-flow__edge.flow-edge.failed .react-flow__edge-path {
+  stroke: #fb7185;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 12px rgba(251, 113, 133, 0.36));
+}
+
+.react-flow-canvas .react-flow__edge.flow-edge.skipped .react-flow__edge-path {
+  stroke: #fbbf24;
+  stroke-dasharray: 4 7;
+}
+
+.react-flow-canvas .react-flow__edge.flow-edge.loop-entry .react-flow__edge-path,
+.react-flow-canvas .react-flow__edge.flow-edge.loop-body-edge .react-flow__edge-path {
+  stroke-dasharray: 6 6;
 }
 
 .flow-minimap {
@@ -631,6 +656,39 @@ button, input, textarea { font: inherit; }
 .graph-node.completed { border-color: rgba(74, 222, 128, 0.4); }
 .graph-node.failed { border-color: rgba(251, 113, 133, 0.42); }
 .graph-node.skipped { border-color: rgba(251, 191, 36, 0.34); }
+
+.loop-body-node {
+  gap: 7px;
+  padding: 11px 12px;
+  border-style: dashed;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(103, 232, 249, 0.08), rgba(139, 92, 246, 0.04)),
+    rgba(5, 12, 24, 0.96);
+}
+
+.loop-body-node strong {
+  font-size: 13px;
+  -webkit-line-clamp: 1;
+}
+
+.loop-body-node .graph-node-id {
+  font-size: 10px;
+}
+
+.loop-body-node .graph-node-state {
+  padding: 3px 7px;
+  font-size: 10px;
+}
+
+.loop-body-node .graph-node-meta {
+  gap: 6px;
+  margin-top: 0;
+}
+
+.loop-body-node .graph-node-meta span {
+  font-size: 10px;
+}
 
 .graph-node-topline {
   width: 100%;

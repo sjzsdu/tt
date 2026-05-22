@@ -136,6 +136,7 @@ type formulaDashboardLoopBody struct {
 	OutputKey   string   `json:"output_key,omitempty"`
 	InputCtx    []string `json:"input_ctx,omitempty"`
 	Condition   string   `json:"condition,omitempty"`
+	DependsOn   []string `json:"depends_on,omitempty"`
 }
 
 type formulaDashboardGate struct {
@@ -351,6 +352,7 @@ func buildFormulaDashboardLoop(loop *formula.LoopSpec) *formulaDashboardLoop {
 			OutputKey:   body.OutputKey,
 			InputCtx:    append([]string(nil), body.InputCtx...),
 			Condition:   body.Condition,
+			DependsOn:   append(append([]string(nil), body.DependsOn...), body.Needs...),
 		})
 	}
 	return dashboardLoop
