@@ -1,0 +1,132 @@
+formula = "san-sheng-liu-bu"
+title = "三省六部工作流"
+description = "三省六部工作流：皇上提出宏观需求，中书省接旨调研完善，门下省审核，门下省通过后尚书省拆分执行"
+version = 1
+type = "workflow"
+category = "workflow"
+tags = ["工作流", "需求", "审批", "任务拆分"]
+
+[vars]
+requirement = { description = "皇上的宏观需求", required = true }
+
+# ========== 中书省 ==========
+[[steps]]
+id = "zhongshu-receive"
+title = "中书省接旨并调研完善"
+description = """
+中书省接收皇上的宏观需求 {{requirement}}，进行深入调研和分析：
+1. 调研现有代码库，了解当前实现、架构、技术债务
+2. 分析需求的可行性和风险
+3. 如有不清之处，向皇上提问澄清
+4. 结合调研结果和皇上回复，对需求进行完善和丰富
+最终输出详细的需求文档。
+"""
+output_key = "enriched_requirement"
+
+[[steps]]
+id = "zhongshu-submit"
+title = "中书省提交门下省"
+description = "中书省将完善后的需求文档提交给门下省审核。"
+depends_on = ["zhongshu-receive"]
+output_key = "document_submitted"
+
+# ========== 审核循环：包含首次审核和驳回循环 ==========
+[[steps]]
+id = "review-loop"
+title = "审核循环"
+depends_on = ["zhongshu-submit"]
+
+  [steps.loop]
+  until = "loop_approval.approved == true"
+  max = 5
+
+  # 门下省审核（每次循环都执行）
+  [[steps.loop.body]]
+  id = "loop-review"
+  title = "门下省审核（第 {{iteration}} 轮）"
+  description = """
+  门下省对公文进行逐条核实：
+  1. 判断每条是否可行
+  2. 识别潜在风险
+  3. 给出具体的修改建议
+  输出审核结论：approved=true 表示通过，approved=false 表示驳回并说明原因和建议。
+  """
+  input_context = ["enriched_requirement", "improved_requirement"]
+  output_key = "review_result"
+
+  # 门下省判断（每次审核后执行）
+  [[steps.loop.body]]
+  id = "loop-decide"
+  title = "门下省判断"
+  depends_on = ["loop-review"]
+  input_context = ["review_result"]
+  output_key = "loop_approval"
+
+  # 如果驳回：中书省完善
+  [[steps.loop.body]]
+  id = "loop-reject"
+  title = "门下省驳回"
+  depends_on = ["loop-decide"]
+  condition = "loop_approval.approved == false"
+  input_context = ["loop_approval"]
+  output_key = "rejection_feedback"
+
+  [[steps.loop.body]]
+  id = "loop-improve"
+  title = "中书省完善"
+  depends_on = ["loop-reject"]
+  input_context = ["rejection_feedback", "enriched_requirement"]
+  output_key = "improved_requirement"
+
+  [[steps.loop.body]]
+  id = "loop-resubmit"
+  title = "中书省重新提交"
+  depends_on = ["loop-improve"]
+  output_key = "document_resubmitted"
+
+# ========== 通过：门下省 -> 尚书省 ==========
+[[steps]]
+id = "menshou-approve"
+title = "门下省通过，下发尚书省"
+description = "门下省审核通过，将最终的需求文档下发给尚书省执行。"
+depends_on = ["review-loop"]
+input_context = ["enriched_requirement"]
+output_key = "final_requirement"
+
+# ========== 尚书省 ==========
+[[steps]]
+id = "lingshang-receive"
+title = "尚书省接收计划"
+description = "尚书省接收门下省下发的最终需求文档，准备进行任务拆分。"
+depends_on = ["menshou-approve"]
+input_context = ["final_requirement"]
+output_key = "plan_received"
+
+[[steps]]
+id = "lingshang-decompose"
+title = "尚书省任务拆分"
+description = """
+尚书省将最终需求拆分成多条互不影响的工作线：
+1. 识别可并行执行的任务
+2. 确定任务间的依赖关系
+3. 分配到相应部门
+"""
+depends_on = ["lingshang-receive"]
+input_context = ["plan_received"]
+output_key = "workstreams"
+
+[[steps]]
+id = "lingshang-assign"
+title = "尚书省分配各部执行"
+description = "尚书省将拆分后的各条工作线分配给相应的部门去执行。"
+depends_on = ["lingshang-decompose"]
+input_context = ["workstreams"]
+output_key = "assignments"
+
+[[steps]]
+id = "execute"
+title = "各部执行工作"
+description = "各部门根据分配的工作线开始执行任务。"
+depends_on = ["lingshang-assign"]
+input_context = ["assignments"]
+output_key = "execution_results"

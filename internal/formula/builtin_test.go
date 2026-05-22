@@ -10,12 +10,20 @@ func TestBuiltinFormulasParseAndCompile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuiltinFormulas() error = %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected exactly one curated builtin formula, got %d", len(entries))
+	if len(entries) == 0 {
+		t.Fatalf("expected at least one builtin formula")
 	}
-	entry := entries[0]
-	if entry.Name != "fresh-topic-docs" {
-		t.Fatalf("builtin name = %q, want fresh-topic-docs", entry.Name)
+
+	// Find fresh-topic-docs among the entries
+	var entry *BuiltinEntry
+	for i := range entries {
+		if entries[i].Name == "fresh-topic-docs" {
+			entry = &entries[i]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatalf("fresh-topic-docs not found in builtin formulas: %v", entries)
 	}
 	if entry.Description == "" || entry.Title == "" || entry.Category == "" {
 		t.Fatalf("builtin metadata incomplete: %+v", entry)
@@ -29,8 +37,19 @@ func TestBuiltinFormulasParseAndCompile(t *testing.T) {
 	if f.Source != "builtin:"+entry.Name {
 		t.Fatalf("Source = %q, want builtin:%s", f.Source, entry.Name)
 	}
-	if len(f.Steps) < 6 {
+	if len(f.Steps) < 3 {
 		t.Fatalf("expected multi-step document workflow, got %d steps", len(f.Steps))
+	}
+	stepIDs := make(map[string]bool)
+	var idList []string
+	for _, s := range f.Steps {
+		stepIDs[s.ID] = true
+		idList = append(idList, s.ID)
+	}
+	for _, want := range []string{"scope-analysis", "write-articles", "series-package"} {
+		if !stepIDs[want] {
+			t.Fatalf("expected step %q in formula, got steps: %v", want, idList)
+		}
 	}
 	if err := f.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)

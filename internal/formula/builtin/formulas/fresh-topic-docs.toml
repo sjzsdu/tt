@@ -1,154 +1,176 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
-description = "根据用户输入的新鲜事物、概念、趋势或话题，生成一组结构化 Markdown 文档，帮助用户快速理解背景、原理、应用、风险和继续学习路径。"
-version = 1
+description = "根据用户输入的新鲜事物、概念、趋势或话题，基于 AI 对话题的分析动态决定文档结构，生成一组结构化 Markdown 文档。"
+version = 5
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理"]
 
 [vars]
 topic = { description = "想了解的新鲜事物、概念、趋势、产品、人物、技术或现象", required = true }
-focus = { description = "可选关注角度，例如商业、技术、历史、投资、产品、社会影响", default = "通用理解" }
-audience = { description = "目标读者", default = "对该话题好奇但缺少系统背景的中文读者" }
-depth = { description = "文档深度", default = "入门到进阶", enum = ["快速入门", "入门到进阶", "深入研究"] }
 
 [[steps]]
-id = "scope-map"
-title = "建立话题范围和文档地图"
-output_key = "scope_map"
+id = "scope-analysis"
+title = "分析话题并确定探索方向"
+output_key = "scope_config"
 description = """
-围绕“{{topic}}”建立系列文档的范围。
-关注角度：{{focus}}
-目标读者：{{audience}}
-深度：{{depth}}
+首先，深入分析话题「{{topic}}」的本质。
 
-请输出 Markdown，必须包含：
-1. 这个话题一句话是什么。
-2. 为什么它最近值得了解，区分事实、趋势和推测。
-3. 读者最应该先弄懂的 5-8 个关键词。
-4. 推荐生成的系列文档目录，目录必须覆盖：入门、背景脉络、核心机制、应用案例、争议风险、行动/学习路径。
-5. 明确哪些内容需要谨慎表述，不能编造数据或具体新闻。
+判断这个话题属于什么领域——它可能涉及多个领域（技术、商业、历史、社会、文化、科学、政治、艺术、经济等），分析清楚它的核心属性。
+
+然后，根据话题的特点，决定需要向用户了解哪些信息（如有），以便后续更好地撰写文档。
+
+**关键：不要使用固定的字段模版。每一次都应该根据话题本身，决定需要问什么、需要问几个问题、甚至是否需要问问题。**
+
+### 可能需要的用户信息（示例，仅供参考）：
+
+不同话题可能需要不同的信息。以下是几种举例：
+
+- 量子计算 → 可能需要问：关注的技术方向（select: 量子比特实现/量子纠错/量子算法...）、读者背景（radio: 物理背景/计算机背景/无背景）、文章深度（radio: 入门/进阶/研究）
+- 商鞅变法 → 可能需要问：关注的维度（select: 变法内容/历史背景/核心人物/后世影响/当代启示...）、偏好的史观视角（radio: 传统叙事/批判性分析/比较史观）
+- 小红书运营 → 可能需要问：当前阶段（select: 新手入门/瓶颈突破/矩阵运营）、主要平台（checkbox: 小红书/B站/抖音/公众号...）、内容形式（select: 图文/短视频/直播）
+- 比特币 → 可能不需要额外问题——话题本身足够聚焦，可以直接开始写
+- 什么是 P=NP 问题 → 可能需要问：数学背景程度（radio: 无/基础/专业）、感兴趣的方面（input）
+
+关键原则：
+1. **需要问什么，由话题决定**。有些话题需要非常具体的用户输入才能写好（比如运营类），有些话题用户只要说了名字就足够了（比如经典概念类）。
+2. **需要问几个问题，由复杂度决定**。简单话题 0 个问题即可，复杂话题 2-4 个问题合适。
+3. **如果不需要任何额外信息，就不要输出表单**——直接输出你的分析文本即可，后续步骤会根据你的分析来创作。
+
+### 表单设计规则
+
+如果你决定需要向用户了解一些信息，在分析文本末尾附加一个 ````tt-human-input` JSON 块。分析文本在前，JSON 块在后。
+
+支持的字段类型：
+- **input**: 单行文本输入（用于简短的自由回答）
+- **textarea**: 多行文本输入（用于较长的自由回答）
+- **radio**: 单选（用于互斥选项，需提供 options）
+- **checkbox**: 多选（用于可多选的选项，需提供 options）
+- **select**: 下拉选择（用于多项选择中的单个选择，需提供 options）
+
+每个字段的 JSON 结构：
+```json
+{
+  "name": "字段标识（英文）",
+  "label": "字段展示名称（中文）",
+  "type": "input/textarea/radio/checkbox/select",
+  "required": true/false,
+  "placeholder": "输入提示文字（仅 input/textarea）",
+  "default": "默认值",
+  "options": ["选项1", "选项2", ...],  // radio/checkbox/select 必须
+  "help": "帮助文字，说明这个字段的用途"
+}
+```
+
+`tt-human-input` JSON 块的整体格式：
+
+```tt-human-input
+{
+  "reason": "你选择问这些问题的理由，说明为什么这些信息对写「{{topic}}」有帮助",
+  "form": {
+    "title": "表单标题",
+    "description": "表单描述，说明用户需要做什么",
+    "submit_label": "提交按钮文字",
+    "fields": [
+      // 0-N 个字段，根据话题需要动态确定
+    ]
+  }
+}
+```
+
+### 决定是否使用表单的思考流程
+
+1. 先分析话题，理解它的本质、领域、复杂度
+2. 判断是否需要用户提供额外信息来定向：
+   - 如果话题泛泛（如"量子计算"）→ 需要问方向
+   - 如果话题具体（如"商鞅变法的历史背景"）→ 可能不需要问
+   - 如果话题有多个维度可切入 → 需要问 focus
+   - 如果话题很聚焦 → 不需要问
+3. 决定表单字段的数量和类型
+4. 输出分析文本 +（可选）`tt-human-input` 块
+
+### 注意事项
+
+- 分析文本在前，JSON 块在后
+- 分析文本不要包含 format 代码块标记
+- 如果不需要表单，直接输出分析文本即可
+- 确保 JSON 格式正确，不然表单不会触发
+- 你的分析文本会作为用户了解话题的第一印象，要确保有价值
 """
 
 [[steps]]
-id = "doc-01-primer"
-title = "文档 01：快速入门"
-depends_on = ["scope-map"]
-input_context = ["scope_map"]
-output_key = "doc_primer"
+id = "write-articles"
+title = "撰写系列文章"
+depends_on = ["scope-analysis"]
+input_context = ["scope_config"]
+output_key = "articles_content"
 description = """
-基于 scope_map，写系列文档第 1 篇：`01-快速入门.md`。
+根据 scope_config 中可用的信息，撰写关于「{{topic}}」的系列文档。
 
-要求：
-- 面向 {{audience}}，中文输出。
-- 用简单语言解释 {{topic}} 是什么、解决什么问题、和哪些旧事物不同。
-- 包含“一个生活化类比”、“3 分钟版本”、“常见误解”。
-- 不要假装掌握实时新闻；涉及不确定信息时标注“需要进一步核实”。
-"""
+scope_config 的内容格式不确定——它可能是用户通过表单提交的 JSON 键值对，也可能是 AI 对话题的分析文本。请读取它的内容并根据实际情况调整。
 
-[[steps]]
-id = "doc-02-context"
-title = "文档 02：背景脉络"
-depends_on = ["scope-map"]
-input_context = ["scope_map"]
-output_key = "doc_context"
-description = """
-写系列文档第 2 篇：`02-背景脉络.md`。
+### 内容创作要求
 
-要求：
-- 梳理 {{topic}} 出现的背景、前置条件、相关领域和关键参与者类型。
-- 用时间线或阶段表表达演进，但不要编造精确日期。
-- 说明它为什么在现在这个时间点变得重要。
-- 输出 Markdown，包含“背景”、“演进阶段”、“生态角色”、“和相邻概念的区别”。
-"""
+根据你对话题的理解和 scope_config 中的可用信息，决定：
 
-[[steps]]
-id = "doc-03-mechanism"
-title = "文档 03：核心机制"
-depends_on = ["doc-01-primer", "doc-02-context"]
-input_context = ["doc_primer", "doc_context"]
-output_key = "doc_mechanism"
-description = """
-写系列文档第 3 篇：`03-核心机制.md`。
+1. **适合写哪些方面的内容**——如果是技术话题，可能需要原理+应用+前景；如果是历史话题，可能需要背景+事件+影响；如果是商业话题，可能需要模式+竞争+趋势。不要套用固定模版。
+2. **文章数量**——根据话题的广度和深度决定，通常 3-6 篇比较合适，但复杂话题可以更多，简单话题可以更少。
+3. **内容深度**——如果 scope_config 中有用户对深度的偏好，按此调整。如果没有，根据话题复杂度自然选择适当的深度。
 
-要求：
-- 解释 {{topic}} 的核心机制、组成部分、工作流程或价值链。
-- 如果是技术/产品，说明输入、处理、输出和关键瓶颈。
-- 如果是社会/商业现象，说明参与者、激励、传播路径和约束。
-- 包含一个 ASCII 或 Markdown 流程图。
-- 用“如果只记住三件事”收尾。
-"""
+### 文件结构规范
 
-[[steps]]
-id = "doc-04-cases"
-title = "文档 04：应用案例和影响"
-depends_on = ["doc-02-context", "doc-03-mechanism"]
-input_context = ["doc_context", "doc_mechanism"]
-output_key = "doc_cases"
-description = """
-写系列文档第 4 篇：`04-应用案例和影响.md`。
+- 输出多个 Markdown 文件，每个文件前用 `## 文件：<文件名>.md` 标记（这个标记是 series-package 拆分文件的依据）
+- 文件名应该反映内容主题，例如 `## 文件：产业链地图.md` 或 `## 文件：核心机制.md`
+- 每篇文章要有实质性的内容（至少 500 字），不要只有提纲
 
-要求：
-- 从 {{focus}} 角度优先选择案例类型。
-- 至少列出 5 类应用场景或影响路径。
-- 每类包含：适用条件、价值、限制、适合观察的信号。
-- 不要编造具体公司数据；可以使用“例如某类产品/组织”这种类型化表达。
-"""
+### 通用质量要求
 
-[[steps]]
-id = "doc-05-risks"
-title = "文档 05：争议、风险和反方观点"
-depends_on = ["doc-01-primer", "doc-03-mechanism", "doc-04-cases"]
-input_context = ["doc_primer", "doc_mechanism", "doc_cases"]
-output_key = "doc_risks"
-description = """
-写系列文档第 5 篇：`05-争议风险和反方观点.md`。
-
-要求：
-- 从事实风险、认知风险、商业风险、伦理/社会风险、执行风险五类分析。
-- 写出强反方观点，避免只有宣传口径。
-- 区分“已经发生的问题”、“合理担忧”、“过度炒作”。
-- 给出普通读者判断该话题是否被高估的检查清单。
-"""
-
-[[steps]]
-id = "doc-06-learning-path"
-title = "文档 06：学习路径和行动清单"
-depends_on = ["doc-01-primer", "doc-02-context", "doc-03-mechanism", "doc-04-cases", "doc-05-risks"]
-input_context = ["doc_primer", "doc_context", "doc_mechanism", "doc_cases", "doc_risks"]
-output_key = "doc_learning_path"
-description = """
-写系列文档第 6 篇：`06-学习路径和行动清单.md`。
-
-要求：
-- 给出 7 天学习计划，每天 30-60 分钟。
-- 给出搜索关键词、应该关注的问题、验证信息可靠性的办法。
-- 给出“如果我是普通读者/产品人/投资人/技术人/创作者，各该怎么继续观察”的分支建议。
-- 不要给虚假的具体链接；可以给检索方向和资料类型。
+- 不要编造具体数据或新闻。提及不确定信息时标注"需要进一步核实"
+- 中文输出
 """
 
 [[steps]]
 id = "series-package"
-title = "汇总为系列文档包"
-depends_on = ["doc-01-primer", "doc-02-context", "doc-03-mechanism", "doc-04-cases", "doc-05-risks", "doc-06-learning-path"]
-input_context = ["scope_map", "doc_primer", "doc_context", "doc_mechanism", "doc_cases", "doc_risks", "doc_learning_path"]
+title = "汇总为文档包并写入 .tt/docs"
+depends_on = ["scope-analysis", "write-articles"]
+input_context = ["scope_config", "articles_content"]
 output_key = "series_docs"
 description = """
-把前面内容汇总成一个可直接保存的 Markdown 文档包。
+把 write-articles 的内容汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `.tt/docs/` 目录。
 
-输出必须包含：
-1. `README.md`：系列标题、适合谁读、阅读顺序、每篇摘要。
-2. `01-快速入门.md`
-3. `02-背景脉络.md`
-4. `03-核心机制.md`
-5. `04-应用案例和影响.md`
-6. `05-争议风险和反方观点.md`
-7. `06-学习路径和行动清单.md`
-8. `附录-问题清单.md`：列出 20 个后续可以继续追问的问题。
+write-articles 已经以 `## 文件：xxx.md` 的格式输出了各篇文章。你的工作是：
+1. 创建 `.tt/docs/` 目录（如果不存在）
+2. 撰写并写入 `README.md`，描述整个系列
+3. 保留 write-articles 中的每一篇文章，写入到 `.tt/docs/` 下
+4. 撰写并写入 `附录-问题清单.md`
 
-格式要求：
-- 每个文件用二级标题 `## 文件：xxx.md` 开始。
-- 统一术语，删除重复内容。
-- 明确标注不确定信息和需要进一步核实的地方。
-- 最终结果要像一个完整的小型知识库，而不是一篇长文章。
+具体要求：
+
+### 文件写入
+- **必须使用你的文件写入能力**（write tool）将每个文件写到磁盘
+- 所有文件都放在 `.tt/docs/` 目录下
+- 确保目录存在（如果不存在则创建）
+
+### README.md 应包含
+- 系列标题（基于 {{topic}}，参考 scope_config 中的信息）
+- 适合谁读
+- 阅读顺序建议
+- 每篇的简短摘要
+
+### 各篇文章
+- 保留 write-articles 中原有的文章内容，不做改动
+- 每篇文章单独写入为一个文件，文件名从 `## 文件：xxx.md` 标记中提取
+- 写入时不含 `## 文件：` 标记行本身，只写实际内容
+
+### 附录-问题清单.md
+- 列出 20 个后续可以继续追问的问题
+- 覆盖不同层次：理解、应用、批判性思考
+- 避免"是什么"类问题，侧重"为什么"和"如果"类问题
+
+### 整体要求
+- 统一术语，删除重复内容
+- 明确标注不确定信息和需要进一步核实的地方
+- 最终结果要像一个完整的小型知识库
+- 如果 scope_config 中有相关信息（如目标读者、偏好深度等），参考这些来写 README
+- 不要改动 write-articles 中文章的内容和结构
 """
