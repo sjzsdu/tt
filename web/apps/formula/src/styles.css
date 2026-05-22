@@ -514,6 +514,58 @@ button, input, textarea { font: inherit; }
   height: 100%;
 }
 
+.loop-group-node {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  padding: 14px 16px;
+  border-radius: 26px;
+  border: 1px dashed rgba(125, 211, 252, 0.22);
+  background:
+    linear-gradient(90deg, rgba(103, 232, 249, 0.08), rgba(139, 92, 246, 0.04)),
+    radial-gradient(circle at top left, rgba(20, 184, 166, 0.12), transparent 38%),
+    rgba(3, 8, 18, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025), 0 18px 54px rgba(0, 0, 0, 0.18);
+}
+
+.loop-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(8, 18, 32, 0.72);
+  color: #7dd3fc;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.loop-group-node strong {
+  display: block;
+  max-width: 92%;
+  overflow: hidden;
+  color: rgba(224, 242, 254, 0.82);
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loop-group-node span {
+  display: block;
+  max-width: 92%;
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .flow-handle {
   width: 9px !important;
   height: 9px !important;
@@ -555,6 +607,16 @@ button, input, textarea { font: inherit; }
 .react-flow-canvas .react-flow__edge.flow-edge.loop-entry .react-flow__edge-path,
 .react-flow-canvas .react-flow__edge.flow-edge.loop-body-edge .react-flow__edge-path {
   stroke-dasharray: 6 6;
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 8px rgba(103, 232, 249, 0.12));
+}
+
+.react-flow-canvas .react-flow__edge.flow-edge.loop-entry .react-flow__edge-path {
+  stroke: rgba(103, 232, 249, 0.78);
+}
+
+.react-flow-canvas .react-flow__edge.flow-edge.loop-body-edge .react-flow__edge-path {
+  stroke: rgba(167, 139, 250, 0.76);
 }
 
 .flow-minimap {
