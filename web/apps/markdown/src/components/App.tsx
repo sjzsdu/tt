@@ -30,6 +30,15 @@ export function App() {
   const [fileQuery, setFileQueryState] = useState(() => localStorage.getItem('md-file-query') || '');
   const [saving, setSaving] = useState(false);
   const contentPaneRef = useRef<HTMLElement | null>(null);
+  const scrollPositionsRef = useRef<Record<string, number>>({});
+  const activeScrollKeyRef = useRef('');
+
+  const rememberCurrentScroll = () => {
+    const key = activeScrollKeyRef.current;
+    const pane = contentPaneRef.current;
+    if (!key || !pane) return;
+    scrollPositionsRef.current[key] = pane.scrollTop;
+  };
 
   const save = async () => {
     setSaving(true);
@@ -65,6 +74,7 @@ export function App() {
   };
 
   const navigate = (href: string) => {
+    rememberCurrentScroll();
     history.pushState(null, '', href);
     setRoute(currentRoute());
   };
@@ -81,7 +91,10 @@ export function App() {
   };
 
   useEffect(() => {
-    const onPop = () => setRoute(currentRoute());
+    const onPop = () => {
+      rememberCurrentScroll();
+      setRoute(currentRoute());
+    };
     addEventListener('popstate', onPop);
     return () => removeEventListener('popstate', onPop);
   }, []);
@@ -109,6 +122,26 @@ export function App() {
       }
     }).catch(e => setError(String(e)));
   }, [route.file, route.mode]);
+
+  useEffect(() => {
+    if (route.mode !== 'view' || !doc) {
+      activeScrollKeyRef.current = '';
+      return;
+    }
+    const key = doc.filePath;
+    activeScrollKeyRef.current = key;
+    const pane = contentPaneRef.current;
+    if (!pane || window.location.hash) return;
+    const top = scrollPositionsRef.current[key] ?? 0;
+    requestAnimationFrame(() => {
+      if (activeScrollKeyRef.current !== key) return;
+      pane.scrollTo({ top, behavior: 'instant' });
+    });
+  }, [route.mode, doc?.filePath, doc?.contentText]);
+
+  const handleContentScroll = () => {
+    rememberCurrentScroll();
+  };
 
   useKeyboardShortcuts({
     onEdit: () => {
@@ -145,6 +178,7 @@ export function App() {
     setFileQuery,
     toc,
     contentPaneRef,
+    onContentScroll: handleContentScroll,
   };
 
   if (error) return <Shell {...shellProps}><div className="empty error">{error}</div></Shell>;

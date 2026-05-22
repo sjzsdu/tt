@@ -14,6 +14,7 @@ interface ShellProps {
   setFileQuery: (q: string) => void;
   toc: TocItem[];
   contentPaneRef: React.RefObject<HTMLElement | null>;
+  onContentScroll?: () => void;
   children: ReactNode;
 }
 
@@ -27,6 +28,7 @@ export function Shell({
   setFileQuery,
   toc,
   contentPaneRef,
+  onContentScroll,
   children,
 }: ShellProps) {
   const filteredFiles = filterFiles(files, fileQuery);
@@ -67,7 +69,7 @@ export function Shell({
       </Splitter.Panel>
 
       <Splitter.Panel min={400}>
-        <main className="content-pane" ref={contentPaneRef}>{children}</main>
+        <main className="content-pane" ref={contentPaneRef} onScroll={onContentScroll}>{children}</main>
       </Splitter.Panel>
 
       <Splitter.Panel defaultSize={260} min={180} max={350}>
