@@ -72,3 +72,29 @@ func TestBuiltinFormulaContent(t *testing.T) {
 		t.Fatalf("expected fresh-topic-docs content")
 	}
 }
+
+func TestShanYiZheBuiltinFormula(t *testing.T) {
+	p := NewParser()
+	f, err := p.LoadByName("shan-yi-zhe")
+	if err != nil {
+		t.Fatalf("LoadByName(shan-yi-zhe) error = %v", err)
+	}
+	if f.Source != "builtin:shan-yi-zhe" {
+		t.Fatalf("Source = %q, want builtin:shan-yi-zhe", f.Source)
+	}
+	stepIDs := make(map[string]bool)
+	for _, s := range f.Steps {
+		stepIDs[s.ID] = true
+	}
+	for _, want := range []string{"discern-situation", "cast-frame", "line-plan", "interpret-lines", "change-reading", "life-guidance"} {
+		if !stepIDs[want] {
+			t.Fatalf("expected step %q in shan-yi-zhe", want)
+		}
+	}
+	if err := f.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if _, err := Compile(context.Background(), "shan-yi-zhe", nil, map[string]string{"question": "我是否应该离开现在的工作去创业？"}); err != nil {
+		t.Fatalf("Compile(shan-yi-zhe) error = %v", err)
+	}
+}
