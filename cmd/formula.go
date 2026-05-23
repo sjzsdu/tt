@@ -48,6 +48,7 @@ var (
 	formulaCreateStdout   bool
 	formulaOptimizeOutput string
 	formulaOptimizeStdout bool
+	formulaOptimizeBuiltin bool
 	formulaRunsLimit      int
 	formulaRunsFormula    string
 	formulaRunsStatus     string
@@ -279,6 +280,7 @@ func init() {
 	formulaCreateCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 	formulaOptimizeCmd.Flags().StringVarP(&formulaOptimizeOutput, "output", "o", "", "write optimized formula to this path instead of overwriting the source")
 	formulaOptimizeCmd.Flags().BoolVar(&formulaOptimizeStdout, "stdout", false, "print optimized formula instead of writing a file")
+	formulaOptimizeCmd.Flags().BoolVar(&formulaOptimizeBuiltin, "built-in", false, "optimize a builtin formula and write result to your formula directory unless --output/--stdout is set")
 	formulaOptimizeCmd.Flags().StringVar(&formulaModel, "model", "", "model override for formula-writer agent")
 	formulaOptimizeCmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
 
@@ -1011,12 +1013,24 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(f.Source) == "" {
 		return fmt.Errorf("formula %q source path is unknown", name)
 	}
-	if !formula.IsTOMLFilename(f.Source) && strings.TrimSpace(formulaOptimizeOutput) == "" && !formulaOptimizeStdout {
+	if !formula.IsTOMLFilename(f.Source) && !formulaOptimizeBuiltin && strings.TrimSpace(formulaOptimizeOutput) == "" && !formulaOptimizeStdout {
 		return fmt.Errorf("formula %q is not a TOML file (%s); use --output <path.toml> or --stdout", name, f.Source)
 	}
-	existing, err := os.ReadFile(f.Source)
-	if err != nil {
-		return fmt.Errorf("read formula %s: %w", f.Source, err)
+	var existing []byte
+	if strings.HasPrefix(strings.TrimSpace(f.Source), "builtin:") {
+		data, ok, err := formula.BuiltinFormulaContent(name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("builtin formula %q not found", name)
+		}
+		existing = data
+	} else {
+		existing, err = os.ReadFile(f.Source)
+		if err != nil {
+			return fmt.Errorf("read formula %s: %w", f.Source, err)
+		}
 	}
 
 	projectRoot, _ := os.Getwd()
@@ -1087,7 +1101,11 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 	}
 	outPath := strings.TrimSpace(formulaOptimizeOutput)
 	if outPath == "" {
-		outPath = f.Source
+		if formula.IsTOMLFilename(f.Source) {
+			outPath = f.Source
+		} else {
+			outPath = filepath.Join(resolveFormulaDir(mustLoadTTConfig()), name+formula.CanonicalTOMLExt)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return err
