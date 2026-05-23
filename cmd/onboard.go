@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+var onboardGlobal bool
 
 var onboardCmd = &cobra.Command{
 	Use:   "onboard",
@@ -36,6 +39,20 @@ var onboardCmd = &cobra.Command{
 		if err := initTTConfigFile(loaded.Sources.ProjectPath); err != nil {
 			return err
 		}
+		if onboardGlobal {
+			if err := initTTConfigFile(loaded.Sources.GlobalPath); err != nil {
+				return err
+			}
+			globalTTDir := filepath.Dir(strings.TrimSpace(loaded.Sources.GlobalPath))
+			if globalTTDir != "" {
+				if err := os.MkdirAll(filepath.Join(globalTTDir, "agents"), 0o755); err != nil {
+					return fmt.Errorf("create global agents directory failed: %w", err)
+				}
+				if err := os.MkdirAll(filepath.Join(globalTTDir, "formulas"), 0o755); err != nil {
+					return fmt.Errorf("create global formulas directory failed: %w", err)
+				}
+			}
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "onboard completed at %s\n", ttDir)
 		return nil
 	},
@@ -43,4 +60,5 @@ var onboardCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(onboardCmd)
+	onboardCmd.Flags().BoolVar(&onboardGlobal, "global", false, "also initialize global ~/.tt config and directories")
 }
