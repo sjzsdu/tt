@@ -157,7 +157,7 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 }
 
 func loadFilesystemAgents() ([]pcwrap.EmbeddedAgent, error) {
-	searchRoots := []string{".tt/agents/embedded", "agents/embedded"}
+	searchRoots := []string{".tt/agents"}
 	collected := make([]pcwrap.EmbeddedAgent, 0)
 	for _, root := range searchRoots {
 		entries, err := os.ReadDir(root)

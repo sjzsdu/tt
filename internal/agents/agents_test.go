@@ -72,7 +72,7 @@ func TestListLoadsFilesystemAgentsAutomatically(t *testing.T) {
 		t.Fatalf("Chdir(tmp) error = %v", err)
 	}
 
-	dir := filepath.Join(".tt", "agents", "embedded")
+	dir := filepath.Join(".tt", "agents")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
