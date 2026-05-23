@@ -16,6 +16,7 @@ const nvwaPromptDesignerID = "nvwa-prompt-designer"
 
 var (
 	nvwaOutput  string
+	nvwaName    string
 	nvwaSkills  []string
 	nvwaModel   string
 	nvwaSession string
@@ -97,6 +98,7 @@ func init() {
 	nvwaCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 
 	nvwaCreateCmd.Flags().StringVarP(&nvwaOutput, "output", "o", filepath.Join(".tt", "agents"), "output directory for generated embedded agent")
+	nvwaCreateCmd.Flags().StringVar(&nvwaName, "name", "", "embedded agent display name; defaults to <id>")
 	nvwaCreateCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaCreateCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
 	nvwaCreateCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
@@ -107,6 +109,7 @@ func init() {
 	nvwaCreateCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 
 	nvwaOptimizeCmd.Flags().StringVarP(&nvwaOutput, "output", "o", filepath.Join(".tt", "agents"), "output directory for generated embedded agent")
+	nvwaOptimizeCmd.Flags().StringVar(&nvwaName, "name", "", "embedded agent display name; defaults to <id>")
 	nvwaOptimizeCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaOptimizeCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
 	nvwaOptimizeCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
@@ -127,6 +130,10 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 
 	id := nvwa.DefaultEmbeddedID(name)
 	role := name
+	displayName := strings.TrimSpace(nvwaName)
+	if displayName == "" {
+		displayName = name
+	}
 	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role, Context: suggestion})
 	if err != nil {
 		return err
@@ -138,7 +145,7 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 
 	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
 		ID:                  id,
-		Name:                name,
+		Name:                displayName,
 		Skills:              nvwaSkills,
 		NoHistory:           nvwaNoHist,
 		EnableResearchTools: nvwaTools,
@@ -158,8 +165,8 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 	if !force {
 		if existing, err := agents.List(); err == nil {
 			for _, a := range existing {
-				if a.ID == id || strings.EqualFold(strings.TrimSpace(a.Name), strings.TrimSpace(name)) {
-					return fmt.Errorf("agent %q already exists (id=%s, name=%s); use optimize to update", name, a.ID, a.Name)
+				if a.ID == id || strings.EqualFold(strings.TrimSpace(a.Name), strings.TrimSpace(displayName)) {
+					return fmt.Errorf("agent %q already exists (id=%s, name=%s); use optimize to update", displayName, a.ID, a.Name)
 				}
 			}
 		}
