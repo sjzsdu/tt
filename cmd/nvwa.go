@@ -21,7 +21,6 @@ var (
 	nvwaFormat  string
 	nvwaStyle   string
 	nvwaID      string
-	nvwaName    string
 	nvwaSkills  []string
 	nvwaModel   string
 	nvwaSession string
@@ -97,7 +96,6 @@ func init() {
 	nvwaCmd.Flags().StringVar(&nvwaFormat, "format", "both", "content to generate: agent, soul, or both")
 	nvwaCmd.Flags().StringVar(&nvwaStyle, "style", "files", "output style: files or embedded")
 	nvwaCmd.Flags().StringVar(&nvwaID, "id", "", "embedded agent id when --style embedded is used")
-	nvwaCmd.Flags().StringVar(&nvwaName, "name", "", "embedded agent display name when --style embedded is used; defaults to role")
 	nvwaCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true when --style embedded is used")
 	nvwaCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true when --style embedded is used")
@@ -107,6 +105,27 @@ func init() {
 	nvwaCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
 	nvwaCmd.Flags().StringVar(&nvwaHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 	nvwaCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
+
+	nvwaCreateCmd.Flags().StringVarP(&nvwaOutput, "output", "o", filepath.Join(".tt", "agents"), "output directory for generated embedded agent")
+	nvwaCreateCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
+	nvwaCreateCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
+	nvwaCreateCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
+	nvwaCreateCmd.Flags().StringVar(&nvwaModel, "model", "", "model to use; defaults to the picoclaw default model")
+	nvwaCreateCmd.Flags().StringVarP(&nvwaSession, "session", "s", "cli:nvwa", "session key")
+	nvwaCreateCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
+	nvwaCreateCmd.Flags().StringVar(&nvwaHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
+	nvwaCreateCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
+
+	nvwaOptimizeCmd.Flags().StringVarP(&nvwaOutput, "output", "o", filepath.Join(".tt", "agents"), "output directory for generated embedded agent")
+	nvwaOptimizeCmd.Flags().BoolVarP(&nvwaForce, "force", "f", true, "overwrite existing files")
+	nvwaOptimizeCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
+	nvwaOptimizeCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
+	nvwaOptimizeCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
+	nvwaOptimizeCmd.Flags().StringVar(&nvwaModel, "model", "", "model to use; defaults to the picoclaw default model")
+	nvwaOptimizeCmd.Flags().StringVarP(&nvwaSession, "session", "s", "cli:nvwa", "session key")
+	nvwaOptimizeCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
+	nvwaOptimizeCmd.Flags().StringVar(&nvwaHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
+	nvwaOptimizeCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 }
 
 func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string, force bool) error {
@@ -147,6 +166,15 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 		return fmt.Errorf("create output directory: %w", err)
 	}
 	path := filepath.Join(outDir, id+".md")
+	if !force {
+		if existing, err := agents.List(); err == nil {
+			for _, a := range existing {
+				if a.ID == id || strings.EqualFold(strings.TrimSpace(a.Name), strings.TrimSpace(name)) {
+					return fmt.Errorf("agent %q already exists (id=%s, name=%s); use optimize to update", name, a.ID, a.Name)
+				}
+			}
+		}
+	}
 	if err := writeNvwaFile(path, doc, force || nvwaForce); err != nil {
 		return err
 	}
@@ -196,10 +224,7 @@ func outputNvwaEmbedded(files nvwa.Files, role string) error {
 	if id == "" {
 		id = nvwa.DefaultEmbeddedID(role)
 	}
-	name := strings.TrimSpace(nvwaName)
-	if name == "" {
-		name = role
-	}
+	name := role
 	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
 		ID:                  id,
 		Name:                name,
