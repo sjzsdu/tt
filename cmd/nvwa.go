@@ -57,6 +57,7 @@ var nvwaCreateCmd = &cobra.Command{
 
 var nvwaOptimizeCmd = &cobra.Command{
 	Use:   "optimize <name> <suggestion>",
+	Aliases: []string{"optmize"},
 	Short: "Optimize an existing embedded agent markdown file from suggestion",
 	Args:  cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -230,6 +231,13 @@ func readEmbeddedAgentName(path string) (string, bool) {
 }
 
 func runNvwa(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		head := strings.ToLower(strings.TrimSpace(args[0]))
+		switch head {
+		case "create", "optimize", "optmize", "list":
+			return fmt.Errorf("unknown nvwa subcommand usage: %q\ntry: tt nvwa %s ...", args[0], head)
+		}
+	}
 	role := strings.TrimSpace(strings.Join(args, " "))
 	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role})
 	if err != nil {
