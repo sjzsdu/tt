@@ -132,6 +132,13 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 	if displayName == "" {
 		displayName = name
 	}
+	if force {
+		if existingPath, ok := findExistingAgentFileByID(id); ok {
+			if existingName, ok := readEmbeddedAgentName(existingPath); ok {
+				displayName = existingName
+			}
+		}
+	}
 	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role, Context: suggestion})
 	if err != nil {
 		return err
@@ -189,6 +196,34 @@ func findExistingAgentFileByID(id string) (string, bool) {
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
 			return path, true
+		}
+	}
+	return "", false
+}
+
+func readEmbeddedAgentName(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	text := string(data)
+	if !strings.HasPrefix(text, "---\n") {
+		return "", false
+	}
+	rest := strings.TrimPrefix(text, "---\n")
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return "", false
+	}
+	for _, line := range strings.Split(rest[:idx], "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "name:") {
+			continue
+		}
+		v := strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+		v = strings.Trim(v, "\"")
+		if v != "" {
+			return v, true
 		}
 	}
 	return "", false
