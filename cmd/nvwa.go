@@ -15,12 +15,7 @@ import (
 const nvwaPromptDesignerID = "nvwa-prompt-designer"
 
 var (
-	nvwaWrite   bool
 	nvwaOutput  string
-	nvwaForce   bool
-	nvwaFormat  string
-	nvwaStyle   string
-	nvwaID      string
 	nvwaSkills  []string
 	nvwaModel   string
 	nvwaSession string
@@ -90,12 +85,7 @@ var nvwaListCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(nvwaCmd)
 	nvwaCmd.AddCommand(nvwaCreateCmd, nvwaOptimizeCmd, nvwaListCmd)
-	nvwaCmd.Flags().BoolVarP(&nvwaWrite, "write", "w", true, "write generated file(s); set --write=false to print to stdout")
 	nvwaCmd.Flags().StringVarP(&nvwaOutput, "output", "o", ".", "output directory when writing files")
-	nvwaCmd.Flags().BoolVarP(&nvwaForce, "force", "f", false, "overwrite existing files when --write is set")
-	nvwaCmd.Flags().StringVar(&nvwaFormat, "format", "both", "content to generate: agent, soul, or both")
-	nvwaCmd.Flags().StringVar(&nvwaStyle, "style", "files", "output style: files or embedded")
-	nvwaCmd.Flags().StringVar(&nvwaID, "id", "", "embedded agent id when --style embedded is used")
 	nvwaCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true when --style embedded is used")
 	nvwaCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true when --style embedded is used")
@@ -117,7 +107,6 @@ func init() {
 	nvwaCreateCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 
 	nvwaOptimizeCmd.Flags().StringVarP(&nvwaOutput, "output", "o", filepath.Join(".tt", "agents"), "output directory for generated embedded agent")
-	nvwaOptimizeCmd.Flags().BoolVarP(&nvwaForce, "force", "f", true, "overwrite existing files")
 	nvwaOptimizeCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaOptimizeCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
 	nvwaOptimizeCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
@@ -175,7 +164,7 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 			}
 		}
 	}
-	if err := writeNvwaFile(path, doc, force || nvwaForce); err != nil {
+	if err := writeNvwaFile(path, doc, force); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "nvwa wrote embedded agent to %s\n", path)
@@ -188,42 +177,16 @@ func runNvwa(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	style := strings.ToLower(strings.TrimSpace(nvwaStyle))
-	switch style {
-	case "files", "embedded":
-	default:
-		return fmt.Errorf("invalid --style %q: must be files or embedded", nvwaStyle)
-	}
-
-	format := strings.ToLower(strings.TrimSpace(nvwaFormat))
-	switch format {
-	case "agent", "soul", "both":
-	default:
-		return fmt.Errorf("invalid --format %q: must be agent, soul, or both", nvwaFormat)
-	}
 
 	files, err := generateNvwaFiles(cmd, prompt)
 	if err != nil {
 		return err
 	}
-	if style == "embedded" {
-		if format != "both" {
-			return fmt.Errorf("--style embedded requires --format both because soul.md is stored in YAML frontmatter")
-		}
-		return outputNvwaEmbedded(files, role)
-	}
-	if nvwaWrite {
-		return writeNvwaFiles(files, format, nvwaOutput, nvwaForce)
-	}
-	printNvwaFiles(files, format)
-	return nil
+	return writeNvwaFiles(files, "both", nvwaOutput, false)
 }
 
 func outputNvwaEmbedded(files nvwa.Files, role string) error {
-	id := strings.TrimSpace(nvwaID)
-	if id == "" {
-		id = nvwa.DefaultEmbeddedID(role)
-	}
+	id := nvwa.DefaultEmbeddedID(role)
 	name := role
 	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
 		ID:                  id,
@@ -235,10 +198,6 @@ func outputNvwaEmbedded(files nvwa.Files, role string) error {
 	if err != nil {
 		return err
 	}
-	if !nvwaWrite {
-		fmt.Print(doc)
-		return nil
-	}
 	dir := strings.TrimSpace(nvwaOutput)
 	if dir == "" {
 		dir = "."
@@ -247,7 +206,7 @@ func outputNvwaEmbedded(files nvwa.Files, role string) error {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 	path := filepath.Join(dir, id+".md")
-	if err := writeNvwaFile(path, doc, nvwaForce); err != nil {
+	if err := writeNvwaFile(path, doc, false); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "nvwa generated embedded agent file in %s\n", path)
