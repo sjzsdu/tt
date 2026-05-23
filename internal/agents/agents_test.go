@@ -1,6 +1,10 @@
 package agents
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	core := Core()
@@ -54,5 +58,57 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		if len(stock[i].Skills) != 2 {
 			t.Fatalf("StockDiscussion[%d] skills = %v, want 2 skills", i, stock[i].Skills)
 		}
+	}
+}
+
+func TestListLoadsFilesystemAgentsAutomatically(t *testing.T) {
+	tmp := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir(tmp) error = %v", err)
+	}
+
+	dir := filepath.Join(".tt", "agents", "embedded")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	const md = `---
+id: local-demo
+name: Local Demo
+soul: Test soul
+---
+You are a local demo agent.
+`
+	if err := os.WriteFile(filepath.Join(dir, "local-demo.md"), []byte(md), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	all, err := List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	found := false
+	for _, a := range all {
+		if a.ID == "local-demo" {
+			found = true
+			if a.Name != "Local Demo" || a.Soul != "Test soul" || a.Prompt == "" {
+				t.Fatalf("local-demo fields mismatch: %+v", a)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("List() missing filesystem agent local-demo")
+	}
+
+	got, err := Get("local-demo")
+	if err != nil {
+		t.Fatalf("Get(local-demo) error = %v", err)
+	}
+	if got.ID != "local-demo" {
+		t.Fatalf("Get(local-demo).ID = %q", got.ID)
 	}
 }

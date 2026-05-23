@@ -3,6 +3,7 @@ package agents
 import (
 	"embed"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -111,18 +112,11 @@ func Get(id string) (pcwrap.EmbeddedAgent, error) {
 	if id == "" {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("agent id is required")
 	}
-	entries, err := embeddedFS.ReadDir("embedded")
+	agents, err := List()
 	if err != nil {
-		return pcwrap.EmbeddedAgent{}, fmt.Errorf("read embedded agents failed: %w", err)
+		return pcwrap.EmbeddedAgent{}, err
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-			continue
-		}
-		agent, err := loadMarkdownAgent("embedded/" + entry.Name())
-		if err != nil {
-			return pcwrap.EmbeddedAgent{}, err
-		}
+	for _, agent := range agents {
 		if agent.ID == id {
 			return agent, nil
 		}
@@ -136,6 +130,7 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 		return nil, fmt.Errorf("read embedded agents failed: %w", err)
 	}
 	agents := make([]pcwrap.EmbeddedAgent, 0, len(entries))
+	seen := map[string]struct{}{}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
 			continue
@@ -144,10 +139,51 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 		if err != nil {
 			return nil, err
 		}
+		if _, exists := seen[agent.ID]; exists {
+			return nil, fmt.Errorf("duplicate embedded agent id %q", agent.ID)
+		}
+		seen[agent.ID] = struct{}{}
+		agents = append(agents, agent)
+	}
+
+	fsAgents, err := loadFilesystemAgents()
+	if err != nil {
+		return nil, err
+	}
+	for _, agent := range fsAgents {
+		if _, exists := seen[agent.ID]; exists {
+			return nil, fmt.Errorf("duplicate embedded agent id %q", agent.ID)
+		}
+		seen[agent.ID] = struct{}{}
 		agents = append(agents, agent)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
 	return agents, nil
+}
+
+func loadFilesystemAgents() ([]pcwrap.EmbeddedAgent, error) {
+	searchRoots := []string{".tt/agents/embedded", "agents/embedded"}
+	collected := make([]pcwrap.EmbeddedAgent, 0)
+	for _, root := range searchRoots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read embedded agents from %s failed: %w", root, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+				continue
+			}
+			agent, err := loadMarkdownAgentFile(filepath.Join(root, entry.Name()))
+			if err != nil {
+				return nil, err
+			}
+			collected = append(collected, agent)
+		}
+	}
+	return collected, nil
 }
 
 func mustGet(id string) pcwrap.EmbeddedAgent {
@@ -168,6 +204,38 @@ func mustGetMany(ids ...string) []pcwrap.EmbeddedAgent {
 
 func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
 	data, err := embeddedFS.ReadFile(path)
+	if err != nil {
+		return pcwrap.EmbeddedAgent{}, fmt.Errorf("read embedded agent %s failed: %w", path, err)
+	}
+	meta, body, err := splitFrontMatter(string(data))
+	if err != nil {
+		return pcwrap.EmbeddedAgent{}, fmt.Errorf("parse embedded agent %s failed: %w", path, err)
+	}
+	var def definition
+	if err := yaml.Unmarshal([]byte(meta), &def); err != nil {
+		return pcwrap.EmbeddedAgent{}, fmt.Errorf("parse embedded agent %s frontmatter failed: %w", path, err)
+	}
+	def.ID = canonicalAgentID(strings.TrimSpace(def.ID))
+	def.Name = strings.TrimSpace(def.Name)
+	if def.ID == "" {
+		return pcwrap.EmbeddedAgent{}, fmt.Errorf("embedded agent %s missing id", path)
+	}
+	if def.Name == "" {
+		def.Name = def.ID
+	}
+	return pcwrap.EmbeddedAgent{
+		ID:                  def.ID,
+		Name:                def.Name,
+		Prompt:              strings.TrimSpace(body),
+		Soul:                strings.TrimSpace(def.Soul),
+		Skills:              compactStrings(def.Skills),
+		NoHistory:           def.NoHistory,
+		EnableResearchTools: def.EnableResearchTools,
+	}, nil
+}
+
+func loadMarkdownAgentFile(path string) (pcwrap.EmbeddedAgent, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("read embedded agent %s failed: %w", path, err)
 	}
