@@ -20,7 +20,6 @@ var (
 	nvwaSkills  []string
 	nvwaModel   string
 	nvwaSession string
-	nvwaContext string
 	nvwaDebug   bool
 	nvwaHome    string
 	nvwaConfig  string
@@ -90,7 +89,6 @@ func init() {
 	nvwaCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true when --style embedded is used")
 	nvwaCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true when --style embedded is used")
-	nvwaCmd.Flags().StringVar(&nvwaContext, "context", "", "extra role context, target scenario, style, or constraints")
 	nvwaCmd.Flags().StringVar(&nvwaModel, "model", "", "model to use; defaults to the picoclaw default model")
 	nvwaCmd.Flags().StringVarP(&nvwaSession, "session", "s", "cli:nvwa", "session key")
 	nvwaCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
@@ -180,7 +178,7 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 
 func runNvwa(cmd *cobra.Command, args []string) error {
 	role := strings.TrimSpace(strings.Join(args, " "))
-	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role, Context: nvwaContext})
+	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role})
 	if err != nil {
 		return err
 	}
