@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
@@ -30,4 +31,32 @@ func projectRootFromConfig(loaded ttconfig.Loaded) string {
 		return "."
 	}
 	return wd
+}
+
+func resolveFormulaDir(loaded ttconfig.Loaded) string {
+	if v := strings.TrimSpace(loaded.Merged.Paths.FormulaDir); v != "" {
+		return resolvePathAgainstProject(loaded, v)
+	}
+	return filepath.Join(projectRootFromConfig(loaded), ".tt", "formulas")
+}
+
+func resolveAgentDir(loaded ttconfig.Loaded) string {
+	if v := strings.TrimSpace(loaded.Merged.Paths.AgentDir); v != "" {
+		return resolvePathAgainstProject(loaded, v)
+	}
+	return filepath.Join(projectRootFromConfig(loaded), ".tt", "agents")
+}
+
+func resolveFormulaRunDir(loaded ttconfig.Loaded) string {
+	if v := strings.TrimSpace(loaded.Merged.Paths.FormulaRunDir); v != "" {
+		return resolvePathAgainstProject(loaded, v)
+	}
+	return filepath.Join(projectRootFromConfig(loaded), ".tt", "runs", "formula")
+}
+
+func resolvePathAgainstProject(loaded ttconfig.Loaded, p string) string {
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Clean(filepath.Join(projectRootFromConfig(loaded), p))
 }

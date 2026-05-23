@@ -23,6 +23,13 @@ type Config struct {
 	Markdown     MarkdownConfig     `json:"markdown,omitempty"`
 	Conversation ConversationConfig `json:"conversation,omitempty"`
 	Mirror       MirrorConfig       `json:"mirror,omitempty"`
+	Paths        PathsConfig        `json:"paths,omitempty"`
+}
+
+type PathsConfig struct {
+	FormulaDir    string `json:"formula_dir,omitempty"`
+	AgentDir      string `json:"agent_dir,omitempty"`
+	FormulaRunDir string `json:"formula_run_dir,omitempty"`
 }
 
 type PicoclawConfig struct {
@@ -172,6 +179,15 @@ func Merge(base Config, overlay Config) Config {
 	}
 	if v := strings.TrimSpace(overlay.Mirror.ConfigFile); v != "" {
 		out.Mirror.ConfigFile = v
+	}
+	if v := strings.TrimSpace(overlay.Paths.FormulaDir); v != "" {
+		out.Paths.FormulaDir = v
+	}
+	if v := strings.TrimSpace(overlay.Paths.AgentDir); v != "" {
+		out.Paths.AgentDir = v
+	}
+	if v := strings.TrimSpace(overlay.Paths.FormulaRunDir); v != "" {
+		out.Paths.FormulaRunDir = v
 	}
 	return out
 }

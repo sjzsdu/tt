@@ -72,6 +72,7 @@ var nvwaListCmd = &cobra.Command{
 	Short: "List available embedded agents",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		applyConfiguredAgentDirEnv()
 		list, err := agents.List()
 		if err != nil {
 			return err
@@ -120,6 +121,7 @@ func init() {
 }
 
 func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string, force bool) error {
+	applyConfiguredAgentDirEnv()
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -162,7 +164,7 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 
 	outDir := strings.TrimSpace(nvwaOutput)
 	if outDir == "" || outDir == "." {
-		outDir = filepath.Join(".tt", "agents", "embedded")
+		outDir = filepath.Join(".tt", "agents")
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
@@ -233,6 +235,7 @@ func readEmbeddedAgentName(path string) (string, bool) {
 }
 
 func runNvwa(cmd *cobra.Command, args []string) error {
+	applyConfiguredAgentDirEnv()
 	if len(args) > 0 {
 		head := strings.ToLower(strings.TrimSpace(args[0]))
 		switch head {
@@ -251,6 +254,11 @@ func runNvwa(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return writeNvwaFiles(files, "both", nvwaOutput, false)
+}
+
+func applyConfiguredAgentDirEnv() {
+	loaded := mustLoadTTConfig()
+	os.Setenv("TT_AGENT_DIR", resolveAgentDir(loaded))
 }
 
 func outputNvwaEmbedded(files nvwa.Files, role string) error {

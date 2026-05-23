@@ -331,15 +331,8 @@ func getSearchPaths() []string {
 	if formulaDir != "" {
 		return []string{formulaDir}
 	}
-
-	paths := []string{}
-	if cwd, err := os.Getwd(); err == nil {
-		paths = append(paths, filepath.Join(cwd, ".tt", "formulas"))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".tt", "formulas"))
-	}
-	return paths
+	loaded := mustLoadTTConfig()
+	return []string{resolveFormulaDir(loaded)}
 }
 
 func parseVars() map[string]string {
@@ -896,7 +889,7 @@ func runFormulaCopy(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		outPath = args[1]
 	} else {
-		outPath = filepath.Join(".tt", "formulas", name+formula.CanonicalTOMLExt)
+		outPath = filepath.Join(resolveFormulaDir(mustLoadTTConfig()), name+formula.CanonicalTOMLExt)
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return err
@@ -1201,12 +1194,7 @@ func formulaCreateOutputPath(name string) string {
 	}
 	dir := strings.TrimSpace(formulaDir)
 	if dir == "" {
-		cwd, err := os.Getwd()
-		if err == nil {
-			dir = filepath.Join(cwd, ".tt", "formulas")
-		} else {
-			dir = filepath.Join(".tt", "formulas")
-		}
+		dir = resolveFormulaDir(mustLoadTTConfig())
 	}
 	return filepath.Join(dir, name+".toml")
 }
@@ -2074,7 +2062,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
-		runStore, err = formularun.NewWithMetadata("", recipe, vars, runAgent, formulaModel, formulaSession, projectRoot, version)
+		runStore, err = formularun.NewWithMetadata(resolveFormulaRunDir(loaded), recipe, vars, runAgent, formulaModel, formulaSession, projectRoot, version)
 		if err != nil {
 			return err
 		}
