@@ -160,6 +160,11 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 		return fmt.Errorf("create output directory: %w", err)
 	}
 	path := filepath.Join(outDir, id+".md")
+	if force {
+		if existingPath, ok := findExistingAgentFileByID(id); ok {
+			path = existingPath
+		}
+	}
 	if !force {
 		if existing, err := agents.List(); err == nil {
 			for _, a := range existing {
@@ -174,6 +179,19 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 	}
 	fmt.Fprintf(os.Stdout, "nvwa wrote embedded agent to %s\n", path)
 	return nil
+}
+
+func findExistingAgentFileByID(id string) (string, bool) {
+	candidates := []string{
+		filepath.Join(".tt", "agents", id+".md"),
+		filepath.Join("internal", "agents", "embedded", id+".md"),
+	}
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path, true
+		}
+	}
+	return "", false
 }
 
 func runNvwa(cmd *cobra.Command, args []string) error {
