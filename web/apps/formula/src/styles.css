@@ -720,36 +720,36 @@ button, input, textarea { font: inherit; }
 .graph-node.skipped { border-color: rgba(251, 191, 36, 0.34); }
 
 .loop-body-node {
-  gap: 7px;
-  padding: 11px 12px;
+  gap: 9px;
+  padding: 14px 16px;
   border-style: dashed;
-  border-radius: 18px;
+  border-radius: 20px;
   background:
     linear-gradient(135deg, rgba(103, 232, 249, 0.08), rgba(139, 92, 246, 0.04)),
     rgba(5, 12, 24, 0.96);
 }
 
 .loop-body-node strong {
-  font-size: 13px;
-  -webkit-line-clamp: 1;
+  font-size: 15px;
+  -webkit-line-clamp: 2;
 }
 
 .loop-body-node .graph-node-id {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .loop-body-node .graph-node-state {
-  padding: 3px 7px;
-  font-size: 10px;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 .loop-body-node .graph-node-meta {
-  gap: 6px;
-  margin-top: 0;
+  gap: 8px;
+  margin-top: auto;
 }
 
 .loop-body-node .graph-node-meta span {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .graph-node-topline {

@@ -49,7 +49,7 @@ description = """
 - needs_clarification 必须是布尔值。
 - 当 needs_clarification=false 时，clarification_form 必须为 null，且 research_brief 必须足够支撑后续代码调研。
 - 当 needs_clarification=true 时，clarification_form 必须完整且字段必须只包含本次问题真正缺失的信息，不要输出固定模板。
-- research_brief 要写成给 code-search 使用的调研任务摘要。
+- research_brief 要写成给 code-research 使用的调研任务摘要。
 """
 agent.name = "coder"
 
@@ -99,12 +99,12 @@ agent.name = "coder"
 
 [[steps]]
 id = "code-research"
-title = "使用 code-search 调研代码并判断问题是否存在"
+title = "使用 code-research 调研代码并判断问题是否存在"
 depends_on = ["prepare-research-brief"]
 input_context = ["research_brief"]
 output_key = "bug_verification"
 description = """
-你是 code-search agent。基于 research_brief 调研当前代码库，重点使用 code-context、grep、符号命名、调用链和配置入口来判断用户描述的问题在当前代码中是否真实存在。
+你是 code-research agent。基于 research_brief 调研当前代码库，重点使用 code-context、grep、符号命名、调用链和配置入口来判断用户描述的问题在当前代码中是否真实存在。
 
 任务：
 1. 找出最相关的代码入口、模块、函数、配置或状态流；
@@ -133,45 +133,66 @@ description = """
 - code_scope / minimal_fix_scope 优先输出文件、模块、符号或责任层。
 - 不要直接开始修代码，先给出研究结论。
 """
-agent.name = "code-search"
+agent.name = "code-research"
 
 [[steps]]
-id = "execute-fix"
-title = "在最小影响范围内修复 bug 并验证"
+id = "fix-plan"
+title = "为已确认 bug 制定最小影响修复方案"
 depends_on = ["code-research"]
 input_context = ["research_brief", "bug_verification"]
 condition = "bug_verification.issue_exists == true"
-output_key = "fix_result"
+output_key = "fix_plan"
 description = """
-基于 research_brief 与 bug_verification 直接执行修复，并在同一步内完成最小影响范围控制与必要验证。
-
-目标：
-1. 只围绕 root_cause 与 minimal_fix_scope 修改代码；
-2. 不顺手做无关重构、命名清理或大范围整理；
-3. 明确哪些文件被修改，以及为什么这些修改已足够；
-4. 做必要验证，确保修复该 bug 的同时不引入新的明显问题；
-5. 不编造未执行的测试结果。
+基于 research_brief 与 bug_verification，为已确认存在的 bug 制定最小影响范围修复方案。
 
 输出 ONLY compact JSON：
 {
   "fix_goal":"...",
   "minimal_change_strategy":"...",
+  "files_to_touch":["..."],
+  "do_not_touch":["..."],
+  "regression_risk":"low|medium|high",
+  "validation_plan":["..."],
+  "why_minimal":"..."
+}
+
+要求：
+- 只围绕 root_cause 和 minimal_fix_scope 设计修复。
+- 明确哪些地方不要顺手重构。
+- validation_plan 必须能支撑“修复 bug 同时不引入新问题”。
+"""
+agent.name = "coder"
+
+[[steps]]
+id = "execute-fix"
+title = "执行最小影响修复并做必要验证"
+depends_on = ["fix-plan"]
+input_context = ["research_brief", "bug_verification", "fix_plan"]
+condition = "bug_verification.issue_exists == true"
+output_key = "fix_result"
+description = """
+基于 bug_verification 与 fix_plan 执行修复。
+
+目标：
+1. 只修改 files_to_touch 或等价最小范围；
+2. 不顺手做无关清理；
+3. 做必要验证，确保修复该 bug 时不引入新的明显问题；
+4. 不编造未执行的测试结果。
+
+输出 ONLY compact JSON：
+{
   "files_changed":["..."],
-  "files_avoided":["..."],
   "change_summary":"...",
   "why_this_fix":"...",
   "verification_actions":["..."],
   "verification_result":"...",
-  "regression_risk":"low|medium|high",
   "fully_fixed":true,
   "remaining_risks":["..."]
 }
 
 约束：
 - fully_fixed 必须是布尔值。
-- regression_risk 必须明确。
 - verification_actions 要具体，不要写空泛“已测试”。
-- files_avoided 用于说明哪些疑似相关区域被有意不改，以体现最小影响范围。
 """
 agent.name = "coder"
 
@@ -205,10 +226,10 @@ agent.name = "reporter"
 id = "final-report"
 title = "输出最终 bug 处理结论"
 depends_on = ["execute-fix", "no-bug-report"]
-input_context = ["issue_triage", "user_clarification", "research_brief", "bug_verification", "fix_result", "no_bug_resolution"]
+input_context = ["issue_triage", "user_clarification", "research_brief", "bug_verification", "fix_plan", "fix_result", "no_bug_resolution"]
 output_key = "final_report"
 description = """
-面向用户输出最终中文结论，整合 issue_triage、user_clarification、research_brief、bug_verification、fix_result 与 no_bug_resolution。
+面向用户输出最终中文结论，整合 issue_triage、user_clarification、research_brief、bug_verification、fix_plan、fix_result 与 no_bug_resolution。
 
 报告必须回答：
 1. 用户问题是如何被理解和澄清的；
