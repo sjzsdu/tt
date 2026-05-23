@@ -48,8 +48,47 @@ tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill ag
 	},
 }
 
+var nvwaCreateCmd = &cobra.Command{
+	Use:   "create <name> <suggestion>",
+	Short: "Create an embedded agent markdown file from suggestion",
+	Args:  cobra.MinimumNArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := strings.TrimSpace(args[0])
+		suggestion := strings.TrimSpace(strings.Join(args[1:], " "))
+		return runNvwaEmbeddedCreateOrOptimize(cmd, name, suggestion, false)
+	},
+}
+
+var nvwaOptimizeCmd = &cobra.Command{
+	Use:   "optimize <name> <suggestion>",
+	Short: "Optimize an existing embedded agent markdown file from suggestion",
+	Args:  cobra.MinimumNArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := strings.TrimSpace(args[0])
+		suggestion := strings.TrimSpace(strings.Join(args[1:], " "))
+		return runNvwaEmbeddedCreateOrOptimize(cmd, name, suggestion, true)
+	},
+}
+
+var nvwaListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List available embedded agents",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		list, err := agents.List()
+		if err != nil {
+			return err
+		}
+		for _, a := range list {
+			fmt.Fprintf(os.Stdout, "%s\t%s\n", a.ID, a.Name)
+		}
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(nvwaCmd)
+	nvwaCmd.AddCommand(nvwaCreateCmd, nvwaOptimizeCmd, nvwaListCmd)
 	nvwaCmd.Flags().BoolVarP(&nvwaWrite, "write", "w", true, "write generated file(s); set --write=false to print to stdout")
 	nvwaCmd.Flags().StringVarP(&nvwaOutput, "output", "o", ".", "output directory when writing files")
 	nvwaCmd.Flags().BoolVarP(&nvwaForce, "force", "f", false, "overwrite existing files when --write is set")
@@ -66,6 +105,51 @@ func init() {
 	nvwaCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
 	nvwaCmd.Flags().StringVar(&nvwaHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 	nvwaCmd.Flags().StringVar(&nvwaConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
+}
+
+func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string, force bool) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if suggestion == "" {
+		return fmt.Errorf("suggestion is required")
+	}
+
+	id := nvwa.DefaultEmbeddedID(name)
+	role := name
+	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role, Context: suggestion})
+	if err != nil {
+		return err
+	}
+	files, err := generateNvwaFiles(cmd, prompt)
+	if err != nil {
+		return err
+	}
+
+	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
+		ID:                  id,
+		Name:                name,
+		Skills:              nvwaSkills,
+		NoHistory:           nvwaNoHist,
+		EnableResearchTools: nvwaTools,
+	})
+	if err != nil {
+		return err
+	}
+
+	outDir := strings.TrimSpace(nvwaOutput)
+	if outDir == "" || outDir == "." {
+		outDir = filepath.Join(".tt", "agents", "embedded")
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
+	}
+	path := filepath.Join(outDir, id+".md")
+	if err := writeNvwaFile(path, doc, force || nvwaForce); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "nvwa wrote embedded agent to %s\n", path)
+	return nil
 }
 
 func runNvwa(cmd *cobra.Command, args []string) error {
