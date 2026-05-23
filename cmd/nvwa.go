@@ -169,9 +169,11 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 	}
 	path := filepath.Join(outDir, id+".md")
 	if force {
-		if existingPath, ok := findExistingAgentFileByID(id); ok {
-			path = existingPath
+		existingPath, ok := findExistingAgentFileByID(id)
+		if !ok {
+			return fmt.Errorf("agent %q not found; optimize only updates existing agents", id)
 		}
+		path = existingPath
 	}
 	if !force {
 		if existing, err := agents.List(); err == nil {
