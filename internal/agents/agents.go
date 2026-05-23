@@ -25,7 +25,6 @@ const (
 	StockBeginnerID       = "stock-growth-investor"
 	StockOldHandID        = "stock-risk-investor"
 	StockDiscussionHostID = "stock-discussion-host"
-	NvwaPromptDesignerID  = "nvwa-prompt-designer"
 	Repo2SkillID          = "repo2skill"
 	FormulaWriterID       = "formula-writer"
 	DocsAnalystID         = "docs-analyst"
@@ -73,10 +72,6 @@ func Tester() pcwrap.EmbeddedAgent {
 
 func UI() pcwrap.EmbeddedAgent {
 	return mustGet(UIID)
-}
-
-func NvwaPromptDesigner() pcwrap.EmbeddedAgent {
-	return mustGet(NvwaPromptDesignerID)
 }
 
 func Repo2Skill() pcwrap.EmbeddedAgent {

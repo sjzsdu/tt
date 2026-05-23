@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const nvwaPromptDesignerID = "nvwa-prompt-designer"
+
 var (
 	nvwaWrite   bool
 	nvwaOutput  string
@@ -254,7 +256,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		return nvwa.Files{}, err
 	}
 
-	rt, err := pcwrap.Load(pcwrap.Options{
+		rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
 		Config:    merged.Picoclaw.Config,
 		TTConfig:  merged,
@@ -264,14 +266,15 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	loading := startLLMLoading("正在生成 agent 提示词", nvwaDebug)
+	designer := nvwaPromptDesignerAgent()
 	dr, err := rt.NewDirectRunner(pcwrap.RunOptions{
 		Session:        nvwaSession,
-		Agent:          agents.NvwaPromptDesignerID,
+		Agent:          designer.ID,
 		Model:          nvwaModel,
 		Workspace:      workspace,
 		Debug:          nvwaDebug,
 		Quiet:          !nvwaDebug,
-		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.NvwaPromptDesigner()},
+		EmbeddedAgents: []pcwrap.EmbeddedAgent{designer},
 	})
 	if err != nil {
 		loading.Stop()
@@ -282,12 +285,12 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	response, err := dr.ProcessDirect(pcwrap.RunOptions{
 		Message:        prompt,
 		Session:        nvwaSession,
-		Agent:          agents.NvwaPromptDesignerID,
+		Agent:          designer.ID,
 		Model:          nvwaModel,
 		Workspace:      workspace,
 		Debug:          nvwaDebug,
 		Quiet:          !nvwaDebug,
-		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.NvwaPromptDesigner()},
+		EmbeddedAgents: []pcwrap.EmbeddedAgent{designer},
 	})
 	loading.Stop()
 	if err != nil {
@@ -298,6 +301,54 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		return nvwa.Files{}, fmt.Errorf("parse nvwa model output failed: %w\n\nRaw output:\n%s", err, response)
 	}
 	return files, nil
+}
+
+func nvwaPromptDesignerAgent() pcwrap.EmbeddedAgent {
+	return pcwrap.EmbeddedAgent{
+		ID:   nvwaPromptDesignerID,
+		Name: "女娲提示词设计师",
+		Soul: strings.TrimSpace(`你把提示词当成可执行系统，而不是文案。你在意边界、可验证性和长期可维护性，讨厌空话、套话和无法执行的规则。`),
+		Prompt: strings.TrimSpace(`你是一个专门设计 Agent.md 与 SOUL.md 的提示词架构师。
+
+定位铁律（必须遵守）：
+1) SOUL.md 定人格（你是谁）
+- 解决价值观、性格、语气、偏好、底线。
+- 用“形容词 + 取舍偏好 + 禁词/禁风格”来约束表达。
+- 不写流程步骤，不写工具调用细节。
+
+2) Agent.md 定行为（你怎么做）
+- 解决工作流、权限、步骤、失败处理、澄清策略、交付标准。
+- 用“动词 + 条件判断 + 可执行动作”来约束行为。
+- 明确遇到模糊需求怎么办、风险动作是否要确认、输出格式是什么。
+
+输出要求：
+- 仅输出两个标签，不要解释：
+<Agent.md>...</Agent.md>
+<soul.md>...</soul.md>
+- 两者都必须是完整 Markdown。
+
+质量红线：
+- 禁止空话：如“专业、高效、负责”。
+- 禁止把 SOUL 写成步骤手册。
+- 禁止把 Agent 写成鸡汤价值观。
+- 禁止通用模板化段落，必须贴合用户给定角色与场景。
+
+Agent.md 最低结构：
+1. 角色目标与非目标
+2. 输入澄清与信息不足处理
+3. 标准工作流（分步骤）
+4. 风险边界与权限规则（何时必须征求确认）
+5. 交付物格式与验收标准
+6. 自检清单
+
+SOUL.md 最低结构：
+1. 角色性格与语气
+2. 决策偏好与取舍
+3. 反模式与禁词
+4. 压力/不确定性下的行为底线`),
+		NoHistory:           true,
+		EnableResearchTools: false,
+	}
 }
 
 func printNvwaFiles(files nvwa.Files, format string) {
