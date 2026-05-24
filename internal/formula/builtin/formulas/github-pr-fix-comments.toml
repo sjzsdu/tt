@@ -1,0 +1,143 @@
+formula = "github-pr-fix-comments"
+description = "遍历 PR 的所有待处理 review comments，并对每条评论内嵌执行 bug-fix，最后汇总处理结果。"
+version = 1
+type = "workflow"
+
+[vars]
+pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
+review_focus = { description = "处理评论时重点关注方面", default = "正确性、风险与可维护性" }
+
+[[steps]]
+id = "fetch-pr-metadata"
+title = "获取 PR 元数据"
+execution = "script"
+output_key = "pr_metadata"
+
+[steps.script]
+command = ["gh", "pr", "view", "{{pr_ref}}", "--json", "number,title,url,headRefName,baseRefName,state"]
+format = "json"
+timeout = "30s"
+
+[[steps]]
+id = "fetch-review-comments"
+title = "获取待处理 review comments"
+depends_on = ["fetch-pr-metadata"]
+input_context = ["pr_metadata"]
+output_key = "comment_context"
+description = """
+收集 '{{pr_ref}}' 的 review comments，并输出标准化列表。
+
+输出 ONLY compact JSON：
+{
+  "pr_number": 123,
+  "pr_url": "...",
+  "head_branch": "...",
+  "pending_count": 2,
+  "comment_items": [
+    {
+      "comment_id": "123",
+      "thread_id": "abc",
+      "author": "reviewer",
+      "body": "...",
+      "path": "a.go",
+      "line": 10,
+      "url": "..."
+    }
+  ]
+}
+
+约束：
+- 仅保留仍需处理的评论。
+- comment_items 每项必须保留 comment_id 与 body。
+"""
+agent.name = "reviewer"
+
+[[steps]]
+id = "normalize-comment-items"
+title = "整理 comment 列表供循环使用"
+depends_on = ["fetch-review-comments"]
+input_context = ["comment_context"]
+output_key = "comment_items"
+description = """
+从 comment_context 生成循环用的数组。
+
+输出 ONLY compact JSON：
+{
+  "items": [
+    {
+      "comment_id": "123",
+      "thread_id": "abc",
+      "body": "...",
+      "path": "a.go",
+      "line": 10,
+      "url": "...",
+      "issue_summary": "..."
+    }
+  ],
+  "total": 1
+}
+
+要求：
+- issue_summary 必须是可直接交给 bug-fix 的问题描述，包含评论诉求、代码位置与期望行为。
+- 若没有待处理评论，items 为空数组，total=0。
+"""
+agent.name = "planner"
+
+[[steps]]
+id = "fix-each-comment"
+title = "逐条执行 bug-fix"
+depends_on = ["normalize-comment-items"]
+input_context = ["comment_items"]
+
+  [steps.loop]
+  for_each = "comment_items.items"
+  var = "comment"
+
+  [[steps.loop.body]]
+  id = "run-bug-fix"
+  title = "处理评论 {{comment.comment_id}}"
+  embed = "bug-fix"
+
+  [steps.loop.body.embed_vars]
+  issue_summary = "{{comment.issue_summary}}"
+
+  [[steps.loop.body]]
+  id = "collect-result"
+  title = "汇总评论 {{comment.comment_id}} 处理结果"
+  depends_on = ["run-bug-fix"]
+  input_context = ["comment", "run-bug-fix.final_report", "run-bug-fix.bug_verification", "run-bug-fix.fix_result", "run-bug-fix.no_bug_resolution"]
+  output_key = "comment_result"
+  description = """
+  汇总当前 comment 的处理结果。
+
+  输出 ONLY compact JSON：
+  {
+    "comment_id": "123",
+    "issue_exists": true,
+    "status": "fixed|not-confirmed|needs-followup",
+    "summary": "...",
+    "next_action": "..."
+  }
+  """
+  agent.name = "reporter"
+
+[[steps]]
+id = "final-report"
+title = "输出 PR 评论处理总报告"
+depends_on = ["fix-each-comment"]
+input_context = ["pr_metadata", "comment_context", "comment_items", "fix-each-comment.comment_result"]
+output_key = "final_report"
+description = """
+输出最终中文总结。
+
+必须包含：
+1. 总评论数与实际处理数；
+2. 每条评论的结论摘要（fixed / not-confirmed / needs-followup）；
+3. 需要人工继续处理的项；
+4. 下一步建议。
+
+要求：
+- 结论先行。
+- 控制在 8-12 条要点，避免冗长。
+"""
+agent.name = "product-manager"
