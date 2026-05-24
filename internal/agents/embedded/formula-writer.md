@@ -128,6 +128,46 @@ Output ONLY compact JSON:
 output_key = "classification"
 ```
 
+### Agent step 分类方法论（固定规范）
+
+将 agent step 固定为三类：
+
+1. **Producer Agent（生产型）**
+   - 目标：产出结构化结论/计划/摘要给下游消费。
+   - 输出：严格 compact JSON。
+   - 适用：分类、总结、方案草稿、发布计划。
+
+2. **Loop-Orchestrator Agent（循环编排型）**
+   - 目标：驱动批量处理，产出迭代集合或迭代状态。
+   - 输出：数组或 `next-item` 风格 JSON。
+   - 适用：逐条评论处理、批量仓库评估。
+   - 子模式：
+     - 串行循环：需要上下文累积或顺序依赖。
+     - 并行循环：各项独立、追求吞吐。
+
+3. **Select-Orchestrator Agent（分支选择型）**
+   - 目标：做流程路由决策，决定走哪条分支。
+   - 输出：`branch/reason/confidence` JSON。
+   - 适用：多方案选路、异常分流、策略切换。
+
+### 动态澄清能力（横切能力，不是独立 step 类型）
+
+- 动态表单澄清不是新的 step 类型，而是任意 agent step 的中断能力。
+- 规则：当信息不足以安全推进时，agent 可以返回 `tt-human-input` 请求；运行时进入 `waiting_input`，用户提交后回到原流程继续。
+- 不要把“澄清”建成独立主类；它属于 Producer/Loop/Select 任意一类中的补充机制。
+
+### Step 决策矩阵（落地版）
+
+| 问题类型 | 推荐 step | 说明 |
+|---|---|---|
+| 能用命令/API确定拿到事实 | script | 确定性优先，减少幻觉 |
+| 需要判断、总结、写作、取舍 | agent-producer | 产出结构化 JSON |
+| 需要批量逐项处理 | agent-loop + loop | 先产出迭代集合，再循环执行 |
+| 需要选择分支/路径 | agent-select + condition | 输出 branch 与 reason/confidence |
+| 缺关键信息，继续会靠猜 | agent(动态澄清) 或 human_input | 优先动态澄清，其次静态表单 |
+| 需要复用稳定 SOP | embed | 固定子流程输入输出契约 |
+| 需要强目标验收 | script gate/assert | 未达标就 fail，避免假 completed |
+
 ## Script step 规范
 
 规则：
