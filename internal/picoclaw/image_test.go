@@ -65,3 +65,61 @@ func TestGenerateImageCallsImagesEndpoint(t *testing.T) {
 		t.Fatal("GenerateImage() returned empty content")
 	}
 }
+
+func TestGenerateImageCallsOpenRouterChatCompletions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/chat/completions" {
+			t.Fatalf("path = %q, want /api/v1/chat/completions", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-or" {
+			t.Fatalf("Authorization = %q, want Bearer sk-or", got)
+		}
+		var req struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Model != "x-ai/grok-imagine-image-quality" {
+			t.Fatalf("model = %q", req.Model)
+		}
+		if len(req.Messages) != 1 || req.Messages[0].Role != "user" || req.Messages[0].Content != "sunset cat" {
+			t.Fatalf("messages = %#v", req.Messages)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"images": []map[string]any{{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString([]byte("jpg-bytes")),
+						},
+					}},
+				},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	rt := &Runtime{Config: &pcconfig.Config{
+		Agents: pcconfig.AgentsConfig{Defaults: pcconfig.AgentDefaults{ImageModel: "openrouter-grok-imagine"}},
+		ModelList: []*pcconfig.ModelConfig{{
+			ModelName: "openrouter-grok-imagine",
+			Model:     "openrouter/x-ai/grok-imagine-image-quality",
+			APIBase:   server.URL + "/api/v1",
+			APIKeys:   pcconfig.SimpleSecureStrings("sk-or"),
+		}},
+	}}
+
+	content, err := rt.GenerateImage(context.Background(), ImageOptions{Prompt: "sunset cat"})
+	if err != nil {
+		t.Fatalf("GenerateImage() error = %v", err)
+	}
+	if !strings.Contains(content, "data:image/jpeg;base64") {
+		t.Fatalf("content = %q", content)
+	}
+}

@@ -51,6 +51,9 @@ func (rt *Runtime) GenerateImage(ctx context.Context, opt ImageOptions) (string,
 	if apiBase == "" {
 		return "", fmt.Errorf("image model %q has no api_base and no known provider default", modelCfg.ModelName)
 	}
+	if protocol == "openrouter" {
+		return generateOpenRouterImage(ctx, modelCfg, modelID, prompt)
+	}
 
 	body := map[string]any{
 		"model":           modelID,
@@ -73,11 +76,33 @@ func (rt *Runtime) GenerateImage(ctx context.Context, opt ImageOptions) (string,
 		}
 	}
 
+	return postImageRequest(ctx, modelCfg, protocol, strings.TrimRight(apiBase, "/")+"/images/generations", body)
+
+}
+
+func generateOpenRouterImage(ctx context.Context, modelCfg *pcconfig.ModelConfig, modelID, prompt string) (string, error) {
+	apiBase := pcproviders.ResolveAPIBase(modelCfg)
+	body := map[string]any{
+		"model": modelID,
+		"messages": []map[string]string{{
+			"role":    "user",
+			"content": prompt,
+		}},
+	}
+	for k, v := range modelCfg.ExtraBody {
+		if _, exists := body[k]; !exists {
+			body[k] = v
+		}
+	}
+	return postImageRequest(ctx, modelCfg, "openrouter", strings.TrimRight(apiBase, "/")+"/chat/completions", body)
+}
+
+func postImageRequest(ctx context.Context, modelCfg *pcconfig.ModelConfig, protocol, endpoint string, body map[string]any) (string, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(apiBase, "/")+"/images/generations", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
