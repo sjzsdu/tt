@@ -50,7 +50,7 @@ description = """
 - 仅保留仍需处理的评论。
 - comment_items 每项必须保留 comment_id 与 body。
 """
-agent.name = "reviewer"
+agent.name = "coder"
 
 [[steps]]
 id = "normalize-comment-items"
@@ -119,7 +119,7 @@ input_context = ["comment_items"]
     "next_action": "..."
   }
   """
-  agent.name = "reporter"
+  agent.name = "coder"
 
 [[steps]]
 id = "final-report"
@@ -140,4 +140,4 @@ description = """
 - 结论先行。
 - 控制在 8-12 条要点，避免冗长。
 """
-agent.name = "product-manager"
+agent.name = "reporter"
