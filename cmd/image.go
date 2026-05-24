@@ -19,12 +19,15 @@ import (
 )
 
 var (
-	imagePrompt string
-	imageModel  string
-	imageOutput string
-	imageDebug  bool
-	imageHome   string
-	imageConfig string
+	imagePrompt  string
+	imageModel   string
+	imageOutput  string
+	imageSize    string
+	imageQuality string
+	imageStyle   string
+	imageDebug   bool
+	imageHome    string
+	imageConfig  string
 )
 
 var imageCmd = &cobra.Command{
@@ -33,8 +36,8 @@ var imageCmd = &cobra.Command{
 	Short:   "Generate an image from a text prompt using picoclaw",
 	Long: `Generate an image from a text prompt using a picoclaw text-to-image model.
 
-The command prints the model response by default. If --output is set, it saves
-URL, data URL, or raw base64 image responses to that file.`,
+The command calls the configured OpenAI-compatible /images/generations endpoint
+and saves the generated image to --output, or to ./tt-image-<timestamp>.png by default.`,
 	Args: cobra.ArbitraryArgs,
 	Example: `tt image --model dall-e-3 "a tiny robot reading Go code"
 tt img -m "a watercolor lobster" -o lobster.png
@@ -48,7 +51,10 @@ func init() {
 	rootCmd.AddCommand(imageCmd)
 	imageCmd.Flags().StringVarP(&imagePrompt, "message", "m", "", "text prompt for image generation")
 	imageCmd.Flags().StringVar(&imageModel, "model", "", "text-to-image model to use; defaults to picoclaw config default")
-	imageCmd.Flags().StringVarP(&imageOutput, "output", "o", "", "write generated image to this path when response is URL/base64/data URL")
+	imageCmd.Flags().StringVarP(&imageOutput, "output", "o", "", "write generated image to this path; defaults to ./tt-image-<timestamp>.png")
+	imageCmd.Flags().StringVar(&imageSize, "size", "1024x1024", "image size to request, for example 1024x1024")
+	imageCmd.Flags().StringVar(&imageQuality, "quality", "", "image quality to request, for example standard or hd")
+	imageCmd.Flags().StringVar(&imageStyle, "style", "", "image style to request, for example vivid or natural")
 	imageCmd.Flags().BoolVarP(&imageDebug, "debug", "d", false, "enable debug logging")
 	imageCmd.Flags().StringVar(&imageHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 	imageCmd.Flags().StringVar(&imageConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
@@ -99,21 +105,25 @@ func runImage(cmd *cobra.Command, args []string) error {
 	defer loading.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	content, err := rt.GenerateImage(ctx, pcwrap.ImageOptions{Prompt: prompt, Model: merged.Agent.Model, Debug: debug, Quiet: !debug})
+	content, err := rt.GenerateImage(ctx, pcwrap.ImageOptions{Prompt: prompt, Model: merged.Agent.Model, Size: imageSize, Quality: imageQuality, Style: imageStyle, Debug: debug, Quiet: !debug})
 	loading.Stop()
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
-	if strings.TrimSpace(imageOutput) == "" {
-		fmt.Fprintln(cmd.OutOrStdout(), content)
-		return nil
+	outputPath := strings.TrimSpace(imageOutput)
+	if outputPath == "" {
+		outputPath = defaultImageOutputPath()
 	}
-	if err := saveImageResponse(strings.TrimSpace(imageOutput), content); err != nil {
+	if err := saveImageResponse(outputPath, content); err != nil {
 		fmt.Fprintln(cmd.OutOrStdout(), content)
 		return fmt.Errorf("save generated image failed: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Saved image to %s\n", imageOutput)
+	fmt.Fprintf(cmd.OutOrStdout(), "Saved image to %s\n", outputPath)
 	return nil
+}
+
+func defaultImageOutputPath() string {
+	return fmt.Sprintf("tt-image-%s.png", time.Now().Format("20060102-150405"))
 }
 
 func saveImageResponse(path, content string) error {
