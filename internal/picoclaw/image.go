@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	pcauth "github.com/sipeed/picoclaw/pkg/auth"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pclogger "github.com/sipeed/picoclaw/pkg/logger"
 	pcproviders "github.com/sipeed/picoclaw/pkg/providers"
@@ -42,7 +43,7 @@ func (rt *Runtime) GenerateImage(ctx context.Context, opt ImageOptions) (string,
 		pclogger.SetLevel(pclogger.DEBUG)
 	}
 
-	modelCfg, modelID, err := rt.resolveImageModel(opt.Model)
+	modelCfg, modelID, protocol, err := rt.resolveImageModel(opt.Model)
 	if err != nil {
 		return "", err
 	}
@@ -84,8 +85,12 @@ func (rt *Runtime) GenerateImage(ctx context.Context, opt ImageOptions) (string,
 	if ua := strings.TrimSpace(modelCfg.UserAgent); ua != "" {
 		req.Header.Set("User-Agent", ua)
 	}
-	if apiKey := strings.TrimSpace(modelCfg.APIKey()); apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	authToken, err := imageAuthToken(modelCfg, protocol)
+	if err != nil {
+		return "", err
+	}
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
 	for k, v := range modelCfg.CustomHeaders {
 		req.Header.Set(k, v)
@@ -105,7 +110,11 @@ func (rt *Runtime) GenerateImage(ctx context.Context, opt ImageOptions) (string,
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("generate image returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		msg := strings.TrimSpace(string(respBody))
+		if strings.Contains(strings.ToLower(msg), "api.model.images.request") {
+			return "", fmt.Errorf("generate image returned HTTP %d: the configured credential does not have OpenAI image generation scope (api.model.images.request). Configure an API key with image permissions for model %q or re-authorize picoclaw with image scope. Response: %s", resp.StatusCode, modelCfg.ModelName, msg)
+		}
+		return "", fmt.Errorf("generate image returned HTTP %d: %s", resp.StatusCode, msg)
 	}
 	if strings.TrimSpace(string(respBody)) == "" {
 		return "", fmt.Errorf("generate image returned an empty response")
@@ -113,7 +122,7 @@ func (rt *Runtime) GenerateImage(ctx context.Context, opt ImageOptions) (string,
 	return strings.TrimSpace(string(respBody)), nil
 }
 
-func (rt *Runtime) resolveImageModel(modelOverride string) (*pcconfig.ModelConfig, string, error) {
+func (rt *Runtime) resolveImageModel(modelOverride string) (*pcconfig.ModelConfig, string, string, error) {
 	cfg := cloneConfig(rt.Config)
 	modelName := strings.TrimSpace(modelOverride)
 	if modelName == "" {
@@ -123,18 +132,50 @@ func (rt *Runtime) resolveImageModel(modelOverride string) (*pcconfig.ModelConfi
 		modelName = cfg.Agents.Defaults.GetModelName()
 	}
 	if modelName == "" {
-		return nil, "", fmt.Errorf("no model specified and no default model configured")
+		return nil, "", "", fmt.Errorf("no model specified and no default model configured")
 	}
 	modelCfg, err := cfg.GetModelConfig(modelName)
 	if err != nil {
-		return nil, "", fmt.Errorf("image model %q not found: %w", modelName, err)
+		return nil, "", "", fmt.Errorf("image model %q not found: %w", modelName, err)
 	}
 	protocol, modelID := pcproviders.ExtractProtocol(modelCfg)
 	if modelID == "" {
 		modelID = modelCfg.Model
 	}
 	if protocol == "" {
-		return nil, "", fmt.Errorf("image model %q has no provider/protocol", modelName)
+		return nil, "", "", fmt.Errorf("image model %q has no provider/protocol", modelName)
 	}
-	return modelCfg, modelID, nil
+	modelID = imageEndpointModelID(protocol, modelID)
+	return modelCfg, modelID, protocol, nil
+}
+
+func imageEndpointModelID(protocol, modelID string) string {
+	protocol = strings.TrimSpace(protocol)
+	modelID = strings.TrimSpace(modelID)
+	prefix := protocol + "/"
+	if protocol != "" && strings.HasPrefix(modelID, prefix) {
+		return strings.TrimPrefix(modelID, prefix)
+	}
+	return modelID
+}
+
+func imageAuthToken(modelCfg *pcconfig.ModelConfig, protocol string) (string, error) {
+	if modelCfg == nil {
+		return "", nil
+	}
+	if apiKey := strings.TrimSpace(modelCfg.APIKey()); apiKey != "" {
+		return apiKey, nil
+	}
+	authMethod := strings.ToLower(strings.TrimSpace(modelCfg.AuthMethod))
+	if authMethod != "oauth" && authMethod != "token" {
+		return "", nil
+	}
+	cred, err := pcauth.GetCredential(protocol)
+	if err != nil {
+		return "", fmt.Errorf("load %s auth credential failed: %w", protocol, err)
+	}
+	if cred == nil || strings.TrimSpace(cred.AccessToken) == "" {
+		return "", fmt.Errorf("image model %q uses %s auth but no %s credential is available", modelCfg.ModelName, authMethod, protocol)
+	}
+	return strings.TrimSpace(cred.AccessToken), nil
 }

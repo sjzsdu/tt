@@ -51,7 +51,7 @@ func TestGenerateImageCallsImagesEndpoint(t *testing.T) {
 		ModelList: []*pcconfig.ModelConfig{{
 			ModelName: "image-alias",
 			Provider:  "openai",
-			Model:     "dall-e-3",
+			Model:     "openai/dall-e-3",
 			APIBase:   server.URL + "/v1",
 			APIKeys:   pcconfig.SimpleSecureStrings("sk-test"),
 		}},
