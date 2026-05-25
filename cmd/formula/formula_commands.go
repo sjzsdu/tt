@@ -84,25 +84,29 @@ and picoclaw-configured agents.`
 
 func New(deps Dependencies) *cobra.Command {
 	configureDependencies(deps)
+	app := &App{}
 
 	formulaCmd := &cobra.Command{
 		Use:   "formula",
 		Short: "Manage and instantiate formula templates",
 		Long:  formulaLong,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			app.installOptions()
+		},
 	}
-	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
-	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
+	formulaCmd.PersistentFlags().StringVarP(&app.opts.Dir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
+	formulaCmd.PersistentFlags().StringArrayVar(&app.opts.Vars, "var", nil, "variable override (key=value, repeatable)")
 
-	formulaListCmd := newFormulaListCmd()
-	formulaShowCmd := newFormulaShowCmd()
-	formulaCompileCmd := newFormulaCompileCmd()
-	formulaInstantiateCmd := newFormulaInstantiateCmd()
+	formulaListCmd := app.newFormulaListCmd()
+	formulaShowCmd := app.newFormulaShowCmd()
+	formulaCompileCmd := app.newFormulaCompileCmd()
+	formulaInstantiateCmd := app.newFormulaInstantiateCmd()
 	formulaValidateCmd := newFormulaValidateCmd()
 	formulaCopyCmd := newFormulaCopyCmd()
-	formulaCreateCmd := newFormulaCreateCmd()
-	formulaOptimizeCmd := newFormulaOptimizeCmd()
-	formulaRunCmd := newFormulaRunCmd()
-	formulaRunsCmd := newFormulaRunsCmd()
+	formulaCreateCmd := app.newFormulaCreateCmd()
+	formulaOptimizeCmd := app.newFormulaOptimizeCmd()
+	formulaRunCmd := app.newFormulaRunCmd()
+	formulaRunsCmd := app.newFormulaRunsCmd()
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -118,20 +122,20 @@ func New(deps Dependencies) *cobra.Command {
 	return formulaCmd
 }
 
-func newFormulaListCmd() *cobra.Command {
+func (a *App) newFormulaListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List available formulas",
 		Args:  cobra.NoArgs,
 		RunE:  runFormulaList,
 	}
-	cmd.Flags().BoolVar(&formulaListBuiltin, "builtin", false, "show only builtin formulas")
-	cmd.Flags().BoolVar(&formulaListUser, "user", false, "show only user formulas from search paths")
-	cmd.Flags().StringVar(&formulaListCategory, "category", "", "filter formulas by category")
+	cmd.Flags().BoolVar(&a.opts.ListBuiltin, "builtin", false, "show only builtin formulas")
+	cmd.Flags().BoolVar(&a.opts.ListUser, "user", false, "show only user formulas from search paths")
+	cmd.Flags().StringVar(&a.opts.ListCategory, "category", "", "filter formulas by category")
 	return cmd
 }
 
-func newFormulaShowCmd() *cobra.Command {
+func (a *App) newFormulaShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show [name]",
 		Short: "Show formula details",
@@ -140,31 +144,31 @@ With --markdown and no name, generates a combined Markdown preview of all formul
 		Args: cobra.MaximumNArgs(1),
 		RunE: runFormulaShow,
 	}
-	cmd.Flags().BoolVar(&formulaMarkdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
-	cmd.Flags().IntVarP(&formulaPort, "port", "p", 9598, "web server port for --markdown preview")
+	cmd.Flags().BoolVar(&a.opts.Markdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
+	cmd.Flags().IntVarP(&a.opts.Port, "port", "p", 9598, "web server port for --markdown preview")
 	return cmd
 }
 
-func newFormulaCompileCmd() *cobra.Command {
+func (a *App) newFormulaCompileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "compile <name>",
 		Short: "Compile a formula and show the recipe",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFormulaCompile,
 	}
-	cmd.Flags().BoolVar(&formulaCompileWorkflow, "workflow", false, "print graph-first typed Workflow IR instead of Recipe")
+	cmd.Flags().BoolVar(&a.opts.CompileWorkflow, "workflow", false, "print graph-first typed Workflow IR instead of Recipe")
 	return cmd
 }
 
-func newFormulaInstantiateCmd() *cobra.Command {
+func (a *App) newFormulaInstantiateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "instantiate <name>",
 		Short: "Instantiate a formula into a task tree",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFormulaInstantiate,
 	}
-	cmd.Flags().StringVarP(&formulaOutput, "output", "o", "json", "output format: json, yaml, text, prompt")
-	cmd.Flags().StringVarP(&formulaTitle, "title", "t", "", "override root task title")
+	cmd.Flags().StringVarP(&a.opts.Output, "output", "o", "json", "output format: json, yaml, text, prompt")
+	cmd.Flags().StringVarP(&a.opts.Title, "title", "t", "", "override root task title")
 	return cmd
 }
 
@@ -186,7 +190,7 @@ func newFormulaCopyCmd() *cobra.Command {
 	}
 }
 
-func newFormulaCreateCmd() *cobra.Command {
+func (a *App) newFormulaCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name> <prompt...>",
 		Short: "Create a formula with the embedded formula-writer agent",
@@ -198,15 +202,15 @@ or to --output when provided, then validated locally. Use --stdout to print only
 		Args: cobra.MinimumNArgs(2),
 		RunE: runFormulaCreate,
 	}
-	cmd.Flags().StringVarP(&formulaCreateOutput, "output", "o", "", "output formula file path (default: .tt/formulas/<name>.toml or --dir/<name>.toml)")
-	cmd.Flags().BoolVarP(&formulaCreateForce, "force", "f", false, "overwrite an existing formula file")
-	cmd.Flags().BoolVar(&formulaCreateStdout, "stdout", false, "print generated formula instead of writing a file")
-	cmd.Flags().StringVar(&formulaModel, "model", "", "model override for formula-writer agent")
-	cmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
+	cmd.Flags().StringVarP(&a.opts.CreateOutput, "output", "o", "", "output formula file path (default: .tt/formulas/<name>.toml or --dir/<name>.toml)")
+	cmd.Flags().BoolVarP(&a.opts.CreateForce, "force", "f", false, "overwrite an existing formula file")
+	cmd.Flags().BoolVar(&a.opts.CreateStdout, "stdout", false, "print generated formula instead of writing a file")
+	cmd.Flags().StringVar(&a.opts.Model, "model", "", "model override for formula-writer agent")
+	cmd.Flags().BoolVar(&a.opts.Debug, "debug", false, "enable debug logging")
 	return cmd
 }
 
-func newFormulaOptimizeCmd() *cobra.Command {
+func (a *App) newFormulaOptimizeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "optimize <name> <suggestion...>",
 		Short: "Optimize an existing formula with the embedded formula-writer agent",
@@ -220,15 +224,15 @@ default, and validates the result locally. Use --stdout to preview only.`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: runFormulaOptimize,
 	}
-	cmd.Flags().StringVarP(&formulaOptimizeOutput, "output", "o", "", "write optimized formula to this path instead of overwriting the source")
-	cmd.Flags().BoolVar(&formulaOptimizeStdout, "stdout", false, "print optimized formula instead of writing a file")
-	cmd.Flags().BoolVar(&formulaOptimizeBuiltin, "built-in", false, "optimize a builtin formula and write result to your formula directory unless --output/--stdout is set")
-	cmd.Flags().StringVar(&formulaModel, "model", "", "model override for formula-writer agent")
-	cmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
+	cmd.Flags().StringVarP(&a.opts.OptimizeOutput, "output", "o", "", "write optimized formula to this path instead of overwriting the source")
+	cmd.Flags().BoolVar(&a.opts.OptimizeStdout, "stdout", false, "print optimized formula instead of writing a file")
+	cmd.Flags().BoolVar(&a.opts.OptimizeBuiltin, "built-in", false, "optimize a builtin formula and write result to your formula directory unless --output/--stdout is set")
+	cmd.Flags().StringVar(&a.opts.Model, "model", "", "model override for formula-writer agent")
+	cmd.Flags().BoolVar(&a.opts.Debug, "debug", false, "enable debug logging")
 	return cmd
 }
 
-func newFormulaRunCmd() *cobra.Command {
+func (a *App) newFormulaRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run <name> [required-var-value]",
 		Short: "Execute a formula with picoclaw agents",
@@ -243,74 +247,74 @@ Runtime control notes:
 		Args: cobra.MinimumNArgs(1),
 		RunE: runFormulaRun,
 	}
-	cmd.Flags().StringVar(&formulaAgent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
-	cmd.Flags().StringVar(&formulaModel, "model", "", "default model override")
-	cmd.Flags().StringVar(&formulaSession, "session", "cli:formula", "session key prefix")
-	cmd.Flags().BoolVar(&formulaWeb, "web", true, "show a live web dashboard while the formula runs (default true; kept for compatibility)")
-	cmd.Flags().BoolVar(&formulaNoWeb, "no-web", false, "do not open or keep a live web dashboard for this formula run")
-	cmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
-	cmd.Flags().BoolVar(&formulaDryRun, "dry-run", false, "print execution plan without running")
-	cmd.Flags().BoolVar(&formulaDebug, "debug", false, "enable debug logging")
-	cmd.Flags().BoolVarP(&formulaVerbose, "verbose", "v", false, "show full output of each step")
-	cmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
-	cmd.Flags().BoolVar(&formulaNoScript, "no-script", false, "disable formula script steps for this run")
-	cmd.Flags().BoolVar(&formulaAllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
+	cmd.Flags().StringVar(&a.opts.Agent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
+	cmd.Flags().StringVar(&a.opts.Model, "model", "", "default model override")
+	cmd.Flags().StringVar(&a.opts.Session, "session", "cli:formula", "session key prefix")
+	cmd.Flags().BoolVar(&a.opts.Web, "web", true, "show a live web dashboard while the formula runs (default true; kept for compatibility)")
+	cmd.Flags().BoolVar(&a.opts.NoWeb, "no-web", false, "do not open or keep a live web dashboard for this formula run")
+	cmd.Flags().IntVar(&a.opts.WebPort, "web-port", 9705, "dashboard web server port")
+	cmd.Flags().BoolVar(&a.opts.DryRun, "dry-run", false, "print execution plan without running")
+	cmd.Flags().BoolVar(&a.opts.Debug, "debug", false, "enable debug logging")
+	cmd.Flags().BoolVarP(&a.opts.Verbose, "verbose", "v", false, "show full output of each step")
+	cmd.Flags().BoolVar(&a.opts.NoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
+	cmd.Flags().BoolVar(&a.opts.NoScript, "no-script", false, "disable formula script steps for this run")
+	cmd.Flags().BoolVar(&a.opts.AllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
 
-	cmd.AddCommand(newFormulaRunOpenCmd())
-	cmd.AddCommand(newFormulaRunShowCmd())
-	cmd.AddCommand(newFormulaRunRmCmd())
-	cmd.AddCommand(newFormulaRunResumeCmd())
-	cmd.AddCommand(newFormulaRunInputCmd())
+	cmd.AddCommand(a.newFormulaRunOpenCmd())
+	cmd.AddCommand(a.newFormulaRunShowCmd())
+	cmd.AddCommand(a.newFormulaRunRmCmd())
+	cmd.AddCommand(a.newFormulaRunResumeCmd())
+	cmd.AddCommand(a.newFormulaRunInputCmd())
 	return cmd
 }
 
-func newFormulaRunsCmd() *cobra.Command {
+func (a *App) newFormulaRunsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "runs",
 		Short: "List saved formula runs",
 		Args:  cobra.NoArgs,
 		RunE:  runFormulaRuns,
 	}
-	cmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
-	cmd.Flags().StringVar(&formulaRunsFormula, "formula", "", "filter runs by formula name")
-	cmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
+	cmd.Flags().IntVar(&a.opts.RunsLimit, "limit", 20, "maximum number of runs to list")
+	cmd.Flags().StringVar(&a.opts.RunsFormula, "formula", "", "filter runs by formula name")
+	cmd.Flags().StringVar(&a.opts.RunsStatus, "status", "", "filter runs by status")
 	return cmd
 }
 
-func newFormulaRunOpenCmd() *cobra.Command {
+func (a *App) newFormulaRunOpenCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "open [run-id|latest]",
 		Short: "Open a saved formula run dashboard",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runFormulaRunOpen,
 	}
-	cmd.Flags().IntVar(&formulaWebPort, "web-port", 9705, "dashboard web server port")
+	cmd.Flags().IntVar(&a.opts.WebPort, "web-port", 9705, "dashboard web server port")
 	return cmd
 }
 
-func newFormulaRunShowCmd() *cobra.Command {
+func (a *App) newFormulaRunShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show [run-id|latest]",
 		Short: "Show a saved formula run",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runFormulaRunShow,
 	}
-	cmd.Flags().StringVar(&formulaRunShowStep, "step", "", "show details for a specific step id")
+	cmd.Flags().StringVar(&a.opts.RunShowStep, "step", "", "show details for a specific step id")
 	return cmd
 }
 
-func newFormulaRunRmCmd() *cobra.Command {
+func (a *App) newFormulaRunRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <run-id>",
 		Short: "Delete a saved formula run",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFormulaRunRm,
 	}
-	cmd.Flags().BoolVarP(&formulaRunRmYes, "yes", "y", false, "confirm deletion without prompting")
+	cmd.Flags().BoolVarP(&a.opts.RunRmYes, "yes", "y", false, "confirm deletion without prompting")
 	return cmd
 }
 
-func newFormulaRunResumeCmd() *cobra.Command {
+func (a *App) newFormulaRunResumeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume [run-id|latest]",
 		Short: "Resume a saved formula run from unfinished steps",
@@ -319,13 +323,13 @@ func newFormulaRunResumeCmd() *cobra.Command {
 	}
 }
 
-func newFormulaRunInputCmd() *cobra.Command {
+func (a *App) newFormulaRunInputCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "input [run-id|latest] <step-id>",
 		Short: "Submit human input for a waiting formula step and resume the run",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE:  runFormulaRunInput,
 	}
-	cmd.Flags().StringArrayVar(&formulaInputFields, "field", nil, "human input field value (key=value, repeatable; duplicate keys become arrays)")
+	cmd.Flags().StringArrayVar(&a.opts.InputFields, "field", nil, "human input field value (key=value, repeatable; duplicate keys become arrays)")
 	return cmd
 }

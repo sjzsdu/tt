@@ -15,6 +15,47 @@ import (
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
 
+type App struct {
+	opts formulaOptions
+}
+
+type formulaOptions struct {
+	Dir             string
+	Vars            []string
+	Output          string
+	Title           string
+	Markdown        bool
+	Port            int
+	Agent           string
+	Model           string
+	Session         string
+	Web             bool
+	NoWeb           bool
+	WebPort         int
+	DryRun          bool
+	Debug           bool
+	Verbose         bool
+	NoSave          bool
+	NoScript        bool
+	AllowShell      bool
+	CreateOutput    string
+	CreateForce     bool
+	CreateStdout    bool
+	OptimizeOutput  string
+	OptimizeStdout  bool
+	OptimizeBuiltin bool
+	RunsLimit       int
+	RunsFormula     string
+	RunsStatus      string
+	RunShowStep     string
+	RunRmYes        bool
+	InputFields     []string
+	ListBuiltin     bool
+	ListUser        bool
+	ListCategory    string
+	CompileWorkflow bool
+}
+
 var (
 	formulaDir             string
 	formulaVars            []string
@@ -52,6 +93,43 @@ var (
 	formulaCompileWorkflow bool
 	formulaRunSessionSeq   uint64
 )
+
+func (a *App) installOptions() {
+	formulaDir = a.opts.Dir
+	formulaVars = a.opts.Vars
+	formulaOutput = a.opts.Output
+	formulaTitle = a.opts.Title
+	formulaMarkdown = a.opts.Markdown
+	formulaPort = a.opts.Port
+	formulaAgent = a.opts.Agent
+	formulaModel = a.opts.Model
+	formulaSession = a.opts.Session
+	formulaWeb = a.opts.Web
+	formulaNoWeb = a.opts.NoWeb
+	formulaWebPort = a.opts.WebPort
+	formulaDryRun = a.opts.DryRun
+	formulaDebug = a.opts.Debug
+	formulaVerbose = a.opts.Verbose
+	formulaNoSave = a.opts.NoSave
+	formulaNoScript = a.opts.NoScript
+	formulaAllowShell = a.opts.AllowShell
+	formulaCreateOutput = a.opts.CreateOutput
+	formulaCreateForce = a.opts.CreateForce
+	formulaCreateStdout = a.opts.CreateStdout
+	formulaOptimizeOutput = a.opts.OptimizeOutput
+	formulaOptimizeStdout = a.opts.OptimizeStdout
+	formulaOptimizeBuiltin = a.opts.OptimizeBuiltin
+	formulaRunsLimit = a.opts.RunsLimit
+	formulaRunsFormula = a.opts.RunsFormula
+	formulaRunsStatus = a.opts.RunsStatus
+	formulaRunShowStep = a.opts.RunShowStep
+	formulaRunRmYes = a.opts.RunRmYes
+	formulaInputFields = a.opts.InputFields
+	formulaListBuiltin = a.opts.ListBuiltin
+	formulaListUser = a.opts.ListUser
+	formulaListCategory = a.opts.ListCategory
+	formulaCompileWorkflow = a.opts.CompileWorkflow
+}
 
 func getSearchPaths() []string {
 	homeDir, _ := os.UserHomeDir()
