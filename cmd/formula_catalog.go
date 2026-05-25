@@ -423,7 +423,7 @@ func runFormulaCopy(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		outPath = args[1]
 	} else {
-		outPath = filepath.Join(resolveFormulaDir(mustLoadTTConfig()), name+formula.CanonicalTOMLExt)
+		outPath = filepath.Join(formulaDefaultDir(formulaMustLoadTTConfig()), name+formula.CanonicalTOMLExt)
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return err

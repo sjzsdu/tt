@@ -24,7 +24,7 @@ func runFormulaCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	projectRoot, _ := os.Getwd()
-	loaded, err := loadTTConfig()
+	loaded, err := formulaLoadTTConfig()
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 	}
 
 	projectRoot, _ := os.Getwd()
-	loaded, err := loadTTConfig()
+	loaded, err := formulaLoadTTConfig()
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 		if formula.IsTOMLFilename(f.Source) {
 			outPath = f.Source
 		} else {
-			outPath = filepath.Join(resolveFormulaDir(mustLoadTTConfig()), name+formula.CanonicalTOMLExt)
+			outPath = filepath.Join(formulaDefaultDir(formulaMustLoadTTConfig()), name+formula.CanonicalTOMLExt)
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
@@ -317,7 +317,7 @@ func formulaCreateOutputPath(name string) string {
 	}
 	dir := strings.TrimSpace(formulaDir)
 	if dir == "" {
-		dir = resolveFormulaDir(mustLoadTTConfig())
+		dir = formulaDefaultDir(formulaMustLoadTTConfig())
 	}
 	return filepath.Join(dir, name+".toml")
 }

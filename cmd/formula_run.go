@@ -56,7 +56,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	loaded, err := loadTTConfig()
+	loaded, err := formulaLoadTTConfig()
 	if err != nil {
 		return err
 	}
@@ -396,7 +396,7 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 }
 
 func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
-	loaded, err := loadTTConfig()
+	loaded, err := formulaLoadTTConfig()
 	if err != nil {
 		return err
 	}

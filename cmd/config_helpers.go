@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
@@ -23,40 +21,41 @@ func mustLoadTTConfig() ttconfig.Loaded {
 }
 
 func projectRootFromConfig(loaded ttconfig.Loaded) string {
-	if loaded.Sources.ProjectPath != "" {
-		return filepath.Dir(filepath.Dir(loaded.Sources.ProjectPath))
-	}
 	wd, err := os.Getwd()
 	if err != nil {
-		return "."
+		wd = "."
 	}
-	return wd
+	return ttconfig.ProjectRoot(loaded, wd)
 }
 
 func resolveFormulaDir(loaded ttconfig.Loaded) string {
-	if v := strings.TrimSpace(loaded.Merged.Paths.FormulaDir); v != "" {
-		return resolvePathAgainstProject(loaded, v)
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
 	}
-	return filepath.Join(projectRootFromConfig(loaded), ".tt", "formulas")
+	return ttconfig.FormulaDir(loaded, wd)
 }
 
 func resolveAgentDir(loaded ttconfig.Loaded) string {
-	if v := strings.TrimSpace(loaded.Merged.Paths.AgentDir); v != "" {
-		return resolvePathAgainstProject(loaded, v)
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
 	}
-	return filepath.Join(projectRootFromConfig(loaded), ".tt", "agents")
+	return ttconfig.AgentDir(loaded, wd)
 }
 
 func resolveFormulaRunDir(loaded ttconfig.Loaded) string {
-	if v := strings.TrimSpace(loaded.Merged.Paths.FormulaRunDir); v != "" {
-		return resolvePathAgainstProject(loaded, v)
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
 	}
-	return filepath.Join(projectRootFromConfig(loaded), ".tt", "runs", "formula")
+	return ttconfig.FormulaRunDir(loaded, wd)
 }
 
 func resolvePathAgainstProject(loaded ttconfig.Loaded, p string) string {
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
 	}
-	return filepath.Clean(filepath.Join(projectRootFromConfig(loaded), p))
+	return ttconfig.ResolvePath(loaded, p, wd)
 }

@@ -57,7 +57,7 @@ var (
 
 func getSearchPaths() []string {
 	homeDir, _ := os.UserHomeDir()
-	return formulaSearchPaths(mustLoadTTConfig(), formulaDir, homeDir)
+	return formulaSearchPaths(formulaMustLoadTTConfig(), formulaDir, homeDir)
 }
 
 func formulaSearchPaths(loaded ttconfig.Loaded, explicitDir, homeDir string) []string {
@@ -65,11 +65,36 @@ func formulaSearchPaths(loaded ttconfig.Loaded, explicitDir, homeDir string) []s
 		return []string{explicitDir}
 	}
 
-	paths := []string{resolveFormulaDir(loaded)}
+	paths := []string{formulaDefaultDir(loaded)}
 	if homeDir != "" {
 		paths = appendUniquePath(paths, filepath.Join(homeDir, ".tt", "formulas"))
 	}
 	return paths
+}
+
+func formulaLoadTTConfig() (ttconfig.Loaded, error) {
+	return ttconfig.Load("")
+}
+
+func formulaMustLoadTTConfig() ttconfig.Loaded {
+	loaded, err := formulaLoadTTConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: load tt config failed: %v\n", err)
+		return ttconfig.Loaded{}
+	}
+	return loaded
+}
+
+func formulaDefaultDir(loaded ttconfig.Loaded) string {
+	return ttconfig.FormulaDir(loaded, formulaWorkingDir())
+}
+
+func formulaWorkingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
 }
 
 func appendUniquePath(paths []string, path string) []string {
