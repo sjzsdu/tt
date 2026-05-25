@@ -79,3 +79,19 @@ func TestToRecipeReusesExplicitStartAndEndStepIDs(t *testing.T) {
 		t.Fatalf("explicit end step should be preserved and marked as boundary: %+v", end)
 	}
 }
+
+func TestToRecipeDefaultsOutputKeyToStepID(t *testing.T) {
+	recipe, err := toRecipe(&Formula{Formula: "demo", Steps: []*Step{
+		{ID: "first", Title: "First"},
+		{ID: "second", Title: "Second", OutputKey: "custom"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first := recipe.StepByID("demo.first"); first == nil || first.OutputKey != "first" {
+		t.Fatalf("default output key mismatch: %+v", first)
+	}
+	if second := recipe.StepByID("demo.second"); second == nil || second.OutputKey != "custom" {
+		t.Fatalf("explicit output key should be preserved: %+v", second)
+	}
+}

@@ -352,8 +352,8 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 		e.mu.Lock()
 		e.results[step.ID].Status = StatusCompleted
 		e.results[step.ID].Output = output
-		if step.OutputKey != "" {
-			e.context[step.OutputKey] = output
+		if outputKey := stepOutputKey(step); outputKey != "" {
+			e.context[outputKey] = output
 		}
 		e.mu.Unlock()
 		e.emitStepUpdate(completed)
@@ -397,12 +397,29 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	e.results[step.ID].Status = StatusCompleted
 	e.results[step.ID].Output = output
 
-	if step.OutputKey != "" {
-		e.context[step.OutputKey] = output
+	if outputKey := stepOutputKey(step); outputKey != "" {
+		e.context[outputKey] = output
 	}
 	e.mu.Unlock()
 
 	return nil
+}
+
+func stepOutputKey(step *formula.RecipeStep) string {
+	if step == nil {
+		return ""
+	}
+	if key := strings.TrimSpace(step.OutputKey); key != "" {
+		return key
+	}
+	id := strings.TrimSpace(step.ID)
+	if id == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(id, "."); idx >= 0 && idx < len(id)-1 {
+		return id[idx+1:]
+	}
+	return id
 }
 
 func (e *Executor) pauseForHumanInput(step *formula.RecipeStep, request *HumanInputRequest) error {

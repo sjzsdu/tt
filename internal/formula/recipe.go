@@ -229,6 +229,10 @@ func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, o
 	for _, step := range steps {
 		issueID := parentID + "." + step.ID
 		idMapping[step.ID] = issueID
+		outputKey := step.OutputKey
+		if outputKey == "" {
+			outputKey = step.ID
+		}
 
 		stepType := step.Type
 		if stepType == "" {
@@ -253,7 +257,7 @@ func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, o
 			Form:        step.Form,
 			DynamicForm: step.DynamicForm,
 			Validate:    step.Validate,
-			OutputKey:   step.OutputKey,
+			OutputKey:   outputKey,
 			InputCtx:    step.InputCtx,
 			Execution:   step.Execution,
 			Condition:   step.Condition,

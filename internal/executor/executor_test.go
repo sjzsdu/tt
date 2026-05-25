@@ -62,6 +62,31 @@ func TestExecutorAddsRetryAdviceToPrompt(t *testing.T) {
 	}
 }
 
+func TestExecutorDefaultsEmptyOutputKeyToStepID(t *testing.T) {
+	recipe := &formula.Recipe{
+		Name: "default-key",
+		Steps: []formula.RecipeStep{
+			{ID: "default-key", Title: "Root", IsRoot: true},
+			{ID: "default-key.first", Title: "First"},
+			{ID: "default-key.second", Title: "Second", InputCtx: []string{"first"}},
+		},
+		Deps: []formula.RecipeDep{
+			{StepID: "default-key.first", DependsOnID: "default-key", Type: "parent-child"},
+			{StepID: "default-key.second", DependsOnID: "default-key", Type: "parent-child"},
+			{StepID: "default-key.second", DependsOnID: "default-key.first", Type: "blocks"},
+		},
+	}
+	_, err := New(recipe, RunOptions{}).Run(context.Background(), func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
+		if step.ID == "default-key.second" && !strings.Contains(prompt, "first output") {
+			t.Fatalf("default output key context missing from prompt: %s", prompt)
+		}
+		return "first output", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExecutorDynamicFormAndValidate(t *testing.T) {
 	step := &formula.RecipeStep{ID: "demo.triage", Title: "Triage", DynamicForm: true, Validate: &formula.ValidateSpec{Format: "json", Required: []string{"ok", "nested.value"}}}
 	exec := New(&formula.Recipe{Name: "demo"}, RunOptions{})
