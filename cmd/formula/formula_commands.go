@@ -28,7 +28,7 @@ Common commands:
   tt formula list
   tt formula show bug-fix
   tt formula copy bug-fix ./bug-fix.toml
-  tt formula compile bug-fix --workflow
+  tt formula compile bug-fix
   tt formula run bug-fix "login button returns 500"
   tt formula runs
 
@@ -134,7 +134,6 @@ func (a *App) newFormulaCompileCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFormulaCompile,
 	}
-	cmd.Flags().BoolVar(&a.opts.CompileWorkflow, "workflow", false, "print graph-first typed Workflow IR instead of Recipe")
 	return cmd
 }
 

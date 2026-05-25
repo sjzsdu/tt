@@ -33,6 +33,11 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		formulaSession = "cli:formula"
 	}
 
+	workflow, err := formula.CompileWorkflowByName(context.Background(), name, getSearchPaths(), vars)
+	if err != nil {
+		return err
+	}
+	// Transitional UI/export data. Runtime execution below uses workflow directly.
 	recipe, err := formula.Compile(context.Background(), name, getSearchPaths(), vars)
 	if err != nil {
 		return err
@@ -41,6 +46,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if formulaDryRun {
 		return executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{
 			Recipe:       recipe,
+			Workflow:     workflow,
 			DryRun:       true,
 			AllowScripts: !formulaNoScript,
 			Out:          cmd.OutOrStdout(),
@@ -103,6 +109,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		dashboard = newFormulaDashboardServer(recipe)
 		dashboard.state.WorkspaceDir = formulaDashboardWorkspace(projectRoot)
 		if runStore != nil {
+			if err := runStore.SaveWorkflow(workflow); err != nil {
+				return err
+			}
 			dashboard.attachStore(runStore)
 		}
 	}
@@ -116,6 +125,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	defer stopRunSignals()
 	err = executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
 		Recipe:       recipe,
+		Workflow:     workflow,
 		RunStore:     runStore,
 		Processor:    runner,
 		DefaultAgent: runAgent,

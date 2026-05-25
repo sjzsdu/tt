@@ -188,6 +188,9 @@ func (s *Store) SaveMetadata() error { return writeJSON(filepath.Join(s.Dir, "ru
 func (s *Store) SaveRecipe(recipe *formula.Recipe) error {
 	return writeJSON(filepath.Join(s.Dir, "recipe.json"), recipe)
 }
+func (s *Store) SaveWorkflow(workflow any) error {
+	return writeJSON(filepath.Join(s.Dir, "workflow.json"), workflow)
+}
 func (s *Store) SaveState(state any) error {
 	return writeJSON(filepath.Join(s.Dir, "state.json"), state)
 }

@@ -130,6 +130,7 @@ func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRe
 
 type formulaRuntimeRunOptions struct {
 	Recipe       *formula.Recipe
+	Workflow     *ir.Workflow
 	RunStore     *formularun.Store
 	AgentRunner  steps.AgentRunner
 	DryRun       bool
@@ -137,10 +138,13 @@ type formulaRuntimeRunOptions struct {
 }
 
 func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Executor, error) {
-	if opt.Recipe == nil {
-		return nil, fmt.Errorf("recipe is required")
+	workflow := opt.Workflow
+	if workflow == nil && opt.Recipe != nil {
+		workflow = formula.WorkflowFromRecipe(opt.Recipe)
 	}
-	workflow := formula.WorkflowFromRecipe(opt.Recipe)
+	if workflow == nil {
+		return nil, fmt.Errorf("workflow is required")
+	}
 	capabilities := steps.Capabilities{}
 	if opt.DryRun {
 		capabilities.Agents = formularuntime.DryRunAgentCapability{}
@@ -160,6 +164,7 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 
 type executeFormulaRuntimeOptions struct {
 	Recipe       *formula.Recipe
+	Workflow     *ir.Workflow
 	RunStore     *formularun.Store
 	Processor    formulaDirectProcessor
 	DefaultAgent string
@@ -185,6 +190,7 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 	}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
 		Recipe:       opt.Recipe,
+		Workflow:     opt.Workflow,
 		RunStore:     opt.RunStore,
 		AgentRunner:  agentRunner,
 		DryRun:       opt.DryRun,

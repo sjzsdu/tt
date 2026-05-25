@@ -53,7 +53,6 @@ type formulaOptions struct {
 	ListBuiltin     bool
 	ListUser        bool
 	ListCategory    string
-	CompileWorkflow bool
 }
 
 var (
@@ -90,7 +89,6 @@ var (
 	formulaListBuiltin     bool
 	formulaListUser        bool
 	formulaListCategory    string
-	formulaCompileWorkflow bool
 	formulaRunSessionSeq   uint64
 )
 
@@ -128,7 +126,6 @@ func (a *App) installOptions() {
 	formulaListBuiltin = a.opts.ListBuiltin
 	formulaListUser = a.opts.ListUser
 	formulaListCategory = a.opts.ListCategory
-	formulaCompileWorkflow = a.opts.CompileWorkflow
 }
 
 func getSearchPaths() []string {

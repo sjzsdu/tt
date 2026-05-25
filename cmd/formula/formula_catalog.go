@@ -236,59 +236,27 @@ func runFormulaCompile(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	vars := parseVars()
 
-	recipe, err := formula.Compile(context.Background(), name, getSearchPaths(), vars)
+	workflow, err := formula.CompileWorkflowByName(context.Background(), name, getSearchPaths(), vars)
 	if err != nil {
 		return err
 	}
 
-	if formulaCompileWorkflow {
-		workflow := formula.WorkflowFromRecipe(recipe)
-		fmt.Printf("Workflow: %s\n", workflow.Name)
-		fmt.Printf("Nodes (%d):\n", len(workflow.Graph.Nodes))
-		ids := make([]string, 0, len(workflow.Graph.Nodes))
-		for id := range workflow.Graph.Nodes {
-			ids = append(ids, string(id))
-		}
-		sort.Strings(ids)
-		for _, id := range ids {
-			node := workflow.Graph.Nodes[ir.NodeID(id)]
-			meta := node.Step.Meta()
-			fmt.Printf("  - %-30s kind=%s title=%q\n", id, meta.Kind, meta.Title)
-		}
-		fmt.Printf("Edges (%d):\n", len(workflow.Graph.Edges))
-		for _, edge := range workflow.Graph.Edges {
-			fmt.Printf("  - %s -> %s (%s)\n", edge.From, edge.To, edge.Type)
-		}
-		return nil
+	fmt.Printf("Workflow: %s\n", workflow.Name)
+	fmt.Printf("Nodes (%d):\n", len(workflow.Graph.Nodes))
+	ids := make([]string, 0, len(workflow.Graph.Nodes))
+	for id := range workflow.Graph.Nodes {
+		ids = append(ids, string(id))
 	}
-
-	fmt.Printf("Recipe: %s\n", recipe.Name)
-	if recipe.Description != "" {
-		fmt.Printf("Description: %s\n", recipe.Description)
+	sort.Strings(ids)
+	for _, id := range ids {
+		node := workflow.Graph.Nodes[ir.NodeID(id)]
+		meta := node.Step.Meta()
+		fmt.Printf("  - %-30s kind=%s title=%q\n", id, meta.Kind, meta.Title)
 	}
-	fmt.Printf("RootOnly: %v\n", recipe.RootOnly)
-	fmt.Printf("Steps (%d):\n", len(recipe.Steps))
-
-	for i, step := range recipe.Steps {
-		priority := ""
-		if step.Priority != nil {
-			priority = fmt.Sprintf("[P%d] ", *step.Priority)
-		}
-		deps := ""
-		for _, dep := range recipe.Deps {
-			if dep.StepID == step.ID && dep.Type != "parent-child" {
-				if deps != "" {
-					deps += ", "
-				}
-				deps += fmt.Sprintf("%s(%s)", dep.DependsOnID, dep.Type)
-			}
-		}
-		if deps != "" {
-			deps = " (blocks: " + deps + ")"
-		}
-		fmt.Printf("  %d. %s%-30s %s%s\n", i+1, priority, step.ID, step.Title, deps)
+	fmt.Printf("Edges (%d):\n", len(workflow.Graph.Edges))
+	for _, edge := range workflow.Graph.Edges {
+		fmt.Printf("  - %s -> %s (%s)\n", edge.From, edge.To, edge.Type)
 	}
-
 	return nil
 }
 
