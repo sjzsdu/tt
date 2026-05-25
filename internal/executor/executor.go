@@ -772,7 +772,7 @@ func (e *Executor) executeForEachItem(ctx context.Context, runner StepRunner, pa
 	for _, batch := range batches {
 		for _, body := range batch {
 			bodyStep := recipeStepFromLoopBody(parent, body, index+1)
-			if err := e.executeLoopBodyStep(ctx, runner, &bodyStep, local); err != nil {
+			if err := e.executeLoopBodyStep(ctx, runner, &bodyStep, local, true); err != nil {
 				return "", err
 			}
 		}
@@ -787,58 +787,92 @@ func (e *Executor) executeForEachItem(ctx context.Context, runner StepRunner, pa
 	return string(data), nil
 }
 
-func (e *Executor) executeLoopBodyStep(ctx context.Context, runner StepRunner, step *formula.RecipeStep, local map[string]string) error {
+func (e *Executor) executeLoopBodyStep(ctx context.Context, runner StepRunner, step *formula.RecipeStep, local map[string]string, emitUpdates bool) error {
 	if e.shouldSkipWithContext(step, local) {
 		e.mu.Lock()
 		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped}
 		e.mu.Unlock()
-		e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped})
+		if emitUpdates {
+			e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped})
+		}
 		return nil
 	}
-	if step.Execution == HumanInputExecution {
-		return fmt.Errorf("step %s uses human_input inside parallel foreach; this is not supported yet", step.ID)
+
+	handler, err := newDefaultStepRegistry().Resolve(step)
+	if err != nil {
+		return err
 	}
+	if handler.Kind() == "loop.foreach" || handler.Kind() == "loop.until" {
+		return fmt.Errorf("step %s uses nested runtime loop inside loop body; this is not supported yet", step.ID)
+	}
+
 	e.mu.Lock()
 	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning}
 	e.mu.Unlock()
-	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning})
-
-	var output string
-	var err error
-	if step.Execution == "script" {
-		if !e.opts.AllowScripts {
-			err = fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", step.ID)
-		} else {
-			output, err = e.executeScriptStepWithRender(ctx, step, func(s string) string { return e.renderTemplateWithContext(s, local) })
-		}
-	} else {
-		prompt := e.buildPromptWithContext(step, local)
-		output, err = runner(ctx, step, prompt)
+	if emitUpdates {
+		e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning})
 	}
+
+	result, err := handler.Execute(ctx, stepRuntime{executor: e, runner: runner, local: local}, step)
 	if err != nil {
-		failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
-		e.mu.Lock()
-		e.results[step.ID].Status = StatusFailed
-		e.results[step.ID].Error = err.Error()
-		e.results[step.ID].Output = output
-		e.mu.Unlock()
-		e.emitStepUpdate(failed)
+		e.markLoopBodyStepFailed(step, result.Output, err)
 		return fmt.Errorf("step %s failed: %w", step.ID, err)
 	}
-	if request := ParseHumanInputRequest(output); request != nil {
-		return fmt.Errorf("step %s requested human input inside foreach; this is not supported yet", step.ID)
+	if result.Status == StatusWaitingInput {
+		if local != nil {
+			return fmt.Errorf("step %s requested human input inside foreach; this is not supported yet", step.ID)
+		}
+		return e.pauseForHumanInput(step, result.HumanInputRequest)
 	}
-	completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: output}
+	if result.Status == StatusCompleted && result.Output != "" {
+		if err := validateStepOutput(step, result.Output); err != nil {
+			e.markLoopBodyStepFailed(step, result.Output, err)
+			return fmt.Errorf("step %s output validation failed: %w", step.ID, err)
+		}
+	}
+	if result.Status == StatusFailed {
+		err := fmt.Errorf("step failed")
+		e.markLoopBodyStepFailed(step, result.Output, err)
+		return fmt.Errorf("step %s failed", step.ID)
+	}
+
+	completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: result.Output}
 	e.mu.Lock()
+	if e.results[step.ID] == nil {
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title}
+	}
 	e.results[step.ID].Status = StatusCompleted
+	e.results[step.ID].Output = result.Output
+	if local == nil {
+		if outputKey := stepOutputKey(step); outputKey != "" && result.Output != "" {
+			e.context[outputKey] = result.Output
+		}
+	}
+	e.mu.Unlock()
+	if local != nil && step.OutputKey != "" {
+		local[step.OutputKey] = result.Output
+		local["_output."+step.OutputKey] = result.Output
+	}
+	if emitUpdates {
+		e.emitStepUpdate(completed)
+	}
+	return nil
+}
+
+func (e *Executor) markLoopBodyStepFailed(step *formula.RecipeStep, output string, err error) {
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	e.mu.Lock()
+	if e.results[step.ID] == nil {
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title}
+	}
+	e.results[step.ID].Status = StatusFailed
+	e.results[step.ID].Error = errMsg
 	e.results[step.ID].Output = output
 	e.mu.Unlock()
-	if step.OutputKey != "" {
-		local[step.OutputKey] = output
-		local["_output."+step.OutputKey] = output
-	}
-	e.emitStepUpdate(completed)
-	return nil
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: errMsg})
 }
 
 func (e *Executor) markLoopFailed(step *formula.RecipeStep, errMsg string) {
@@ -924,59 +958,20 @@ func (e *Executor) executeRuntimeLoop(ctx context.Context, runner StepRunner, st
 				continue
 			}
 			bodyStep := recipeStepFromLoopBody(step, body, iter)
-			if e.shouldSkip(&bodyStep) {
-				e.mu.Lock()
-				e.results[bodyStep.ID] = &StepResult{StepID: bodyStep.ID, Title: bodyStep.Title, Status: StatusSkipped}
-				e.mu.Unlock()
-				continue
-			}
 			e.mu.Lock()
 			e.context["iteration"] = fmt.Sprintf("%d", iter)
-			e.results[bodyStep.ID] = &StepResult{StepID: bodyStep.ID, Title: bodyStep.Title, Status: StatusRunning}
 			e.mu.Unlock()
-
-			var output string
-			var err error
-			if bodyStep.Execution == HumanInputExecution {
-				request := &HumanInputRequest{Reason: strings.TrimSpace(bodyStep.Description), Form: bodyStep.Form}
-				if request.Reason == "" {
-					request.Reason = "step requires human input"
-				}
-				return e.pauseForHumanInput(&bodyStep, request)
-			}
-			if bodyStep.Execution == "script" {
-				if !e.opts.AllowScripts {
-					err = fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", bodyStep.ID)
-				} else {
-					output, err = e.executeScriptStep(ctx, &bodyStep)
-				}
-			} else {
-				prompt := e.buildPrompt(&bodyStep)
-				output, err = runner(ctx, &bodyStep, prompt)
-			}
-			if err != nil {
-				failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
+			if err := e.executeLoopBodyStep(ctx, runner, &bodyStep, nil, false); err != nil {
 				e.mu.Lock()
-				e.results[bodyStep.ID].Status = StatusFailed
-				e.results[bodyStep.ID].Error = err.Error()
-				e.results[bodyStep.ID].Output = output
+				if e.results[step.ID] == nil {
+					e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title}
+				}
 				e.results[step.ID].Status = StatusFailed
 				e.results[step.ID].Error = err.Error()
 				e.mu.Unlock()
-				e.emitStepUpdate(failed)
+				e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Error: err.Error()})
 				return fmt.Errorf("loop %s iteration %d step %s failed: %w", step.ID, iter, bodyStep.ID, err)
 			}
-			if request := ParseHumanInputRequest(output); request != nil {
-				return e.pauseForHumanInput(&bodyStep, request)
-			}
-
-			e.mu.Lock()
-			e.results[bodyStep.ID].Status = StatusCompleted
-			e.results[bodyStep.ID].Output = output
-			if bodyStep.OutputKey != "" {
-				e.context[bodyStep.OutputKey] = output
-			}
-			e.mu.Unlock()
 		}
 
 		if EvaluateCondition(step.Loop.Until, e.Context()) {

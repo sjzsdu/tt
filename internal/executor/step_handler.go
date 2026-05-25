@@ -17,14 +17,17 @@ type stepExecutionResult struct {
 type stepRuntime struct {
 	executor *Executor
 	runner   StepRunner
+	local    map[string]string
 }
 
 func (r stepRuntime) Options() RunOptions { return r.executor.opts }
 
-func (r stepRuntime) RenderTemplate(value string) string { return r.executor.renderTemplate(value) }
+func (r stepRuntime) RenderTemplate(value string) string {
+	return r.executor.renderTemplateWithContext(value, r.local)
+}
 
 func (r stepRuntime) BuildPrompt(step *formula.RecipeStep) string {
-	return r.executor.buildPrompt(step)
+	return r.executor.buildPromptWithContext(step, r.local)
 }
 
 func (r stepRuntime) RunAgent(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
@@ -133,7 +136,7 @@ func (scriptStepHandler) Execute(ctx context.Context, rt stepRuntime, step *form
 	if !rt.executor.opts.AllowScripts {
 		return stepExecutionResult{}, fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", step.ID)
 	}
-	output, err := rt.executor.executeScriptStep(ctx, step)
+	output, err := rt.executor.executeScriptStepWithRender(ctx, step, rt.RenderTemplate)
 	if err != nil {
 		return stepExecutionResult{Status: StatusFailed, Output: output}, err
 	}
