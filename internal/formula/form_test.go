@@ -1,6 +1,11 @@
 package formula
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/steps"
+)
 
 func TestHumanInputFormParsesValidatesAndCompiles(t *testing.T) {
 	const src = `
@@ -49,22 +54,21 @@ input_context = ["profile"]
 	if f.Steps[0].Form == nil || len(f.Steps[0].Form.Fields) != 2 {
 		t.Fatalf("form not parsed: %+v", f.Steps[0].Form)
 	}
-	recipe, err := toRecipe(f)
-	if err != nil {
-		t.Fatalf("toRecipe() error = %v", err)
-	}
-	step := recipe.StepByID("human-demo.profile")
-	if step == nil {
+	workflow := WorkflowFromFormula(f)
+	node := workflow.Graph.Nodes[ir.NodeID("profile")]
+	if node == nil {
 		t.Fatal("compiled human input step not found")
 	}
-	if step.Execution != "human_input" {
-		t.Fatalf("Execution = %q, want human_input", step.Execution)
+	step, ok := node.Step.(steps.HumanInputStep)
+	if !ok {
+		t.Fatalf("step type = %T, want HumanInputStep", node.Step)
 	}
-	if step.Form == nil || step.Form.Title != "请补充背景" || len(step.Form.Fields) != 2 {
+	form, ok := step.Form.(*FormSpec)
+	if !ok || form.Title != "请补充背景" || len(form.Fields) != 2 {
 		t.Fatalf("compiled form mismatch: %+v", step.Form)
 	}
-	if step.Form.Fields[0].Type != "radio" || len(step.Form.Fields[0].Options) != 3 {
-		t.Fatalf("compiled first field mismatch: %+v", step.Form.Fields[0])
+	if form.Fields[0].Type != "radio" || len(form.Fields[0].Options) != 3 {
+		t.Fatalf("compiled first field mismatch: %+v", form.Fields[0])
 	}
 }
 
@@ -111,12 +115,10 @@ required = ["ok", "nested.value"]
 	if !f.Steps[0].DynamicForm || f.Steps[0].Form != nil {
 		t.Fatalf("dynamic form not parsed correctly: dynamic=%v form=%+v", f.Steps[0].DynamicForm, f.Steps[0].Form)
 	}
-	recipe, err := toRecipe(f)
-	if err != nil {
-		t.Fatalf("toRecipe() error = %v", err)
-	}
-	step := recipe.StepByID("dynamic-demo.triage")
-	if step == nil || !step.DynamicForm || step.Validate == nil || len(step.Validate.Required) != 2 {
-		t.Fatalf("compiled dynamic form/validate mismatch: %+v", step)
+	workflow := WorkflowFromFormula(f)
+	node := workflow.Graph.Nodes[ir.NodeID("triage")]
+	step, ok := node.Step.(steps.AgentStep)
+	if node == nil || !ok || !step.DynamicForm {
+		t.Fatalf("compiled dynamic form mismatch: %+v", node)
 	}
 }

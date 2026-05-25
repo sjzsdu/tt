@@ -51,7 +51,7 @@ flowchart LR
 1. 用 `cmd/` 承担统一 CLI 入口和参数编排。
 2. 把复杂逻辑沉到 `internal/` 下的主题包中。
 3. 对 Picoclaw 采用"嵌入式 runtime 适配层"，让多个命令共享模型、agent、skill、session 与配置。
-4. 对 formula 采用"解析 → 解析继承/扩展 → 编译 Recipe/Workflow → typed runtime 执行 → 保存运行状态 → Web Dashboard"的流水线。
+4. 对 formula 采用"解析 → 解析继承/扩展 → 编译 Workflow → typed runtime 执行 → 保存运行状态 → Web Dashboard"的流水线。
 5. 对本地内容浏览类能力，采用"Go 提供文件与 API，前端资源嵌入二进制"的模式。
 6. 对代码分析能力，采用"嵌入式 docs-analyst agent"来动态生成理解导向的文档。
 

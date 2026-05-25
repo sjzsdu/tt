@@ -9,7 +9,7 @@ import (
 
 // CompileWorkflow decodes a kind-discriminated formula document and compiles it
 // directly into the graph-first typed Workflow IR. This is the new preferred
-// formula pipeline; Compile returns Recipe for command paths.
+// formula pipeline.
 func CompileWorkflow(name string, data []byte, registry *steps.Registry) (*ir.Workflow, error) {
 	doc, err := schema.Decode(name, data)
 	if err != nil {

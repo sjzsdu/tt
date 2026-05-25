@@ -7,16 +7,17 @@ import (
 	"path/filepath"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formuladoc"
 )
 
 func runFormulaShowMarkdown(resolved *formula.Formula) error {
-	recipe, err := formula.Compile(context.Background(), resolved.Formula, getSearchPaths(), nil)
+	workflow, err := formula.CompileWorkflowByName(context.Background(), resolved.Formula, getSearchPaths(), nil)
 	if err != nil {
 		return err
 	}
 
-	md := generateFormulaMarkdown(resolved, recipe)
+	md := generateFormulaMarkdown(resolved, workflow)
 
 	tmpDir, err := os.MkdirTemp("", "tt-formula-*")
 	if err != nil {
@@ -49,12 +50,12 @@ func runFormulaShowAllMarkdown() error {
 	}
 
 	for _, f := range formulas {
-		recipe, err := formula.Compile(context.Background(), f.Formula, getSearchPaths(), nil)
+		workflow, err := formula.CompileWorkflowByName(context.Background(), f.Formula, getSearchPaths(), nil)
 		if err != nil {
 			continue
 		}
 
-		md := generateFormulaMarkdown(f, recipe)
+		md := generateFormulaMarkdown(f, workflow)
 		mdPath := filepath.Join(tmpDir, f.Formula+".md")
 		if err := os.WriteFile(mdPath, []byte(md), 0644); err != nil {
 			return fmt.Errorf("write %s: %w", f.Formula, err)
@@ -119,10 +120,10 @@ func collectFormulaShowAllMarkdownFormulas() []*formula.Formula {
 	return formulas
 }
 
-func generateFormulaMarkdown(f *formula.Formula, recipe *formula.Recipe) string {
-	return formuladoc.GenerateMarkdown(f, recipe)
+func generateFormulaMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
+	return formuladoc.GenerateMarkdown(f, workflow)
 }
 
-func generateMermaidGraph(recipe *formula.Recipe) string {
-	return formuladoc.GenerateMermaidGraph(recipe)
+func generateMermaidGraph(workflow *ir.Workflow) string {
+	return formuladoc.GenerateMermaidGraph(workflow)
 }

@@ -170,7 +170,7 @@ internal/agents/embedded/*.md
 - 变量校验与默认值处理
 - extends / expand / advice / control flow 解析
 - compile-time 条件过滤
-- 编译成 `Recipe`
+- 编译成 `Workflow`
 - 自动补齐 start/end 边界步骤
 
 关键文件：
@@ -185,7 +185,7 @@ internal/agents/embedded/*.md
 
 ## 4. `internal/formula/runtime` 与 `internal/formula/steps`
 
-这是 formula 当前的 typed runtime 执行层。`internal/formula` 负责语言和 Recipe，typed runtime 负责把 Recipe 转成 Workflow 后执行。
+这是 formula 当前的 typed runtime 执行层。`internal/formula` 负责语言和 Workflow，typed runtime 负责把 Workflow 转成 Workflow 后执行。
 
 它负责：
 - Workflow 图执行和拓扑规划
@@ -205,7 +205,7 @@ internal/agents/embedded/*.md
 ```text
 .tt/runs/formula/<formula>/<run-id>/
   run.json
-  recipe.json
+  workflow.json
   state.json
   logs.jsonl
   steps/
@@ -333,7 +333,7 @@ flowchart TD
 - docs 命令：`cmd/docs.go`
 - formula 命令：`cmd/formula.go` + `cmd/formula/`
 - runtime 适配：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
-- formula 编译：`internal/formula/compile.go`、`internal/formula/recipe.go`
+- formula 编译：`internal/formula/compile.go`、`internal/formula/workflow.go`
 - formula 执行：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - run 持久化：`internal/formularun/store.go`
 - embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/*.md`

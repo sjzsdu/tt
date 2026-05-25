@@ -6,7 +6,7 @@
 
 如果要用一句话概括它：
 
-> Formula 先把声明式工作流定义编译成 `Recipe`，再转换成 graph-first typed runtime `Workflow` 执行。typed runtime 负责步骤调度、上下文、人工输入、resume/retry，`formularun` 负责把状态、事件和产物持续落盘，dashboard 负责观察与交互。
+> Formula 先把声明式工作流定义编译成 graph-first typed runtime `Workflow`，再执行。typed runtime 负责步骤调度、上下文、人工输入、resume/retry，`formularun` 负责把状态、事件和产物持续落盘，dashboard 负责观察与交互。
 
 ## 系统总图
 
@@ -16,7 +16,7 @@ flowchart TD
     A0[Curated builtin formulas] --> B
     B --> C[Resolve]
     C --> D[Compile]
-    D --> E[Recipe]
+    D --> E[Workflow]
     E --> W[Typed Workflow]
     W --> F[internal/formula/runtime]
     F --> G[Agent Steps]
@@ -27,7 +27,7 @@ flowchart TD
     X -->|是| Y[waiting_input]
     Y --> Z[CLI / Dashboard Form]
     Z --> F
-    J --> K[run.json / recipe.json / state.json / logs.jsonl]
+    J --> K[run.json / workflow.json / state.json / logs.jsonl]
     J --> L[steps/*.prompt output error]
     F --> M[Dashboard]
 ```
@@ -35,7 +35,7 @@ flowchart TD
 读这张图时，可以把 formula 理解成四段链路：
 
 1. **定义阶段**：写 formula 文件
-2. **编译阶段**：把定义变成稳定的 Recipe 图
+2. **编译阶段**：把定义变成稳定的 Workflow 图
 3. **执行阶段**：typed runtime 按依赖图运行 agent/script/human_input 步骤
 4. **观察阶段**：通过 run store 和 dashboard 回看或恢复运行
 
@@ -95,15 +95,15 @@ tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
 
 也就是说，step 已经是一个相当丰富的工作单元定义，而不是简单字符串任务。其中 `form` 用于描述人工介入时要展示给用户的表单。
 
-## 编译前后：为什么要有 `Recipe`
+## 编译前后：为什么要有 `Workflow`
 
-源码中一个关键设计是：**执行器不直接跑 `Formula`，而是跑 `Recipe`。**
+源码中一个关键设计是：**执行器不直接跑 `Formula`，而是跑 `Workflow`。**
 
 ### 编译前：面向作者的 Formula
 - 支持继承、扩展、切面、变量等高层表达
 - 更适合手写和维护
 
-### 编译后：面向执行器的 Recipe
+### 编译后：面向执行器的 Workflow
 - `Steps` 已扁平化
 - `Deps` 已显式化
 - start/end 边界已补齐
@@ -112,7 +112,7 @@ tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
 ```mermaid
 flowchart LR
     A[Formula\n作者视角] --> B[Compile]
-    B --> C[Recipe\n执行器视角]
+    B --> C[Workflow\n执行器视角]
 
     A1[extends / advice / expand / vars / children] --> A
     C --> C1[扁平步骤列表]
@@ -120,7 +120,7 @@ flowchart LR
     C --> C3[start/end 边界]
 ```
 
-这张图说明：Recipe 的价值不只是“中间格式”，而是把高层定义降维成执行期更稳定的数据结构。
+这张图说明：Workflow 的价值不只是“中间格式”，而是把高层定义降维成执行期更稳定的数据结构。
 
 ## 编译阶段做了什么
 
@@ -135,7 +135,7 @@ flowchart LR
 7. `ApplyInlineExpansionsWithVars`
 8. `ApplyExpansionsWithVars`
 9. `FilterStepsByCondition`
-10. `toRecipe`
+10. `toWorkflow`
 
 ## 编译阶段示意图
 
@@ -148,7 +148,7 @@ flowchart TD
     E --> F[Apply inline expansions]
     F --> G[Apply compose expansions]
     G --> H[Filter compile-time conditions]
-    H --> I[toRecipe]
+    H --> I[toWorkflow]
     I --> J[Add start/end boundary steps]
 ```
 
@@ -156,7 +156,7 @@ flowchart TD
 
 ## 边界步骤：start / end 的设计意义
 
-源码会在 `toRecipe()` 之后调用 `addRecipeBoundarySteps()` 自动补齐：
+源码会在 `toWorkflow()` 之后调用 `addWorkflowBoundarySteps()` 自动补齐：
 
 - `<formula>.start`
 - `<formula>.end`
@@ -171,7 +171,7 @@ flowchart TD
 
 ## 执行模型：DAG 分批执行
 
-typed runtime 在 `internal/formula/runtime` 中把 Recipe 转成 `Workflow` 图，再做拓扑规划：
+typed runtime 在 `internal/formula/runtime` 中执行 `Workflow` 图，再做拓扑规划：
 
 - 同一批次：没有互相依赖，可以并发执行
 - 下一批次：等待前一批完成后再执行
@@ -211,7 +211,7 @@ flowchart LR
 这是这个子系统里非常值得先搞清楚的一点。
 
 ### compile-time condition
-在编译期基于变量做过滤，步骤可能直接不进入最终 Recipe。
+在编译期基于变量做过滤，步骤可能直接不进入最终 Workflow。
 
 ### runtime condition
 在执行期根据上下文判断要不要跳过某个步骤。
@@ -270,7 +270,7 @@ formula 支持两种主要执行方式。
 
 ```mermaid
 flowchart LR
-    A[RecipeStep] --> B{execution}
+    A[Workflow node] --> B{execution}
     B -- script --> C[executeScriptStep]
     B -- other --> D[buildPrompt + runner]
     C --> E[stdout/stderr/json/duration]
@@ -362,7 +362,7 @@ steps/<step>.output.md
 ```text
 .tt/runs/formula/<formula>/<run-id>/
   run.json
-  recipe.json
+  workflow.json
   state.json
   logs.jsonl
   steps/
@@ -378,7 +378,7 @@ steps/<step>.output.md
 | 文件 | 回答的问题 |
 | --- | --- |
 | `run.json` | 这次运行是谁、何时、以什么参数启动的？ |
-| `recipe.json` | 当时真正执行的 Recipe 长什么样？ |
+| `workflow.json` | 当时真正执行的 Workflow 长什么样？ |
 | `state.json` | 当前/最终状态快照是什么？ |
 | `logs.jsonl` | 执行过程中发生了哪些事件？ |
 | `steps/*` | 每一步到底给了什么 prompt，得到了什么输出？ |
@@ -433,7 +433,7 @@ formula 不只是把结果写盘，还会通过 dashboard 展示：
 
 1. `internal/formula/types.go`
 2. `internal/formula/compile.go`
-3. `internal/formula/recipe.go`
+3. `internal/formula/workflow.go`
 4. `internal/formula/runtime/executor.go`
 5. `internal/formula/steps/`
 6. `internal/formularun/store.go`
@@ -444,7 +444,7 @@ formula 不只是把结果写盘，还会通过 dashboard 展示：
 
 - 定义模型：`internal/formula/types.go`
 - 编译入口：`internal/formula/compile.go`
-- Recipe 生成：`internal/formula/recipe.go`
+- Workflow 生成：`internal/formula/workflow.go`
 - 条件执行与恢复：`internal/formula/runtime/executor.go`
 - Step 实现：`internal/formula/steps/`
 - 运行持久化：`internal/formularun/store.go`

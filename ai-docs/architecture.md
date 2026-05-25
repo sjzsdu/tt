@@ -101,7 +101,7 @@ sequenceDiagram
 
     User->>Cmd: tt formula run <name>
     Cmd->>Parser: 解析 + Resolve + Compile
-    Parser-->>Cmd: Recipe / Workflow
+    Parser-->>Cmd: Workflow
     Cmd->>Store: 初始化 run 目录与元数据
     Cmd->>PC: 加载 Picoclaw runtime
     Cmd->>Exec: 以 typed Workflow 启动执行
@@ -173,7 +173,7 @@ flowchart LR
 flowchart TD
     A[formula 定义文件\nTOML / JSON] --> B[Parser / Resolve]
     B --> C[Compile]
-    C --> D[Recipe]
+    C --> D[Workflow]
     D --> E[Typed Runtime]
     E --> F[Run Store / Dashboard]
 
@@ -186,7 +186,7 @@ flowchart TD
     E --> E4[runtime condition / loop.until]
 ```
 
-这张图最值得注意的是：**formula 不是边解析边执行，而是先编译成更稳定的 Recipe/Workflow，再交给 typed runtime 运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。
+这张图最值得注意的是：**formula 不是边解析边执行，而是先编译成更稳定的 Workflow，再交给 typed runtime 运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。
 
 ## 代码组织上的重要边界
 
@@ -195,7 +195,7 @@ flowchart TD
 - `internal/` 才是复用点和复杂逻辑中心。
 
 ### `internal/formula` 与 typed runtime 的边界
-- `internal/formula`：定义语言、解析、继承、扩展、编译成 Recipe。
+- `internal/formula`：定义语言、解析、继承、扩展、编译成 Workflow。
 - `internal/formula/runtime`：执行 Workflow，处理拓扑规划、状态、resume/retry 与事件。
 - `internal/formula/steps`：承载 agent/script/human_input 等 step 实现。
 
@@ -207,7 +207,7 @@ flowchart TD
 它不是执行器的附属小工具，而是一个专门负责"运行状态持久化"的层，负责：
 
 - 运行元数据 `run.json`
-- 编译结果 `recipe.json`
+- 编译结果 `workflow.json`
 - 运行快照 `state.json`
 - 事件流 `logs.jsonl`
 - 步骤级 prompt / output / error 产物
@@ -230,7 +230,7 @@ flowchart TD
 - 根命令：`cmd/root.go`
 - 配置合并：`internal/ttconfig/config.go`
 - Picoclaw runtime：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
-- formula 编译：`internal/formula/compile.go`、`internal/formula/recipe.go`
+- formula 编译：`internal/formula/compile.go`、`internal/formula/workflow.go`
 - Typed runtime：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - 运行持久化：`internal/formularun/store.go`
 - docs 命令：`cmd/docs.go`

@@ -54,12 +54,12 @@ func TestBuiltinFormulasParseAndCompile(t *testing.T) {
 	if err := f.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	recipe, err := Compile(context.Background(), entry.Name, nil, map[string]string{"topic": "空间计算"})
+	workflow, err := CompileWorkflowByName(context.Background(), entry.Name, nil, map[string]string{"topic": "空间计算"})
 	if err != nil {
 		t.Fatalf("Compile(%q) error = %v", entry.Name, err)
 	}
-	if recipe.Name != entry.Name {
-		t.Fatalf("recipe.Name = %q, want %q", recipe.Name, entry.Name)
+	if workflow.Name != entry.Name {
+		t.Fatalf("workflow.Name = %q, want %q", workflow.Name, entry.Name)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestShanYiZheBuiltinFormula(t *testing.T) {
 	if err := f.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if _, err := Compile(context.Background(), "shan-yi-zhe", nil, map[string]string{"question": "我是否应该离开现在的工作去创业？"}); err != nil {
+	if _, err := CompileWorkflowByName(context.Background(), "shan-yi-zhe", nil, map[string]string{"question": "我是否应该离开现在的工作去创业？"}); err != nil {
 		t.Fatalf("Compile(shan-yi-zhe) error = %v", err)
 	}
 }

@@ -97,7 +97,7 @@ overview → architecture → formula-system
 
 重点关注：
 - formula 如何解析与编译
-- Recipe 与 Step 的边界是什么
+- Workflow 与 Step 的边界是什么
 - typed runtime 如何做图执行、运行时条件判断、loop、resume/retry 与状态落盘
 - run store 如何支撑 resume 和 dashboard
 
