@@ -67,6 +67,6 @@ func typedStepFromRecipeStep(step RecipeStep) steps.Step {
 			agentName = step.Agent.Name
 			model = step.Agent.Model
 		}
-		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, OutputKey: step.OutputKey}
+		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, DynamicForm: step.DynamicForm, OutputKey: step.OutputKey}
 	}
 }

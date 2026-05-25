@@ -335,6 +335,14 @@ func runtimeEventHumanInputRequest(payload any) *formulaui.HumanInputRequest {
 	req := &formulaui.HumanInputRequest{Reason: await.Reason}
 	if form, ok := await.Form.(*formula.FormSpec); ok {
 		req.Form = form
+	} else if await.Form != nil {
+		data, err := json.Marshal(await.Form)
+		if err == nil {
+			var form formula.FormSpec
+			if err := json.Unmarshal(data, &form); err == nil {
+				req.Form = &form
+			}
+		}
 	}
 	return req
 }

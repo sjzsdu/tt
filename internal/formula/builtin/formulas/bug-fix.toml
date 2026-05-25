@@ -41,45 +41,26 @@ required = ["issue_summary", "needs_clarification", "research_brief"]
 
 [[steps]]
 id = "clarify-with-user"
-title = "向用户收集缺失的 bug 复现信息"
-execution = "human_input"
+title = "按缺失信息动态生成用户澄清表单"
+form = true
 depends_on = ["analyze-issue"]
 condition = "analyze-issue.needs_clarification == true"
 description = """
-issue_triage 判断当前信息不足，需要用户补充最小复现信息。
-请根据表单填写复现路径、期望行为、实际行为和环境线索。
+analyze-issue 判断当前信息不足。你的任务不是预设固定问题，而是根据 analyze-issue.clarification_questions 和当前 issue_summary 动态生成最小必要澄清表单。
+
+要求：
+1. 只询问阻塞后续代码调研的必要信息；
+2. 不要把复现步骤、期望行为、实际行为、环境这些字段固定全问一遍；
+3. 字段数量控制在 1-5 个；
+4. 若某个问题适合长文本，用 textarea；适合选择，用 radio/select；
+5. 输出 ONLY 一个 tt-human-input fenced JSON block，不要输出其他正文。
+
+示例：
+```tt-human-input json
+{"reason":"需要确认实际缺失的信息","form":{"title":"补充 bug 调研信息","description":"请补充以下最小必要信息，用于继续代码调研。","submit_label":"继续调研","fields":[{"name":"missing_context","label":"请补充缺失上下文","type":"textarea","required":true,"placeholder":"描述触发入口、报错、或你期望我们重点确认的线索"}]}}
+```
 """
-
-[steps.form]
-title = "补充 bug 复现信息"
-description = "这些信息会被合并进后续代码调研摘要。若某项未知，可写“不确定”。"
-submit_label = "继续调研"
-
-[[steps.form.fields]]
-name = "reproduction_steps"
-label = "复现步骤"
-type = "textarea"
-required = true
-placeholder = "请描述从什么入口、执行什么操作后出现问题"
-
-[[steps.form.fields]]
-name = "expected_behavior"
-label = "期望行为"
-type = "textarea"
-required = true
-
-[[steps.form.fields]]
-name = "actual_behavior"
-label = "实际行为 / 错误信息"
-type = "textarea"
-required = true
-
-[[steps.form.fields]]
-name = "environment"
-label = "环境或上下文"
-type = "input"
-required = false
-placeholder = "例如分支、版本、命令、浏览器、平台、账号状态等"
+agent.name = "coder"
 
 [[steps]]
 id = "prepare-research-brief"

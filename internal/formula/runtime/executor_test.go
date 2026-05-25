@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -28,6 +29,15 @@ type countingAgent struct{ calls int }
 func (a *countingAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, error) {
 	a.calls++
 	raw, _ := json.Marshal("fresh")
+	return steps.Value{Type: "json", Raw: raw}, nil
+}
+
+type dynamicInputAgent struct{ prompt string }
+
+func (a *dynamicInputAgent) RunAgent(_ context.Context, req steps.AgentRequest) (steps.Value, error) {
+	a.prompt = req.Prompt
+	output := "```tt-human-input json\n" + `{"reason":"need detail","form":{"title":"Clarify","fields":[{"name":"detail","label":"Detail","type":"textarea","required":true}]}}` + "\n```"
+	raw, _ := json.Marshal(output)
 	return steps.Value{Type: "json", Raw: raw}, nil
 }
 
@@ -63,6 +73,26 @@ func TestExecutorReturnsWaitingForHumanInput(t *testing.T) {
 	}
 	if result.Nodes["ask"].Await == nil {
 		t.Fatal("missing await request")
+	}
+}
+
+func TestExecutorReturnsWaitingForDynamicHumanInput(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "triage", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "triage", Kind: steps.KindAgent}}, Prompt: "triage", DynamicForm: true}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &dynamicInputAgent{}
+	result, err := NewExecutor(wf, steps.Capabilities{Agents: agent}).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusWaiting {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if result.Nodes["triage"].Await == nil || result.Nodes["triage"].Await.Form == nil {
+		t.Fatal("missing dynamic await request")
+	}
+	if !strings.Contains(agent.prompt, "tt-human-input") {
+		t.Fatal("dynamic form protocol was not injected into prompt")
 	}
 }
 

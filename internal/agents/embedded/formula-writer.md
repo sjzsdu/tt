@@ -142,6 +142,8 @@ options = ["safe", "fast", "complete"]
 
 动态澄清：
 
+对 triage/bug report 这类缺失信息不固定的场景，优先使用 `form = true` 动态生成最小问题集，而不是预设一组静态 fields。
+
 ```toml
 [[steps]]
 id = "triage"

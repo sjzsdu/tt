@@ -195,7 +195,7 @@ tt formula run input latest choose-option --field option=safe
 
 ### Dynamic human input from an agent
 
-Use `form = true` on an agent step when the agent may need to ask for missing information only if necessary.
+Use `form = true` on an agent step when the agent may need to ask for missing information only if necessary. Prefer this over static fields for triage/bug reports, because the agent can generate the smallest question set from the actual missing context.
 
 ```toml
 [[steps]]
