@@ -25,7 +25,7 @@ flowchart LR
         I1[picoclaw]
         I2[agents]
         I3[formula]
-        I4[executor]
+        I4[formula/runtime]
         I5[formularun]
         I6[webui]
         I7[cmd2skill]
@@ -74,7 +74,7 @@ flowchart LR
 | `cmd/markdown.go` | Markdown 浏览/预览 |
 | `cmd/json.go` | JSON 浏览/编辑 |
 | `cmd/conversation.go` | 会话型 JSON 浏览 |
-| `cmd/formula_dashboard.go` | Formula 运行时 Dashboard 服务 |
+| `cmd/formula/` | Formula 子命令实现与 dashboard 服务 glue |
 
 这类命令通常会：
 1. 解析路径 / 端口 / pattern
@@ -100,17 +100,17 @@ flowchart LR
 
 | 文件 | 作用 |
 | --- | --- |
-| `cmd/formula.go` | formula 全部子命令：list/show/compile/instantiate/validate/create/optimize/run/runs/open/show/rm/resume |
-| `cmd/formula_dashboard.go` | formula 实时 dashboard |
+| `cmd/formula.go` | 根命令注册，注入 loading/browser/picoclaw/markdown 依赖 |
+| `cmd/formula/` | formula 子命令实现：list/show/compile/instantiate/validate/create/optimize/run/runs/open/show/rm/resume/input，以及 dashboard glue |
 
-`cmd/formula.go` 是仓库里最重的命令文件之一，因为它同时承担了：
+`cmd/formula/` 是 formula 命令子包，`cmd/formula.go` 只负责注册和依赖注入。子包承担：
 
 - formula 搜索路径管理
 - 变量解析
 - compile / instantiate / validate
 - create / optimize（通过 formula-writer agent）
-- run / resume（通过 executor + picoclaw + formularun）
-- Markdown 说明页生成（带 Mermaid 图）
+- run / resume / retry / input（通过 typed runtime + picoclaw + formularun）
+- Markdown 说明页预览 glue；纯渲染在 `internal/formuladoc`
 
 ### 工程辅助命令
 
@@ -183,22 +183,20 @@ internal/agents/embedded/*.md
 - `expand.go`
 - `advice.go`
 
-## 4. `internal/executor`
+## 4. `internal/formula/runtime` 与 `internal/formula/steps`
 
-这是 formula 的执行引擎。它并不关心“公式文件长什么样”，只关心“已经编译好的 Recipe 如何运行”。
+这是 formula 当前的 typed runtime 执行层。`internal/formula` 负责语言和 Recipe，typed runtime 负责把 Recipe 转成 Workflow 后执行。
 
 它负责：
-- 计算拓扑批次（topological batches）
-- 并发执行同批步骤
-- 判断运行时 condition
-- 执行 agent step 或 script step
-- 维护运行中 context
-- 处理 loop.until 循环
-- 产出 `RunResult`
+- Workflow 图执行和拓扑规划
+- 运行状态、事件和 `ContextStore`
+- agent/script/human_input step 能力分发
+- resume 时跳过已完成步骤并恢复 output_key context
+- dashboard retry/advice 的 typed runtime 重跑
 
-关键文件：
-- `executor.go`
-- `dag.go`
+关键目录：
+- `internal/formula/runtime/`
+- `internal/formula/steps/`
 
 ## 5. `internal/formularun`
 
@@ -284,12 +282,12 @@ internal/agents/embedded/*.md
 
 ```mermaid
 flowchart TD
-    A[cmd/formula.go] --> B[internal/formula]
-    B --> C[Recipe]
-    C --> D[internal/executor]
+    A[cmd/formula/] --> B[internal/formula]
+    B --> C[Recipe / Workflow]
+    C --> D[internal/formula/runtime]
     D --> E[internal/picoclaw]
     D --> F[internal/formularun]
-    D --> G[cmd/formula_dashboard.go]
+    D --> G[internal/formulaui + cmd/formula dashboard glue]
 
     H[cmd/agent.go / translate.go / debate.go / docs.go] --> E
     E --> I[internal/agents]
@@ -309,15 +307,15 @@ flowchart TD
 
 ### 我想改 formula 执行行为
 先看：
-- `internal/executor/executor.go`
-- `internal/executor/dag.go`
-- `cmd/formula.go`
+- `internal/formula/runtime/executor.go`
+- `internal/formula/steps/`
+- `cmd/formula/`
 
 ### 我想让 formula 的运行结果保存更多信息
 先看：
 - `internal/formularun/store.go`
-- `cmd/formula.go`
-- `cmd/formula_dashboard.go`
+- `cmd/formula/`
+- `internal/formulaui/`
 
 ### 我想新增一个嵌入式 agent
 先看：
@@ -342,9 +340,9 @@ flowchart TD
 
 - 根命令：`cmd/root.go`
 - docs 命令：`cmd/docs.go`
-- formula 命令：`cmd/formula.go`
+- formula 命令：`cmd/formula.go` + `cmd/formula/`
 - runtime 适配：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
 - formula 编译：`internal/formula/compile.go`、`internal/formula/recipe.go`
-- formula 执行：`internal/executor/executor.go`、`internal/executor/dag.go`
+- formula 执行：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - run 持久化：`internal/formularun/store.go`
 - embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/*.md`

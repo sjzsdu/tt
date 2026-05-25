@@ -6,7 +6,7 @@
 
 如果要用一句话概括它：
 
-> Formula 先把声明式工作流定义编译成 `Recipe` 依赖图，再由 executor 按 DAG 执行，期间把上下文、步骤产物和运行事件持续落盘，并可通过 dashboard 观察与恢复运行。
+> Formula 先把声明式工作流定义编译成 `Recipe`，再转换成 graph-first typed runtime `Workflow` 执行。typed runtime 负责步骤调度、上下文、人工输入、resume/retry，`formularun` 负责把状态、事件和产物持续落盘，dashboard 负责观察与交互。
 
 ## 系统总图
 
@@ -17,7 +17,8 @@ flowchart TD
     B --> C[Resolve]
     C --> D[Compile]
     D --> E[Recipe]
-    E --> F[Executor]
+    E --> W[Typed Workflow]
+    W --> F[internal/formula/runtime]
     F --> G[Agent Steps]
     F --> H[Script Steps]
     F --> I[Runtime Context]
@@ -35,7 +36,7 @@ flowchart TD
 
 1. **定义阶段**：写 formula 文件
 2. **编译阶段**：把定义变成稳定的 Recipe 图
-3. **执行阶段**：按 DAG 运行 agent/script 步骤
+3. **执行阶段**：typed runtime 按依赖图运行 agent/script/human_input 步骤
 4. **观察阶段**：通过 run store 和 dashboard 回看或恢复运行
 
 ## Curated builtin formula
@@ -170,7 +171,7 @@ flowchart TD
 
 ## 执行模型：DAG 分批执行
 
-执行器在 `internal/executor/dag.go` 中先把 Recipe 转为拓扑批次：
+typed runtime 在 `internal/formula/runtime` 中把 Recipe 转成 `Workflow` 图，再做拓扑规划：
 
 - 同一批次：没有互相依赖，可以并发执行
 - 下一批次：等待前一批完成后再执行
@@ -185,7 +186,7 @@ flowchart TD
     C --> E[end]
 ```
 
-从这类图里，你应该读出的是：**executor 的并发单位不是 goroutine 随机并发，而是基于依赖图算出来的批次并发。**
+从这类图里，你应该读出的是：**typed runtime 的执行单位不是随机调度，而是基于显式依赖图规划出的可运行节点。**
 
 ## 运行时上下文：`output_key` 与 `input_context`
 
@@ -194,7 +195,7 @@ formula 的运行时数据流主要靠两组字段：
 - `output_key`：把某一步输出写入上下文
 - `input_context`：后续步骤把指定 key 的内容注入 prompt
 
-执行器在 step 完成后，如果设置了 `output_key`，会把输出放入 `context`。后续 `buildPrompt()` 会按 `input_context` 提取这些值，拼进提示词。
+typed runtime 在 step 完成后，如果设置了 `output_key`，会把输出写入 `ContextStore`。后续步骤可通过 `input_context`、runtime condition 或 loop.until 读取这些命名输出。
 
 ```mermaid
 flowchart LR
@@ -215,7 +216,7 @@ flowchart LR
 ### runtime condition
 在执行期根据上下文判断要不要跳过某个步骤。
 
-执行器里 `shouldSkip()` 调用 `EvaluateCondition()`，支持：
+typed runtime 使用 formula 表达式能力在执行期评估 condition，支持：
 - `==`
 - `!=`
 - `=~`
@@ -225,7 +226,7 @@ flowchart LR
 
 ## 循环：`loop.until` 的运行时语义
 
-当步骤带有 `loop.until` 时，执行器不会把它当普通步骤，而会进入 `executeRuntimeLoop()`。
+当步骤带有 `loop.until` 时，typed runtime 会按 loop 语义执行 body，并在每轮后评估退出条件。
 
 ### loop 的特点
 - 运行时循环
@@ -255,7 +256,7 @@ formula 支持两种主要执行方式。
 
 ### 1. agent step
 - 默认模式
-- executor 负责组装 prompt
+- typed runtime/step adapter 负责组装运行请求
 - 通过 Picoclaw `DirectRunner` 调用 agent
 - 支持 step 级 agent/model/session 覆盖
 
@@ -415,7 +416,7 @@ formula 不只是把结果写盘，还会通过 dashboard 展示：
 
 ## create / optimize：让 formula 可以被 agent 生产
 
-`cmd/formula.go` 里还有两个非常有代表性的命令：
+`cmd/formula/` 子包里还有两个非常有代表性的命令：
 
 - `formula create`
 - `formula optimize`
@@ -434,20 +435,20 @@ formula 不只是把结果写盘，还会通过 dashboard 展示：
 1. `internal/formula/types.go`
 2. `internal/formula/compile.go`
 3. `internal/formula/recipe.go`
-4. `internal/executor/dag.go`
-5. `internal/executor/executor.go`
+4. `internal/formula/runtime/executor.go`
+5. `internal/formula/steps/`
 6. `internal/formularun/store.go`
-7. `cmd/formula.go`
-8. `cmd/formula_dashboard.go`
+7. `internal/formulaui/`、`internal/formuladoc/`
+8. `cmd/formula/`
 
 ## 实现参考
 
 - 定义模型：`internal/formula/types.go`
 - 编译入口：`internal/formula/compile.go`
 - Recipe 生成：`internal/formula/recipe.go`
-- 条件执行：`internal/executor/dag.go`
-- 执行器：`internal/executor/executor.go`
+- 条件执行与恢复：`internal/formula/runtime/executor.go`
+- Step 实现：`internal/formula/steps/`
 - 运行持久化：`internal/formularun/store.go`
-- 命令编排：`cmd/formula.go`
-- Dashboard：`cmd/formula_dashboard.go`
+- 命令编排：`cmd/formula/`，入口注册在 `cmd/formula.go`
+- Dashboard 状态：`internal/formulaui/`，服务 glue 在 `cmd/formula/`
 - 示例：`examples/formulas/*`

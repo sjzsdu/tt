@@ -20,7 +20,7 @@ flowchart TD
     CMD1 --> WEBUI[internal/webui + web\n嵌入式前端]
     CMD1 --> PC[internal/picoclaw\nPicoclaw 适配层]
     CMD1 --> FORMULA[internal/formula\n模板解析与编译]
-    CMD1 --> EXEC[internal/executor\nRecipe 执行器]
+    CMD1 --> FRUNTIME[internal/formula/runtime\ntyped workflow runtime]
     CMD1 --> RUNSTORE[internal/formularun\n运行状态持久化]
     CMD1 --> AGENTS[internal/agents\n嵌入式 agent 注册]
     CMD1 --> TOOL1[internal/cmd2skill]
@@ -30,8 +30,8 @@ flowchart TD
 
     WEBUI --> BROWSER[浏览器本地页面]
     PC --> PICO[Picoclaw provider / agent loop]
-    FORMULA --> EXEC
-    EXEC --> RUNSTORE
+    FORMULA --> FRUNTIME
+    FRUNTIME --> RUNSTORE
 ```
 
 这张图表达的是：`tt` 不是单核系统，而是一组共享基础设施的命令簇。
@@ -92,20 +92,20 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User as 用户
-    participant Cmd as cmd/formula.go
+    participant Cmd as cmd/formula/
     participant Parser as internal/formula
-    participant Exec as internal/executor
+    participant Exec as internal/formula/runtime
     participant Store as internal/formularun
     participant PC as internal/picoclaw
     participant Dash as Formula Dashboard
 
     User->>Cmd: tt formula run <name>
     Cmd->>Parser: 解析 + Resolve + Compile
-    Parser-->>Cmd: Recipe
+    Parser-->>Cmd: Recipe / Workflow
     Cmd->>Store: 初始化 run 目录与元数据
     Cmd->>PC: 加载 Picoclaw runtime
-    Cmd->>Exec: 以 Recipe 启动执行
-    Exec->>Exec: DAG 分批执行 / 条件判断 / 循环
+    Cmd->>Exec: 以 typed Workflow 启动执行
+    Exec->>Exec: 拓扑规划 / 条件判断 / 循环 / resume-retry
     Exec->>PC: 对 agent step 调用 runner
     Exec->>Store: 持续写入状态、事件、步骤产物
     Exec->>Dash: 推送步骤运行状态
@@ -113,7 +113,7 @@ sequenceDiagram
     Cmd-->>User: 终端输出或 dashboard
 ```
 
-这个链路体现了项目里最复杂的协作关系：formula 提供"声明式定义"，executor 提供"执行语义"，Picoclaw 提供"智能步骤执行能力"，formularun 提供"可恢复的运行痕迹"。
+这个链路体现了项目里最复杂的协作关系：formula 提供"声明式定义"，typed runtime 提供"执行语义"，Picoclaw 提供"智能步骤执行能力"，formularun 提供"可恢复的运行痕迹"。
 
 ### 4. docs 分析路径
 例如 `tt docs analyze`。
@@ -174,19 +174,19 @@ flowchart TD
     A[formula 定义文件\nTOML / JSON] --> B[Parser / Resolve]
     B --> C[Compile]
     C --> D[Recipe]
-    D --> E[Executor]
+    D --> E[Typed Runtime]
     E --> F[Run Store / Dashboard]
 
     B --> B1[extends / vars / advice / expand]
     C --> C1[compile-time 条件过滤]
     C --> C2[start/end 边界补全]
-    E --> E1[topological batches]
+    E --> E1[topological planning]
     E --> E2[agent step]
     E --> E3[script step]
     E --> E4[runtime condition / loop.until]
 ```
 
-这张图最值得注意的是：**formula 不是边解析边执行，而是先编译成更稳定的 Recipe，再交给执行器运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。
+这张图最值得注意的是：**formula 不是边解析边执行，而是先编译成更稳定的 Recipe/Workflow，再交给 typed runtime 运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。
 
 ## 代码组织上的重要边界
 
@@ -194,16 +194,17 @@ flowchart TD
 - `cmd/` 更像"适配层"，负责输入、帮助文案、输出和组装。
 - `internal/` 才是复用点和复杂逻辑中心。
 
-### `internal/formula` 与 `internal/executor` 的边界
-- `formula`：定义语言、解析、继承、扩展、编译成 Recipe。
-- `executor`：执行 Recipe，处理批次、条件、循环、script step。
+### `internal/formula` 与 typed runtime 的边界
+- `internal/formula`：定义语言、解析、继承、扩展、编译成 Recipe。
+- `internal/formula/runtime`：执行 Workflow，处理拓扑规划、状态、resume/retry 与事件。
+- `internal/formula/steps`：承载 agent/script/human_input 等 step 实现。
 
 ### `internal/picoclaw` 与 `internal/agents` 的边界
 - `picoclaw`：运行时加载、provider 创建、direct runner 包装。
 - `agents`：嵌入式 agent 定义的发现、解析与注册。
 
 ### `internal/formularun` 的独立价值
-它不是 executor 的附属小工具，而是一个专门负责"运行状态持久化"的层，负责：
+它不是执行器的附属小工具，而是一个专门负责"运行状态持久化"的层，负责：
 
 - 运行元数据 `run.json`
 - 编译结果 `recipe.json`
@@ -230,7 +231,7 @@ flowchart TD
 - 配置合并：`internal/ttconfig/config.go`
 - Picoclaw runtime：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
 - formula 编译：`internal/formula/compile.go`、`internal/formula/recipe.go`
-- DAG 执行：`internal/executor/executor.go`、`internal/executor/dag.go`
+- Typed runtime：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - 运行持久化：`internal/formularun/store.go`
 - docs 命令：`cmd/docs.go`
 - Web 资源嵌入：`internal/webui/markdown.go`、`internal/webui/formula.go`、`Makefile`

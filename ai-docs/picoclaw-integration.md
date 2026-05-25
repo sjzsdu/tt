@@ -226,7 +226,7 @@ Picoclaw 运行时并不是直接只读自身配置，还会受 `tt` 的双层�
 很多人第一次看 formula 时容易以为它是完全独立子系统，但其实只有一部分是独立的：
 
 - `internal/formula` 独立负责定义与编译
-- `internal/executor` 独立负责执行语义
+- `internal/formula/runtime` 与 `internal/formula/steps` 独立负责 typed runtime 执行语义
 - 但 agent step 的真正执行，仍然依赖 Picoclaw DirectRunner
 
 所以 formula 与 picoclaw 的关系可以概括为：
@@ -281,4 +281,4 @@ Picoclaw 运行时并不是直接只读自身配置，还会受 `tt` 的双层�
 - 翻译命令：`cmd/translate.go`
 - 文档分析命令：`cmd/docs.go`
 - 讨论命令：`cmd/debate.go`
-- formula 中的 agent 使用：`cmd/formula.go`
+- formula 中的 agent 使用：`cmd/formula/` 与 `cmd/formula/formula_runtime.go`

@@ -26,7 +26,7 @@
 ### 如果你准备扩展 formula / workflow 能力
 1. [Formula 工作流系统](./formula-system.md)
 2. [架构与运行模型](./architecture.md)
-3. 然后重点看 `internal/formula/`、`internal/executor/`、`internal/formularun/`
+3. 然后重点看 `cmd/formula/`、`internal/formula/`、`internal/formula/runtime/`、`internal/formula/steps/`、`internal/formularun/`
 
 ### 如果你准备接入新的嵌入式 agent 或复用 Picoclaw
 1. [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)
@@ -98,7 +98,7 @@ overview → architecture → formula-system
 重点关注：
 - formula 如何解析与编译
 - Recipe 与 Step 的边界是什么
-- executor 如何做 DAG 分批执行、运行时条件判断与 loop 控制
+- typed runtime 如何做图执行、运行时条件判断、loop、resume/retry 与状态落盘
 - run store 如何支撑 resume 和 dashboard
 
 ### 路径 C：围绕 agent runtime 深入
