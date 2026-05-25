@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"text/tabwriter"
 	"time"
 
@@ -59,6 +60,7 @@ var (
 	formulaListBuiltin     bool
 	formulaListUser        bool
 	formulaListCategory    string
+	formulaRunSessionSeq   uint64
 )
 
 var formulaCmd = &cobra.Command{
@@ -355,6 +357,38 @@ func appendUniquePath(paths []string, path string) []string {
 		}
 	}
 	return append(paths, clean)
+}
+
+func uniqueFormulaRunSession(base, formulaName string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "cli:formula"
+	}
+	formulaSlug := sessionSlug(formulaName)
+	if formulaSlug == "" {
+		formulaSlug = "formula"
+	}
+	seq := atomic.AddUint64(&formulaRunSessionSeq, 1)
+	return fmt.Sprintf("%s:%s:%s-%d", base, formulaSlug, time.Now().UTC().Format("20060102T150405.000000000Z"), seq)
+}
+
+func sessionSlug(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func parseVars() map[string]string {
@@ -2082,8 +2116,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list embedded agents failed: %w", err)
 	}
 
+	runSession := uniqueFormulaRunSession(formulaSession, recipe.Name)
+
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
-		Session:        formulaSession,
+		Session:        runSession,
 		Model:          formulaModel,
 		Debug:          formulaDebug,
 		Quiet:          true,
@@ -2096,7 +2132,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	defer runner.Close()
 
 	runAgent := defaultFormulaAgent(formulaAgent)
-	if err := validateFormulaAgentConfiguration(rt, recipe, runAgent, formulaModel, formulaSession); err != nil {
+	if err := validateFormulaAgentConfiguration(rt, recipe, runAgent, formulaModel, runSession); err != nil {
 		return err
 	}
 
@@ -2105,7 +2141,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
-		runStore, err = formularun.NewWithMetadata(resolveFormulaRunDir(loaded), recipe, vars, runAgent, formulaModel, formulaSession, projectRoot, version)
+		runStore, err = formularun.NewWithMetadata(resolveFormulaRunDir(loaded), recipe, vars, runAgent, formulaModel, runSession, projectRoot, version)
 		if err != nil {
 			return err
 		}
@@ -2133,7 +2169,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		Vars:         vars,
 		Agent:        runAgent,
 		Model:        formulaModel,
-		Session:      formulaSession,
+		Session:      runSession,
 		DryRun:       formulaDryRun,
 		Debug:        formulaDebug,
 		AllowScripts: !formulaNoScript,
@@ -2174,9 +2210,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			agent = &formula.AgentConfig{Name: runAgent, Model: formulaModel}
 		}
 
-		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, formulaSession, step.ID)
+		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, runSession, step.ID)
 		if agent.Session != "" {
-			sessionKey = fmt.Sprintf("agent:%s:%s:%s", agent.Name, formulaSession, agent.Session)
+			sessionKey = fmt.Sprintf("agent:%s:%s:%s:%s", agent.Name, runSession, agent.Session, step.ID)
 		}
 
 		model := agent.Model
@@ -2447,7 +2483,7 @@ func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, 
 		}
 		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, runStore.Meta.Session, step.ID)
 		if agent.Session != "" {
-			sessionKey = fmt.Sprintf("agent:%s:%s:%s", agent.Name, runStore.Meta.Session, agent.Session)
+			sessionKey = fmt.Sprintf("agent:%s:%s:%s:%s", agent.Name, runStore.Meta.Session, agent.Session, step.ID)
 		}
 		model := agent.Model
 		if model == "" {
