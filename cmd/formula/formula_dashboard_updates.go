@@ -107,7 +107,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.broadcast()
 }
 
-func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, request *executor.HumanInputRequest) {
+func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, request *formulaui.HumanInputRequest) {
 	s.mu.Lock()
 	found := false
 	for i := range s.state.Steps {

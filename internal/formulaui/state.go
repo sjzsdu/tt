@@ -3,7 +3,6 @@ package formulaui
 import (
 	"strings"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 )
 
@@ -22,35 +21,35 @@ type Snapshot struct {
 }
 
 type Step struct {
-	ID                string                      `json:"id"`
-	Title             string                      `json:"title"`
-	Description       string                      `json:"description,omitempty"`
-	Notes             string                      `json:"notes,omitempty"`
-	Type              string                      `json:"type,omitempty"`
-	Agent             string                      `json:"agent"`
-	Model             string                      `json:"model,omitempty"`
-	Session           string                      `json:"session,omitempty"`
-	Status            string                      `json:"status"`
-	Output            string                      `json:"output,omitempty"`
-	Error             string                      `json:"error,omitempty"`
-	StartedAt         string                      `json:"-"`
-	FinishedAt        string                      `json:"-"`
-	DurationMS        int64                       `json:"duration_ms,omitempty"`
-	Priority          *int                        `json:"priority,omitempty"`
-	Labels            []string                    `json:"labels,omitempty"`
-	Assignee          string                      `json:"assignee,omitempty"`
-	OutputKey         string                      `json:"output_key,omitempty"`
-	InputCtx          []string                    `json:"input_ctx,omitempty"`
-	Execution         string                      `json:"execution,omitempty"`
-	Condition         string                      `json:"condition,omitempty"`
-	Metadata          map[string]string           `json:"metadata,omitempty"`
-	Gate              *Gate                       `json:"gate,omitempty"`
-	Loop              *Loop                       `json:"loop,omitempty"`
-	DependsOn         []string                    `json:"depends_on,omitempty"`
-	Activities        []StepActivity              `json:"activities,omitempty"`
-	HumanInputRequest *executor.HumanInputRequest `json:"human_input_request,omitempty"`
-	Depth             int                         `json:"depth,omitempty"`
-	Index             int                         `json:"index"`
+	ID                string             `json:"id"`
+	Title             string             `json:"title"`
+	Description       string             `json:"description,omitempty"`
+	Notes             string             `json:"notes,omitempty"`
+	Type              string             `json:"type,omitempty"`
+	Agent             string             `json:"agent"`
+	Model             string             `json:"model,omitempty"`
+	Session           string             `json:"session,omitempty"`
+	Status            string             `json:"status"`
+	Output            string             `json:"output,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	StartedAt         string             `json:"-"`
+	FinishedAt        string             `json:"-"`
+	DurationMS        int64              `json:"duration_ms,omitempty"`
+	Priority          *int               `json:"priority,omitempty"`
+	Labels            []string           `json:"labels,omitempty"`
+	Assignee          string             `json:"assignee,omitempty"`
+	OutputKey         string             `json:"output_key,omitempty"`
+	InputCtx          []string           `json:"input_ctx,omitempty"`
+	Execution         string             `json:"execution,omitempty"`
+	Condition         string             `json:"condition,omitempty"`
+	Metadata          map[string]string  `json:"metadata,omitempty"`
+	Gate              *Gate              `json:"gate,omitempty"`
+	Loop              *Loop              `json:"loop,omitempty"`
+	DependsOn         []string           `json:"depends_on,omitempty"`
+	Activities        []StepActivity     `json:"activities,omitempty"`
+	HumanInputRequest *HumanInputRequest `json:"human_input_request,omitempty"`
+	Depth             int                `json:"depth,omitempty"`
+	Index             int                `json:"index"`
 }
 
 type StepActivity struct {
@@ -161,7 +160,7 @@ func CloneSnapshot(s Snapshot) Snapshot {
 	return cp
 }
 
-func CloneHumanInputRequest(src *executor.HumanInputRequest) *executor.HumanInputRequest {
+func CloneHumanInputRequest(src *HumanInputRequest) *HumanInputRequest {
 	if src == nil {
 		return nil
 	}

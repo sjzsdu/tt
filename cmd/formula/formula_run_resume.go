@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/formularunview"
@@ -80,7 +79,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
-	var request executor.HumanInputRequest
+	var request formulaui.HumanInputRequest
 	if err := store.LoadStepHumanInputRequest(resolvedStepID, &request); err != nil {
 		return fmt.Errorf("load human input request for step %s failed: %w", resolvedStepID, err)
 	}
@@ -156,7 +155,7 @@ func parseHumanInputFields(fields []string) (map[string]any, error) {
 	return response, nil
 }
 
-func validateHumanInputResponse(request *executor.HumanInputRequest, response map[string]any) error {
+func validateHumanInputResponse(request *formulaui.HumanInputRequest, response map[string]any) error {
 	if request == nil || request.Form == nil {
 		return nil
 	}

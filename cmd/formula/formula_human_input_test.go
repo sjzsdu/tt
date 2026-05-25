@@ -22,7 +22,7 @@ func TestParseHumanInputFieldsDuplicatesBecomeArrays(t *testing.T) {
 }
 
 func TestValidateHumanInputResponse(t *testing.T) {
-	request := &executor.HumanInputRequest{Form: &formula.FormSpec{Fields: []*formula.FormField{
+	request := &formulaui.HumanInputRequest{Form: &formula.FormSpec{Fields: []*formula.FormField{
 		{Name: "level", Label: "水平", Type: "radio", Required: true, Options: []string{"新手", "熟练"}},
 		{Name: "goal", Label: "目标", Type: "textarea"},
 	}}}

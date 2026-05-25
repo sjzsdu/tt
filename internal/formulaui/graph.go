@@ -3,7 +3,6 @@ package formulaui
 import (
 	"fmt"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 )
 
@@ -29,9 +28,9 @@ func BuildGraph(recipe *formula.Recipe) ([]Step, []Edge) {
 			gate = &Gate{Type: step.Gate.Type, ID: step.Gate.ID, Timeout: step.Gate.Timeout}
 		}
 		loop := BuildLoop(step.Loop)
-		var humanInputRequest *executor.HumanInputRequest
-		if step.Execution == executor.HumanInputExecution && step.Form != nil {
-			humanInputRequest = &executor.HumanInputRequest{Reason: step.Description, Form: step.Form}
+		var humanInputRequest *HumanInputRequest
+		if step.Execution == "human_input" && step.Form != nil {
+			humanInputRequest = &HumanInputRequest{Reason: step.Description, Form: step.Form}
 		}
 		steps = append(steps, Step{
 			ID:                step.ID,

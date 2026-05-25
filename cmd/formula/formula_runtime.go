@@ -327,12 +327,12 @@ func runtimeEventError(payload any) string {
 	return result.Error.Error()
 }
 
-func runtimeEventHumanInputRequest(payload any) *executor.HumanInputRequest {
+func runtimeEventHumanInputRequest(payload any) *formulaui.HumanInputRequest {
 	await, ok := payload.(*steps.AwaitRequest)
 	if !ok || await == nil {
 		return nil
 	}
-	req := &executor.HumanInputRequest{Reason: await.Reason}
+	req := &formulaui.HumanInputRequest{Reason: await.Reason}
 	if form, ok := await.Form.(*formula.FormSpec); ok {
 		req.Form = form
 	}

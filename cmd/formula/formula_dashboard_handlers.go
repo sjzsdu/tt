@@ -151,7 +151,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var request executor.HumanInputRequest
+	var request formulaui.HumanInputRequest
 	if err := s.store.LoadStepHumanInputRequest(resolvedStepID, &request); err != nil {
 		http.Error(w, fmt.Sprintf("load human input request failed: %v", err), http.StatusInternalServerError)
 		return
