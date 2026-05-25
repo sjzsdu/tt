@@ -40,11 +40,11 @@ type Condition struct {
 }
 
 var (
-	fieldPattern       = regexp.MustCompile(`^(\w+(?:\.\w+)*)\s*([=!<>~]+)\s*(.+)$`)
-	aggregatePattern   = regexp.MustCompile(`^(children|descendants|steps)\((\w+)\)\.(all|any|count)\((.+)\)(.*)$`)
-	fileExistsPattern  = regexp.MustCompile(`^file\.exists\(['"](.+)['"]\)$`)
-	envPattern         = regexp.MustCompile(`^env\.(\w+)\s*([=!<>]+)\s*(.+)$`)
-	stepsStatPattern   = regexp.MustCompile(`^steps\.(\w+)\s*([=!<>]+)\s*(\d+)$`)
+	fieldPattern        = regexp.MustCompile(`^(\w+(?:\.\w+)*)\s*([=!<>~]+)\s*(.+)$`)
+	aggregatePattern    = regexp.MustCompile(`^(children|descendants|steps)\((\w+)\)\.(all|any|count)\((.+)\)(.*)$`)
+	fileExistsPattern   = regexp.MustCompile(`^file\.exists\(['"](.+)['"]\)$`)
+	envPattern          = regexp.MustCompile(`^env\.(\w+)\s*([=!<>]+)\s*(.+)$`)
+	stepsStatPattern    = regexp.MustCompile(`^steps\.(\w+)\s*([=!<>]+)\s*(\d+)$`)
 	countComparePattern = regexp.MustCompile(`\s*([=!<>]+)\s*(\d+)$`)
 )
 

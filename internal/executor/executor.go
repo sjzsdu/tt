@@ -253,156 +253,112 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	}
 	e.mu.RUnlock()
 
-	if step.IsRoot {
-		e.mu.Lock()
-		e.results[step.ID] = &StepResult{
-			StepID: step.ID,
-			Title:  step.Title,
-			Status: StatusCompleted,
-		}
-		e.mu.Unlock()
-		return nil
-	}
-
-	if step.Execution == "noop" {
-		e.mu.Lock()
-		e.results[step.ID] = &StepResult{
-			StepID: step.ID,
-			Title:  step.Title,
-			Status: StatusCompleted,
-		}
-		e.mu.Unlock()
-		return nil
-	}
-
-	if step.Loop != nil && step.Loop.ForEach != "" {
-		return e.executeForEachLoop(ctx, runner, step)
-	}
-
-	if step.Loop != nil && step.Loop.Until != "" {
-		return e.executeRuntimeLoop(ctx, runner, step)
-	}
-
 	if e.shouldSkip(step) {
-		e.mu.Lock()
-		e.results[step.ID] = &StepResult{
-			StepID: step.ID,
-			Title:  step.Title,
-			Status: StatusSkipped,
-		}
-		e.mu.Unlock()
+		e.markStepSkipped(step)
 		return nil
 	}
 
-	if step.Execution == HumanInputExecution {
-		request := &HumanInputRequest{Reason: strings.TrimSpace(step.Description), Form: step.Form}
-		if request.Reason == "" {
-			request.Reason = "step requires human input"
-		}
-		return e.pauseForHumanInput(step, request)
-	}
-
-	e.mu.Lock()
-	e.results[step.ID] = &StepResult{
-		StepID: step.ID,
-		Title:  step.Title,
-		Status: StatusRunning,
-	}
-	e.mu.Unlock()
-	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning})
-
-	if e.opts.DryRun {
-		e.mu.Lock()
-		e.results[step.ID].Status = StatusCompleted
-		if step.Execution == "script" {
-			e.results[step.ID].Output = "[dry-run] would execute script: " + strings.Join(renderScriptCommand(step.Script, e.renderTemplate), " ")
-		} else {
-			e.results[step.ID].Output = "[dry-run] would execute with agent: " + e.resolveAgent(step).Name
-		}
-		e.mu.Unlock()
-		return nil
-	}
-
-	if step.Execution == "script" {
-		if !e.opts.AllowScripts {
-			return fmt.Errorf("step %s uses script execution; rerun with formula script execution enabled", step.ID)
-		}
-		output, err := e.executeScriptStep(ctx, step)
-		if err != nil {
-			failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
-			e.mu.Lock()
-			e.results[step.ID].Status = StatusFailed
-			e.results[step.ID].Error = err.Error()
-			e.results[step.ID].Output = output
-			e.mu.Unlock()
-			e.emitStepUpdate(failed)
-			return fmt.Errorf("step %s failed: %w", step.ID, err)
-		}
-		if err := validateStepOutput(step, output); err != nil {
-			failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
-			e.mu.Lock()
-			e.results[step.ID].Status = StatusFailed
-			e.results[step.ID].Error = err.Error()
-			e.results[step.ID].Output = output
-			e.mu.Unlock()
-			e.emitStepUpdate(failed)
-			return fmt.Errorf("step %s output validation failed: %w", step.ID, err)
-		}
-		completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: output}
-		e.mu.Lock()
-		e.results[step.ID].Status = StatusCompleted
-		e.results[step.ID].Output = output
-		if outputKey := stepOutputKey(step); outputKey != "" {
-			e.context[outputKey] = output
-		}
-		e.mu.Unlock()
-		e.emitStepUpdate(completed)
-		return nil
-	}
-
-	prompt := e.buildPrompt(step)
-
-	output, err := runner(ctx, step, prompt)
+	handler, err := newDefaultStepRegistry().Resolve(step)
 	if err != nil {
-		e.mu.Lock()
-		e.results[step.ID].Status = StatusFailed
-		e.results[step.ID].Error = err.Error()
-		e.mu.Unlock()
+		return err
+	}
+
+	if !step.IsRoot && step.Execution != "noop" && handler.Kind() != "loop.foreach" && handler.Kind() != "loop.until" {
+		e.markStepRunning(step)
+		if e.opts.DryRun {
+			e.markStepDryRunCompleted(step)
+			return nil
+		}
+	}
+
+	result, err := handler.Execute(ctx, stepRuntime{executor: e, runner: runner}, step)
+	if err != nil {
+		e.markStepFailed(step, result.Output, err)
 		return fmt.Errorf("step %s failed: %w", step.ID, err)
 	}
 
-	request, foundHumanInput, parseHumanInputErr := ParseHumanInputRequestStrict(output)
-	if parseHumanInputErr != nil {
+	if handler.Kind() == "root" || handler.Kind() == "noop" {
 		e.mu.Lock()
-		e.results[step.ID].Status = StatusFailed
-		e.results[step.ID].Error = parseHumanInputErr.Error()
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted}
 		e.mu.Unlock()
-		return fmt.Errorf("step %s produced invalid human input request: %w", step.ID, parseHumanInputErr)
-	}
-	if foundHumanInput && request != nil {
-		return e.pauseForHumanInput(step, request)
+		return nil
 	}
 
-	if err := validateStepOutput(step, output); err != nil {
-		e.mu.Lock()
-		e.results[step.ID].Status = StatusFailed
-		e.results[step.ID].Error = err.Error()
-		e.results[step.ID].Output = output
-		e.mu.Unlock()
-		e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()})
-		return fmt.Errorf("step %s output validation failed: %w", step.ID, err)
+	if result.Status == StatusWaitingInput {
+		return e.pauseForHumanInput(step, result.HumanInputRequest)
 	}
 
+	if result.Status == StatusCompleted && result.Output != "" {
+		if err := validateStepOutput(step, result.Output); err != nil {
+			e.markStepFailed(step, result.Output, err)
+			e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: result.Output, Error: err.Error()})
+			return fmt.Errorf("step %s output validation failed: %w", step.ID, err)
+		}
+	}
+
+	switch result.Status {
+	case StatusCompleted:
+		e.markStepCompleted(step, result.Output)
+	case StatusSkipped:
+		e.markStepSkipped(step)
+	case StatusFailed:
+		err := fmt.Errorf("step failed")
+		e.markStepFailed(step, result.Output, err)
+		return fmt.Errorf("step %s failed", step.ID)
+	}
+	return nil
+}
+
+func (e *Executor) markStepRunning(step *formula.RecipeStep) {
 	e.mu.Lock()
+	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning}
+	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusRunning})
+}
+
+func (e *Executor) markStepCompleted(step *formula.RecipeStep, output string) {
+	e.mu.Lock()
+	if e.results[step.ID] == nil {
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title}
+	}
 	e.results[step.ID].Status = StatusCompleted
 	e.results[step.ID].Output = output
-
-	if outputKey := stepOutputKey(step); outputKey != "" {
+	if outputKey := stepOutputKey(step); outputKey != "" && output != "" {
 		e.context[outputKey] = output
 	}
 	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: output})
+}
 
-	return nil
+func (e *Executor) markStepFailed(step *formula.RecipeStep, output string, err error) {
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	e.mu.Lock()
+	if e.results[step.ID] == nil {
+		e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title}
+	}
+	e.results[step.ID].Status = StatusFailed
+	e.results[step.ID].Error = errMsg
+	e.results[step.ID].Output = output
+	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: errMsg})
+}
+
+func (e *Executor) markStepSkipped(step *formula.RecipeStep) {
+	e.mu.Lock()
+	e.results[step.ID] = &StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped}
+	e.mu.Unlock()
+	e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusSkipped})
+}
+
+func (e *Executor) markStepDryRunCompleted(step *formula.RecipeStep) {
+	output := "[dry-run] would execute with agent: " + e.resolveAgent(step).Name
+	if step.Execution == "script" {
+		output = "[dry-run] would execute script: " + strings.Join(renderScriptCommand(step.Script, e.renderTemplate), " ")
+	}
+	e.markStepCompleted(step, output)
 }
 
 func stepOutputKey(step *formula.RecipeStep) string {
