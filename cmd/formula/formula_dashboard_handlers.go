@@ -12,6 +12,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formularun"
+	"github.com/sjzsdu/tt/internal/formularunview"
 	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
 )
@@ -64,7 +65,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		return
 	}
 	snapshot := s.snapshot()
-	resolvedStepID, err := resolveFormulaDashboardStepID(snapshot, req.StepID)
+	resolvedStepID, err := formularunview.ResolveStepID(snapshot, req.StepID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -93,8 +94,8 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	initialResults, initialContext := buildResumeStateExcluding(recipe, snapshot, map[string]bool{resolvedStepID: true})
-	resetSnapshotStepForRetry(&snapshot, resolvedStepID)
+	initialResults, initialContext := formularunview.BuildResumeStateExcluding(recipe, snapshot, map[string]bool{resolvedStepID: true})
+	formularunview.ResetStepForRetry(&snapshot, resolvedStepID)
 	snapshot.Status = "running"
 	snapshot.Error = ""
 	s.store.Meta.Status = formularun.StatusRunning
@@ -144,7 +145,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		return
 	}
 	snapshot := s.snapshot()
-	resolvedStepID, err := resolveFormulaRunStepID(snapshot, req.StepID)
+	resolvedStepID, err := formularunview.ResolveWaitingInputStepID(snapshot, req.StepID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -172,7 +173,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := markSnapshotStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
+	if err := formularunview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -188,7 +189,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	initialResults, initialContext := buildResumeState(recipe, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeState(recipe, snapshot)
 	s.store.Meta.Status = formularun.StatusRunning
 	s.store.Meta.Error = ""
 	s.store.Meta.FinishedAt = ""
@@ -196,7 +197,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 	s.store.Meta.TTVersion = version
 	_ = s.store.SaveMetadata()
 	_ = s.store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
-	resetSnapshotForResume(&snapshot)
+	formularunview.ResetForResume(&snapshot)
 	s.mu.Lock()
 	s.state = cloneFormulaDashboardSnapshot(snapshot)
 	s.readonly = false

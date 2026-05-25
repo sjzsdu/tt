@@ -6,6 +6,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formularunview"
 )
 
 func TestParseHumanInputFieldsDuplicatesBecomeArrays(t *testing.T) {
@@ -40,14 +41,14 @@ func TestResolveFormulaRunStepIDRequiresWaitingStep(t *testing.T) {
 		{ID: "demo.profile", Status: string(executor.StatusWaitingInput)},
 		{ID: "demo.plan", Status: string(executor.StatusPending)},
 	}}
-	got, err := resolveFormulaRunStepID(snapshot, "profile")
+	got, err := formularunview.ResolveWaitingInputStepID(snapshot, "profile")
 	if err != nil {
-		t.Fatalf("resolveFormulaRunStepID() error = %v", err)
+		t.Fatalf("formularunview.ResolveWaitingInputStepID() error = %v", err)
 	}
 	if got != "demo.profile" {
 		t.Fatalf("step id = %q", got)
 	}
-	if _, err := resolveFormulaRunStepID(snapshot, "plan"); err == nil {
+	if _, err := formularunview.ResolveWaitingInputStepID(snapshot, "plan"); err == nil {
 		t.Fatal("expected non-waiting step error")
 	}
 }

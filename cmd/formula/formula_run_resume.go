@@ -34,7 +34,7 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
-	initialResults, initialContext := buildResumeState(recipe, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeState(recipe, snapshot)
 	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
 	store.Meta.Status = formularun.StatusRunning
 	store.Meta.Error = ""
@@ -43,7 +43,7 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	store.Meta.TTVersion = version
 	_ = store.SaveMetadata()
 	_ = store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
-	resetSnapshotForResume(&snapshot)
+	formularunview.ResetForResume(&snapshot)
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
@@ -74,7 +74,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
-	resolvedStepID, err := resolveFormulaRunStepID(snapshot, stepID)
+	resolvedStepID, err := formularunview.ResolveWaitingInputStepID(snapshot, stepID)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err := store.SaveStepOutput(resolvedStepID, output); err != nil {
 		return err
 	}
-	if err := markSnapshotStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
+	if err := formularunview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
 		return err
 	}
 	snapshot.Status = "running"
@@ -112,7 +112,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err := store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"}); err != nil {
 		return err
 	}
-	initialResults, initialContext := buildResumeState(recipe, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeState(recipe, snapshot)
 	store.Meta.Status = formularun.StatusRunning
 	store.Meta.Error = ""
 	store.Meta.FinishedAt = ""
@@ -120,7 +120,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	store.Meta.TTVersion = version
 	_ = store.SaveMetadata()
 	_ = store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
-	resetSnapshotForResume(&snapshot)
+	formularunview.ResetForResume(&snapshot)
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
@@ -189,34 +189,6 @@ func isEmptyHumanInputValue(value any) bool {
 	default:
 		return value == nil
 	}
-}
-
-func resolveFormulaRunStepID(snapshot formulaDashboardSnapshot, stepID string) (string, error) {
-	return formularunview.ResolveWaitingInputStepID(snapshot, stepID)
-}
-
-func resolveFormulaDashboardStepID(snapshot formulaDashboardSnapshot, stepID string) (string, error) {
-	return formularunview.ResolveStepID(snapshot, stepID)
-}
-
-func markSnapshotStepCompletedWithOutput(snapshot *formulaDashboardSnapshot, stepID, output string) error {
-	return formularunview.MarkStepCompletedWithOutput(snapshot, stepID, output)
-}
-
-func buildResumeState(recipe *formula.Recipe, snapshot formulaDashboardSnapshot) ([]executor.StepResult, map[string]string) {
-	return formularunview.BuildResumeState(recipe, snapshot)
-}
-
-func buildResumeStateExcluding(recipe *formula.Recipe, snapshot formulaDashboardSnapshot, exclude map[string]bool) ([]executor.StepResult, map[string]string) {
-	return formularunview.BuildResumeStateExcluding(recipe, snapshot, exclude)
-}
-
-func resetSnapshotStepForRetry(snapshot *formulaDashboardSnapshot, stepID string) {
-	formularunview.ResetStepForRetry(snapshot, stepID)
-}
-
-func resetSnapshotForResume(snapshot *formulaDashboardSnapshot) {
-	formularunview.ResetForResume(snapshot)
 }
 
 func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaDashboardSnapshot, stepID string) error {

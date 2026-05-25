@@ -5,6 +5,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formularunview"
 )
 
 func TestBuildFormulaDashboardGraphHidesGeneratedNoopBoundaries(t *testing.T) {
@@ -103,7 +104,7 @@ func TestBuildResumeStateExcludingRetriedStep(t *testing.T) {
 		{ID: "demo.done", Title: "Done", Status: string(executor.StatusCompleted), Output: "done-output"},
 		{ID: "demo.retry", Title: "Retry", Status: string(executor.StatusCompleted), Output: "old-output"},
 	}}
-	results, ctx := buildResumeStateExcluding(recipe, snapshot, map[string]bool{"demo.retry": true})
+	results, ctx := formularunview.BuildResumeStateExcluding(recipe, snapshot, map[string]bool{"demo.retry": true})
 	if len(results) != 1 || results[0].StepID != "demo.done" {
 		t.Fatalf("results = %+v, want only non-retried completed step", results)
 	}
@@ -120,7 +121,7 @@ func TestResolveFormulaDashboardStepIDAllowsFailedRetryTargets(t *testing.T) {
 		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
 	}}
 
-	got, err := resolveFormulaDashboardStepID(snapshot, "write-articles")
+	got, err := formularunview.ResolveStepID(snapshot, "write-articles")
 	if err != nil {
 		t.Fatalf("resolveFormulaDashboardStepID returned error: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestResolveFormulaRunStepIDStillRequiresWaitingInput(t *testing.T) {
 		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
 	}}
 
-	if _, err := resolveFormulaRunStepID(snapshot, "write-articles"); err == nil {
+	if _, err := formularunview.ResolveWaitingInputStepID(snapshot, "write-articles"); err == nil {
 		t.Fatal("resolveFormulaRunStepID succeeded for failed step, want waiting-input error")
 	}
 }
