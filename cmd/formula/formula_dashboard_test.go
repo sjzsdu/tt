@@ -35,6 +35,11 @@ func TestBuildFormulaDashboardGraphHidesGeneratedNoopBoundaries(t *testing.T) {
 }
 
 func TestFormulaRunWebDashboardEnabledByDefault(t *testing.T) {
+	formulaCmd := New(Dependencies{})
+	formulaRunCmd, _, err := formulaCmd.Find([]string{"run"})
+	if err != nil {
+		t.Fatalf("find run command: %v", err)
+	}
 	webFlag := formulaRunCmd.Flags().Lookup("web")
 	if webFlag == nil {
 		t.Fatal("missing --web flag")
