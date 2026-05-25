@@ -117,7 +117,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
-		runStore, err = formularun.NewWithMetadata(resolveFormulaRunDir(loaded), recipe, vars, runAgent, formulaModel, runSession, projectRoot, version)
+		runStore, err = formularun.NewWithMetadata(formulaDefaultRunDir(loaded), recipe, vars, runAgent, formulaModel, runSession, projectRoot, version)
 		if err != nil {
 			return err
 		}

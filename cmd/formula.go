@@ -89,6 +89,10 @@ func formulaDefaultDir(loaded ttconfig.Loaded) string {
 	return ttconfig.FormulaDir(loaded, formulaWorkingDir())
 }
 
+func formulaDefaultRunDir(loaded ttconfig.Loaded) string {
+	return ttconfig.FormulaRunDir(loaded, formulaWorkingDir())
+}
+
 func formulaWorkingDir() string {
 	wd, err := os.Getwd()
 	if err != nil {
