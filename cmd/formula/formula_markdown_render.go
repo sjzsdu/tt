@@ -1,4 +1,4 @@
-package cmd
+package formulacmd
 
 import (
 	"context"
@@ -29,14 +29,12 @@ func runFormulaShowMarkdown(resolved *formula.Formula) error {
 		return fmt.Errorf("write formula file: %w", err)
 	}
 
-	mdRoot = tmpDir
-	mdContent = ""
-	mdContentOnly = false
-	mdPort = formulaPort
-	mdInitialPath = "/view/" + resolved.Formula + ".md"
-
 	defer os.RemoveAll(tmpDir)
-	return runMarkdownServer()
+	return runMarkdownPreview(MarkdownPreviewOptions{
+		Root:        tmpDir,
+		Port:        formulaPort,
+		InitialPath: "/view/" + resolved.Formula + ".md",
+	})
 }
 
 func runFormulaShowAllMarkdown() error {
@@ -63,15 +61,9 @@ func runFormulaShowAllMarkdown() error {
 		}
 	}
 
-	mdRoot = tmpDir
-	mdContent = ""
-	mdContentOnly = false
-	mdPort = formulaPort
-	mdInitialPath = ""
-
 	fmt.Printf("Generated %d formula files in %s\n", len(formulas), tmpDir)
 	defer os.RemoveAll(tmpDir)
-	return runMarkdownServer()
+	return runMarkdownPreview(MarkdownPreviewOptions{Root: tmpDir, Port: formulaPort})
 }
 
 func collectFormulaShowAllMarkdownFormulas() []*formula.Formula {
@@ -757,11 +749,4 @@ func escapeYAML(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	return s
-}
-
-func setMarkdownContent(content string, port int) {
-	mdContent = content
-	mdContentOnly = true
-	mdPort = port
-	mdInitialPath = ""
 }

@@ -1,4 +1,4 @@
-package cmd
+package formulacmd
 
 import (
 	"github.com/spf13/cobra"
@@ -213,7 +213,18 @@ var formulaRunInputCmd = &cobra.Command{
 	RunE:  runFormulaRunInput,
 }
 
+var formulaCmdConfigured bool
+
 func init() {
+	New(Dependencies{})
+}
+
+func New(deps Dependencies) *cobra.Command {
+	configureDependencies(deps)
+	if formulaCmdConfigured {
+		return formulaCmd
+	}
+	formulaCmdConfigured = true
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
 
@@ -275,5 +286,5 @@ func init() {
 	formulaCmd.AddCommand(formulaRunCmd)
 	formulaCmd.AddCommand(formulaRunsCmd)
 
-	rootCmd.AddCommand(formulaCmd)
+	return formulaCmd
 }

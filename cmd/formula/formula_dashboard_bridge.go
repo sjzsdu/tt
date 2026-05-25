@@ -1,4 +1,4 @@
-package cmd
+package formulacmd
 
 import formulaui "github.com/sjzsdu/tt/internal/formulaui"
 
