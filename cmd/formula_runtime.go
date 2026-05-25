@@ -7,7 +7,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formularun"
@@ -100,6 +102,7 @@ type executeFormulaRuntimeOptions struct {
 	Debug        bool
 	DryRun       bool
 	AllowScripts bool
+	Dashboard    *formulaDashboardServer
 	Out          io.Writer
 }
 
@@ -123,6 +126,9 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 	if err != nil {
 		return err
 	}
+	if opt.Dashboard != nil {
+		exec.Events = formulaRuntimeDashboardEventSink{dashboard: opt.Dashboard, workflow: exec.Workflow}
+	}
 	if opt.Out != nil {
 		fmt.Fprintf(opt.Out, "Executing formula with typed runtime: %s\n", opt.Recipe.Name)
 	}
@@ -135,4 +141,69 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		return err
 	}
 	return nil
+}
+
+type formulaRuntimeDashboardEventSink struct {
+	dashboard *formulaDashboardServer
+	workflow  *ir.Workflow
+}
+
+func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
+	if s.dashboard == nil || event.NodeID == "" {
+		return
+	}
+	node := s.workflow.Graph.Nodes[event.NodeID]
+	title := ""
+	agent := ""
+	model := ""
+	if node != nil && node.Step != nil {
+		meta := node.Step.Meta()
+		title = meta.Title
+		if agentStep, ok := node.Step.(steps.AgentStep); ok {
+			agent = agentStep.Agent
+			model = agentStep.Model
+		}
+	}
+	switch event.Type {
+	case "step.started":
+		s.dashboard.markStepRunning(string(event.NodeID), title, agent, model, "")
+	case "step.completed":
+		s.dashboard.markStepCompleted(string(event.NodeID), runtimeEventOutput(event.Payload))
+	case "step.failed":
+		s.dashboard.markStepFailed(string(event.NodeID), runtimeEventError(event.Payload), runtimeEventOutput(event.Payload))
+	case "step.waiting":
+		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
+	}
+}
+
+func runtimeEventOutput(payload any) string {
+	result, ok := payload.(*steps.RunResult)
+	if !ok || result == nil || len(result.Output.Raw) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(result.Output.Raw, &text); err == nil {
+		return text
+	}
+	return string(result.Output.Raw)
+}
+
+func runtimeEventError(payload any) string {
+	result, ok := payload.(*steps.RunResult)
+	if !ok || result == nil || result.Error == nil {
+		return ""
+	}
+	return result.Error.Error()
+}
+
+func runtimeEventHumanInputRequest(payload any) *executor.HumanInputRequest {
+	await, ok := payload.(*steps.AwaitRequest)
+	if !ok || await == nil {
+		return nil
+	}
+	req := &executor.HumanInputRequest{Reason: await.Reason}
+	if form, ok := await.Form.(*formula.FormSpec); ok {
+		req.Form = form
+	}
+	return req
 }

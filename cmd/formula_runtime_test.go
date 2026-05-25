@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
@@ -63,5 +64,21 @@ func TestExecuteFormulaRecipeRuntimeDryRun(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Runtime status: completed") {
 		t.Fatalf("output = %s", out.String())
+	}
+}
+
+func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
+	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo.work", Title: "Work"}}}
+	dashboard := newFormulaDashboardServer(recipe)
+	workflow := formula.WorkflowFromRecipe(recipe)
+	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
+	sink.Emit(formularuntime.Event{Type: "step.started", NodeID: "demo.work"})
+	if dashboard.state.Steps[0].Status != "running" {
+		t.Fatalf("status = %s", dashboard.state.Steps[0].Status)
+	}
+	raw, _ := json.Marshal("done")
+	sink.Emit(formularuntime.Event{Type: "step.completed", NodeID: "demo.work", Payload: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}})
+	if dashboard.state.Steps[0].Status != "completed" || dashboard.state.Steps[0].Output != "done" {
+		t.Fatalf("step = %+v", dashboard.state.Steps[0])
 	}
 }

@@ -2205,6 +2205,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			Debug:        formulaDebug,
 			DryRun:       formulaDryRun,
 			AllowScripts: !formulaNoScript,
+			Dashboard:    dashboard,
 			Out:          out,
 		})
 		if dashboard != nil {
