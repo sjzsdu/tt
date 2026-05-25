@@ -13,7 +13,7 @@ A good formula separates:
 - deterministic fact collection and validation: `execution = "script"`
 - reasoning, synthesis, planning, implementation, review, reporting: agent steps
 - user choices or private missing context: `execution = "human_input"` or dynamic `form = true`
-- runtime routing and iteration: `output_key`, `input_context`, `condition`, `[steps.loop]`
+- runtime routing and iteration: `input_context`, `condition`, `[steps.loop]` 和 step-id 输出
 - stable reusable SOPs: `embed = "child-formula"`
 
 ## Current architecture assumptions
@@ -22,7 +22,7 @@ A good formula separates:
 - Formula command implementation lives under `cmd/formula`; UI model helpers live in `internal/formulaui`; saved-run view helpers live in `internal/formularunview`.
 - Canonical formula file names are `<name>.toml`. Do not create `.formula.toml` files.
 - A compiled recipe automatically gets start/end boundary nodes. Authors usually should not write manual boundary steps unless they need real work there.
-- Empty `output_key` defaults to the local step `id` after compilation, but for any output consumed by conditions, loops, or important downstream prompts, prefer an explicit stable `output_key` for readability.
+- Step output is saved under the local step `id` by default. New formulas should reference prior outputs by step id.
 
 ## Delivery contract
 
@@ -34,7 +34,7 @@ The TOML must:
 2. use project/user canonical path `.tt/formulas/<name>.toml` when writing files.
 3. use stable short local step ids like `fetch-pr`, `classify`, `implement`, not compiled ids like `my-formula.fetch-pr`.
 4. make dependencies explicit with `depends_on` or `needs`.
-5. make data flow explicit with `output_key` and `input_context` where downstream logic consumes prior output.
+5. make data flow explicit with step ids and `input_context` where downstream logic consumes prior output.
 6. use `execution = "script"` for deterministic local commands and safe argv `command = [...]`.
 7. use agent steps for judgment, synthesis, implementation, and reporting.
 8. use human-input steps instead of prompt text like “ask the user” when runtime user input is required.
@@ -56,7 +56,6 @@ topic = { description = "Thing to process", required = true }
 id = "analyze"
 title = "Analyze {{topic}}"
 description = "Analyze the topic and output a concise result."
-output_key = "analysis"
 
 [steps.agent]
 name = "planner"
@@ -88,7 +87,7 @@ Common fields:
 | `description` | Instructions for agent steps or form/script context. |
 | `depends_on` / `needs` | Step ids this step waits for. |
 | `execution` | Omit for agent, or use `script`, `human_input`, `noop`. |
-| `output_key` | Runtime context key for this step output. Explicit is best for consumed outputs. |
+| step `id` | Runtime context key for this step output. Reference this id from `input_context`, `condition`, and `loop.until`. |
 | `input_context` | Context keys or JSON paths injected into the prompt. |
 | `condition` | Runtime expression deciding whether the step runs. |
 | `timeout` | Step timeout, for example `30s`, `5m`, `1h`. |
@@ -124,7 +123,6 @@ Classify the request.
 Output ONLY compact JSON:
 {"kind":"frontend|backend|infra","confidence":0.0,"reason":"..."}
 """
-output_key = "classification"
 
 [steps.agent]
 name = "planner"
@@ -143,7 +141,6 @@ Use scripts for deterministic facts and validations. Prefer direct argv commands
 id = "fetch-pr"
 title = "Fetch PR metadata"
 execution = "script"
-output_key = "pr_metadata"
 
 [steps.script]
 command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,body,files"]
@@ -174,7 +171,6 @@ Use this when the workflow must pause for a known user decision.
 id = "choose-option"
 title = "Choose implementation option"
 execution = "human_input"
-output_key = "chosen_option"
 
 [steps.form]
 title = "Choose an option"
@@ -211,7 +207,6 @@ If required information is missing, emit a tt-human-input request.
 Otherwise output ONLY compact JSON:
 {"ready":true,"summary":"..."}
 """
-output_key = "triage"
 
 [steps.agent]
 name = "planner"
@@ -244,7 +239,7 @@ condition = "{{env}} == prod"
 
 Supported patterns include equality, inequality, regex match, JSON path lookup, `&&`, and `||`.
 
-When using a JSON path condition, ensure the producing step outputs valid compact JSON and has an `output_key`.
+When using a JSON path condition, ensure the producing step outputs valid compact JSON and uses its step id as the output key.
 
 ## Runtime loops
 
@@ -267,7 +262,6 @@ description = "Iterate on a draft until review approves."
   id = "draft"
   title = "Draft iteration {{iteration}}"
   description = "Create or improve the draft."
-  output_key = "draft"
 
   [[steps.loop.body]]
   id = "review"
@@ -275,7 +269,6 @@ description = "Iterate on a draft until review approves."
   depends_on = ["draft"]
   input_context = ["draft"]
   description = "Output ONLY compact JSON: {\"approved\":true,\"reason\":\"...\"}."
-  output_key = "review"
 
   [steps.loop.body.validate]
   format = "json"
@@ -319,7 +312,6 @@ Rules:
 id = "fetch-pr"
 title = "Fetch PR metadata"
 execution = "script"
-output_key = "pr_metadata"
 [steps.script]
 command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,body,files"]
 format = "json"
@@ -331,7 +323,6 @@ title = "Review risks"
 depends_on = ["fetch-pr"]
 input_context = ["pr_metadata"]
 description = "Output ONLY compact JSON: {\"risks\":[],\"missing_tests\":[],\"summary\":\"...\"}."
-output_key = "review"
 [steps.agent]
 name = "coder"
 [steps.validate]
@@ -343,7 +334,6 @@ id = "run-tests"
 title = "Run tests"
 depends_on = ["review"]
 execution = "script"
-output_key = "test_result"
 [steps.script]
 command = ["go", "test", "./..."]
 format = "text"
@@ -367,7 +357,6 @@ name = "reporter"
 id = "classify"
 title = "Classify request"
 description = "Output ONLY compact JSON: {\"path\":\"bug|feature\"}."
-output_key = "classification"
 [steps.agent]
 name = "planner"
 [steps.validate]
@@ -434,11 +423,11 @@ There is no legacy engine flag. Do not recommend `--runtime-engine` or `--legacy
 - Use bare names, not `{{...}}`.
 - Ensure producer output is valid JSON if using paths like `decision.path`.
 - Ensure the consumer depends on the producer.
-- Prefer explicit `output_key` for condition inputs.
+- Prefer clear, stable step ids for condition inputs.
 
 ### Loop never stops
 
-- Ensure `until` references an output key produced by a loop body step.
+- Ensure `until` references the id of a loop body step.
 - Ensure that output is valid JSON.
 - Always set `max`.
 
@@ -459,8 +448,8 @@ Before saying a formula is ready:
 4. Dependencies reference existing local ids.
 5. Deterministic facts use script steps with safe argv commands and timeout.
 6. Agent steps choose appropriate embedded agents.
-7. Outputs consumed downstream have explicit `output_key` and downstream `input_context`.
+7. Outputs consumed downstream have stable step ids and downstream `input_context`.
 8. JSON outputs used by conditions/loops have `[steps.validate]`.
 9. Human input uses `execution = "human_input"` or `form = true`, not “ask the user” prose.
-10. Loops have `max` and correct body output keys.
+10. Loops have `max` and correct body step ids.
 11. `tt formula validate`, `tt formula compile`, and `tt formula run --dry-run` pass.

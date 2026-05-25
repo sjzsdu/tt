@@ -12,7 +12,6 @@ requirement = { description = "皇上的宏观需求", required = true }
 [[steps]]
 id = "zhongshu-draft"
 title = "中书省调研并起草需求方案"
-output_key = "draft_requirement"
 description = """
 你是中书省。基于皇上的宏观需求 {{requirement}}，先完成需求澄清、调研和方案起草。
 
@@ -34,8 +33,7 @@ agent.name = "planner"
 id = "zhongshu-submit"
 title = "中书省提交门下省审核"
 depends_on = ["zhongshu-draft"]
-input_context = ["draft_requirement"]
-output_key = "submitted_requirement"
+input_context = ["zhongshu-draft"]
 description = """
 整理并确认要提交门下省审核的版本。
 
@@ -55,14 +53,13 @@ title = "门下省审核循环"
 depends_on = ["zhongshu-submit"]
 
   [steps.loop]
-  until = "loop_approval.approved == true"
+  until = "loop-decide.approved == true"
   max = 5
 
   [[steps.loop.body]]
   id = "loop-review"
   title = "门下省审核送审版本（第 {{iteration}} 轮）"
-  input_context = ["submitted_requirement", "revised_requirement"]
-  output_key = "review_result"
+  input_context = ["zhongshu-submit", "loop-improve"]
   description = """
 你是门下省。审核当前版本的需求方案。
 
@@ -92,8 +89,7 @@ agent.name = "planner"
   id = "loop-decide"
   title = "门下省形成审核结论（第 {{iteration}} 轮）"
   depends_on = ["loop-review"]
-  input_context = ["review_result"]
-  output_key = "loop_approval"
+  input_context = ["loop-review"]
   description = """
 读取 review_result 并标准化为循环控制结果。
 
@@ -111,9 +107,8 @@ agent.name = "planner"
   id = "loop-feedback"
   title = "门下省下发驳回意见（第 {{iteration}} 轮）"
   depends_on = ["loop-decide"]
-  condition = "loop_approval.approved == false"
-  input_context = ["review_result"]
-  output_key = "rejection_feedback"
+  condition = "loop-decide.approved == false"
+  input_context = ["loop-review"]
   description = """
 将 review_result 中的未通过意见整理成中书省可直接修订的反馈。
 
@@ -128,8 +123,7 @@ agent.name = "planner"
   id = "loop-improve"
   title = "中书省按意见修订需求方案（第 {{iteration}} 轮）"
   depends_on = ["loop-feedback"]
-  input_context = ["submitted_requirement", "revised_requirement", "rejection_feedback"]
-  output_key = "revised_requirement"
+  input_context = ["zhongshu-submit", "loop-improve", "loop-feedback"]
   description = """
 你是中书省。根据门下省的 rejection_feedback 修订需求方案。
 
@@ -149,8 +143,7 @@ agent.name = "planner"
 id = "menshou-finalize"
 title = "门下省确认通过版本"
 depends_on = ["review-loop"]
-input_context = ["submitted_requirement", "revised_requirement", "loop_approval"]
-output_key = "final_requirement"
+input_context = ["zhongshu-submit", "loop-improve", "loop-decide"]
 description = """
 在审核循环结束后，确认最终通过的需求版本。
 
@@ -170,8 +163,7 @@ agent.name = "planner"
 id = "lingshang-execution-doc"
 title = "尚书省先生成拆分后的执行文档"
 depends_on = ["menshou-finalize"]
-input_context = ["final_requirement"]
-output_key = "execution_document"
+input_context = ["menshou-finalize"]
 description = """
 你是尚书省。基于 final_requirement，先生成一份“已经完成任务拆分的执行文档”，这是后续六部分工的依据，也是本工作流中尚书省的首要交付物。
 
@@ -194,8 +186,7 @@ agent.name = "planner"
 id = "lingshang-assign"
 title = "尚书省输出各部任务数组"
 depends_on = ["lingshang-execution-doc"]
-input_context = ["execution_document"]
-output_key = "assignments"
+input_context = ["lingshang-execution-doc"]
 description = """
 你是尚书省。根据 execution_document 进行任务分配，并输出可被 foreach loop 直接消费的任务数组。
 
@@ -220,11 +211,10 @@ agent.name = "planner"
 id = "execute"
 title = "各部按任务数组并发生成执行启动文稿"
 depends_on = ["lingshang-assign"]
-input_context = ["execution_document", "assignments"]
-output_key = "execution_results"
+input_context = ["lingshang-execution-doc", "lingshang-assign"]
 
   [steps.loop]
-  for_each = "assignments"
+  for_each = "lingshang-assign"
   var = "assignment"
   parallel = true
   max_concurrency = 6
@@ -232,8 +222,7 @@ output_key = "execution_results"
   [[steps.loop.body]]
   id = "brief"
   title = "{{assignment.department}}启动 {{assignment.id}} {{assignment.title}}"
-  input_context = ["execution_document", "assignment"]
-  output_key = "department_brief"
+  input_context = ["lingshang-execution-doc", "assignment"]
   description = """
 你是 assignment.department 对应部门的执行负责人。基于 execution_document 和当前 assignment 对象，生成该任务包的执行启动文稿。
 
@@ -251,8 +240,7 @@ agent.name = "planner"
   id = "handoff"
   title = "整理 {{assignment.id}} 的交接与统筹信息"
   depends_on = ["brief"]
-  input_context = ["assignment", "department_brief"]
-  output_key = "execution_entry"
+  input_context = ["assignment", "brief"]
   description = """
 将当前任务包的部门启动文稿整理为尚书省后续汇总可消费的 JSON 对象。
 
@@ -268,8 +256,7 @@ agent.name = "planner"
 id = "shangshu-summary"
 title = "尚书省汇总各部并发启动结果"
 depends_on = ["execute"]
-input_context = ["execution_document", "assignments", "execution_results"]
-output_key = "final_report"
+input_context = ["lingshang-execution-doc", "lingshang-assign", "execute"]
 description = """
 你是尚书省。汇总 execution_results 中 foreach loop 产生的各任务包执行启动结果，形成最终统筹报告。
 

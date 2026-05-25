@@ -13,7 +13,6 @@ submit_review = { description = "是否进入真实提交流程；true 表示先
 id = "fetch-pr-metadata"
 title = "使用 gh 获取 PR 基本信息"
 execution = "script"
-output_key = "pr_metadata"
 
 [steps.script]
 command = ["gh", "pr", "view", "{{pr_ref}}", "--repo", "{{repo_hint}}", "--json", "number,title,body,author,baseRefName,headRefName,url,state,isDraft,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify"]
@@ -25,7 +24,6 @@ id = "fetch-pr-files"
 title = "使用 gh 获取 PR 改动文件清单"
 execution = "script"
 depends_on = ["fetch-pr-metadata"]
-output_key = "pr_files"
 
 [steps.script]
 command = ["gh", "pr", "view", "{{pr_ref}}", "--repo", "{{repo_hint}}", "--json", "files"]
@@ -37,7 +35,6 @@ id = "fetch-pr-diff"
 title = "使用 gh 获取 PR diff"
 execution = "script"
 depends_on = ["fetch-pr-metadata"]
-output_key = "pr_diff"
 
 [steps.script]
 command = ["gh", "pr", "diff", "{{pr_ref}}", "--repo", "{{repo_hint}}", "--patch"]
@@ -47,8 +44,7 @@ timeout = "60s"
 id = "build-pr-context"
 title = "整理结构化 PR 上下文"
 depends_on = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
-input_context = ["pr_metadata", "pr_files", "pr_diff"]
-output_key = "pr_context"
+input_context = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
 description = """
 基于 pr_metadata、pr_files、pr_diff 与 review_focus，整理本次审查所需的结构化上下文。
 
@@ -90,8 +86,7 @@ agent.name = "coder"
 id = "analyze-review-findings"
 title = "分析改动并产出审阅问题清单"
 depends_on = ["build-pr-context"]
-input_context = ["pr_context", "pr_diff"]
-output_key = "review_findings"
+input_context = ["build-pr-context", "fetch-pr-diff"]
 description = """
 基于 pr_context 与 pr_diff 对该 PR 做代码审阅。
 
@@ -150,8 +145,7 @@ agent.name = "coder"
 id = "prepare-review-summary"
 title = "整理待提交评论与总评摘要"
 depends_on = ["analyze-review-findings", "build-pr-context"]
-input_context = ["review_findings", "pr_context"]
-output_key = "review_plan"
+input_context = ["analyze-review-findings", "build-pr-context"]
 description = """
 基于 review_findings 与 pr_context，整理提交计划。
 
@@ -193,9 +187,8 @@ id = "confirm-submit-review"
 title = "人工确认是否提交 GitHub review"
 execution = "human_input"
 depends_on = ["prepare-review-summary"]
-input_context = ["review_plan", "pr_context"]
-condition = "pr_context.submit_review == true"
-output_key = "review_confirmation"
+input_context = ["prepare-review-summary", "build-pr-context"]
+condition = "build-pr-context.submit_review == true"
 description = "submit_review=true 时，必须由用户显式确认后才允许通过 gh 写入 GitHub。"
 
 [steps.form]
@@ -222,9 +215,8 @@ id = "submit-review-comments"
 title = "通过 gh 真实提交 review comments"
 execution = "script"
 depends_on = ["prepare-review-summary", "confirm-submit-review"]
-input_context = ["review_plan", "pr_context", "review_confirmation"]
-condition = "review_confirmation.confirm == yes"
-output_key = "review_submission"
+input_context = ["prepare-review-summary", "build-pr-context", "confirm-submit-review"]
+condition = "confirm-submit-review.confirm == yes"
 
 [steps.script]
 command = ["python3", "-c", """
@@ -326,7 +318,7 @@ except Exception:
     pass
 
 print(json.dumps(result, ensure_ascii=False))
-""", "{{pr_ref}}", "{{repo_hint}}", "{{review_plan}}"]
+""", "{{pr_ref}}", "{{repo_hint}}", "{{prepare-review-summary}}"]
 format = "json"
 timeout = "120s"
 continue_on_error = true
@@ -335,9 +327,8 @@ continue_on_error = true
 id = "draft-review-comments"
 title = "生成 review 草稿但不真实提交"
 depends_on = ["prepare-review-summary"]
-input_context = ["review_plan", "pr_context", "review_findings"]
-condition = "pr_context.submit_review != true"
-output_key = "review_draft"
+input_context = ["prepare-review-summary", "build-pr-context", "analyze-review-findings"]
+condition = "build-pr-context.submit_review != true"
 description = """
 基于 review_plan、pr_context、review_findings 生成拟发送 review 草稿。
 
@@ -360,8 +351,7 @@ agent.name = "coder"
 id = "final-report"
 title = "输出最终 PR 审查报告"
 depends_on = ["submit-review-comments", "draft-review-comments", "confirm-submit-review"]
-input_context = ["pr_context", "review_findings", "review_plan", "review_confirmation", "review_submission", "review_draft"]
-output_key = "final_report"
+input_context = ["build-pr-context", "analyze-review-findings", "prepare-review-summary", "confirm-submit-review", "submit-review-comments", "draft-review-comments"]
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
 

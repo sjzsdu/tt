@@ -11,38 +11,37 @@ dependencies, and control flow. Compile and instantiate formulas to generate
 task trees for complex work.
 
 Runtime choice:
-  A step can write structured output with output_key, then later steps can use
-  condition to choose a branch while the formula is running.
+  A step writes structured output under its step id by default, then later
+  steps can use condition to choose a branch while the formula is running.
 
     [[steps]]
     id = "decide"
     title = "Decide path"
     description = "Output JSON: {\"path\":\"frontend\"} or {\"path\":\"backend\"}."
-    output_key = "decision"
 
     [[steps]]
     id = "frontend-plan"
     title = "Frontend branch"
     depends_on = ["decide"]
-    input_context = ["decision"]
-    condition = "decision.path == frontend"
+    input_context = ["decide"]
+    condition = "decide.path == frontend"
 
     [[steps]]
     id = "backend-plan"
     title = "Backend branch"
     depends_on = ["decide"]
-    input_context = ["decision"]
-    condition = "decision.path == backend"
+    input_context = ["decide"]
+    condition = "decide.path == backend"
 
 Runtime loop:
   A loop step can run body steps repeatedly and stop based on the latest agent
-  output saved through output_key.
+  output saved under the body step id.
 
     [[steps]]
     id = "improve"
     title = "Improve until approved"
     depends_on = ["frontend-plan"]
-    condition = "decision.path == frontend"
+    condition = "decide.path == frontend"
 
       [steps.loop]
       until = "review.approved == true"
@@ -51,14 +50,12 @@ Runtime loop:
       [[steps.loop.body]]
       id = "draft"
       title = "Draft iteration {{iteration}}"
-      output_key = "draft"
 
       [[steps.loop.body]]
       id = "review"
       title = "Review iteration {{iteration}}"
       input_context = ["draft"]
       description = "Output JSON: {\"approved\":true} or {\"approved\":false}."
-      output_key = "review"
 
 Start/end flow:
   Compiled recipes always contain real start and end boundary steps. If you do
@@ -69,14 +66,12 @@ Start/end flow:
     [[steps]]
     id = "start"
     title = "Initialize run context"
-    output_key = "run_context"
 
     [[steps]]
     id = "end"
     title = "Summarize final outcome"
     depends_on = ["frontend-plan", "backend-plan", "improve"]
-    input_context = ["decision", "draft", "review"]
-    output_key = "final_summary"
+    input_context = ["decide", "draft", "review"]
 
 Tip: Prefer embedded agents when choosing step agents, such as coder, planner,
 tester, product-manager, ui, or full-stack. Use tt agent --list to see embedded
@@ -241,7 +236,7 @@ Steps are executed in dependency order, with parallel steps running concurrently
 
 Runtime control notes:
   - Steps without explicit agent config use picoclaw agent "main" by default.
-  - condition expressions are evaluated at runtime against saved output_key data.
+  - condition expressions are evaluated at runtime against saved step-id output data.
   - loop.until expressions are evaluated after each loop iteration.
   - start/end boundary steps are real recipe steps; generated boundaries are noop.`,
 		Args: cobra.MinimumNArgs(1),

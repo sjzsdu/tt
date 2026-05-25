@@ -88,7 +88,7 @@ tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
 - `retry`
 - `agent`
 - `script`
-- `output_key`
+- step `id` 输出键
 - `input_context`
 - `execution`
 - `form`
@@ -188,20 +188,20 @@ flowchart TD
 
 从这类图里，你应该读出的是：**typed runtime 的执行单位不是随机调度，而是基于显式依赖图规划出的可运行节点。**
 
-## 运行时上下文：`output_key` 与 `input_context`
+## 运行时上下文：step `id` 与 `input_context`
 
 formula 的运行时数据流主要靠两组字段：
 
-- `output_key`：把某一步输出写入上下文
+- step `id` 输出键：把某一步输出写入上下文
 - `input_context`：后续步骤把指定 key 的内容注入 prompt
 
-typed runtime 在 step 完成后，如果设置了 `output_key`，会把输出写入 `ContextStore`。后续步骤可通过 `input_context`、runtime condition 或 loop.until 读取这些命名输出。
+typed runtime 在 step 完成后，会默认把输出写入以 step `id` 命名的 `ContextStore` key。后续步骤可通过 `input_context`、runtime condition 或 loop.until 读取这些输出。
 
 ```mermaid
 flowchart LR
-    A[Step A 输出] -->|output_key=decision| C[(runtime context)]
-    C -->|input_context: decision| B[Step B Prompt]
-    C -->|condition: decision.path == frontend| D[是否执行后续分支]
+    A[decide 输出] -->|key=decide| C[(runtime context)]
+    C -->|input_context: decide| B[Step B Prompt]
+    C -->|condition: decide.path == frontend| D[是否执行后续分支]
 ```
 
 这张图说明，formula 的数据流不是靠全局共享对象硬编码，而是靠显式命名的上下文键连接起来的。
@@ -222,7 +222,7 @@ typed runtime 使用 formula 表达式能力在执行期评估 condition，支�
 - `=~`
 - `&&`
 - `||`
-- JSON path 风格访问，如 `decision.path`
+- JSON path 风格访问，如 `decide.path` 或 `frontend-plan.ready`
 
 ## 循环：`loop.until` 的运行时语义
 
@@ -275,7 +275,7 @@ flowchart LR
     B -- other --> D[buildPrompt + runner]
     C --> E[stdout/stderr/json/duration]
     D --> F[agent response]
-    E --> G[写入 context/output_key]
+    E --> G[写入 step-id context]
     F --> G
 ```
 
@@ -290,7 +290,6 @@ flowchart LR
 id = "choose-direction"
 title = "选择方向"
 execution = "human_input"
-output_key = "direction"
 
 [steps.form]
 title = "请选择继续方向"

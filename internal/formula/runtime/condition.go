@@ -9,7 +9,7 @@ import (
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
-var runtimeConditionPattern = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_.]*)\s*(==|!=|=~)\s*(.+)$`)
+var runtimeConditionPattern = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_-]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)\s*(==|!=|=~)\s*(.+)$`)
 
 func shouldRunStep(condition string, context *ContextStore) (bool, error) {
 	condition = strings.TrimSpace(condition)

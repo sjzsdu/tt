@@ -19,10 +19,10 @@ tt formula copy fresh-topic-docs .tt/formulas/fresh-topic-docs.toml
 
 `runtime-control-demo.toml` demonstrates:
 
-1. A step writes compact JSON to `output_key = "decision"`.
+1. A step writes compact JSON under its `id`, for example `id = "decide"`.
 2. Later steps use JSON-path conditions:
-   - `condition = "decision.path == frontend"`
-   - `condition = "decision.path == backend"`
+   - `condition = "decide.path == frontend"`
+   - `condition = "decide.path == backend"`
 3. A runtime `loop.until` repeats body steps until agent output satisfies:
    - `until = "review.approved == true"`
 
@@ -35,7 +35,6 @@ Use `execution = "script"` when a step should run a deterministic local command 
 id = "fetch-pr"
 title = "Fetch PR metadata"
 execution = "script"
-output_key = "pr_metadata"
 
 [steps.script]
 command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,body,files"]
@@ -43,7 +42,7 @@ format = "json"
 timeout = "30s"
 ```
 
-The saved output is a JSON envelope containing `command`, `cwd`, `exit_code`, `stdout`, `stderr`, parsed `json` when `format = "json"`, and `duration_ms`. Downstream steps can consume it with `input_context = ["pr_metadata"]` or conditions.
+The saved output is a JSON envelope containing `command`, `cwd`, `exit_code`, `stdout`, `stderr`, parsed `json` when `format = "json"`, and `duration_ms`. Downstream steps can consume it with `input_context = ["fetch-pr"]` or conditions.
 
 ## Human input pauses
 
@@ -54,7 +53,6 @@ Use `execution = "human_input"` when a formula must stop and collect structured 
 id = "choose-path"
 title = "Choose path"
 execution = "human_input"
-output_key = "path_choice"
 
 [steps.form]
 title = "Choose the next path"
@@ -116,5 +114,5 @@ tt formula run open latest
 - The `decide` step should output JSON like `{"path":"frontend"}`.
 - Only the matching branch step should execute.
 - The `improve` loop runs its body until the `review` step outputs JSON like `{"approved":true}` or reaches `max = 3`.
-- Script steps run without invoking agents and save their command result under the configured `output_key`.
+- Script steps run without invoking agents and save their command result under the step id.
 - Human input steps pause the run, save `human_input_request.json`, then resume after a response is submitted.

@@ -191,7 +191,7 @@ internal/agents/embedded/*.md
 - Workflow 图执行和拓扑规划
 - 运行状态、事件和 `ContextStore`
 - agent/script/human_input step 能力分发
-- resume 时跳过已完成步骤并恢复 output_key context
+- resume 时跳过已完成步骤并恢复 step-id context
 - dashboard retry/advice 的 typed runtime 重跑
 
 关键目录：

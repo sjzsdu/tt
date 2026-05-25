@@ -134,22 +134,25 @@ func (e *Executor) rememberStepOutput(step steps.Step, result *steps.RunResult) 
 }
 
 func stepOutputKey(step steps.Step) string {
+	key := ""
 	switch s := step.(type) {
 	case steps.AgentStep:
-		return s.OutputKey
+		key = s.OutputKey
 	case *steps.AgentStep:
-		return s.OutputKey
+		key = s.OutputKey
 	case steps.ScriptStep:
-		return s.OutputKey
+		key = s.OutputKey
 	case *steps.ScriptStep:
-		return s.OutputKey
+		key = s.OutputKey
 	case steps.HumanInputStep:
-		return s.OutputKey
+		key = s.OutputKey
 	case *steps.HumanInputStep:
-		return s.OutputKey
-	default:
-		return ""
+		key = s.OutputKey
 	}
+	if key != "" {
+		return key
+	}
+	return string(step.Meta().ID)
 }
 
 func (e *Executor) saveStep(state StepState) {

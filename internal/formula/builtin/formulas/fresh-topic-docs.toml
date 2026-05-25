@@ -12,7 +12,6 @@ topic = { description = "想了解的新鲜事物、概念、趋势、产品、�
 [[steps]]
 id = "scope-analysis"
 title = "分析话题并确定探索方向"
-output_key = "scope_config"
 description = """
 首先，深入分析话题「{{topic}}」的本质。
 
@@ -53,8 +52,7 @@ id = "scope-user-input"
 title = "确认系列文档范围"
 execution = "human_input"
 depends_on = ["scope-analysis"]
-condition = "scope_config.needs_user_scope == true"
-output_key = "user_scope"
+condition = "scope-analysis.needs_user_scope == true"
 description = "scope-analysis 建议先确认写作范围。请选择关注方向、读者背景和期望深度。"
 
 [steps.form]
@@ -94,8 +92,7 @@ options = ["多图表", "多案例", "学习路线", "风险清单", "实践步�
 id = "article-plan"
 title = "规划系列文章清单"
 depends_on = ["scope-analysis", "scope-user-input"]
-input_context = ["scope_config", "user_scope"]
-output_key = "article_specs"
+input_context = ["scope-analysis", "scope-user-input"]
 description = """
 根据 topic、scope_config 和可选的 user_scope，为「{{topic}}」规划一组系列文章。
 
@@ -116,10 +113,9 @@ description = """
 id = "write-articles"
 title = "并发撰写每篇系列文章"
 depends_on = ["article-plan"]
-output_key = "article_outputs"
 
   [steps.loop]
-  for_each = "article_specs"
+  for_each = "article-plan"
   var = "article"
   parallel = true
   max_concurrency = 4
@@ -127,8 +123,7 @@ output_key = "article_outputs"
   [[steps.loop.body]]
   id = "draft"
   title = "撰写 {{article.title}}"
-  input_context = ["scope_config", "article"]
-  output_key = "article_markdown"
+  input_context = ["scope-analysis", "article"]
   description = """
 根据当前 article 对象和 scope_config，撰写关于「{{topic}}」的一篇完整 Markdown 文章。
 
@@ -148,8 +143,7 @@ output_key = "article_outputs"
   id = "package-entry"
   title = "整理 {{article.title}} 为文件条目"
   depends_on = ["draft"]
-  input_context = ["article", "article_markdown"]
-  output_key = "package_entry"
+  input_context = ["article", "draft"]
   description = """
 将当前文章整理为后续打包步骤可消费的 JSON 对象。
 
@@ -165,8 +159,7 @@ output_key = "article_outputs"
 id = "series-package"
 title = "汇总为文档包并写入 .tt/docs/<topic-name>"
 depends_on = ["write-articles"]
-input_context = ["scope_config", "article_specs", "article_outputs"]
-output_key = "series_docs"
+input_context = ["scope-analysis", "article-plan", "write-articles"]
 description = """
 把 foreach loop 生成的 article_outputs 汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `.tt/docs/<topic-name>/` 主题子目录，避免不同主题的文档混在一起。
 

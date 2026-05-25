@@ -11,7 +11,6 @@ review_focus = { description = "处理评论时重点关注方面", default = "�
 id = "fetch-pr-metadata"
 title = "获取 PR 元数据"
 execution = "script"
-output_key = "pr_metadata"
 
 [steps.script]
 command = ["gh", "pr", "view", "{{pr_ref}}", "--json", "number,title,url,headRefName,baseRefName,state"]
@@ -22,8 +21,7 @@ timeout = "30s"
 id = "fetch-review-comments"
 title = "获取待处理 review comments"
 depends_on = ["fetch-pr-metadata"]
-input_context = ["pr_metadata"]
-output_key = "comment_context"
+input_context = ["fetch-pr-metadata"]
 description = """
 收集 '{{pr_ref}}' 的 review comments，并输出标准化列表。
 
@@ -56,8 +54,7 @@ agent.name = "coder"
 id = "normalize-comment-items"
 title = "整理 comment 列表供循环使用"
 depends_on = ["fetch-review-comments"]
-input_context = ["comment_context"]
-output_key = "comment_items"
+input_context = ["fetch-review-comments"]
 description = """
 从 comment_context 生成循环用的数组。
 
@@ -87,12 +84,11 @@ agent.name = "planner"
 id = "fix-each-comment"
 title = "逐条执行 bug-fix"
 depends_on = ["normalize-comment-items"]
-input_context = ["comment_items"]
-condition = "comment_items.total != 0"
-output_key = "comment_results"
+input_context = ["normalize-comment-items"]
+condition = "normalize-comment-items.total != 0"
 
   [steps.loop]
-  for_each = "comment_items.items"
+  for_each = "normalize-comment-items.items"
   var = "comment"
   parallel = true
   max_concurrency = 3
@@ -109,8 +105,7 @@ output_key = "comment_results"
   id = "collect-result"
   title = "汇总评论 {{comment.comment_id}} 处理结果"
   depends_on = ["run-bug-fix"]
-  input_context = ["comment", "run-bug-fix.final_report", "run-bug-fix.bug_verification", "run-bug-fix.fix_result", "run-bug-fix.no_bug_resolution"]
-  output_key = "comment_result"
+  input_context = ["comment", "run-bug-fix.final-report", "run-bug-fix.code-research", "run-bug-fix.execute-fix", "run-bug-fix.no-bug-report"]
   description = """
   汇总当前 comment 的处理结果。
 
@@ -129,8 +124,7 @@ output_key = "comment_results"
 id = "final-report"
 title = "输出 PR 评论处理总报告"
 depends_on = ["fix-each-comment"]
-input_context = ["pr_metadata", "comment_context", "comment_items", "comment_results"]
-output_key = "final_report"
+input_context = ["fetch-pr-metadata", "fetch-review-comments", "normalize-comment-items", "fix-each-comment"]
 description = """
 输出最终中文总结。
 

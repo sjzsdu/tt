@@ -209,7 +209,7 @@ Requirements:
 - Prefer script steps for deterministic context collection or validation.
 - Prefer agent steps for reasoning, planning, implementation, review, and reporting.
 - Use safe argv-style script commands; avoid shell.
-- Add output_key for data consumed downstream.
+- Use step ids consistently for data consumed downstream.
 - Add depends_on and input_context where data flows between steps.
 - If a condition or loop depends on agent output, make that step output ONLY compact JSON.
 - Use embedded agents where appropriate: coder, planner, tester, product-manager, ui, full-stack, reporter.
@@ -232,7 +232,7 @@ Requirements:
 - Output only the full optimized TOML, preferably no Markdown fences.
 - Preserve formula = %q exactly.
 - Preserve the user's existing intent unless the suggestion explicitly changes it.
-- Improve step boundaries, data flow, output_key, input_context, conditions, loops, script safety, descriptions, and agent choices where useful.
+- Improve step boundaries, data flow, step-id context, input_context, conditions, loops, script safety, descriptions, and agent choices where useful.
 - Prefer script steps for deterministic context collection or validation.
 - Prefer agent steps for reasoning, planning, implementation, review, and reporting.
 - Use safe argv-style script commands; avoid shell.

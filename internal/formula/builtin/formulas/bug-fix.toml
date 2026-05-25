@@ -9,7 +9,6 @@ issue_summary = { description = "用户反馈的 bug 摘要或问题描述", req
 [[steps]]
 id = "analyze-issue"
 title = "分析用户问题并判断是否需要人工澄清"
-output_key = "issue_triage"
 description = """
 基于 '{{issue_summary}}' 先理解用户问题，不要急于判断代码是否有 bug。
 
@@ -45,8 +44,7 @@ id = "clarify-with-user"
 title = "向用户收集缺失的 bug 复现信息"
 execution = "human_input"
 depends_on = ["analyze-issue"]
-condition = "issue_triage.needs_clarification == true"
-output_key = "user_clarification"
+condition = "analyze-issue.needs_clarification == true"
 description = """
 issue_triage 判断当前信息不足，需要用户补充最小复现信息。
 请根据表单填写复现路径、期望行为、实际行为和环境线索。
@@ -87,8 +85,7 @@ placeholder = "例如分支、版本、命令、浏览器、平台、账号状�
 id = "prepare-research-brief"
 title = "整合用户问题与补充信息，生成代码调研摘要"
 depends_on = ["analyze-issue", "clarify-with-user"]
-input_context = ["issue_triage.issue_summary", "issue_triage.research_brief", "user_clarification"]
-output_key = "research_brief"
+input_context = ["analyze-issue.issue_summary", "analyze-issue.research_brief", "clarify-with-user"]
 description = """
 基于 issue_triage 与 user_clarification（如果存在）生成后续代码调研使用的统一摘要。
 
@@ -116,8 +113,7 @@ required = ["research_task", "search_targets", "acceptance_criteria"]
 id = "code-research"
 title = "使用 code-research 调研代码并判断问题是否存在"
 depends_on = ["prepare-research-brief"]
-input_context = ["research_brief.research_task", "research_brief.search_targets", "research_brief.acceptance_criteria"]
-output_key = "bug_verification"
+input_context = ["prepare-research-brief.research_task", "prepare-research-brief.search_targets", "prepare-research-brief.acceptance_criteria"]
 description = """
 你是 code-research agent。基于 research_brief 调研当前代码库，重点使用 code-context、grep、符号命名、调用链和配置入口来判断用户描述的问题在当前代码中是否真实存在。
 
@@ -158,9 +154,8 @@ required = ["issue_exists", "existence", "evidence"]
 id = "fix-plan"
 title = "为已确认 bug 制定最小影响修复方案"
 depends_on = ["code-research"]
-input_context = ["research_brief.research_task", "research_brief.acceptance_criteria", "bug_verification.root_cause", "bug_verification.minimal_fix_scope", "bug_verification.risk_points", "bug_verification.verification_focus"]
-condition = "bug_verification.issue_exists == true"
-output_key = "fix_plan"
+input_context = ["prepare-research-brief.research_task", "prepare-research-brief.acceptance_criteria", "code-research.root_cause", "code-research.minimal_fix_scope", "code-research.risk_points", "code-research.verification_focus"]
+condition = "code-research.issue_exists == true"
 description = """
 基于 research_brief 与 bug_verification，为已确认存在的 bug 制定最小影响范围修复方案。
 
@@ -190,9 +185,8 @@ required = ["fix_goal", "minimal_change_strategy", "validation_plan"]
 id = "execute-fix"
 title = "执行最小影响修复并做必要验证"
 depends_on = ["fix-plan"]
-input_context = ["research_brief.acceptance_criteria", "bug_verification.root_cause", "bug_verification.minimal_fix_scope", "bug_verification.verification_focus", "fix_plan.files_to_touch", "fix_plan.do_not_touch", "fix_plan.minimal_change_strategy", "fix_plan.validation_plan"]
-condition = "bug_verification.issue_exists == true"
-output_key = "fix_result"
+input_context = ["prepare-research-brief.acceptance_criteria", "code-research.root_cause", "code-research.minimal_fix_scope", "code-research.verification_focus", "fix-plan.files_to_touch", "fix-plan.do_not_touch", "fix-plan.minimal_change_strategy", "fix-plan.validation_plan"]
+condition = "code-research.issue_exists == true"
 description = """
 基于 bug_verification 与 fix_plan 执行修复。
 
@@ -227,9 +221,8 @@ required = ["files_changed", "change_summary", "verification_actions", "fully_fi
 id = "no-bug-report"
 title = "问题不成立时输出说明"
 depends_on = ["code-research"]
-input_context = ["research_brief.research_task", "bug_verification.existence", "bug_verification.why_not_exists", "bug_verification.evidence"]
-condition = "bug_verification.issue_exists != true"
-output_key = "no_bug_resolution"
+input_context = ["prepare-research-brief.research_task", "code-research.existence", "code-research.why_not_exists", "code-research.evidence"]
+condition = "code-research.issue_exists != true"
 description = """
 当 bug_verification 判断当前代码中问题不存在或未被确认时，输出给用户的清晰说明。
 
@@ -257,8 +250,7 @@ required = ["decision", "reason", "recommended_next_steps"]
 id = "final-report"
 title = "输出最终 bug 处理结论"
 depends_on = ["execute-fix", "no-bug-report"]
-input_context = ["issue_triage.issue_summary", "user_clarification", "research_brief.research_task", "bug_verification.existence", "bug_verification.root_cause", "bug_verification.why_not_exists", "fix_result.change_summary", "fix_result.verification_result", "fix_result.remaining_risks", "no_bug_resolution.reason", "no_bug_resolution.recommended_next_steps"]
-output_key = "final_report"
+input_context = ["analyze-issue.issue_summary", "clarify-with-user", "prepare-research-brief.research_task", "code-research.existence", "code-research.root_cause", "code-research.why_not_exists", "execute-fix.change_summary", "execute-fix.verification_result", "execute-fix.remaining_risks", "no-bug-report.reason", "no-bug-report.recommended_next_steps"]
 description = """
 面向用户输出最终结论，整合 issue_triage、user_clarification、research_brief、bug_verification、fix_plan、fix_result 与 no_bug_resolution。
 
