@@ -113,7 +113,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 	s.broadcast()
 	advice := strings.TrimSpace(req.Advice)
 	go func() {
-		if err := executeFormulaRecipeWithAdvice(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext, map[string]string{resolvedStepID: advice}); err != nil {
+		if err := executeFormulaResumeWithAdvice(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext, map[string]string{resolvedStepID: advice}); err != nil {
 			s.logf("retry step %s failed: %v", resolvedStepID, err)
 		}
 	}()
@@ -205,7 +205,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 	s.mu.Unlock()
 	s.broadcast()
 	go func() {
-		if err := executeFormulaRecipe(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext); err != nil {
+		if err := executeFormulaResume(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext); err != nil {
 			s.logf("resume after human input failed: %v", err)
 		}
 	}()

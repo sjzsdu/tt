@@ -138,11 +138,11 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string) error {
-	return executeFormulaRecipeWithAdvice(cmd, recipe, runStore, dashboard, vars, initialResults, initialContext, nil)
+func executeFormulaResume(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string) error {
+	return executeFormulaResumeWithAdvice(cmd, recipe, runStore, dashboard, vars, initialResults, initialContext, nil)
 }
 
-func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
+func executeFormulaResumeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
 	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
 	if projectRoot == "" {
 		projectRoot, _ = os.Getwd()

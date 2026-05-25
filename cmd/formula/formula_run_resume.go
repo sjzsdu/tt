@@ -48,7 +48,7 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
-	return executeFormulaRecipe(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+	return executeFormulaResume(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
 }
 
 func runFormulaRunInput(cmd *cobra.Command, args []string) error {
@@ -126,7 +126,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	dashboard.readonly = false
 	dashboard.attachStore(store)
 	fmt.Fprintf(cmd.OutOrStdout(), "Submitted human input for step %s\n", resolvedStepID)
-	return executeFormulaRecipe(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+	return executeFormulaResume(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
 }
 
 func parseHumanInputFields(fields []string) (map[string]any, error) {
