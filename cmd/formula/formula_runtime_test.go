@@ -42,6 +42,18 @@ func TestFormulaRuntimeAgentRunnerUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestFormulaRuntimeAgentRunnerInjectsStepAdvice(t *testing.T) {
+	fake := &fakeFormulaDirectProcessor{}
+	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", session: "session-a", stepAdvice: map[string]string{"step-1": "try a smaller change"}}
+	_, err := runner.RunAgent(context.Background(), steps.AgentRequest{NodeID: "step-1", Prompt: "original prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(fake.opt.Message, "original prompt") || !strings.Contains(fake.opt.Message, "try a smaller change") {
+		t.Fatalf("message = %q, want original prompt and retry advice", fake.opt.Message)
+	}
+}
+
 func TestNewFormulaRuntimeExecutorBuildsWorkflowExecutor(t *testing.T) {
 	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo", IsRoot: true}, {ID: "demo.start", Execution: "noop"}}}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{Recipe: recipe, DryRun: true, AllowScripts: true})

@@ -114,6 +114,7 @@ type AgentRunner interface {
 }
 
 type AgentRequest struct {
+	NodeID string
 	Agent  string
 	Model  string
 	Prompt string

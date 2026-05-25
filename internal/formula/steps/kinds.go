@@ -39,7 +39,7 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		err := &StepError{Message: "agent capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{Agent: s.Agent, Model: s.Model, Prompt: s.Prompt})
+	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{NodeID: req.NodeID, Agent: s.Agent, Model: s.Model, Prompt: s.Prompt})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Error: &StepError{Message: "agent step failed", Cause: err}}, err
 	}

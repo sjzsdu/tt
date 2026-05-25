@@ -90,6 +90,7 @@ type formulaRuntimeAgentRunner struct {
 	workspace    string
 	debug        bool
 	quiet        bool
+	stepAdvice   map[string]string
 }
 
 func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRequest) (steps.Value, error) {
@@ -104,8 +105,12 @@ func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRe
 	if model == "" {
 		model = r.defaultModel
 	}
+	prompt := req.Prompt
+	if advice := strings.TrimSpace(r.stepAdvice[req.NodeID]); advice != "" {
+		prompt = strings.TrimSpace(prompt) + "\n\nRetry advice from dashboard:\n" + advice
+	}
 	resp, err := r.processor.ProcessDirect(pcwrap.RunOptions{
-		Message:   req.Prompt,
+		Message:   prompt,
 		Session:   r.session,
 		Agent:     agent,
 		Model:     model,
