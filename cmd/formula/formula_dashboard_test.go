@@ -1,6 +1,7 @@
 package formulacmd
 
 import (
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/executor"
@@ -24,7 +25,7 @@ func TestBuildFormulaDashboardGraphHidesGeneratedNoopBoundaries(t *testing.T) {
 		},
 	}
 
-	steps, edges := buildFormulaDashboardGraph(recipe)
+	steps, edges := formulaui.BuildGraph(recipe)
 	if len(steps) != 1 || steps[0].ID != "demo.work" {
 		t.Fatalf("dashboard steps = %+v, want only real work step", steps)
 	}
@@ -57,7 +58,7 @@ func TestBuildFormulaDashboardGraphKeepsExplicitBoundaryWork(t *testing.T) {
 		Deps: []formula.RecipeDep{{StepID: "demo.work", DependsOnID: "demo.start", Type: "blocks"}},
 	}
 
-	steps, edges := buildFormulaDashboardGraph(recipe)
+	steps, edges := formulaui.BuildGraph(recipe)
 	if len(steps) != 2 {
 		t.Fatalf("dashboard should keep explicit non-noop boundary, got %+v", steps)
 	}
@@ -100,7 +101,7 @@ func TestBuildResumeStateExcludingRetriedStep(t *testing.T) {
 			{ID: "demo.retry", Title: "Retry", OutputKey: "retry"},
 		},
 	}
-	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
 		{ID: "demo.done", Title: "Done", Status: string(executor.StatusCompleted), Output: "done-output"},
 		{ID: "demo.retry", Title: "Retry", Status: string(executor.StatusCompleted), Output: "old-output"},
 	}}
@@ -117,7 +118,7 @@ func TestBuildResumeStateExcludingRetriedStep(t *testing.T) {
 }
 
 func TestResolveFormulaDashboardStepIDAllowsFailedRetryTargets(t *testing.T) {
-	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
 		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
 	}}
 
@@ -131,7 +132,7 @@ func TestResolveFormulaDashboardStepIDAllowsFailedRetryTargets(t *testing.T) {
 }
 
 func TestResolveFormulaRunStepIDStillRequiresWaitingInput(t *testing.T) {
-	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
 		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
 	}}
 
@@ -149,7 +150,7 @@ func TestBuildFormulaDashboardGraphIncludesLoopPlan(t *testing.T) {
 		},
 	}
 
-	steps, _ := buildFormulaDashboardGraph(recipe)
+	steps, _ := formulaui.BuildGraph(recipe)
 	if len(steps) != 1 || steps[0].Loop == nil {
 		t.Fatalf("dashboard step loop = %+v, want loop plan", steps)
 	}

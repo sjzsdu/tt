@@ -3,6 +3,7 @@ package formulacmd
 import (
 	"errors"
 	"fmt"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"time"
 
 	"github.com/sjzsdu/tt/internal/executor"
@@ -10,9 +11,9 @@ import (
 
 func (s *formulaDashboardServer) logf(format string, args ...any) {
 	s.mu.Lock()
-	s.state.Logs = append(s.state.Logs, formulaDashboardLogEntry{At: time.Now().Format("15:04:05"), Text: fmt.Sprintf(format, args...)})
+	s.state.Logs = append(s.state.Logs, formulaui.LogEntry{At: time.Now().Format("15:04:05"), Text: fmt.Sprintf(format, args...)})
 	if len(s.state.Logs) > 200 {
-		s.state.Logs = append([]formulaDashboardLogEntry(nil), s.state.Logs[len(s.state.Logs)-200:]...)
+		s.state.Logs = append([]formulaui.LogEntry(nil), s.state.Logs[len(s.state.Logs)-200:]...)
 	}
 	s.mu.Unlock()
 	s.broadcast()
@@ -38,7 +39,7 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 		s.state.Steps[i].DurationMS = 0
 		s.state.Steps[i].Error = ""
 		s.state.Steps[i].Output = ""
-		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Detail: fmt.Sprintf("Agent %s started this step", agent)})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Detail: fmt.Sprintf("Agent %s started this step", agent)})
 		break
 	}
 	if !found {
@@ -67,7 +68,7 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
 			}
 		}
-		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "completed", Detail: fmt.Sprintf("Completed with %d chars of output", len(output)), Output: output, DurationMS: s.state.Steps[i].DurationMS})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "completed", Detail: fmt.Sprintf("Completed with %d chars of output", len(output)), Output: output, DurationMS: s.state.Steps[i].DurationMS})
 		break
 	}
 	if !found {
@@ -94,7 +95,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
 			}
 		}
-		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "failed", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "failed", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
 		break
 	}
 	if !found {
@@ -122,7 +123,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 			s.state.Steps[i].HumanInputRequest = request
 		}
 		s.state.Steps[i].FinishedAt = ""
-		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
 		break
 	}
 	if !found {
@@ -135,7 +136,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 }
 
 func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, detail, output, errMsg string, durationMS int64) {
-	parentID := loopParentStepID(stepID)
+	parentID := formulaui.LoopParentStepID(stepID)
 	if parentID == "" {
 		return
 	}
@@ -147,7 +148,7 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, d
 			s.state.Steps[i].Status = "running"
 			s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
 		}
-		appendStepActivity(&s.state.Steps[i], formulaStepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
 		return
 	}
 }

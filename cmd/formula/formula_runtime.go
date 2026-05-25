@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"io"
 	"strings"
 	"time"
@@ -21,8 +22,8 @@ type formulaDirectProcessor interface {
 	ProcessDirect(pcwrap.RunOptions) (string, error)
 }
 
-func loadFormulaRunSnapshot(dir string, recipe *formula.Recipe) (formulaDashboardSnapshot, error) {
-	var dashboardSnapshot formulaDashboardSnapshot
+func loadFormulaRunSnapshot(dir string, recipe *formula.Recipe) (formulaui.Snapshot, error) {
+	var dashboardSnapshot formulaui.Snapshot
 	if err := formularun.LoadState(dir, &dashboardSnapshot); err == nil {
 		if dashboardSnapshot.RecipeName != "" || len(dashboardSnapshot.Steps) > 0 {
 			return dashboardSnapshot, nil
@@ -35,9 +36,9 @@ func loadFormulaRunSnapshot(dir string, recipe *formula.Recipe) (formulaDashboar
 	return runtimeSnapshotToDashboardSnapshot(recipe, runtimeSnapshot), nil
 }
 
-func runtimeSnapshotToDashboardSnapshot(recipe *formula.Recipe, snapshot formularuntime.Snapshot) formulaDashboardSnapshot {
+func runtimeSnapshotToDashboardSnapshot(recipe *formula.Recipe, snapshot formularuntime.Snapshot) formulaui.Snapshot {
 	if recipe == nil {
-		return formulaDashboardSnapshot{RecipeName: string(snapshot.WorkflowID), Status: string(snapshot.Status)}
+		return formulaui.Snapshot{RecipeName: string(snapshot.WorkflowID), Status: string(snapshot.Status)}
 	}
 	dashboard := newFormulaDashboardServer(recipe)
 	out := dashboard.state
@@ -52,7 +53,7 @@ func runtimeSnapshotToDashboardSnapshot(recipe *formula.Recipe, snapshot formula
 	return out
 }
 
-func applyRuntimeStepStateToDashboardStep(step *formulaDashboardStep, state formularuntime.StepState) {
+func applyRuntimeStepStateToDashboardStep(step *formulaui.Step, state formularuntime.StepState) {
 	if step == nil {
 		return
 	}

@@ -1,6 +1,7 @@
 package formulacmd
 
 import (
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"reflect"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestValidateHumanInputResponse(t *testing.T) {
 }
 
 func TestResolveFormulaRunStepIDRequiresWaitingStep(t *testing.T) {
-	snapshot := formulaDashboardSnapshot{Steps: []formulaDashboardStep{
+	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
 		{ID: "demo.profile", Status: string(executor.StatusWaitingInput)},
 		{ID: "demo.plan", Status: string(executor.StatusPending)},
 	}}

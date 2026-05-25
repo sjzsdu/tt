@@ -3,6 +3,7 @@ package formulacmd
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"io"
 	"os"
 	"path/filepath"
@@ -191,7 +192,7 @@ func isEmptyHumanInputValue(value any) bool {
 	}
 }
 
-func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaDashboardSnapshot, stepID string) error {
+func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaui.Snapshot, stepID string) error {
 	for _, step := range snapshot.Steps {
 		if step.ID != stepID {
 			continue

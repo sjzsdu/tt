@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"net/http"
 	"os"
 	"strings"
@@ -31,8 +32,8 @@ func (s *formulaDashboardServer) handleIndex(w http.ResponseWriter, r *http.Requ
 func (s *formulaDashboardServer) handleState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(struct {
-		Type  string                   `json:"type"`
-		State formulaDashboardSnapshot `json:"state"`
+		Type  string             `json:"type"`
+		State formulaui.Snapshot `json:"state"`
 	}{Type: "state", State: s.snapshot()})
 }
 
@@ -70,7 +71,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var target *formulaDashboardStep
+	var target *formulaui.Step
 	for i := range snapshot.Steps {
 		if snapshot.Steps[i].ID == resolvedStepID {
 			target = &snapshot.Steps[i]
@@ -106,7 +107,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 	_ = s.store.SaveMetadata()
 	_ = s.store.AppendEvent(formularun.Event{Type: "step_retry_requested", StepID: resolvedStepID, Status: formularun.StatusRunning})
 	s.mu.Lock()
-	s.state = cloneFormulaDashboardSnapshot(snapshot)
+	s.state = formulaui.CloneSnapshot(snapshot)
 	s.readonly = false
 	s.mu.Unlock()
 	s.broadcast()
@@ -199,7 +200,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 	_ = s.store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
 	formularunview.ResetForResume(&snapshot)
 	s.mu.Lock()
-	s.state = cloneFormulaDashboardSnapshot(snapshot)
+	s.state = formulaui.CloneSnapshot(snapshot)
 	s.readonly = false
 	s.mu.Unlock()
 	s.broadcast()

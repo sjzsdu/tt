@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,18 +24,18 @@ type formulaDashboardServer struct {
 	port     int
 	started  time.Time
 	recipe   string
-	state    formulaDashboardSnapshot
+	state    formulaui.Snapshot
 	store    *formularun.Store
 	readonly bool
 	clients  map[*websocket.Conn]struct{}
 	shutdown chan struct{}
 }
 
-func newFormulaDashboardServerFromSnapshot(snapshot formulaDashboardSnapshot) *formulaDashboardServer {
+func newFormulaDashboardServerFromSnapshot(snapshot formulaui.Snapshot) *formulaDashboardServer {
 	return &formulaDashboardServer{
 		started:  time.Now(),
 		recipe:   snapshot.RecipeName,
-		state:    cloneFormulaDashboardSnapshot(snapshot),
+		state:    formulaui.CloneSnapshot(snapshot),
 		clients:  map[*websocket.Conn]struct{}{},
 		shutdown: make(chan struct{}),
 		readonly: true,
@@ -53,18 +54,18 @@ func (s *formulaDashboardServer) attachStore(store *formularun.Store) {
 }
 
 func newFormulaDashboardServer(recipe *formula.Recipe) *formulaDashboardServer {
-	steps, edges := buildFormulaDashboardGraph(recipe)
+	steps, edges := formulaui.BuildGraph(recipe)
 	return &formulaDashboardServer{
 		started: time.Now(),
 		recipe:  recipe.Name,
-		state: formulaDashboardSnapshot{
+		state: formulaui.Snapshot{
 			RecipeName:  recipe.Name,
 			Description: recipe.Description,
 			Phase:       recipe.Phase,
 			Status:      "running",
 			Steps:       steps,
 			Edges:       edges,
-			Logs:        []formulaDashboardLogEntry{},
+			Logs:        []formulaui.LogEntry{},
 		},
 		clients:  map[*websocket.Conn]struct{}{},
 		shutdown: make(chan struct{}),
@@ -139,14 +140,14 @@ func (s *formulaDashboardServer) waitForInterrupt() {
 	s.close()
 }
 
-func (s *formulaDashboardServer) snapshot() formulaDashboardSnapshot {
+func (s *formulaDashboardServer) snapshot() formulaui.Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return cloneFormulaDashboardSnapshot(s.state)
+	return formulaui.CloneSnapshot(s.state)
 }
 
 func (s *formulaDashboardServer) snapshotMessageLocked() []byte {
-	msg := formulaDashboardMessage{Type: "state", State: cloneFormulaDashboardSnapshot(s.state)}
+	msg := formulaui.Message{Type: "state", State: formulaui.CloneSnapshot(s.state)}
 	b, _ := json.Marshal(msg)
 	return b
 }
@@ -176,7 +177,7 @@ func (s *formulaDashboardServer) persistSnapshot() error {
 		return nil
 	}
 	s.mu.Lock()
-	snapshot := cloneFormulaDashboardSnapshot(s.state)
+	snapshot := formulaui.CloneSnapshot(s.state)
 	s.mu.Unlock()
 	return s.store.SaveState(snapshot)
 }
