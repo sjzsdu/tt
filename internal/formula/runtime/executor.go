@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
@@ -14,6 +15,7 @@ type Executor struct {
 	Context      *ContextStore
 	Capabilities steps.Capabilities
 	Events       EventSink
+	Store        StateStore
 }
 
 type EventSink interface{ Emit(Event) }
@@ -23,6 +25,7 @@ type Event struct {
 	NodeID     ir.NodeID
 	Type       string
 	Payload    any
+	Time       time.Time
 }
 
 type RunResult struct {
@@ -32,13 +35,21 @@ type RunResult struct {
 }
 
 func NewExecutor(workflow *ir.Workflow, capabilities steps.Capabilities) *Executor {
-	return &Executor{Workflow: workflow, Context: NewContextStore(), Capabilities: capabilities}
+	store := NewMemoryStateStore()
+	return &Executor{Workflow: workflow, Context: NewContextStore(), Capabilities: capabilities, Store: store}
 }
 
 func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 	if e.Workflow == nil {
 		return nil, fmt.Errorf("workflow is required")
 	}
+	if e.Store == nil {
+		e.Store = NewMemoryStateStore()
+	}
+	if err := e.Store.StartWorkflow(e.Workflow.ID); err != nil {
+		return nil, err
+	}
+	e.emit("", "workflow.started", nil)
 	order, err := PlanTopological(e.Workflow.Graph)
 	if err != nil {
 		return nil, err
@@ -53,6 +64,8 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		if !ok {
 			continue
 		}
+		started := time.Now()
+		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: "running", StartedAt: started, UpdatedAt: started})
 		e.emit(nodeID, "step.started", nil)
 		res, err := exec.Run(ctx, steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: node.Step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities})
 		if res == nil {
@@ -61,7 +74,9 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		out.Nodes[nodeID] = res
 		if err != nil || res.Status == steps.StatusFailed {
 			out.Status = steps.StatusFailed
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 			e.emit(nodeID, "step.failed", res)
+			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
 			if err != nil {
 				return out, err
 			}
@@ -69,17 +84,32 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		}
 		if res.Status == steps.StatusWaiting {
 			out.Status = steps.StatusWaiting
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
 			e.emit(nodeID, "step.waiting", res.Await)
+			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
 			return out, nil
 		}
+		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 		e.emit(nodeID, "step.completed", res)
 	}
+	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
+	e.emit("", "workflow.completed", out)
 	return out, nil
 }
 
+func (e *Executor) saveStep(state StepState) {
+	if e.Store != nil {
+		_ = e.Store.SaveStep(state)
+	}
+}
+
 func (e *Executor) emit(nodeID ir.NodeID, typ string, payload any) {
+	event := Event{WorkflowID: e.Workflow.ID, NodeID: nodeID, Type: typ, Payload: payload, Time: time.Now()}
+	if e.Store != nil {
+		_ = e.Store.AppendEvent(event)
+	}
 	if e.Events != nil {
-		e.Events.Emit(Event{WorkflowID: e.Workflow.ID, NodeID: nodeID, Type: typ, Payload: payload})
+		e.Events.Emit(event)
 	}
 }
 
