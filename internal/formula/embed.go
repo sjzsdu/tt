@@ -44,7 +44,73 @@ func applyEmbedsRecursive(steps []*Step, parser *Parser, parentVars map[string]s
 		}
 		result = append(result, embedded...)
 	}
+	rewriteDepsFromEmbedBoundaries(result)
 	return result, nil
+}
+
+func rewriteDepsFromEmbedBoundaries(steps []*Step) {
+	exitsByBoundary := map[string][]string{}
+	for _, step := range steps {
+		if step == nil || step.Metadata["step_kind"] != "embed_boundary" {
+			continue
+		}
+		embedded := embeddedStepsForBoundary(steps, step.ID)
+		_, exits := embeddedBoundaryIDs(embedded)
+		if len(exits) > 0 {
+			exitsByBoundary[step.ID] = exits
+		}
+	}
+	if len(exitsByBoundary) == 0 {
+		return
+	}
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		for boundaryID, exits := range exitsByBoundary {
+			// Embedded entry steps intentionally depend on their boundary so the
+			// boundary is visible/runnable before the sub-flow starts. External
+			// downstream steps, however, must wait for the embedded workflow exits
+			// rather than the noop boundary itself.
+			if step.ID == boundaryID || step.Metadata["embedded_by"] == boundaryID {
+				continue
+			}
+			step.DependsOn = replaceRefWithRefs(step.DependsOn, boundaryID, exits)
+			step.Needs = replaceRefWithRefs(step.Needs, boundaryID, exits)
+		}
+	}
+}
+
+func embeddedStepsForBoundary(steps []*Step, boundaryID string) []*Step {
+	var out []*Step
+	for _, step := range steps {
+		if step != nil && step.Metadata["embedded_by"] == boundaryID {
+			out = append(out, step)
+		}
+	}
+	return out
+}
+
+func replaceRefWithRefs(in []string, target string, replacements []string) []string {
+	if len(in) == 0 || len(replacements) == 0 {
+		return in
+	}
+	out := make([]string, 0, len(in)+len(replacements)-1)
+	changed := false
+	for _, ref := range in {
+		if ref != target {
+			out = appendUnique(out, ref)
+			continue
+		}
+		changed = true
+		for _, replacement := range replacements {
+			out = appendUnique(out, replacement)
+		}
+	}
+	if !changed {
+		return in
+	}
+	return out
 }
 
 func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string, stack []string, depth int) ([]*Step, error) {
