@@ -35,6 +35,10 @@ func (AgentDecoder) Decode(decl ast.StepDecl) (Step, error) {
 	return s, nil
 }
 func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if req.Capabilities.Agents == nil {
+		err := &StepError{Message: "agent capability is required"}
+		return &RunResult{Status: StatusFailed, Error: err}, err
+	}
 	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{Agent: s.Agent, Model: s.Model, Prompt: s.Prompt})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Error: &StepError{Message: "agent step failed", Cause: err}}, err
@@ -59,6 +63,10 @@ func (ScriptDecoder) Decode(decl ast.StepDecl) (Step, error) {
 	return s, nil
 }
 func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if req.Capabilities.Scripts == nil {
+		err := &StepError{Message: "script capability is required"}
+		return &RunResult{Status: StatusFailed, Error: err}, err
+	}
 	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: s.Command, Cwd: s.Cwd, Env: s.Env})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "script step failed", Cause: err}}, err

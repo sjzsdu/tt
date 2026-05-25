@@ -20,6 +20,7 @@ import (
 	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/molecule"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
@@ -60,6 +61,7 @@ var (
 	formulaListBuiltin     bool
 	formulaListUser        bool
 	formulaListCategory    string
+	formulaCompileWorkflow bool
 	formulaRunSessionSeq   uint64
 )
 
@@ -274,6 +276,7 @@ func init() {
 	formulaCmd.PersistentFlags().StringVarP(&formulaDir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&formulaVars, "var", nil, "variable override (key=value, repeatable)")
 
+	formulaCompileCmd.Flags().BoolVar(&formulaCompileWorkflow, "workflow", false, "print graph-first typed Workflow IR instead of legacy recipe")
 	formulaInstantiateCmd.Flags().StringVarP(&formulaOutput, "output", "o", "json", "output format: json, yaml, text, prompt")
 	formulaInstantiateCmd.Flags().StringVarP(&formulaTitle, "title", "t", "", "override root task title")
 	formulaCreateCmd.Flags().StringVarP(&formulaCreateOutput, "output", "o", "", "output formula file path (default: .tt/formulas/<name>.toml or --dir/<name>.toml)")
@@ -787,6 +790,27 @@ func runFormulaCompile(cmd *cobra.Command, args []string) error {
 	recipe, err := formula.Compile(context.Background(), name, getSearchPaths(), vars)
 	if err != nil {
 		return err
+	}
+
+	if formulaCompileWorkflow {
+		workflow := formula.WorkflowFromRecipe(recipe)
+		fmt.Printf("Workflow: %s\n", workflow.Name)
+		fmt.Printf("Nodes (%d):\n", len(workflow.Graph.Nodes))
+		ids := make([]string, 0, len(workflow.Graph.Nodes))
+		for id := range workflow.Graph.Nodes {
+			ids = append(ids, string(id))
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			node := workflow.Graph.Nodes[ir.NodeID(id)]
+			meta := node.Step.Meta()
+			fmt.Printf("  - %-30s kind=%s title=%q\n", id, meta.Kind, meta.Title)
+		}
+		fmt.Printf("Edges (%d):\n", len(workflow.Graph.Edges))
+		for _, edge := range workflow.Graph.Edges {
+			fmt.Printf("  - %s -> %s (%s)\n", edge.From, edge.To, edge.Type)
+		}
+		return nil
 	}
 
 	fmt.Printf("Recipe: %s\n", recipe.Name)
