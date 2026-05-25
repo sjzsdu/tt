@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formularun"
@@ -15,8 +14,8 @@ import (
 
 func TestFormulaRunStateStoreMirrorsRuntimeArtifacts(t *testing.T) {
 	root := t.TempDir()
-	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "a", Title: "A"}}}
-	store, err := formularun.New(root, recipe, nil, "main", "", "session", root)
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	store, err := formularun.New(root, workflow, nil, "main", "", "session", root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +60,8 @@ func TestFormulaRunStateStoreMirrorsRuntimeArtifacts(t *testing.T) {
 
 func TestFormulaRunStateStoreMirrorsWaitingInput(t *testing.T) {
 	root := t.TempDir()
-	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "ask", Title: "Ask", Execution: "human_input"}}}
-	store, err := formularun.New(root, recipe, nil, "main", "", "session", root)
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	store, err := formularun.New(root, workflow, nil, "main", "", "session", root)
 	if err != nil {
 		t.Fatal(err)
 	}

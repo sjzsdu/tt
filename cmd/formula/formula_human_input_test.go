@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formularunview"
 )
@@ -39,8 +38,8 @@ func TestValidateHumanInputResponse(t *testing.T) {
 
 func TestResolveFormulaRunStepIDRequiresWaitingStep(t *testing.T) {
 	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
-		{ID: "demo.profile", Status: string(executor.StatusWaitingInput)},
-		{ID: "demo.plan", Status: string(executor.StatusPending)},
+		{ID: "demo.profile", Status: formulaui.StatusWaitingInput},
+		{ID: "demo.plan", Status: formulaui.StatusPending},
 	}}
 	got, err := formularunview.ResolveWaitingInputStepID(snapshot, "profile")
 	if err != nil {

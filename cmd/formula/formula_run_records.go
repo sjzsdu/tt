@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formularun"
 )
 
@@ -68,11 +69,11 @@ func runFormulaRunOpen(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	recipe, err := formularun.LoadRecipe(record.Dir)
+	workflow, err := formula.CompileWorkflowByName(cmd.Context(), record.Metadata.Formula, getSearchPaths(), record.Metadata.Vars)
 	if err != nil {
 		return err
 	}
-	snapshot, err := loadFormulaRunSnapshot(record.Dir, recipe)
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, workflow)
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
@@ -97,8 +98,8 @@ func runFormulaRunShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	recipe, _ := formularun.LoadRecipe(record.Dir)
-	snapshot, _ := loadFormulaRunSnapshot(record.Dir, recipe)
+	workflow, _ := formula.CompileWorkflowByName(cmd.Context(), record.Metadata.Formula, getSearchPaths(), record.Metadata.Vars)
+	snapshot, _ := loadFormulaRunSnapshot(record.Dir, workflow)
 	out := cmd.OutOrStdout()
 	meta := record.Metadata
 	fmt.Fprintf(out, "Run: %s\n", record.ID)

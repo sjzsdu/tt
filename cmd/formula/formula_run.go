@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/agents"
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formularun"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -37,15 +37,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	// Transitional UI/export data. Runtime execution below uses workflow directly.
-	recipe, err := formula.Compile(context.Background(), name, getSearchPaths(), vars)
-	if err != nil {
-		return err
-	}
 
 	if formulaDryRun {
 		return executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{
-			Recipe:       recipe,
 			Workflow:     workflow,
 			DryRun:       true,
 			AllowScripts: !formulaNoScript,
@@ -70,7 +64,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list embedded agents failed: %w", err)
 	}
 
-	runSession := uniqueFormulaRunSession(formulaSession, recipe.Name)
+	runSession := uniqueFormulaRunSession(formulaSession, workflow.Name)
 
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
 		Session:        runSession,
@@ -86,7 +80,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	defer runner.Close()
 
 	runAgent := defaultFormulaAgent(formulaAgent)
-	if err := validateFormulaAgentConfiguration(rt, recipe, runAgent, formulaModel, runSession); err != nil {
+	if err := validateFormulaAgentConfiguration(rt, workflow, runAgent, formulaModel, runSession); err != nil {
 		return err
 	}
 
@@ -94,7 +88,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
-		runStore, err = formularun.NewWithMetadata(formulaDefaultRunDir(loaded), recipe, vars, runAgent, formulaModel, runSession, projectRoot, version)
+		runStore, err = formularun.NewWithMetadata(formulaDefaultRunDir(loaded), workflow, vars, runAgent, formulaModel, runSession, projectRoot, version)
 		if err != nil {
 			return err
 		}
@@ -106,7 +100,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	var dashboard *formulaDashboardServer
 	if runStore != nil || showWeb {
-		dashboard = newFormulaDashboardServer(recipe)
+		dashboard = newFormulaDashboardServer(workflow)
 		dashboard.state.WorkspaceDir = formulaDashboardWorkspace(projectRoot)
 		if runStore != nil {
 			if err := runStore.SaveWorkflow(workflow); err != nil {
@@ -124,7 +118,6 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopRunSignals()
 	err = executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
-		Recipe:       recipe,
 		Workflow:     workflow,
 		RunStore:     runStore,
 		Processor:    runner,
@@ -146,18 +139,18 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func executeFormulaResume(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string) error {
-	return executeFormulaResumeWithAdvice(cmd, recipe, runStore, dashboard, vars, initialResults, initialContext, nil)
+func executeFormulaResume(cmd *cobra.Command, workflowName string, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []formulaui.ResumeStepResult, initialContext map[string]string) error {
+	return executeFormulaResumeWithAdvice(cmd, workflowName, runStore, dashboard, vars, initialResults, initialContext, nil)
 }
 
-func executeFormulaResumeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
+func executeFormulaResumeWithAdvice(cmd *cobra.Command, workflowName string, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []formulaui.ResumeStepResult, initialContext map[string]string, stepAdvice map[string]string) error {
 	if len(stepAdvice) == 0 {
-		return executeFormulaResumeRuntime(cmd, recipe, runStore, dashboard, initialResults, initialContext, nil)
+		return executeFormulaResumeRuntime(cmd, workflowName, runStore, dashboard, initialResults, initialContext, nil)
 	}
-	return executeFormulaResumeRuntime(cmd, recipe, runStore, dashboard, initialResults, initialContext, stepAdvice)
+	return executeFormulaResumeRuntime(cmd, workflowName, runStore, dashboard, initialResults, initialContext, stepAdvice)
 
 }
-func executeFormulaResumeRuntime(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
+func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runStore *formularun.Store, dashboard *formulaDashboardServer, initialResults []formulaui.ResumeStepResult, initialContext map[string]string, stepAdvice map[string]string) error {
 	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
 	if projectRoot == "" {
 		projectRoot, _ = os.Getwd()
@@ -177,7 +170,11 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, recipe *formula.Recipe, run
 		return fmt.Errorf("list embedded agents failed: %w", err)
 	}
 	defaultAgent := defaultFormulaAgent(runStore.Meta.Agent)
-	if err := validateFormulaAgentConfiguration(rt, recipe, defaultAgent, runStore.Meta.Model, runStore.Meta.Session); err != nil {
+	workflow, err := formula.CompileWorkflowByName(context.Background(), workflowName, getSearchPaths(), runStore.Meta.Vars)
+	if err != nil {
+		return err
+	}
+	if err := validateFormulaAgentConfiguration(rt, workflow, defaultAgent, runStore.Meta.Model, runStore.Meta.Session); err != nil {
 		return err
 	}
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: runStore.Meta.Session, Model: runStore.Meta.Model, Debug: formulaDebug, Quiet: true, Workspace: agentWorkspace, EmbeddedAgents: embeddedAgents})
@@ -197,7 +194,7 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, recipe *formula.Recipe, run
 		stepAdvice:   stepAdvice,
 	}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
-		Recipe:       recipe,
+		Workflow:     workflow,
 		RunStore:     runStore,
 		AgentRunner:  agentRunner,
 		AllowScripts: !formulaNoScript,
@@ -217,7 +214,7 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, recipe *formula.Recipe, run
 	if runCtx.Err() != nil && err == nil {
 		err = runCtx.Err()
 	}
-	renderFormulaRuntimeResult(cmd, recipe, result, err != nil)
+	renderFormulaRuntimeResult(cmd, workflow, result, err != nil)
 	status := formularun.StatusCompleted
 	errMsg := ""
 	if result != nil && result.Status == "waiting" {
@@ -240,38 +237,4 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, recipe *formula.Recipe, run
 		return nil
 	}
 	return err
-}
-
-func renderRunResult(cmd *cobra.Command, result *executor.RunResult, hasError bool) {
-	out := cmd.OutOrStdout()
-
-	fmt.Fprintf(out, "\nExecution Result: %s\n", result.RecipeName)
-	fmt.Fprintf(out, "Total: %d | Completed: %d | Failed: %d | Skipped: %d | Waiting input: %d\n\n",
-		result.Total, result.Completed, result.Failed, result.Skipped, result.WaitingInput)
-
-	for _, r := range result.Steps {
-		status := string(r.Status)
-		switch r.Status {
-		case executor.StatusCompleted:
-			status = "✓ " + status
-		case executor.StatusFailed:
-			status = "✗ " + status
-		case executor.StatusSkipped:
-			status = "⊘ " + status
-		case executor.StatusWaitingInput:
-			status = "⏸ " + status
-		}
-		fmt.Fprintf(out, "  [%s] %s\n", status, r.Title)
-		if r.HumanInputRequest != nil && r.HumanInputRequest.Reason != "" {
-			fmt.Fprintf(out, "    Waiting reason: %s\n", r.HumanInputRequest.Reason)
-		}
-		if r.Error != "" {
-			fmt.Fprintf(out, "    Error: %s\n", r.Error)
-		}
-	}
-
-	if result.FinalOutput != "" {
-		fmt.Fprintf(out, "\n--- Final Output ---\n\n%s\n", result.FinalOutput)
-	}
-	fmt.Fprintln(out)
 }

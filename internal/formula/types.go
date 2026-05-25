@@ -178,7 +178,7 @@ func (v *VarDef) UnmarshalTOML(data interface{}) error {
 	}
 }
 
-// Step defines a work item to create when the formula is instantiated.
+// Step defines a workflow node in a formula document.
 type Step struct {
 	// ID is the unique identifier within this formula.
 	ID string `json:"id" toml:"id"`

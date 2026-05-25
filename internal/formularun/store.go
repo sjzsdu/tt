@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 )
 
 const (
@@ -45,7 +45,7 @@ type Metadata struct {
 	GitDirty     bool              `json:"git_dirty,omitempty"`
 	WorkspaceDir string            `json:"workspace_dir,omitempty"`
 	StatePath    string            `json:"state_path,omitempty"`
-	RecipePath   string            `json:"recipe_path,omitempty"`
+	WorkflowPath string            `json:"workflow_path,omitempty"`
 	LogsPath     string            `json:"logs_path,omitempty"`
 }
 
@@ -83,22 +83,22 @@ func DefaultRoot(workspace string) string {
 	return filepath.Join(workspace, ".tt", "runs", "formula")
 }
 
-func New(root string, recipe *formula.Recipe, vars map[string]string, agent, model, session, workspace string) (*Store, error) {
-	return NewWithMetadata(root, recipe, vars, agent, model, session, workspace, "")
+func New(root string, workflow *ir.Workflow, vars map[string]string, agent, model, session, workspace string) (*Store, error) {
+	return NewWithMetadata(root, workflow, vars, agent, model, session, workspace, "")
 }
 
-func NewWithMetadata(root string, recipe *formula.Recipe, vars map[string]string, agent, model, session, workspace, ttVersion string) (*Store, error) {
+func NewWithMetadata(root string, workflow *ir.Workflow, vars map[string]string, agent, model, session, workspace, ttVersion string) (*Store, error) {
 	if root == "" {
 		if err := EnsureWorkspaceState(workspace); err != nil {
 			return nil, err
 		}
 		root = DefaultRoot(workspace)
 	}
-	if recipe == nil {
-		return nil, fmt.Errorf("recipe is required")
+	if workflow == nil {
+		return nil, fmt.Errorf("workflow is required")
 	}
-	id := NewID(recipe.Name, time.Now())
-	formulaSlug := slug(recipe.Name)
+	id := NewID(workflow.Name, time.Now())
+	formulaSlug := slug(workflow.Name)
 	dir := filepath.Join(root, formulaSlug, id)
 	if err := os.MkdirAll(filepath.Join(dir, "steps"), 0o755); err != nil {
 		return nil, err
@@ -106,8 +106,8 @@ func NewWithMetadata(root string, recipe *formula.Recipe, vars map[string]string
 	git := collectGitMetadata(workspace)
 	meta := Metadata{
 		RunID:        filepath.ToSlash(filepath.Join(formulaSlug, id)),
-		Formula:      recipe.Name,
-		Description:  recipe.Description,
+		Formula:      workflow.Name,
+		Description:  workflow.Description,
 		Status:       StatusRunning,
 		StartedAt:    time.Now().Format(time.RFC3339),
 		Vars:         cloneMap(vars),
@@ -121,11 +121,11 @@ func NewWithMetadata(root string, recipe *formula.Recipe, vars map[string]string
 		GitDirty:     git.Dirty,
 		WorkspaceDir: workspace,
 		StatePath:    "state.json",
-		RecipePath:   "recipe.json",
+		WorkflowPath: "workflow.json",
 		LogsPath:     "logs.jsonl",
 	}
 	store := &Store{Root: root, Dir: dir, Meta: meta}
-	if err := store.SaveRecipe(recipe); err != nil {
+	if err := store.SaveWorkflow(workflow); err != nil {
 		return nil, err
 	}
 	if err := store.SaveMetadata(); err != nil {
@@ -185,9 +185,6 @@ func NewID(_ string, t time.Time) string {
 }
 
 func (s *Store) SaveMetadata() error { return writeJSON(filepath.Join(s.Dir, "run.json"), s.Meta) }
-func (s *Store) SaveRecipe(recipe *formula.Recipe) error {
-	return writeJSON(filepath.Join(s.Dir, "recipe.json"), recipe)
-}
 func (s *Store) SaveWorkflow(workflow any) error {
 	return writeJSON(filepath.Join(s.Dir, "workflow.json"), workflow)
 }
@@ -390,12 +387,12 @@ func LoadMetadata(dir string) (Metadata, error) {
 
 func LoadState(dir string, out any) error { return readJSON(filepath.Join(dir, "state.json"), out) }
 
-func LoadRecipe(dir string) (*formula.Recipe, error) {
-	var recipe formula.Recipe
-	if err := readJSON(filepath.Join(dir, "recipe.json"), &recipe); err != nil {
+func LoadWorkflow(dir string) (*ir.Workflow, error) {
+	var workflow ir.Workflow
+	if err := readJSON(filepath.Join(dir, "workflow.json"), &workflow); err != nil {
 		return nil, err
 	}
-	return &recipe, nil
+	return &workflow, nil
 }
 
 func writeJSON(path string, v any) error {

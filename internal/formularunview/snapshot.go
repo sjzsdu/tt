@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjzsdu/tt/internal/executor"
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formulaui"
 )
 
@@ -16,7 +14,7 @@ func ResolveWaitingInputStepID(snapshot formulaui.Snapshot, stepID string) (stri
 		return "", err
 	}
 	for _, step := range snapshot.Steps {
-		if step.ID == resolvedStepID && step.Status != string(executor.StatusWaitingInput) {
+		if step.ID == resolvedStepID && step.Status != formulaui.StatusWaitingInput {
 			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", resolvedStepID, step.Status)
 		}
 	}
@@ -51,38 +49,34 @@ func MarkStepCompletedWithOutput(snapshot *formulaui.Snapshot, stepID, output st
 		if snapshot.Steps[i].ID != stepID {
 			continue
 		}
-		snapshot.Steps[i].Status = string(executor.StatusCompleted)
+		snapshot.Steps[i].Status = formulaui.StatusCompleted
 		snapshot.Steps[i].Output = output
 		snapshot.Steps[i].Error = ""
 		snapshot.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
-		formulaui.AppendStepActivity(&snapshot.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: snapshot.Steps[i].Title, Status: string(executor.StatusCompleted), Detail: "Human input submitted", Output: output})
+		formulaui.AppendStepActivity(&snapshot.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: snapshot.Steps[i].Title, Status: formulaui.StatusCompleted, Detail: "Human input submitted", Output: output})
 		return nil
 	}
 	return fmt.Errorf("step %q not found in snapshot", stepID)
 }
 
-func BuildResumeState(recipe *formula.Recipe, snapshot formulaui.Snapshot) ([]executor.StepResult, map[string]string) {
-	return BuildResumeStateExcluding(recipe, snapshot, nil)
+func BuildResumeState(snapshot formulaui.Snapshot) ([]formulaui.ResumeStepResult, map[string]string) {
+	return BuildResumeStateExcluding(snapshot, nil)
 }
 
-func BuildResumeStateExcluding(recipe *formula.Recipe, snapshot formulaui.Snapshot, exclude map[string]bool) ([]executor.StepResult, map[string]string) {
-	stepByID := map[string]*formula.RecipeStep{}
-	for i := range recipe.Steps {
-		stepByID[recipe.Steps[i].ID] = &recipe.Steps[i]
-	}
-	var results []executor.StepResult
+func BuildResumeStateExcluding(snapshot formulaui.Snapshot, exclude map[string]bool) ([]formulaui.ResumeStepResult, map[string]string) {
+	var results []formulaui.ResumeStepResult
 	ctx := map[string]string{}
 	for _, step := range snapshot.Steps {
 		if exclude != nil && exclude[step.ID] {
 			continue
 		}
-		status := executor.StepStatus(step.Status)
-		if status != executor.StatusCompleted && status != executor.StatusSkipped {
+		status := step.Status
+		if status != formulaui.StatusCompleted && status != formulaui.StatusSkipped {
 			continue
 		}
-		results = append(results, executor.StepResult{StepID: step.ID, Title: step.Title, Status: status, Output: step.Output, Error: step.Error})
-		if recipeStep := stepByID[step.ID]; recipeStep != nil && recipeStep.OutputKey != "" && step.Output != "" {
-			ctx[recipeStep.OutputKey] = step.Output
+		results = append(results, formulaui.ResumeStepResult{StepID: step.ID, Title: step.Title, Status: status, Output: step.Output, Error: step.Error})
+		if step.Output != "" {
+			ctx[step.ID] = step.Output
 		}
 	}
 	return results, ctx

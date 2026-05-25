@@ -1,12 +1,9 @@
 package formulacmd
 
 import (
-	"errors"
 	"fmt"
 	"github.com/sjzsdu/tt/internal/formulaui"
 	"time"
-
-	"github.com/sjzsdu/tt/internal/executor"
 )
 
 func (s *formulaDashboardServer) logf(format string, args ...any) {
@@ -151,38 +148,4 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, d
 		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
 		return
 	}
-}
-
-func (s *formulaDashboardServer) finalize(result *executor.RunResult, runErr error) {
-	s.mu.Lock()
-	if result != nil {
-		s.state.RecipeName = result.RecipeName
-		s.state.FinalOutput = result.FinalOutput
-		s.state.Status = "completed"
-		if result.WaitingInput > 0 {
-			s.state.Status = "waiting_input"
-		}
-		var waitingErr executor.WaitingInputError
-		if runErr != nil && !errors.As(runErr, &waitingErr) {
-			s.state.Status = "failed"
-			s.state.Error = runErr.Error()
-		}
-		for _, step := range result.Steps {
-			for i := range s.state.Steps {
-				if s.state.Steps[i].ID != step.StepID {
-					continue
-				}
-				s.state.Steps[i].Title = step.Title
-				s.state.Steps[i].Status = string(step.Status)
-				s.state.Steps[i].Output = step.Output
-				s.state.Steps[i].Error = step.Error
-				if step.Status == executor.StatusSkipped {
-					s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
-				}
-				break
-			}
-		}
-	}
-	s.mu.Unlock()
-	s.broadcast()
 }

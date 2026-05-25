@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/formularunview"
 	"github.com/sjzsdu/tt/internal/webui"
@@ -82,7 +81,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		http.Error(w, fmt.Sprintf("step %q not found", resolvedStepID), http.StatusBadRequest)
 		return
 	}
-	if target.Status != string(executor.StatusFailed) {
+	if target.Status != formulaui.StatusFailed {
 		http.Error(w, "only failed steps can be retried", http.StatusBadRequest)
 		return
 	}
@@ -90,12 +89,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		http.Error(w, "run is already active", http.StatusConflict)
 		return
 	}
-	recipe, err := formularun.LoadRecipe(s.store.Dir)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	initialResults, initialContext := formularunview.BuildResumeStateExcluding(recipe, snapshot, map[string]bool{resolvedStepID: true})
+	initialResults, initialContext := formularunview.BuildResumeStateExcluding(snapshot, map[string]bool{resolvedStepID: true})
 	formularunview.ResetStepForRetry(&snapshot, resolvedStepID)
 	snapshot.Status = "running"
 	snapshot.Error = ""
@@ -113,7 +107,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 	s.broadcast()
 	advice := strings.TrimSpace(req.Advice)
 	go func() {
-		if err := executeFormulaResumeWithAdvice(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext, map[string]string{resolvedStepID: advice}); err != nil {
+		if err := executeFormulaResumeWithAdvice(&cobra.Command{}, s.store.Meta.Formula, s.store, s, s.store.Meta.Vars, initialResults, initialContext, map[string]string{resolvedStepID: advice}); err != nil {
 			s.logf("retry step %s failed: %v", resolvedStepID, err)
 		}
 	}()
@@ -185,12 +179,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		return
 	}
 	_ = s.store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"})
-	recipe, err := formularun.LoadRecipe(s.store.Dir)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	initialResults, initialContext := formularunview.BuildResumeState(recipe, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeState(snapshot)
 	s.store.Meta.Status = formularun.StatusRunning
 	s.store.Meta.Error = ""
 	s.store.Meta.FinishedAt = ""
@@ -205,7 +194,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 	s.mu.Unlock()
 	s.broadcast()
 	go func() {
-		if err := executeFormulaResume(&cobra.Command{}, recipe, s.store, s, s.store.Meta.Vars, initialResults, initialContext); err != nil {
+		if err := executeFormulaResume(&cobra.Command{}, s.store.Meta.Formula, s.store, s, s.store.Meta.Vars, initialResults, initialContext); err != nil {
 			s.logf("resume after human input failed: %v", err)
 		}
 	}()

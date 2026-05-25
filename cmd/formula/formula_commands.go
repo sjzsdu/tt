@@ -66,7 +66,7 @@ func New(deps Dependencies) *cobra.Command {
 
 	formulaCmd := &cobra.Command{
 		Use:   "formula",
-		Short: "Manage and instantiate formula templates",
+		Short: "Manage and run formula workflows",
 		Long:  formulaLong,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			app.installOptions()
@@ -78,7 +78,6 @@ func New(deps Dependencies) *cobra.Command {
 	formulaListCmd := app.newFormulaListCmd()
 	formulaShowCmd := app.newFormulaShowCmd()
 	formulaCompileCmd := app.newFormulaCompileCmd()
-	formulaInstantiateCmd := app.newFormulaInstantiateCmd()
 	formulaValidateCmd := newFormulaValidateCmd()
 	formulaCopyCmd := newFormulaCopyCmd()
 	formulaCreateCmd := app.newFormulaCreateCmd()
@@ -89,7 +88,6 @@ func New(deps Dependencies) *cobra.Command {
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
 	formulaCmd.AddCommand(formulaCompileCmd)
-	formulaCmd.AddCommand(formulaInstantiateCmd)
 	formulaCmd.AddCommand(formulaValidateCmd)
 	formulaCmd.AddCommand(formulaCopyCmd)
 	formulaCmd.AddCommand(formulaCreateCmd)
@@ -134,18 +132,6 @@ func (a *App) newFormulaCompileCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFormulaCompile,
 	}
-	return cmd
-}
-
-func (a *App) newFormulaInstantiateCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "instantiate <name>",
-		Short: "Instantiate a formula into a task tree",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runFormulaInstantiate,
-	}
-	cmd.Flags().StringVarP(&a.opts.Output, "output", "o", "json", "output format: json, yaml, text, prompt")
-	cmd.Flags().StringVarP(&a.opts.Title, "title", "t", "", "override root task title")
 	return cmd
 }
 

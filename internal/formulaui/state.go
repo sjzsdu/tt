@@ -6,6 +6,15 @@ import (
 	"github.com/sjzsdu/tt/internal/formula"
 )
 
+const (
+	StatusPending      = "pending"
+	StatusRunning      = "running"
+	StatusCompleted    = "completed"
+	StatusFailed       = "failed"
+	StatusSkipped      = "skipped"
+	StatusWaitingInput = "waiting_input"
+)
+
 type Snapshot struct {
 	RecipeName   string     `json:"recipe_name"`
 	Description  string     `json:"description,omitempty"`
@@ -103,6 +112,14 @@ type Edge struct {
 type LogEntry struct {
 	At   string `json:"at"`
 	Text string `json:"text"`
+}
+
+type ResumeStepResult struct {
+	StepID string `json:"step_id"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status"`
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 type Message struct {

@@ -4,8 +4,8 @@ import (
 	"github.com/sjzsdu/tt/internal/formulaui"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formularunview"
 )
 
@@ -73,14 +73,8 @@ func TestBuildFormulaDashboardGraphKeepsExplicitBoundaryWork(t *testing.T) {
 }
 
 func TestFormulaDashboardLoopBodyActivityRollsUpToParentStep(t *testing.T) {
-	recipe := &formula.Recipe{
-		Name: "demo",
-		Steps: []formula.RecipeStep{
-			{ID: "demo", IsRoot: true},
-			{ID: "demo.review", Title: "Review loop"},
-		},
-	}
-	dashboard := newFormulaDashboardServer(recipe)
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.review", Kind: steps.KindAgent, Title: "Review loop"}}})
+	dashboard := newFormulaDashboardServer(workflow)
 
 	dashboard.markStepRunning("demo.review.iter1.check", "Check iteration 1", "agent", "model", "session")
 	dashboard.markStepCompleted("demo.review.iter1.check", "approved=false")
@@ -99,32 +93,25 @@ func TestFormulaDashboardLoopBodyActivityRollsUpToParentStep(t *testing.T) {
 }
 
 func TestBuildResumeStateExcludingRetriedStep(t *testing.T) {
-	recipe := &formula.Recipe{
-		Name: "demo",
-		Steps: []formula.RecipeStep{
-			{ID: "demo.done", Title: "Done", OutputKey: "done"},
-			{ID: "demo.retry", Title: "Retry", OutputKey: "retry"},
-		},
-	}
 	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
-		{ID: "demo.done", Title: "Done", Status: string(executor.StatusCompleted), Output: "done-output"},
-		{ID: "demo.retry", Title: "Retry", Status: string(executor.StatusCompleted), Output: "old-output"},
+		{ID: "demo.done", Title: "Done", Status: formulaui.StatusCompleted, Output: "done-output"},
+		{ID: "demo.retry", Title: "Retry", Status: formulaui.StatusCompleted, Output: "old-output"},
 	}}
-	results, ctx := formularunview.BuildResumeStateExcluding(recipe, snapshot, map[string]bool{"demo.retry": true})
+	results, ctx := formularunview.BuildResumeStateExcluding(snapshot, map[string]bool{"demo.retry": true})
 	if len(results) != 1 || results[0].StepID != "demo.done" {
 		t.Fatalf("results = %+v, want only non-retried completed step", results)
 	}
-	if ctx["done"] != "done-output" {
-		t.Fatalf("ctx[done] = %q, want done-output", ctx["done"])
+	if ctx["demo.done"] != "done-output" {
+		t.Fatalf("ctx[demo.done] = %q, want done-output", ctx["demo.done"])
 	}
-	if _, ok := ctx["retry"]; ok {
+	if _, ok := ctx["demo.retry"]; ok {
 		t.Fatalf("ctx contains retried output: %+v", ctx)
 	}
 }
 
 func TestResolveFormulaDashboardStepIDAllowsFailedRetryTargets(t *testing.T) {
 	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
-		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
+		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: formulaui.StatusFailed},
 	}}
 
 	got, err := formularunview.ResolveStepID(snapshot, "write-articles")
@@ -138,7 +125,7 @@ func TestResolveFormulaDashboardStepIDAllowsFailedRetryTargets(t *testing.T) {
 
 func TestResolveFormulaRunStepIDStillRequiresWaitingInput(t *testing.T) {
 	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
-		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: string(executor.StatusFailed)},
+		{ID: "fresh-topic-docs.write-articles", Title: "Write articles", Status: formulaui.StatusFailed},
 	}}
 
 	if _, err := formularunview.ResolveWaitingInputStepID(snapshot, "write-articles"); err == nil {

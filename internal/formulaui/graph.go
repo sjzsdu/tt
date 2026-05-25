@@ -4,7 +4,121 @@ import (
 	"fmt"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 )
+
+func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
+	if workflow == nil {
+		return nil, nil
+	}
+	depths := computeWorkflowDepths(workflow)
+	dependsOnMap := map[string][]string{}
+	stepIDs := map[string]struct{}{}
+
+	uiSteps := make([]Step, 0, len(workflow.Graph.Nodes))
+	index := 0
+	for id, node := range workflow.Graph.Nodes {
+		if node == nil || node.Step == nil {
+			continue
+		}
+		meta := node.Step.Meta()
+		if meta.Kind == steps.KindNoop {
+			continue
+		}
+		stepIDs[string(id)] = struct{}{}
+		uiStep := Step{
+			ID:        string(id),
+			Title:     meta.Title,
+			Type:      string(meta.Kind),
+			Status:    StatusPending,
+			Labels:    append([]string(nil), meta.Labels...),
+			Condition: meta.Condition,
+			Depth:     depths[id],
+			Index:     index,
+		}
+		index++
+		switch typed := node.Step.(type) {
+		case steps.AgentStep:
+			uiStep.Agent = typed.Agent
+			uiStep.Model = typed.Model
+			uiStep.Description = typed.Prompt
+		case steps.ScriptStep:
+			uiStep.Execution = string(steps.KindScript)
+		case steps.HumanInputStep:
+			uiStep.Execution = string(steps.KindHumanInput)
+			uiStep.Description = typed.Reason
+			request := &HumanInputRequest{Reason: typed.Reason}
+			if form, ok := typed.Form.(*formula.FormSpec); ok {
+				request.Form = form
+			}
+			uiStep.HumanInputRequest = request
+		}
+		uiSteps = append(uiSteps, uiStep)
+	}
+
+	uiEdges := make([]Edge, 0, len(workflow.Graph.Edges))
+	for _, dep := range workflow.Graph.Edges {
+		from := string(dep.From)
+		to := string(dep.To)
+		if _, ok := stepIDs[from]; !ok {
+			continue
+		}
+		if _, ok := stepIDs[to]; !ok {
+			continue
+		}
+		dependsOnMap[to] = append(dependsOnMap[to], from)
+		uiEdges = append(uiEdges, Edge{From: from, To: to, Type: dep.Type})
+	}
+	for i := range uiSteps {
+		uiSteps[i].DependsOn = append([]string(nil), dependsOnMap[uiSteps[i].ID]...)
+	}
+	return uiSteps, uiEdges
+}
+
+func computeWorkflowDepths(workflow *ir.Workflow) map[ir.NodeID]int {
+	stepIDs := map[ir.NodeID]struct{}{}
+	for id, node := range workflow.Graph.Nodes {
+		if node == nil || node.Step == nil || node.Step.Meta().Kind == steps.KindNoop {
+			continue
+		}
+		stepIDs[id] = struct{}{}
+	}
+	parents := map[ir.NodeID][]ir.NodeID{}
+	for _, dep := range workflow.Graph.Edges {
+		if _, ok := stepIDs[dep.From]; !ok {
+			continue
+		}
+		if _, ok := stepIDs[dep.To]; !ok {
+			continue
+		}
+		parents[dep.To] = append(parents[dep.To], dep.From)
+	}
+	depths := map[ir.NodeID]int{}
+	var visit func(ir.NodeID, map[ir.NodeID]bool) int
+	visit = func(id ir.NodeID, visiting map[ir.NodeID]bool) int {
+		if depth, ok := depths[id]; ok {
+			return depth
+		}
+		if visiting[id] {
+			return 0
+		}
+		visiting[id] = true
+		maxDepth := 0
+		for _, parentID := range parents[id] {
+			if next := visit(parentID, visiting) + 1; next > maxDepth {
+				maxDepth = next
+			}
+		}
+		delete(visiting, id)
+		depths[id] = maxDepth
+		return maxDepth
+	}
+	for id := range stepIDs {
+		visit(id, map[ir.NodeID]bool{})
+	}
+	return depths
+}
 
 func BuildGraph(recipe *formula.Recipe) ([]Step, []Edge) {
 	depths := computeDepths(recipe)

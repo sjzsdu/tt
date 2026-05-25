@@ -7,12 +7,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
+
+func testFormulaWorkflow(name string, nodes ...steps.Step) *ir.Workflow {
+	wf := &ir.Workflow{ID: ir.WorkflowID(name), Name: name, Graph: ir.NewGraph()}
+	for _, step := range nodes {
+		meta := step.Meta()
+		wf.Graph.AddNode(&ir.Node{ID: ir.NodeID(meta.ID), Step: step})
+	}
+	return wf
+}
 
 type fakeFormulaDirectProcessor struct {
 	opt pcwrap.RunOptions
@@ -55,8 +63,8 @@ func TestFormulaRuntimeAgentRunnerInjectsStepAdvice(t *testing.T) {
 }
 
 func TestNewFormulaRuntimeExecutorBuildsWorkflowExecutor(t *testing.T) {
-	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo", IsRoot: true}, {ID: "demo.start", Execution: "noop"}}}
-	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{Recipe: recipe, DryRun: true, AllowScripts: true})
+	workflow := testFormulaWorkflow("demo", steps.NoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.start", Kind: steps.KindNoop, Title: "start"}}})
+	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{Workflow: workflow, DryRun: true, AllowScripts: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,9 +77,9 @@ func TestNewFormulaRuntimeExecutorBuildsWorkflowExecutor(t *testing.T) {
 }
 
 func TestExecuteFormulaRecipeRuntimeDryRun(t *testing.T) {
-	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo", IsRoot: true}, {ID: "demo.start", Execution: "noop"}}}
+	workflow := testFormulaWorkflow("demo", steps.NoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.start", Kind: steps.KindNoop, Title: "start"}}})
 	var out bytes.Buffer
-	err := executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{Recipe: recipe, DryRun: true, AllowScripts: true, Out: &out})
+	err := executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{Workflow: workflow, DryRun: true, AllowScripts: true, Out: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,9 +89,8 @@ func TestExecuteFormulaRecipeRuntimeDryRun(t *testing.T) {
 }
 
 func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
-	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo.work", Title: "Work"}}}
-	dashboard := newFormulaDashboardServer(recipe)
-	workflow := formula.WorkflowFromRecipe(recipe)
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
+	dashboard := newFormulaDashboardServer(workflow)
 	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
 	sink.Emit(formularuntime.Event{Type: "step.started", NodeID: "demo.work"})
 	if dashboard.state.Steps[0].Status != "running" {
@@ -97,7 +104,7 @@ func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
 }
 
 func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
-	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo.work", Title: "Work"}}}
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
 	raw, _ := json.Marshal("saved output")
 	snapshot := formularuntime.Snapshot{
 		WorkflowID: "demo",
@@ -106,7 +113,7 @@ func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
 			"demo.work": {NodeID: "demo.work", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}},
 		},
 	}
-	dashboard := runtimeSnapshotToDashboardSnapshot(recipe, snapshot)
+	dashboard := runtimeSnapshotToDashboardSnapshot(workflow, snapshot)
 	if dashboard.Status != string(steps.StatusWaiting) {
 		t.Fatalf("status = %s", dashboard.Status)
 	}

@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
@@ -24,7 +23,7 @@ type formulaDirectProcessor interface {
 	ProcessDirect(pcwrap.RunOptions) (string, error)
 }
 
-func loadFormulaRunSnapshot(dir string, recipe *formula.Recipe) (formulaui.Snapshot, error) {
+func loadFormulaRunSnapshot(dir string, workflow *ir.Workflow) (formulaui.Snapshot, error) {
 	var dashboardSnapshot formulaui.Snapshot
 	if err := formularun.LoadState(dir, &dashboardSnapshot); err == nil {
 		if dashboardSnapshot.RecipeName != "" || len(dashboardSnapshot.Steps) > 0 {
@@ -35,14 +34,14 @@ func loadFormulaRunSnapshot(dir string, recipe *formula.Recipe) (formulaui.Snaps
 	if err := formularun.LoadState(dir, &runtimeSnapshot); err != nil {
 		return dashboardSnapshot, err
 	}
-	return runtimeSnapshotToDashboardSnapshot(recipe, runtimeSnapshot), nil
+	return runtimeSnapshotToDashboardSnapshot(workflow, runtimeSnapshot), nil
 }
 
-func runtimeSnapshotToDashboardSnapshot(recipe *formula.Recipe, snapshot formularuntime.Snapshot) formulaui.Snapshot {
-	if recipe == nil {
+func runtimeSnapshotToDashboardSnapshot(workflow *ir.Workflow, snapshot formularuntime.Snapshot) formulaui.Snapshot {
+	if workflow == nil {
 		return formulaui.Snapshot{RecipeName: string(snapshot.WorkflowID), Status: string(snapshot.Status)}
 	}
-	dashboard := newFormulaDashboardServer(recipe)
+	dashboard := newFormulaDashboardServer(workflow)
 	out := dashboard.state
 	out.Status = string(snapshot.Status)
 	for i := range out.Steps {
@@ -77,7 +76,7 @@ func applyRuntimeStepStateToDashboardStep(step *formulaui.Step, state formularun
 
 func runtimeStatusToDashboardStatus(status steps.Status) string {
 	if status == steps.StatusWaiting {
-		return string(executor.StatusWaitingInput)
+		return formulaui.StatusWaitingInput
 	}
 	return string(status)
 }
@@ -129,7 +128,6 @@ func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRe
 }
 
 type formulaRuntimeRunOptions struct {
-	Recipe       *formula.Recipe
 	Workflow     *ir.Workflow
 	RunStore     *formularun.Store
 	AgentRunner  steps.AgentRunner
@@ -139,9 +137,6 @@ type formulaRuntimeRunOptions struct {
 
 func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Executor, error) {
 	workflow := opt.Workflow
-	if workflow == nil && opt.Recipe != nil {
-		workflow = formula.WorkflowFromRecipe(opt.Recipe)
-	}
 	if workflow == nil {
 		return nil, fmt.Errorf("workflow is required")
 	}
@@ -163,7 +158,6 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 }
 
 type executeFormulaRuntimeOptions struct {
-	Recipe       *formula.Recipe
 	Workflow     *ir.Workflow
 	RunStore     *formularun.Store
 	Processor    formulaDirectProcessor
@@ -189,7 +183,6 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		quiet:        true,
 	}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
-		Recipe:       opt.Recipe,
 		Workflow:     opt.Workflow,
 		RunStore:     opt.RunStore,
 		AgentRunner:  agentRunner,
@@ -203,7 +196,7 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		exec.Events = formulaRuntimeDashboardEventSink{dashboard: opt.Dashboard, workflow: exec.Workflow}
 	}
 	if opt.Out != nil {
-		fmt.Fprintf(opt.Out, "Executing formula with typed runtime: %s\n", opt.Recipe.Name)
+		fmt.Fprintf(opt.Out, "Executing formula with typed runtime: %s\n", exec.Workflow.Name)
 	}
 	result, err := exec.Run(ctx)
 	if opt.Out != nil && result != nil {
@@ -216,7 +209,7 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 	return nil
 }
 
-func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults []executor.StepResult, initialContext map[string]string) {
+func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults []formulaui.ResumeStepResult, initialContext map[string]string) {
 	if exec == nil || exec.Workflow == nil || exec.Store == nil {
 		return
 	}
@@ -231,7 +224,7 @@ func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults
 		_ = exec.Context.Set(key, steps.Value{Type: "json", Raw: data})
 	}
 	for _, result := range initialResults {
-		if result.Status != executor.StatusCompleted || strings.TrimSpace(result.StepID) == "" {
+		if result.Status != formulaui.StatusCompleted || strings.TrimSpace(result.StepID) == "" {
 			continue
 		}
 		data, err := json.Marshal(result.Output)
@@ -249,11 +242,11 @@ func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults
 	}
 }
 
-func renderFormulaRuntimeResult(cmd *cobra.Command, recipe *formula.Recipe, result *formularuntime.RunResult, hasError bool) {
+func renderFormulaRuntimeResult(cmd *cobra.Command, workflow *ir.Workflow, result *formularuntime.RunResult, hasError bool) {
 	out := cmd.OutOrStdout()
 	name := ""
-	if recipe != nil {
-		name = recipe.Name
+	if workflow != nil {
+		name = workflow.Name
 	}
 	if result == nil {
 		fmt.Fprintf(out, "\nRuntime Result: %s\n", name)

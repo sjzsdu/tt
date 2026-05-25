@@ -11,6 +11,8 @@ import (
 
 	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
@@ -264,11 +266,11 @@ type formulaAgentRequirement struct {
 	Source    string
 }
 
-func validateFormulaAgentConfiguration(rt *pcwrap.Runtime, recipe *formula.Recipe, defaultAgent, model, session string) error {
+func validateFormulaAgentConfiguration(rt *pcwrap.Runtime, workflow *ir.Workflow, defaultAgent, model, session string) error {
 	if rt == nil {
 		return fmt.Errorf("picoclaw runtime not loaded")
 	}
-	requirements := collectFormulaAgentRequirements(recipe, defaultAgent)
+	requirements := collectFormulaAgentRequirements(workflow, defaultAgent)
 	embeddedAgents, err := agents.List()
 	if err != nil {
 		return fmt.Errorf("list embedded agents failed: %w", err)
@@ -289,7 +291,7 @@ func validateFormulaAgentConfiguration(rt *pcwrap.Runtime, recipe *formula.Recip
 	return nil
 }
 
-func collectFormulaAgentRequirements(recipe *formula.Recipe, defaultAgent string) []formulaAgentRequirement {
+func collectFormulaAgentRequirements(workflow *ir.Workflow, defaultAgent string) []formulaAgentRequirement {
 	seen := map[string]formulaAgentRequirement{}
 	add := func(name, stepID, stepTitle, source string) {
 		name = strings.TrimSpace(name)
@@ -303,29 +305,18 @@ func collectFormulaAgentRequirements(recipe *formula.Recipe, defaultAgent string
 		seen[key] = formulaAgentRequirement{Name: name, StepID: stepID, StepTitle: stepTitle, Source: source}
 	}
 	add(defaultAgent, "", "", "default agent")
-	var walkSteps func([]formula.RecipeStep)
-	walkSteps = func(steps []formula.RecipeStep) {
-		for _, step := range steps {
-			if step.IsRoot || step.Execution == "noop" || step.Execution == "script" {
+	if workflow != nil {
+		for nodeID, node := range workflow.Graph.Nodes {
+			if node == nil || node.Step == nil {
 				continue
 			}
-			if step.Agent != nil && strings.TrimSpace(step.Agent.Name) != "" {
-				add(step.Agent.Name, step.ID, step.Title, "step agent")
+			agentStep, ok := node.Step.(steps.AgentStep)
+			if !ok || strings.TrimSpace(agentStep.Agent) == "" {
+				continue
 			}
-			if step.Loop != nil {
-				for _, body := range step.Loop.Body {
-					if body == nil || strings.TrimSpace(body.Execution) == "noop" || strings.TrimSpace(body.Execution) == "script" {
-						continue
-					}
-					if body.Agent != nil && strings.TrimSpace(body.Agent.Name) != "" {
-						add(body.Agent.Name, step.ID+".loop."+body.ID, body.Title, "loop body agent")
-					}
-				}
-			}
+			meta := node.Step.Meta()
+			add(agentStep.Agent, string(nodeID), meta.Title, "step agent")
 		}
-	}
-	if recipe != nil {
-		walkSteps(recipe.Steps)
 	}
 	out := make([]formulaAgentRequirement, 0, len(seen))
 	for _, req := range seen {

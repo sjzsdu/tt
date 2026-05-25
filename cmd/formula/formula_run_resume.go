@@ -26,15 +26,15 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	recipe, err := formularun.LoadRecipe(record.Dir)
+	workflow, err := formula.CompileWorkflowByName(cmd.Context(), record.Metadata.Formula, getSearchPaths(), record.Metadata.Vars)
 	if err != nil {
 		return err
 	}
-	snapshot, err := loadFormulaRunSnapshot(record.Dir, recipe)
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, workflow)
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
-	initialResults, initialContext := formularunview.BuildResumeState(recipe, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeState(snapshot)
 	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
 	store.Meta.Status = formularun.StatusRunning
 	store.Meta.Error = ""
@@ -47,7 +47,7 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
-	return executeFormulaResume(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+	return executeFormulaResume(cmd, record.Metadata.Formula, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
 }
 
 func runFormulaRunInput(cmd *cobra.Command, args []string) error {
@@ -66,11 +66,11 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if record.Metadata.Status != formularun.StatusWaitingInput {
 		return fmt.Errorf("formula run %s is not waiting for input (status: %s)", record.ID, record.Metadata.Status)
 	}
-	recipe, err := formularun.LoadRecipe(record.Dir)
+	workflow, err := formula.CompileWorkflowByName(cmd.Context(), record.Metadata.Formula, getSearchPaths(), record.Metadata.Vars)
 	if err != nil {
 		return err
 	}
-	snapshot, err := loadFormulaRunSnapshot(record.Dir, recipe)
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, workflow)
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
@@ -112,7 +112,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err := store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"}); err != nil {
 		return err
 	}
-	initialResults, initialContext := formularunview.BuildResumeState(recipe, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeState(snapshot)
 	store.Meta.Status = formularun.StatusRunning
 	store.Meta.Error = ""
 	store.Meta.FinishedAt = ""
@@ -125,7 +125,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	dashboard.readonly = false
 	dashboard.attachStore(store)
 	fmt.Fprintf(cmd.OutOrStdout(), "Submitted human input for step %s\n", resolvedStepID)
-	return executeFormulaResume(cmd, recipe, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+	return executeFormulaResume(cmd, record.Metadata.Formula, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
 }
 
 func parseHumanInputFields(fields []string) (map[string]any, error) {

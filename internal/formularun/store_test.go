@@ -7,8 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 )
+
+func testWorkflow(name string) *ir.Workflow {
+	return &ir.Workflow{ID: ir.WorkflowID(name), Name: name, Description: "demo", Graph: ir.NewGraph()}
+}
 
 func TestStorePersistsRunArtifacts(t *testing.T) {
 	root := t.TempDir()
@@ -16,12 +20,8 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	recipe := &formula.Recipe{
-		Name:        "demo formula",
-		Description: "demo",
-		Steps:       []formula.RecipeStep{{ID: "demo", Title: "Demo", IsRoot: true}},
-	}
-	store, err := New(filepath.Join(root, "runs"), recipe, map[string]string{"topic": "test"}, "coder", "model", "session", workspace)
+	workflow := testWorkflow("demo formula")
+	store, err := New(filepath.Join(root, "runs"), workflow, map[string]string{"topic": "test"}, "coder", "model", "session", workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	if record.ID != store.Meta.RunID {
 		t.Fatalf("record id = %q, want %q", record.ID, store.Meta.RunID)
 	}
-	for _, rel := range []string{"run.json", "recipe.json", "state.json", filepath.Join("steps", "demo.step.prompt.md"), filepath.Join("steps", "demo.step.output.md")} {
+	for _, rel := range []string{"run.json", "workflow.json", "state.json", filepath.Join("steps", "demo.step.prompt.md"), filepath.Join("steps", "demo.step.output.md")} {
 		if _, err := os.Stat(filepath.Join(store.Dir, rel)); err != nil {
 			t.Fatalf("expected artifact %s: %v", rel, err)
 		}
@@ -78,8 +78,8 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 
 func TestNewDefaultRootEnsuresTTAndGitIgnore(t *testing.T) {
 	workspace := t.TempDir()
-	recipe := &formula.Recipe{Name: "demo", Steps: []formula.RecipeStep{{ID: "demo", Title: "Demo", IsRoot: true}}}
-	store, err := New("", recipe, nil, "", "", "", workspace)
+	workflow := testWorkflow("demo")
+	store, err := New("", workflow, nil, "", "", "", workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,8 +122,8 @@ func TestLoadMetadataMarksDeadRunningRunStale(t *testing.T) {
 
 func TestDeleteRemovesRunDirectory(t *testing.T) {
 	root := t.TempDir()
-	recipe := &formula.Recipe{Name: "delete-demo", Steps: []formula.RecipeStep{{ID: "delete-demo", Title: "Demo", IsRoot: true}}}
-	store, err := New(root, recipe, nil, "", "", "", root)
+	workflow := testWorkflow("delete-demo")
+	store, err := New(root, workflow, nil, "", "", "", root)
 	if err != nil {
 		t.Fatal(err)
 	}

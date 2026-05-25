@@ -101,13 +101,13 @@ flowchart LR
 | 文件 | 作用 |
 | --- | --- |
 | `cmd/formula.go` | 根命令注册，注入 loading/browser/picoclaw/markdown 依赖 |
-| `cmd/formula/` | formula 子命令实现：list/show/compile/instantiate/validate/create/optimize/run/runs/open/show/rm/resume/input，以及 dashboard glue |
+| `cmd/formula/` | formula 子命令实现：list/show/compile/validate/create/optimize/run/runs/open/show/rm/resume/input，以及 dashboard glue |
 
 `cmd/formula/` 是 formula 命令子包，`cmd/formula.go` 只负责注册和依赖注入。子包承担：
 
 - formula 搜索路径管理
 - 变量解析
-- compile / instantiate / validate
+- compile / validate
 - create / optimize（通过 formula-writer agent）
 - run / resume / retry / input（通过 typed runtime + picoclaw + formularun）
 - Markdown 说明页预览 glue；纯渲染在 `internal/formuladoc`
@@ -269,21 +269,12 @@ internal/agents/embedded/*.md
 
 几乎所有命令都会间接依赖它，因此它是整个 CLI 的基础设施之一。
 
-## 12. `internal/molecule`
-
-它和 formula 的关系容易混淆。更准确地说：
-
-- `formula` 负责编译成 `Recipe`
-- `molecule` 负责把 `Recipe` 实例化成更偏任务树的数据结构
-
-也就是：它更像“实例化输出层”，而不是执行引擎。
-
 ## 模块协作图
 
 ```mermaid
 flowchart TD
     A[cmd/formula/] --> B[internal/formula]
-    B --> C[Recipe / Workflow]
+    B --> C[Workflow IR]
     C --> D[internal/formula/runtime]
     D --> E[internal/picoclaw]
     D --> F[internal/formularun]

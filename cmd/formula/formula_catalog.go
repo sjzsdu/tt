@@ -2,7 +2,6 @@ package formulacmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
-	"github.com/sjzsdu/tt/internal/molecule"
 )
 
 func runFormulaList(cmd *cobra.Command, args []string) error {
@@ -256,107 +254,6 @@ func runFormulaCompile(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Edges (%d):\n", len(workflow.Graph.Edges))
 	for _, edge := range workflow.Graph.Edges {
 		fmt.Printf("  - %s -> %s (%s)\n", edge.From, edge.To, edge.Type)
-	}
-	return nil
-}
-
-func runFormulaInstantiate(cmd *cobra.Command, args []string) error {
-	name := args[0]
-	vars := parseVars()
-
-	recipe, err := formula.Compile(context.Background(), name, getSearchPaths(), vars)
-	if err != nil {
-		return err
-	}
-
-	opts := molecule.Options{
-		Title: formulaTitle,
-		Vars:  vars,
-	}
-
-	result, err := molecule.Instantiate(recipe, opts)
-	if err != nil {
-		return err
-	}
-
-	switch formulaOutput {
-	case "json":
-		return outputJSON(result)
-	case "text":
-		return outputText(result)
-	case "prompt":
-		return outputPrompt(result)
-	default:
-		return fmt.Errorf("unknown output format: %s", formulaOutput)
-	}
-}
-
-func outputJSON(result *molecule.Result) error {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(result)
-}
-
-func outputText(result *molecule.Result) error {
-	fmt.Printf("Root: %s\n", result.RootID)
-	fmt.Printf("Tasks: %d\n\n", result.Created)
-
-	for i, task := range result.Tasks {
-		priority := ""
-		if task.Priority != nil {
-			priority = fmt.Sprintf("[P%d] ", *task.Priority)
-		}
-		deps := ""
-		if len(task.Dependencies) > 0 {
-			deps = fmt.Sprintf(" (after: %s)", strings.Join(task.Dependencies, ", "))
-		}
-		fmt.Printf("%d. %s%s\n", i+1, priority, task.Title)
-		if task.Description != "" {
-			fmt.Printf("   %s\n", task.Description)
-		}
-		if deps != "" {
-			fmt.Printf("   %s\n", deps)
-		}
-		fmt.Println()
-	}
-	return nil
-}
-
-func outputPrompt(result *molecule.Result) error {
-	fmt.Println("请按以下顺序完成任务，每个任务完成后确认再继续下一个：")
-	fmt.Println()
-
-	for i, task := range result.Tasks {
-		if task.IsRoot {
-			continue
-		}
-		priority := "普通"
-		if task.Priority != nil {
-			switch *task.Priority {
-			case 0:
-				priority = "最高"
-			case 1:
-				priority = "高"
-			case 2:
-				priority = "中"
-			case 3:
-				priority = "低"
-			case 4:
-				priority = "最低"
-			}
-		}
-		fmt.Printf("## 任务 %d (优先级: %s)\n", i, priority)
-		fmt.Printf("**%s**\n", task.Title)
-		if task.Description != "" {
-			fmt.Println(task.Description)
-		}
-		if task.Notes != "" {
-			fmt.Println(task.Notes)
-		}
-		if len(task.Dependencies) > 0 {
-			fmt.Printf("依赖: 任务 %s 完成后开始\n", strings.Join(task.Dependencies, ", "))
-		}
-		fmt.Println()
 	}
 	return nil
 }

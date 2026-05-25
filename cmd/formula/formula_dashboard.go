@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
@@ -53,15 +53,20 @@ func (s *formulaDashboardServer) attachStore(store *formularun.Store) {
 	_ = s.persistSnapshot()
 }
 
-func newFormulaDashboardServer(recipe *formula.Recipe) *formulaDashboardServer {
-	steps, edges := formulaui.BuildGraph(recipe)
+func newFormulaDashboardServer(workflow *ir.Workflow) *formulaDashboardServer {
+	steps, edges := formulaui.BuildWorkflowGraph(workflow)
+	name := ""
+	description := ""
+	if workflow != nil {
+		name = workflow.Name
+		description = workflow.Description
+	}
 	return &formulaDashboardServer{
 		started: time.Now(),
-		recipe:  recipe.Name,
+		recipe:  name,
 		state: formulaui.Snapshot{
-			RecipeName:  recipe.Name,
-			Description: recipe.Description,
-			Phase:       recipe.Phase,
+			RecipeName:  name,
+			Description: description,
 			Status:      "running",
 			Steps:       steps,
 			Edges:       edges,
