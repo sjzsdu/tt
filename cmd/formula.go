@@ -22,42 +22,43 @@ import (
 	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/molecule"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
+	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
 )
 
 var (
-	formulaDir            string
-	formulaVars           []string
-	formulaOutput         string
-	formulaTitle          string
-	formulaMarkdown       bool
-	formulaPort           int
-	formulaAgent          string
-	formulaModel          string
-	formulaSession        string
-	formulaWeb            bool
-	formulaNoWeb          bool
-	formulaWebPort        int
-	formulaDryRun         bool
-	formulaDebug          bool
-	formulaVerbose        bool
-	formulaNoSave         bool
-	formulaNoScript       bool
-	formulaAllowShell     bool
-	formulaCreateOutput   string
-	formulaCreateForce    bool
-	formulaCreateStdout   bool
-	formulaOptimizeOutput string
-	formulaOptimizeStdout bool
+	formulaDir             string
+	formulaVars            []string
+	formulaOutput          string
+	formulaTitle           string
+	formulaMarkdown        bool
+	formulaPort            int
+	formulaAgent           string
+	formulaModel           string
+	formulaSession         string
+	formulaWeb             bool
+	formulaNoWeb           bool
+	formulaWebPort         int
+	formulaDryRun          bool
+	formulaDebug           bool
+	formulaVerbose         bool
+	formulaNoSave          bool
+	formulaNoScript        bool
+	formulaAllowShell      bool
+	formulaCreateOutput    string
+	formulaCreateForce     bool
+	formulaCreateStdout    bool
+	formulaOptimizeOutput  string
+	formulaOptimizeStdout  bool
 	formulaOptimizeBuiltin bool
-	formulaRunsLimit      int
-	formulaRunsFormula    string
-	formulaRunsStatus     string
-	formulaRunShowStep    string
-	formulaRunRmYes       bool
-	formulaInputFields    []string
-	formulaListBuiltin    bool
-	formulaListUser       bool
-	formulaListCategory   string
+	formulaRunsLimit       int
+	formulaRunsFormula     string
+	formulaRunsStatus      string
+	formulaRunShowStep     string
+	formulaRunRmYes        bool
+	formulaInputFields     []string
+	formulaListBuiltin     bool
+	formulaListUser        bool
+	formulaListCategory    string
 )
 
 var formulaCmd = &cobra.Command{
@@ -330,11 +331,30 @@ func init() {
 }
 
 func getSearchPaths() []string {
-	if formulaDir != "" {
-		return []string{formulaDir}
+	homeDir, _ := os.UserHomeDir()
+	return formulaSearchPaths(mustLoadTTConfig(), formulaDir, homeDir)
+}
+
+func formulaSearchPaths(loaded ttconfig.Loaded, explicitDir, homeDir string) []string {
+	if explicitDir != "" {
+		return []string{explicitDir}
 	}
-	loaded := mustLoadTTConfig()
-	return []string{resolveFormulaDir(loaded)}
+
+	paths := []string{resolveFormulaDir(loaded)}
+	if homeDir != "" {
+		paths = appendUniquePath(paths, filepath.Join(homeDir, ".tt", "formulas"))
+	}
+	return paths
+}
+
+func appendUniquePath(paths []string, path string) []string {
+	clean := filepath.Clean(path)
+	for _, existing := range paths {
+		if filepath.Clean(existing) == clean {
+			return paths
+		}
+	}
+	return append(paths, clean)
 }
 
 func parseVars() map[string]string {
@@ -551,6 +571,7 @@ func runFormulaList(cmd *cobra.Command, args []string) error {
 	}
 
 	found := false
+	seen := make(map[string]bool)
 	fmt.Fprintln(out, "USER")
 	for _, dir := range paths {
 		entries, err := os.ReadDir(dir)
@@ -568,6 +589,9 @@ func runFormulaList(cmd *cobra.Command, args []string) error {
 			}
 
 			formulaName := extractFormulaName(name)
+			if seen[formulaName] {
+				continue
+			}
 			path := filepath.Join(dir, name)
 
 			p := formula.NewParser(dir)
@@ -585,6 +609,7 @@ func runFormulaList(cmd *cobra.Command, args []string) error {
 				desc = "(no description)"
 			}
 			fmt.Fprintf(out, "  %-22s %-14s %s\n", formulaName, f.Category, desc)
+			seen[formulaName] = true
 			found = true
 		}
 	}
