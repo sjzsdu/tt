@@ -1,6 +1,27 @@
 # Formula Authoring Methodology
 
-Writing an excellent `tt formula` is less like writing a prompt and more like designing a repeatable operating procedure. A formula should make the workflow explicit: what facts are collected, where judgment happens, how decisions branch, how validation closes the loop, and what final artifact the user receives.
+Writing an excellent `tt formula` is less like writing a prompt and more like designing a repeatable operating procedure. A formula should make the workflow explicit: what facts are collected, where judgment happens, how decisions branch, when the run pauses for user input, and what final artifact the user receives.
+
+## Current architecture
+
+Formula now compiles directly into a graph-first typed `Workflow`. Runtime nodes hold concrete `steps.Step` implementations, such as agent, script, human input, noop, loop, retry, and future step kinds. There is no separate legacy task tree compile model in the formula execution path.
+
+```text
+Formula TOML -> Resolve/Expand/Filter -> Workflow IR -> typed runtime -> run store/dashboard
+```
+
+The runtime persists:
+
+```text
+.tt/runs/formula/<formula>/<run-id>/
+  run.json
+  workflow.json
+  state.json
+  logs.jsonl
+  steps/<step>.prompt.md
+  steps/<step>.output.md
+  steps/<step>.error.txt
+```
 
 ## Core principle
 
@@ -10,9 +31,7 @@ Use deterministic steps for facts and validation, and agent steps for judgment a
 script collects facts -> agent reasons -> script validates -> agent reports
 ```
 
-This keeps the workflow auditable and reduces hallucination. If a command can reliably fetch data, run it as a script step. If a human would need to weigh tradeoffs, explain risks, design a solution, or produce a report, use an agent step. For script implementation, prefer direct argv commands first, short bash argv scripts for light glue, and Python only when bash/CLI/jq cannot express the required structured processing cleanly.
-
-If the workflow needs a user decision or missing information that the agent should not guess, use a human input pause instead of writing “ask the user” into an agent prompt. Formula execution is an autonomous workflow; a step that needs user input must explicitly suspend the run and resume after the user submits structured data.
+If the workflow needs a user decision or missing information that the agent should not guess, pause explicitly through human input. Prefer dynamic clarification (`form = true`) when the need for clarification depends on runtime context.
 
 ## Formula design process
 
@@ -35,66 +54,68 @@ If the SOP is unclear, the formula will be unclear.
 
 ### 2. Classify each step
 
-Mark each step as one of:
-
-- `script`: deterministic local command or tool call.
-- `agent`: reasoning, synthesis, writing, decision-making.
-- `human_input`: suspend the run and collect structured user input.
-- `noop`: boundary, grouping, or structural coordination.
-
-A useful rule:
-
 | Question | Use |
 |---|---|
-| Can a command/API return the answer? | `script` |
-| Does it require judgment, tradeoff, or explanation? | `agent` |
-| Does it need a user choice, confirmation, or missing private context? | `human_input` |
-| Does it only structure the graph? | `noop` |
+| Can a command/API return the answer? | `execution = "script"` |
+| Does it require judgment, tradeoff, or explanation? | agent step, omit `execution` |
+| Does it need a known user choice at this point? | `execution = "human_input"` |
+| Might the agent need clarification only sometimes? | agent step with `form = true` |
+| Does it only structure the graph? | `execution = "noop"` |
 
-### 3. Draw the data flow
+### 3. Draw the data flow using step ids
 
-For every useful output, name an `output_key`.
+Step outputs are saved under the step `id` by default. Do **not** add `output_key` for normal authoring. Choose clear stable ids and reference those ids from downstream steps.
 
 ```text
-fetch-pr -> pr_metadata
-fetch-diff -> diff_stat
-review -> review_summary
-test -> test_result
-report -> final_report
+fetch-pr -> review-risk -> run-tests -> report
 ```
 
 Any step that consumes prior output should declare both:
 
-- `depends_on = [...]`
-- `input_context = [...]`
+- `depends_on = [...]` for execution order.
+- `input_context = [...]` for data injected into the prompt.
 
-Dependencies control execution order. Input context controls what the agent sees.
+Example:
+
+```toml
+[[steps]]
+id = "fetch-pr"
+title = "Fetch PR metadata"
+execution = "script"
+
+[steps.script]
+command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,body,files"]
+format = "json"
+timeout = "30s"
+
+[[steps]]
+id = "review-risk"
+title = "Review implementation risk"
+depends_on = ["fetch-pr"]
+input_context = ["fetch-pr"]
+description = "Review the PR metadata and output concise risk analysis."
+
+[steps.agent]
+name = "coder"
+```
 
 ### 4. Add runtime control only where it buys value
 
 Use `condition` when the workflow truly branches at runtime.
 
 ```toml
-condition = "classification.kind == frontend"
+condition = "classify.kind == frontend"
 ```
 
 Use `loop.until` only when an iteration can improve based on feedback.
 
 ```toml
+[steps.loop]
 until = "review.approved == true"
 max = 3
 ```
 
 Do not overuse branches and loops. A simple linear workflow is often better.
-
-Use `human_input` when pausing is more reliable than guessing. Good candidates:
-
-- Selecting one option before branching.
-- Confirming constraints, budget, target audience, or risk tolerance.
-- Uploading or pasting source material that is not available to the agent.
-- Approving a draft before expensive follow-up work.
-
-Avoid human input for questions the formula can answer from variables, local files, command output, or prior step outputs.
 
 ### 5. Validate the workflow as a product
 
@@ -109,50 +130,9 @@ A good formula should answer:
 7. What is the final artifact?
 8. How can a user debug a failed run?
 
-## Step quality rubric
-
-A strong step has a single responsibility.
-
-### Good step
-
-```toml
-[[steps]]
-id = "fetch-pr"
-title = "Fetch PR metadata"
-execution = "script"
-output_key = "pr_metadata"
-
-[steps.script]
-command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,body,files"]
-format = "json"
-timeout = "30s"
-```
-
-Why it is good:
-
-- It is deterministic.
-- Its output is named.
-- It has a timeout.
-- It can be debugged independently.
-
-### Weak step
-
-```toml
-[[steps]]
-id = "do-everything"
-title = "Review the PR and run tests and summarize everything"
-```
-
-Problems:
-
-- Too many responsibilities.
-- No explicit data flow.
-- Hard to resume or debug.
-- Forces the agent to guess facts it could have collected deterministically.
-
 ## Agent step guidance
 
-Agent step descriptions should include:
+Agent steps are the default when `execution` is omitted. Their descriptions should include:
 
 - Goal.
 - Input context to use.
@@ -161,160 +141,118 @@ Agent step descriptions should include:
 - What not to invent.
 - Success criteria.
 
-Example:
+For outputs that drive `condition` or `loop.until`, ask for compact JSON and validate it.
 
 ```toml
 [[steps]]
-id = "review-risk"
-title = "Review implementation risk"
-depends_on = ["fetch-pr", "diff-stat"]
-input_context = ["pr_metadata", "diff_stat"]
-output_key = "risk_review"
-description = """
-Review the PR using pr_metadata and diff_stat.
-
-Focus on:
-1. correctness risks
-2. missing tests
-3. migration or compatibility risks
-4. suspicious large changes
-
-Output concise Markdown with:
-- Summary
-- Risk areas
-- Suggested tests
-- Review checklist
-
-Do not invent files, CI results, or runtime behavior not present in input context.
-"""
-
-[steps.agent]
-name = "coder"
-```
-
-If an agent output controls `condition` or `loop.until`, ask it to output only compact JSON.
-
-```toml
+id = "classify"
+title = "Classify the issue"
 description = """
 Classify the issue.
 Output ONLY compact JSON:
 {"kind":"frontend|backend|infra","confidence":0.0,"reason":"..."}
 """
-output_key = "classification"
+
+[steps.agent]
+name = "planner"
+
+[steps.validate]
+format = "json"
+required = ["kind", "confidence", "reason"]
 ```
 
 Avoid mixing long Markdown and branch-control JSON in one output. Split the step if needed.
 
 ## Script step guidance
 
-Use script steps to gather facts, call tools, and validate outcomes.
-
-Good script step candidates:
-
-- `gh pr view ... --json ...`
-- `git diff --stat ...`
-- `go test ./...`
-- `npm test`
-- `kubectl get ... -o json`
-- `terraform plan -no-color`
-- `curl ...`
-
-Prefer argv commands:
+Use script steps to gather facts, call tools, and validate outcomes. Prefer argv commands:
 
 ```toml
+[[steps]]
+id = "run-tests"
+title = "Run Go tests"
+execution = "script"
+
 [steps.script]
 command = ["go", "test", "./..."]
 format = "text"
-timeout = "2m"
+timeout = "5m"
 continue_on_error = true
 ```
 
 Use `continue_on_error = true` when failure is information the report should include, such as tests failing. Leave it false when the workflow cannot continue without the result.
 
-Script output is saved as an envelope with command, exit code, stdout, stderr, parsed JSON, and duration. Downstream agents should consume the output with `input_context`.
+Script output is saved as an envelope with command, exit code, stdout, stderr, parsed JSON, and duration. Downstream agents should consume it with `input_context = ["run-tests"]`.
 
 ## Human input guidance
 
-There are two ways to pause for user input.
+### Prefer dynamic clarification for uncertain missing context
 
-### Static form step
-
-Use this when the formula author already knows the workflow requires user input at a specific point.
+Use `form = true` on an agent step when the agent should decide whether it needs user clarification. This keeps the formula concise and avoids static predeclared fields that may not be needed.
 
 ```toml
 [[steps]]
-id = "confirm-scope"
-title = "Confirm scope"
+id = "analyze-issue"
+title = "Analyze issue and clarify if needed"
+form = true
+description = """
+Analyze the issue. If information is missing and guessing would be unsafe,
+emit a tt-human-input request. Otherwise output ONLY compact JSON:
+{"summary":"...","assumptions":[],"next_action":"..."}
+"""
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["summary", "assumptions", "next_action"]
+```
+
+The runtime injects the `tt-human-input` protocol into the agent prompt. If the agent emits a request, the run enters `waiting_input`. The submitted response becomes the step output, keyed by the same step id.
+
+### Use static human-input only for known gates
+
+Use `execution = "human_input"` only when the formula author already knows the workflow must pause at that exact point, for example approval, option selection, or required private context.
+
+```toml
+[[steps]]
+id = "choose-option"
+title = "Choose implementation option"
 execution = "human_input"
-output_key = "scope_confirmation"
 
 [steps.form]
-title = "Confirm project scope"
-description = "The workflow will continue after this form is submitted."
+title = "Choose an option"
+description = "The workflow resumes after submission."
+submit_label = "Continue"
 
 [[steps.form.fields]]
-name = "scope"
-label = "Scope"
-type = "select"
+name = "option"
+label = "Selected option"
+type = "radio"
 required = true
-options = ["small", "medium", "large"]
-
-[[steps.form.fields]]
-name = "notes"
-label = "Additional notes"
-type = "textarea"
-required = false
+options = ["safe", "fast", "complete"]
 ```
 
-Supported field types are `input`, `textarea`, `radio`, `checkbox`, and `select`. `radio`, `checkbox`, and `select` fields must declare `options`.
-
-### Dynamic clarification from an agent
-
-Use this when an agent can decide at runtime that it is unsafe to continue without clarification. The agent should emit a fenced block named `tt-human-input`:
-
-````markdown
-```tt-human-input
-{
-  "reason": "Cannot choose a travel style without the user's budget preference.",
-  "form": {
-    "title": "Budget preference",
-    "fields": [
-      {"name":"budget","label":"Budget level","type":"radio","required":true,"options":["low","medium","high"]}
-    ]
-  }
-}
-```
-````
-
-When this happens, the run enters `waiting_input`. The submitted response becomes the step output, so downstream steps should reference the step's `output_key` through `input_context`.
+Supported field types are `input`, `textarea`, `radio`, `checkbox`, and `select`. Choice fields require `options`.
 
 Submit from the CLI:
 
 ```bash
-tt formula run input latest confirm-scope --field scope=medium --field notes="Prefer a pragmatic plan"
+tt formula run input latest choose-option --field option=safe
 ```
 
-For checkbox fields, repeat the same key:
-
-```bash
-tt formula run input latest choose-tools --field tools=search --field tools=browser
-```
-
-Live dashboard runs display the form in a modal and resume automatically after submission.
+Live dashboard runs display the form and resume automatically after submission.
 
 ## Common workflow shapes
 
 ### Linear pipeline
-
-Best for straightforward SOPs.
 
 ```text
 collect -> analyze -> validate -> report
 ```
 
 ### Fan-out / fan-in
-
-Best when independent analyses can run after shared context collection.
 
 ```text
 collect
@@ -326,42 +264,26 @@ merge-report
 
 ### Runtime branch
 
-Best when an early classifier chooses a path.
-
 ```text
 classify
-  -> frontend-path if classification.kind == frontend
-  -> backend-path if classification.kind == backend
-  -> infra-path if classification.kind == infra
+  -> frontend-path if classify.kind == frontend
+  -> backend-path if classify.kind == backend
+  -> infra-path if classify.kind == infra
 ```
 
 ### Review loop
 
-Best for draft/review/revise workflows.
-
 ```text
-draft -> review -> revise -> review ... until approved
-```
-
-### Validation sandwich
-
-Best for implementation and debugging workflows.
-
-```text
-agent proposes -> script validates -> agent fixes/explains -> report
+draft -> review -> revise -> review ... until review.approved == true
 ```
 
 ### Human-gated workflow
-
-Best when the workflow needs a real user decision before continuing.
 
 ```text
 collect context -> propose options -> human_input -> branch or synthesize -> final report
 ```
 
 ## Formula canvas
-
-Before writing TOML, fill this out:
 
 ```text
 Formula name:
@@ -373,59 +295,24 @@ Final artifact:
 Workflow shape:
 Steps:
   - id:
-    type: agent/script/noop
+    kind: agent/script/human_input/noop
     purpose:
-    input_context:
-    output_key:
     depends_on:
+    input_context:
+    condition:
+    validation:
     failure behavior:
     success criteria:
 
 Runtime branches:
 Loops:
+Human input:
 Validation commands:
 Safety concerns:
 Debugging notes:
 ```
 
-This canvas is especially useful for LLMs. Ask the model to design the canvas first, then emit TOML.
-
-## Practical examples to build experience
-
-Start with three formulas and iterate on them:
-
-1. **PR review**
-   - `fetch-pr(script)`
-   - `fetch-diff(script)`
-   - `analyze-risk(agent)`
-   - `run-tests(script)`
-   - `report(agent)`
-
-2. **Bug investigation**
-   - `collect-error(script or user input)`
-   - `classify(agent JSON)`
-   - branch by frontend/backend/infra
-   - `hypothesize(agent)`
-   - `validate(script)`
-   - `report(agent)`
-
-3. **Feature implementation**
-   - `understand-request(agent)`
-   - `inspect-codebase(script/agent)`
-   - `design(agent)`
-   - `implement(agent)`
-   - `test(script)`
-   - `fix-loop(agent + script)`
-   - `summarize(agent)`
-
-4. **Decision workflow with human gate**
-   - `collect-context(agent/script)`
-   - `compare-options(agent JSON)`
-   - `choose-option(human_input)`
-   - `make-plan(agent)`
-   - `report(agent)`
-
-Each iteration should record what was hard to debug. Use those findings to improve step boundaries, output keys, and validation steps.
+Ask the model to design this canvas first, then emit TOML.
 
 ## Quality checklist
 
@@ -435,13 +322,15 @@ A formula is ready when:
 - Every step has one clear responsibility.
 - Facts and validations are script steps where practical.
 - Agent steps have precise descriptions and output expectations.
-- Human input steps are used instead of “ask the user” wording inside autonomous agent prompts.
-- Human input forms have clear labels, required fields, and options for choice fields.
-- Any branch/loop controller outputs compact JSON.
-- Every consumed output has an `output_key` and matching `input_context`.
+- Step ids are stable and used as context keys.
+- No normal step uses `output_key`.
+- Dynamic clarification uses `form = true` when the question set should be runtime-generated.
+- Static human-input steps are only used for known gates.
+- Any branch/loop controller outputs compact JSON and has `[steps.validate]`.
 - Dependencies describe the real execution order.
 - Script steps have timeouts and safe commands.
-- `tt formula compile` succeeds.
+- `tt formula validate` succeeds.
+- `tt formula compile` shows the expected Workflow.
 - `tt formula run --dry-run` is understandable.
 - The final report step gives the user an actionable result.
 
@@ -450,7 +339,7 @@ A formula is ready when:
 When a formula fails, debug the workflow like a data pipeline:
 
 1. Did the producing step run?
-2. Did it save the expected `output_key`?
+2. Is the expected step-id key present in the runtime context?
 3. Is the output valid JSON if a condition uses JSON paths?
 4. Does the consuming step depend on the producer?
 5. Is `input_context` present?

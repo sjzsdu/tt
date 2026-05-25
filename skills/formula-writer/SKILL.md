@@ -21,7 +21,7 @@ A good formula separates:
 - `tt formula run` uses the typed runtime by default. Do not mention or rely on legacy engine flags.
 - Formula command implementation lives under `cmd/formula`; UI model helpers live in `internal/formulaui`; saved-run view helpers live in `internal/formularunview`.
 - Canonical formula file names are `<name>.toml`. Do not create `.formula.toml` files.
-- A compiled recipe automatically gets start/end boundary nodes. Authors usually should not write manual boundary steps unless they need real work there.
+- Compiled output is a Workflow IR graph. Authors usually should not write manual boundary/noop steps unless they need real structure there.
 - Step output is saved under the local step `id` by default. New formulas should reference prior outputs by step id.
 
 ## Delivery contract
@@ -225,7 +225,7 @@ Conditions are runtime expressions over variables and saved outputs. Use bare na
 Good:
 
 ```toml
-condition = "classification.kind == frontend"
+condition = "classify.kind == frontend"
 condition = "env == prod"
 condition = "review.approved == true"
 condition = "risk.score != high"
@@ -239,7 +239,7 @@ condition = "{{env}} == prod"
 
 Supported patterns include equality, inequality, regex match, JSON path lookup, `&&`, and `||`.
 
-When using a JSON path condition, ensure the producing step outputs valid compact JSON and uses its step id as the output key.
+When using a JSON path condition, ensure the producing step outputs valid compact JSON and uses its step id as the context key.
 
 ## Runtime loops
 
@@ -250,8 +250,8 @@ Use `[steps.loop]` when the number of iterations depends on runtime output or in
 id = "improve"
 title = "Improve until approved"
 depends_on = ["classify"]
-condition = "classification.kind == frontend"
-input_context = ["classification"]
+condition = "classify.kind == frontend"
+input_context = ["classify"]
 description = "Iterate on a draft until review approves."
 
   [steps.loop]
@@ -278,7 +278,7 @@ description = "Iterate on a draft until review approves."
 Loop guidance:
 
 - Always set `max`.
-- The body step referenced by `until` must write the key used by the condition.
+- The body step referenced by `until` must have an id matching the key used by the condition.
 - Use `{{iteration}}` in titles/descriptions.
 - Body steps can be agent, script, or human_input.
 
@@ -321,7 +321,7 @@ timeout = "30s"
 id = "review"
 title = "Review risks"
 depends_on = ["fetch-pr"]
-input_context = ["pr_metadata"]
+input_context = ["fetch-pr"]
 description = "Output ONLY compact JSON: {\"risks\":[],\"missing_tests\":[],\"summary\":\"...\"}."
 [steps.agent]
 name = "coder"
@@ -344,7 +344,7 @@ continue_on_error = true
 id = "report"
 title = "Write final report"
 depends_on = ["run-tests"]
-input_context = ["review", "test_result"]
+input_context = ["review", "run-tests"]
 description = "Write a concise final report with risks, tests, and recommended next steps."
 [steps.agent]
 name = "reporter"
@@ -367,15 +367,15 @@ required = ["path"]
 id = "bug-path"
 title = "Bug fix path"
 depends_on = ["classify"]
-input_context = ["classification"]
-condition = "classification.path == bug"
+input_context = ["classify"]
+condition = "classify.path == bug"
 
 [[steps]]
 id = "feature-path"
 title = "Feature design path"
 depends_on = ["classify"]
-input_context = ["classification"]
-condition = "classification.path == feature"
+input_context = ["classify"]
+condition = "classify.path == feature"
 ```
 
 ## Commands to use
@@ -385,7 +385,6 @@ Authoring and validation:
 ```bash
 tt formula validate .tt/formulas/<name>.toml
 tt formula compile <name> --dir .tt/formulas
-tt formula compile <name> --dir .tt/formulas --workflow
 tt formula run <name> --dir .tt/formulas --dry-run
 ```
 
@@ -421,7 +420,7 @@ There is no legacy engine flag. Do not recommend `--runtime-engine` or `--legacy
 ### Condition does not work
 
 - Use bare names, not `{{...}}`.
-- Ensure producer output is valid JSON if using paths like `decision.path`.
+- Ensure producer output is valid JSON if using paths like `classify.path`.
 - Ensure the consumer depends on the producer.
 - Prefer clear, stable step ids for condition inputs.
 

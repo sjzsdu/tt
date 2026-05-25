@@ -230,7 +230,7 @@ flowchart TD
 - 根命令：`cmd/root.go`
 - 配置合并：`internal/ttconfig/config.go`
 - Picoclaw runtime：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
-- formula 编译：`internal/formula/compile.go`、`internal/formula/workflow.go`
+- formula 编译：`internal/formula/workflow.go`
 - Typed runtime：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - 运行持久化：`internal/formularun/store.go`
 - docs 命令：`cmd/docs.go`

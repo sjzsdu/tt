@@ -176,8 +176,8 @@ internal/agents/embedded/*.md
 关键文件：
 - `types.go`
 - `parser.go`
-- `compile.go`
-- `recipe.go`
+- `workflow.go`
+- `compile_vars.go`
 - `condition.go`
 - `controlflow.go`
 - `expand.go`
@@ -185,7 +185,7 @@ internal/agents/embedded/*.md
 
 ## 4. `internal/formula/runtime` 与 `internal/formula/steps`
 
-这是 formula 当前的 typed runtime 执行层。`internal/formula` 负责语言和 Workflow，typed runtime 负责把 Workflow 转成 Workflow 后执行。
+这是 formula 当前的 typed runtime 执行层。`internal/formula` 负责语言和 Workflow，typed runtime 负责直接执行 Workflow 图。
 
 它负责：
 - Workflow 图执行和拓扑规划
@@ -213,7 +213,7 @@ internal/agents/embedded/*.md
 
 职责包括：
 - 新建 run 目录
-- 保存元数据、recipe、state
+- 保存元数据、workflow、state
 - 记录事件流
 - 保存每一步的 prompt/output/error
 - stale run 检测
@@ -294,7 +294,7 @@ flowchart TD
 先看：
 - `internal/formula/types.go`
 - `internal/formula/parser.go`
-- `internal/formula/compile.go`
+- `internal/formula/workflow.go`
 
 ### 我想改 formula 执行行为
 先看：
@@ -333,7 +333,7 @@ flowchart TD
 - docs 命令：`cmd/docs.go`
 - formula 命令：`cmd/formula.go` + `cmd/formula/`
 - runtime 适配：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
-- formula 编译：`internal/formula/compile.go`、`internal/formula/workflow.go`
+- formula 编译：`internal/formula/workflow.go`
 - formula 执行：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - run 持久化：`internal/formularun/store.go`
 - embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/*.md`
