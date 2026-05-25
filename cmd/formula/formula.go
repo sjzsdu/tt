@@ -34,8 +34,6 @@ var (
 	formulaNoSave          bool
 	formulaNoScript        bool
 	formulaAllowShell      bool
-	formulaRuntimeEngine   bool
-	formulaLegacyEngine    bool
 	formulaCreateOutput    string
 	formulaCreateForce     bool
 	formulaCreateStdout    bool

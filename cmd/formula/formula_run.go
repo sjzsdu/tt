@@ -40,9 +40,6 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if formulaDryRun && (formulaLegacyEngine || !formulaRuntimeEngine) {
-		return runFormulaDryRun(recipe)
-	}
 	if formulaDryRun {
 		return executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{
 			Recipe:       recipe,
@@ -90,7 +87,6 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	}
 
 	out := cmd.OutOrStdout()
-	errOut := cmd.ErrOrStderr()
 
 	var runStore *formularun.Store
 	if !formulaNoSave {
@@ -118,254 +114,28 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if formulaRuntimeEngine && !formulaLegacyEngine {
-		runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer stopRunSignals()
-		err := executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
-			Recipe:       recipe,
-			RunStore:     runStore,
-			Processor:    runner,
-			DefaultAgent: runAgent,
-			DefaultModel: formulaModel,
-			Session:      runSession,
-			Workspace:    agentWorkspace,
-			Debug:        formulaDebug,
-			DryRun:       formulaDryRun,
-			AllowScripts: !formulaNoScript,
-			Dashboard:    dashboard,
-			Out:          out,
-		})
-		// Do not persist the legacy dashboard snapshot here. The runtime engine owns
-		// state.json through FormulaRunStateStore, and open/show/resume can read that
-		// runtime snapshot directly.
-		if showWeb {
-			fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
-			fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
-			waitForFormulaDashboardExit(dashboard)
-		}
-		return err
-	}
-
-	exec := executor.New(recipe, executor.RunOptions{
-		Vars:         vars,
-		Agent:        runAgent,
-		Model:        formulaModel,
-		Session:      runSession,
-		DryRun:       formulaDryRun,
-		Debug:        formulaDebug,
-		AllowScripts: !formulaNoScript,
-		AllowShell:   formulaAllowShell,
-		OnStepUpdate: func(result executor.StepResult) {
-			if runStore != nil {
-				switch result.Status {
-				case executor.StatusCompleted:
-					_ = runStore.SaveStepOutput(result.StepID, result.Output)
-				case executor.StatusFailed:
-					_ = runStore.SaveStepError(result.StepID, result.Error)
-					if result.Output != "" {
-						_ = runStore.SaveStepOutput(result.StepID, result.Output)
-					}
-				case executor.StatusWaitingInput:
-					_ = runStore.SaveStepHumanInputRequest(result.StepID, result.HumanInputRequest)
-				}
-			}
-			if dashboard == nil {
-				return
-			}
-			switch result.Status {
-			case executor.StatusRunning:
-				dashboard.markStepRunning(result.StepID, result.Title, "script", "", "")
-			case executor.StatusCompleted:
-				dashboard.markStepCompleted(result.StepID, result.Output)
-			case executor.StatusFailed:
-				dashboard.markStepFailed(result.StepID, result.Error, result.Output)
-			case executor.StatusWaitingInput:
-				dashboard.markStepWaitingInput(result.StepID, result.Title, result.HumanInputRequest)
-			}
-		},
-	})
-
-	stepRunner := func(ctx context.Context, step *formula.RecipeStep, prompt string) (string, error) {
-		agent := step.Agent
-		if agent == nil || agent.Name == "" {
-			agent = &formula.AgentConfig{Name: runAgent, Model: formulaModel}
-		}
-
-		sessionKey := fmt.Sprintf("agent:%s:%s:%s", agent.Name, runSession, step.ID)
-		if agent.Session != "" {
-			sessionKey = fmt.Sprintf("agent:%s:%s:%s:%s", agent.Name, runSession, agent.Session, step.ID)
-		}
-
-		model := agent.Model
-		if model == "" {
-			model = formulaModel
-		}
-		modelDisplay := model
-		if modelDisplay == "" {
-			modelDisplay = "(default from picoclaw)"
-		}
-
-		logLine := func(format string, args ...any) {
-			line := fmt.Sprintf(format, args...)
-			fmt.Fprintln(errOut, line)
-			if dashboard != nil {
-				dashboard.logf("%s", line)
-			}
-		}
-
-		fmt.Fprintln(errOut)
-		logLine("▶ Running: %s", step.Title)
-		logLine("  Agent: %s | Model: %s", agent.Name, modelDisplay)
-
-		if step.Condition != "" {
-			condResult := executor.EvaluateCondition(step.Condition, exec.Context())
-			logLine("  Condition: %s → %v", step.Condition, condResult)
-			if !condResult {
-				return "", nil
-			}
-		}
-
-		if len(step.InputCtx) > 0 {
-			inputLine := fmt.Sprintf("  Input context: %s", strings.Join(step.InputCtx, ", "))
-			fmt.Fprintln(errOut, inputLine)
-			if dashboard != nil {
-				dashboard.logf("%s", inputLine)
-			}
-		}
-
-		prompt = renderFormulaPrompt(projectRoot, prompt)
-		if runStore != nil {
-			_ = runStore.SaveStepPrompt(step.ID, prompt)
-		}
-		if dashboard != nil {
-			dashboard.markStepRunning(step.ID, step.Title, agent.Name, model, sessionKey)
-		}
-		stepStarted := time.Now()
-		if runStore != nil {
-			_ = runStore.AppendEvent(formularun.Event{
-				Type:    "step_started",
-				StepID:  step.ID,
-				Agent:   agent.Name,
-				Model:   model,
-				Session: sessionKey,
-				Status:  "running",
-			})
-		}
-
-		resp, err := runner.ProcessDirect(pcwrap.RunOptions{
-			Message: prompt,
-			Session: sessionKey,
-			Agent:   agent.Name,
-			Model:   model,
-		})
-		resp = strings.TrimSpace(resp)
-
-		if err != nil {
-			duration := time.Since(stepStarted).Milliseconds()
-			if runStore != nil {
-				_ = runStore.SaveStepError(step.ID, err.Error())
-				if resp != "" {
-					_ = runStore.SaveStepOutput(step.ID, resp)
-				}
-				_ = runStore.AppendEvent(formularun.Event{Type: "step_failed", StepID: step.ID, Status: "failed", Error: err.Error(), DurationMS: duration})
-			}
-			if dashboard != nil {
-				dashboard.markStepFailed(step.ID, err.Error(), resp)
-			}
-			logLine("  ✗ Failed: %v", err)
-			return resp, err
-		}
-
-		if resp == "" {
-			logLine("  ⚠ Empty response from agent")
-		} else {
-			logLine("  ✓ Completed (%d chars)", len(resp))
-			if formulaVerbose {
-				fmt.Fprintf(errOut, "\n%s\n\n", resp)
-				if dashboard != nil {
-					dashboard.logf("%s", resp)
-				}
-			}
-		}
-
-		if executor.ParseHumanInputRequest(resp) != nil {
-			logLine("  ⏸ Waiting for human input requested by agent")
-			if runStore != nil {
-				_ = runStore.SaveStepOutput(step.ID, resp)
-			}
-			return resp, nil
-		}
-
-		if dashboard != nil {
-			dashboard.markStepCompleted(step.ID, resp)
-		}
-		if runStore != nil {
-			_ = runStore.SaveStepOutput(step.ID, resp)
-			_ = runStore.AppendEvent(formularun.Event{Type: "step_completed", StepID: step.ID, Status: "completed", DurationMS: time.Since(stepStarted).Milliseconds()})
-		}
-
-		if step.OutputKey != "" {
-			logLine("  → Output key: %s", step.OutputKey)
-		}
-
-		return resp, nil
-	}
-
-	fmt.Fprintf(out, "Executing formula: %s\n", recipe.Name)
-	fmt.Fprintf(out, "Steps: %d (excluding root)\n", len(recipe.Steps)-1)
-	fmt.Fprintln(out, strings.Repeat("─", 50))
-
 	runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopRunSignals()
-	result, err := exec.Run(runCtx, stepRunner)
-	var waitingErr executor.WaitingInputError
-	waitingForInput := errors.As(err, &waitingErr)
-	if runCtx.Err() != nil && err == nil {
-		err = runCtx.Err()
-	}
-
-	fmt.Fprintln(out, strings.Repeat("─", 50))
-	renderRunResult(cmd, result, err != nil)
-	if dashboard != nil {
-		dashboard.finalize(result, err)
-	}
-	if runStore != nil {
-		status := formularun.StatusCompleted
-		errMsg := ""
-		if waitingForInput {
-			status = formularun.StatusWaitingInput
-			_ = runStore.MarkWaitingInput(waitingErr.StepID)
-		} else if runCtx.Err() != nil {
-			status = formularun.StatusInterrupted
-			errMsg = runCtx.Err().Error()
-		} else if err != nil {
-			status = formularun.StatusFailed
-			errMsg = err.Error()
-		}
-		if status != formularun.StatusWaitingInput {
-			_ = runStore.Finish(status, errMsg)
-		}
-		if dashboard != nil {
-			_ = dashboard.persistSnapshot()
-		}
-	}
-	if waitingForInput {
-		fmt.Fprintf(out, "Formula paused: waiting for human input at step %s\n", waitingErr.StepID)
-	}
-
+	err = executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
+		Recipe:       recipe,
+		RunStore:     runStore,
+		Processor:    runner,
+		DefaultAgent: runAgent,
+		DefaultModel: formulaModel,
+		Session:      runSession,
+		Workspace:    agentWorkspace,
+		Debug:        formulaDebug,
+		DryRun:       formulaDryRun,
+		AllowScripts: !formulaNoScript,
+		Dashboard:    dashboard,
+		Out:          out,
+	})
 	if showWeb {
 		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
 		fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
 		waitForFormulaDashboardExit(dashboard)
 	}
-
-	if waitingForInput {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string) error {
@@ -532,53 +302,6 @@ func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, 
 		return nil
 	}
 	return err
-}
-
-func runFormulaDryRun(recipe *formula.Recipe) error {
-	fmt.Printf("Execution Plan for: %s\n\n", recipe.Name)
-
-	batches, err := executor.TopologicalBatches(recipe)
-	if err != nil {
-		return err
-	}
-
-	displayBatch := 1
-	for _, batch := range batches {
-		var visible []*formula.RecipeStep
-		for _, step := range batch {
-			if !step.IsRoot {
-				visible = append(visible, step)
-			}
-		}
-		if len(visible) == 0 {
-			continue
-		}
-		fmt.Printf("Batch %d (parallel):\n", displayBatch)
-		displayBatch++
-		for _, step := range visible {
-			agent := "default"
-			if step.Execution == "noop" {
-				agent = "noop"
-			} else if step.Execution == "script" {
-				agent = "script"
-			}
-			if step.Agent != nil && step.Agent.Name != "" {
-				agent = step.Agent.Name
-			}
-			skip := ""
-			if step.Condition != "" {
-				skip = fmt.Sprintf(" [if: %s]", step.Condition)
-			}
-			output := ""
-			if step.OutputKey != "" {
-				output = fmt.Sprintf(" → output: %s", step.OutputKey)
-			}
-			fmt.Printf("  - %s (%s)%s%s\n", step.ID, agent, skip, output)
-		}
-		fmt.Println()
-	}
-
-	return nil
 }
 
 func renderRunResult(cmd *cobra.Command, result *executor.RunResult, hasError bool) {

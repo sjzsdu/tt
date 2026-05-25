@@ -260,8 +260,6 @@ func New(deps Dependencies) *cobra.Command {
 	formulaRunCmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
 	formulaRunCmd.Flags().BoolVar(&formulaNoScript, "no-script", false, "disable formula script steps for this run")
 	formulaRunCmd.Flags().BoolVar(&formulaAllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
-	formulaRunCmd.Flags().BoolVar(&formulaRuntimeEngine, "runtime-engine", true, "execute with the typed Workflow runtime engine")
-	formulaRunCmd.Flags().BoolVar(&formulaLegacyEngine, "legacy-engine", false, "execute with the legacy formula executor")
 	formulaRunsCmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsFormula, "formula", "", "filter runs by formula name")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
