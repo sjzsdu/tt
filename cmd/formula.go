@@ -47,6 +47,7 @@ var (
 	formulaNoScript        bool
 	formulaAllowShell      bool
 	formulaRuntimeEngine   bool
+	formulaLegacyEngine    bool
 	formulaCreateOutput    string
 	formulaCreateForce     bool
 	formulaCreateStdout    bool
@@ -309,7 +310,8 @@ func init() {
 	formulaRunCmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
 	formulaRunCmd.Flags().BoolVar(&formulaNoScript, "no-script", false, "disable formula script steps for this run")
 	formulaRunCmd.Flags().BoolVar(&formulaAllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
-	formulaRunCmd.Flags().BoolVar(&formulaRuntimeEngine, "runtime-engine", false, "execute with the new typed Workflow runtime engine (experimental)")
+	formulaRunCmd.Flags().BoolVar(&formulaRuntimeEngine, "runtime-engine", true, "execute with the typed Workflow runtime engine")
+	formulaRunCmd.Flags().BoolVar(&formulaLegacyEngine, "legacy-engine", false, "execute with the legacy formula executor")
 	formulaRunsCmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsFormula, "formula", "", "filter runs by formula name")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
@@ -2102,8 +2104,16 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if formulaDryRun {
+	if formulaDryRun && (formulaLegacyEngine || !formulaRuntimeEngine) {
 		return runFormulaDryRun(recipe)
+	}
+	if formulaDryRun {
+		return executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{
+			Recipe:       recipe,
+			DryRun:       true,
+			AllowScripts: !formulaNoScript,
+			Out:          cmd.OutOrStdout(),
+		})
 	}
 
 	loaded, err := loadTTConfig()
@@ -2191,7 +2201,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if formulaRuntimeEngine {
+	if formulaRuntimeEngine && !formulaLegacyEngine {
 		runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stopRunSignals()
 		err := executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
@@ -2208,9 +2218,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			Dashboard:    dashboard,
 			Out:          out,
 		})
-		if dashboard != nil {
-			_ = dashboard.persistSnapshot()
-		}
+		// Do not persist the legacy dashboard snapshot here. The runtime engine owns
+		// state.json through FormulaRunStateStore, and open/show/resume can read that
+		// runtime snapshot directly.
 		if showWeb {
 			fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
 			fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
