@@ -24,29 +24,14 @@ func runFormulaCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	projectRoot, _ := os.Getwd()
-	loaded, err := formulaLoadTTConfig()
+	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
 	if err != nil {
 		return err
 	}
-	merged := loaded.Merged
-	agentWorkspace := formulaAgentWorkspace(projectRoot)
-	_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
-	if err != nil {
-		return err
-	}
-	defer restoreStorage()
-	merged.Picoclaw.Home = resolvedHome
-	merged.Picoclaw.Config = resolvedConfig
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		return err
-	}
-	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
-	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
-	}
+	defer formulaRT.Close()
 	embedded := []pcwrap.EmbeddedAgent{agents.FormulaWriter()}
 	session := "cli:formula:create:" + name
-	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: agentWorkspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	runner, err := formulaRT.Runtime.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 	if err != nil {
 		return err
 	}
@@ -54,7 +39,7 @@ func runFormulaCreate(cmd *cobra.Command, args []string) error {
 
 	message := buildFormulaCreatePrompt(name, prompt)
 	loading := startLLMLoading("正在用 formula-writer agent 生成 formula", formulaDebug)
-	resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: message, Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: agentWorkspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: message, Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 	loading.Stop()
 	if err != nil {
 		return err
@@ -139,29 +124,14 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 	}
 
 	projectRoot, _ := os.Getwd()
-	loaded, err := formulaLoadTTConfig()
+	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
 	if err != nil {
 		return err
 	}
-	merged := loaded.Merged
-	agentWorkspace := formulaAgentWorkspace(projectRoot)
-	_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
-	if err != nil {
-		return err
-	}
-	defer restoreStorage()
-	merged.Picoclaw.Home = resolvedHome
-	merged.Picoclaw.Config = resolvedConfig
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		return err
-	}
-	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
-	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
-	}
+	defer formulaRT.Close()
 	embedded := []pcwrap.EmbeddedAgent{agents.FormulaWriter()}
 	session := "cli:formula:optimize:" + name
-	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: agentWorkspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	runner, err := formulaRT.Runtime.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 	if err != nil {
 		return err
 	}
@@ -169,7 +139,7 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 
 	message := buildFormulaOptimizePrompt(name, string(existing), suggestion)
 	loading := startLLMLoading("正在用 formula-writer agent 优化 formula", formulaDebug)
-	resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: message, Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: agentWorkspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+	resp, err := runner.ProcessDirect(pcwrap.RunOptions{Message: message, Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 	loading.Stop()
 	if err != nil {
 		return err
@@ -182,7 +152,7 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		repairMessage := buildFormulaOptimizeRepairPrompt(name, suggestion, toml, err)
 		loading := startLLMLoading("生成结果校验失败，正在让 formula-writer 修复 TOML", formulaDebug)
-		resp, repairErr := runner.ProcessDirect(pcwrap.RunOptions{Message: repairMessage, Session: session + ":repair", Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: agentWorkspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
+		resp, repairErr := runner.ProcessDirect(pcwrap.RunOptions{Message: repairMessage, Session: session + ":repair", Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 		loading.Stop()
 		if repairErr != nil {
 			return fmt.Errorf("optimized formula failed validation: %w; repair attempt failed: %w", err, repairErr)

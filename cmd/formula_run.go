@@ -56,37 +56,18 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	loaded, err := formulaLoadTTConfig()
-	if err != nil {
-		return err
-	}
-	merged := loaded.Merged
 	projectRoot, _ := os.Getwd()
 	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
 		return err
 	}
-	agentWorkspace := formulaAgentWorkspace(projectRoot)
-	_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
 	if err != nil {
 		return err
 	}
-	defer restoreStorage()
-	merged.Picoclaw.Home = resolvedHome
-	merged.Picoclaw.Config = resolvedConfig
-
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		return err
-	}
-
-	rt, err := pcwrap.Load(pcwrap.Options{
-		Home:      merged.Picoclaw.Home,
-		Config:    merged.Picoclaw.Config,
-		TTConfig:  merged,
-		TTSources: loaded.Sources,
-	})
-	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
-	}
+	defer formulaRT.Close()
+	loaded := formulaRT.Loaded
+	rt := formulaRT.Runtime
+	agentWorkspace := formulaRT.Workspace
 	embeddedAgents, err := agents.List()
 	if err != nil {
 		return fmt.Errorf("list embedded agents failed: %w", err)
@@ -103,7 +84,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		EmbeddedAgents: embeddedAgents,
 	})
 	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		return formulaRT.UnavailableError(err)
 	}
 	defer runner.Close()
 
@@ -396,11 +377,6 @@ func executeFormulaRecipe(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 }
 
 func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
-	loaded, err := formulaLoadTTConfig()
-	if err != nil {
-		return err
-	}
-	merged := loaded.Merged
 	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
 	if projectRoot == "" {
 		projectRoot, _ = os.Getwd()
@@ -408,21 +384,13 @@ func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, 
 	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
 		return err
 	}
-	agentWorkspace := formulaAgentWorkspace(projectRoot)
-	_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
 	if err != nil {
 		return err
 	}
-	defer restoreStorage()
-	merged.Picoclaw.Home = resolvedHome
-	merged.Picoclaw.Config = resolvedConfig
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		return err
-	}
-	rt, err := pcwrap.Load(pcwrap.Options{Home: merged.Picoclaw.Home, Config: merged.Picoclaw.Config, TTConfig: merged, TTSources: loaded.Sources})
-	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
-	}
+	defer formulaRT.Close()
+	rt := formulaRT.Runtime
+	agentWorkspace := formulaRT.Workspace
 	embeddedAgents, err := agents.List()
 	if err != nil {
 		return fmt.Errorf("list embedded agents failed: %w", err)
@@ -433,7 +401,7 @@ func executeFormulaRecipeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, 
 	}
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: runStore.Meta.Session, Model: runStore.Meta.Model, Debug: formulaDebug, Quiet: true, Workspace: agentWorkspace, EmbeddedAgents: embeddedAgents})
 	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		return formulaRT.UnavailableError(err)
 	}
 	defer runner.Close()
 
