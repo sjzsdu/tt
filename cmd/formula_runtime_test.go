@@ -1,0 +1,53 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/steps"
+	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
+)
+
+type fakeFormulaDirectProcessor struct {
+	opt pcwrap.RunOptions
+}
+
+func (f *fakeFormulaDirectProcessor) ProcessDirect(opt pcwrap.RunOptions) (string, error) {
+	f.opt = opt
+	return " agent response ", nil
+}
+
+func TestFormulaRuntimeAgentRunnerUsesDefaults(t *testing.T) {
+	fake := &fakeFormulaDirectProcessor{}
+	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", defaultModel: "model-a", session: "session-a", workspace: "/tmp/ws", quiet: true}
+	value, err := runner.RunAgent(context.Background(), steps.AgentRequest{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.opt.Agent != "main" || fake.opt.Model != "model-a" || fake.opt.Session != "session-a" || fake.opt.Message != "hello" {
+		t.Fatalf("unexpected options: %+v", fake.opt)
+	}
+	var got string
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "agent response" {
+		t.Fatalf("response = %q", got)
+	}
+}
+
+func TestNewFormulaRuntimeExecutorBuildsWorkflowExecutor(t *testing.T) {
+	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo", IsRoot: true}, {ID: "demo.start", Execution: "noop"}}}
+	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{Recipe: recipe, DryRun: true, AllowScripts: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exec.Workflow == nil || exec.Workflow.ID != "demo" {
+		t.Fatalf("bad workflow: %+v", exec.Workflow)
+	}
+	if exec.Capabilities.Agents == nil || exec.Capabilities.Scripts == nil {
+		t.Fatalf("missing dry-run capabilities: %+v", exec.Capabilities)
+	}
+}
