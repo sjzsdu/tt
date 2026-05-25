@@ -1016,6 +1016,41 @@ button, input, textarea { font: inherit; }
   border-radius: 10px;
 }
 
+.json-array-row {
+  display: grid;
+  grid-template-columns: minmax(12ch, 32ch) auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 10px;
+}
+
+.json-array-row:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.json-array-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.json-array-chip {
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  word-break: break-word;
+}
+
+.json-empty-array {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .json-row:hover {
   background: rgba(255, 255, 255, 0.035);
 }
@@ -1503,6 +1538,20 @@ button, input, textarea { font: inherit; }
   padding: 14px 16px;
 }
 
+.step-section-hint,
+.step-section-footnote {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.step-section-footnote {
+  padding-top: 0;
+  font-size: 11px;
+}
+
 .loop-plan-body {
   display: grid;
   gap: 14px;
@@ -1698,6 +1747,17 @@ button, input, textarea { font: inherit; }
   overflow: auto;
   border: 1px solid rgba(125, 211, 252, 0.1);
   border-radius: 14px;
+}
+
+.step-activity-output-note {
+  display: inline-flex;
+  margin-top: 10px;
+  padding: 5px 9px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 11px;
 }
 
 /* ── Shared utilities ── */

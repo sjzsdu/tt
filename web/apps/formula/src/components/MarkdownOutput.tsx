@@ -228,6 +228,21 @@ function JsonValue({ value, name, depth }: { value: unknown; name?: string; dept
     ? value.map((item, index) => [String(index), item] as const)
     : Object.entries(value as Record<string, unknown>);
 
+  if (Array.isArray(value) && value.every(item => item === null || !isJsonContainer(item))) {
+    return (
+      <div className="json-array-row" style={{ paddingLeft: depth * 16 }}>
+        {label ? <span className="json-key-label">{label}</span> : null}
+        {label && <span className="json-separator">:</span>}
+        <div className="json-array-chips">
+          {value.length === 0 && <span className="json-empty-array">empty array</span>}
+          {value.map((item, index) => (
+            <span key={index} className="json-array-chip"><PrimitiveValue value={item} /></span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <details className="json-node" open={depth < 2} style={{ marginLeft: depth * 12 }}>
       <summary className="json-summary">
@@ -238,7 +253,7 @@ function JsonValue({ value, name, depth }: { value: unknown; name?: string; dept
       </summary>
       <div className="json-children">
         {entries.map(([entryKey, entryValue]) => (
-          <JsonValue key={entryKey} name={entryKey} value={entryValue} depth={depth + 1} />
+          <JsonValue key={entryKey} name={Array.isArray(value) ? `#${Number(entryKey) + 1}` : entryKey} value={entryValue} depth={depth + 1} />
         ))}
       </div>
     </details>
@@ -258,6 +273,10 @@ function jsonType(value: unknown) {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
   return typeof value;
+}
+
+function isJsonContainer(value: unknown) {
+  return value !== null && (Array.isArray(value) || typeof value === 'object');
 }
 
 export function AutoOutput({ content, className = '' }: { content: string; className?: string }) {

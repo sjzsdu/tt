@@ -473,6 +473,7 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
   const inputCtx = step.input_ctx || [];
   const activities = step.activities || [];
   const loopBody = step.loop?.body || [];
+  const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
 
   return (
     <Drawer open={open} onClose={onClose} width="96vw" title="Step Inspector" className="step-inspector" destroyOnClose>
@@ -613,8 +614,11 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
             <section className="step-modal-section">
               <div className="step-modal-section-header">
                 <span className="step-modal-section-icon">🛰️</span>
-                <h4>Step activity</h4>
+                <h4>Activity timeline</h4>
               </div>
+              <p className="step-section-hint">
+                Status events for this step. The final output is shown once in the Output section above.
+              </p>
               <div className="step-activity-list">
                 {activities.map(activity => (
                   <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
@@ -626,12 +630,14 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
                       </div>
                       <div className="step-activity-meta">{activity.at} · {activity.step_id}{activity.duration_ms ? ` · ${formatDuration(activity.duration_ms)}` : ''}</div>
                       {activity.detail && <p>{activity.detail}</p>}
-                      {activity.output && <OutputSurface content={activity.output} className="step-activity-output" />}
+                      {activity.output && !sameOutput(activity.output, step.output) && <OutputSurface content={activity.output} className="step-activity-output" />}
+                      {activity.output && sameOutput(activity.output, step.output) && <div className="step-activity-output-note">Output matches final step output.</div>}
                       {activity.error && <pre className="code-block error-block">{activity.error}</pre>}
                     </div>
                   </div>
                 ))}
               </div>
+              {hiddenDuplicateOutputs > 0 && <div className="step-section-footnote">Hidden duplicate output in {hiddenDuplicateOutputs} timeline event{hiddenDuplicateOutputs === 1 ? '' : 's'}.</div>}
             </section>
           )}
 
@@ -648,6 +654,10 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
       </div>
     </Drawer>
   );
+}
+
+function sameOutput(a?: string, b?: string) {
+  return !!a && !!b && a.trim() === b.trim();
 }
 
 function RetryStepModal({ step, open, onCancel, onSubmit }: { step: FormulaDashboardStep | null; open: boolean; onCancel: () => void; onSubmit: (stepID: string, advice?: string) => Promise<void> }) {
