@@ -228,15 +228,20 @@ button, input, textarea { font: inherit; }
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.72fr);
   gap: 16px;
+  align-items: stretch;
+  min-height: max(520px, calc(100vh - 360px));
 }
 
 .workspace-main {
+  min-height: 0;
   padding: 18px;
 }
 
 .workspace-side {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
 .console-card .ant-card-head,
@@ -1277,8 +1282,16 @@ button, input, textarea { font: inherit; }
   line-height: 1.55;
 }
 
+.console-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
 .console-card .ant-card-body {
-  max-height: 420px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -1736,6 +1749,14 @@ button, input, textarea { font: inherit; }
   .run-overview-panel,
   .step-grid {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-grid {
+    min-height: auto;
+  }
+
+  .console-card {
+    min-height: 360px;
   }
 
   .overview-metrics {
