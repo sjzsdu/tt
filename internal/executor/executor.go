@@ -1107,7 +1107,7 @@ func (e *Executor) buildPromptWithContext(step *formula.RecipeStep, local map[st
 	if len(step.InputCtx) > 0 {
 		b.WriteString("## Context from previous steps\n\n")
 		for _, key := range step.InputCtx {
-			if val, ok := ctx[key]; ok {
+			if val, ok := resolveContextValue(ctx, key); ok {
 				b.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", key, val))
 			}
 		}
@@ -1143,6 +1143,23 @@ func (e *Executor) buildPromptWithContext(step *formula.RecipeStep, local map[st
 	}
 
 	return b.String()
+}
+
+func resolveContextValue(ctx map[string]string, key string) (string, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false
+	}
+	if val, ok := ctx[key]; ok {
+		return val, true
+	}
+	if strings.Contains(key, ".") {
+		path := strings.Split(key, ".")
+		if raw, ok := ctx[path[0]]; ok {
+			return resolveJSONPath(raw, path[1:])
+		}
+	}
+	return "", false
 }
 
 func validateStepOutput(step *formula.RecipeStep, output string) error {

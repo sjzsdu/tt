@@ -87,6 +87,24 @@ func TestExecutorDefaultsEmptyOutputKeyToStepID(t *testing.T) {
 	}
 }
 
+func TestExecutorInputContextSupportsJSONPath(t *testing.T) {
+	recipe := &formula.Recipe{Name: "ctx-demo"}
+	exec := New(recipe, RunOptions{InitialContext: map[string]string{
+		"research_brief": `{"research_task":"find bug","search_targets":["auth","api"],"nested":{"value":"keep"},"large":"omit me"}`,
+	}})
+	step := &formula.RecipeStep{ID: "ctx-demo.use", Title: "Use context", InputCtx: []string{"research_brief.search_targets", "research_brief.nested.value"}}
+	prompt := exec.buildPrompt(step)
+	if !strings.Contains(prompt, `["auth","api"]`) {
+		t.Fatalf("search_targets path not injected: %s", prompt)
+	}
+	if !strings.Contains(prompt, "keep") {
+		t.Fatalf("nested value not injected: %s", prompt)
+	}
+	if strings.Contains(prompt, "omit me") || strings.Contains(prompt, "find bug") {
+		t.Fatalf("full JSON should not be injected for path context: %s", prompt)
+	}
+}
+
 func TestExecutorDynamicFormAndValidate(t *testing.T) {
 	step := &formula.RecipeStep{ID: "demo.triage", Title: "Triage", DynamicForm: true, Validate: &formula.ValidateSpec{Format: "json", Required: []string{"ok", "nested.value"}}}
 	exec := New(&formula.Recipe{Name: "demo"}, RunOptions{})
