@@ -12,7 +12,11 @@ type formulaDashboardEdge = formulaui.Edge
 type formulaDashboardLogEntry = formulaui.LogEntry
 type formulaDashboardMessage = formulaui.Message
 
+var buildFormulaDashboardGraph = formulaui.BuildGraph
 var cloneFormulaDashboardSnapshot = formulaui.CloneSnapshot
 var cloneHumanInputRequest = formulaui.CloneHumanInputRequest
 var loopParentStepID = formulaui.LoopParentStepID
 var appendStepActivity = formulaui.AppendStepActivity
+var cloneStringMap = formulaui.CloneStringMap
+var buildFormulaDashboardLoop = formulaui.BuildLoop
+var cloneDashboardLoop = formulaui.CloneLoop
