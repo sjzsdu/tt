@@ -1,13 +1,13 @@
 formula = "github-pr-review"
-description = "使用 gh 收集 PR 信息与 diff，完成代码审阅、生成评论建议、按需真实提交评论，并输出带表格汇总的最终报告。"
-version = 1
+description = "使用 gh 收集 PR 信息与 diff，完成代码审阅、生成评论建议，并在 typed runtime 显式人工确认后才真实提交评论，最后输出带表格汇总的最终报告。"
+version = 2
 type = "workflow"
 
 [vars]
 pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
 review_focus = { description = "重点关注的方面，例如正确性、架构、性能、安全、兼容性", default = "正确性、风险与可维护性" }
 repo_hint = { description = "可选的仓库提示，例如 owner/repo；若为空则使用当前仓库上下文", default = "" }
-submit_review = { description = "是否真的通过 gh 提交 review comment/conversation，true 表示提交，false 表示仅生成建议", default = "true", enum = ["true", "false"] }
+submit_review = { description = "是否进入真实提交流程；true 表示先请求人工确认再提交，false 表示仅生成建议", default = "false", enum = ["true", "false"] }
 
 [[steps]]
 id = "fetch-pr-metadata"
@@ -189,12 +189,41 @@ description = """
 agent.name = "coder"
 
 [[steps]]
-id = "submit-review-comments"
-title = "通过 gh 真实提交 review comments"
-execution = "script"
+id = "confirm-submit-review"
+title = "人工确认是否提交 GitHub review"
+execution = "human_input"
 depends_on = ["prepare-review-summary"]
 input_context = ["review_plan", "pr_context"]
 condition = "pr_context.submit_review == true"
+output_key = "review_confirmation"
+description = "submit_review=true 时，必须由用户显式确认后才允许通过 gh 写入 GitHub。"
+
+[steps.form]
+title = "确认提交 GitHub Review"
+description = "请确认是否将 review_plan 中的 summary/comment 真实提交到 GitHub。默认建议先选择 no，确认内容无误后再重跑提交。"
+submit_label = "确认选择"
+
+[[steps.form.fields]]
+name = "confirm"
+label = "是否真实提交到 GitHub？"
+type = "radio"
+required = true
+options = ["no", "yes"]
+
+[[steps.form.fields]]
+name = "operator_note"
+label = "提交备注或限制"
+type = "textarea"
+required = false
+placeholder = "例如：只提交 summary，不提交 inline；或说明本次确认依据。"
+
+[[steps]]
+id = "submit-review-comments"
+title = "通过 gh 真实提交 review comments"
+execution = "script"
+depends_on = ["prepare-review-summary", "confirm-submit-review"]
+input_context = ["review_plan", "pr_context", "review_confirmation"]
+condition = "review_confirmation.confirm == yes"
 output_key = "review_submission"
 
 [steps.script]
@@ -330,8 +359,8 @@ agent.name = "coder"
 [[steps]]
 id = "final-report"
 title = "输出最终 PR 审查报告"
-depends_on = ["submit-review-comments", "draft-review-comments"]
-input_context = ["pr_context", "review_findings", "review_plan", "review_submission", "review_draft"]
+depends_on = ["submit-review-comments", "draft-review-comments", "confirm-submit-review"]
+input_context = ["pr_context", "review_findings", "review_plan", "review_confirmation", "review_submission", "review_draft"]
 output_key = "final_report"
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
@@ -358,6 +387,7 @@ description = """
 - 如果 pr_context.submit_review == true：
   - 已成功提交的问题标记为 submitted
   - 提交失败的问题标记为 submit-failed
+  - 如果 review_confirmation.confirm != yes，标记为 confirmation-declined
   - 未尝试提交的问题标记为 pending
 - 如果 pr_context.submit_review != true：
   - 所有问题标记为 draft-only

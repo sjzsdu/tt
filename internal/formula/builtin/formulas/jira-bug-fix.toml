@@ -1,6 +1,6 @@
 formula = "jira-bug-fix"
-description = "获取 Jira ticket 与最新评论，整理出可执行的 bug 描述后，内嵌 bug-fix workflow 处理，并输出最终结论。"
-version = 1
+description = "获取 Jira ticket 与最新评论，整理出可执行的 bug 描述后，用 typed runtime 内嵌 bug-fix workflow 处理，并输出最终结论。"
+version = 2
 type = "workflow"
 
 [vars]
@@ -51,6 +51,8 @@ agent.name = "reviewer"
 id = "run-bug-fix"
 title = "内嵌 bug-fix workflow 处理 ticket"
 depends_on = ["summarize-ticket"]
+input_context = ["ticket_analysis"]
+output_key = "bug_fix_result"
 embed = "bug-fix"
 
 [steps.embed_vars]
@@ -60,7 +62,7 @@ issue_summary = "{{ticket_analysis.bug_issue_summary}}"
 id = "final-report"
 title = "输出 Jira 处理最终报告"
 depends_on = ["run-bug-fix"]
-input_context = ["ticket_analysis", "run-bug-fix.final_report", "run-bug-fix.bug_verification", "run-bug-fix.fix_result", "run-bug-fix.no_bug_resolution"]
+input_context = ["ticket_analysis", "bug_fix_result", "run-bug-fix.final_report", "run-bug-fix.bug_verification", "run-bug-fix.fix_result", "run-bug-fix.no_bug_resolution"]
 output_key = "final_report"
 description = """
 面向用户输出简明中文报告。

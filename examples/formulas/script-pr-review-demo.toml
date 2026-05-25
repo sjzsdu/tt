@@ -1,6 +1,6 @@
 formula = "script-pr-review-demo"
-description = "Collect deterministic PR context with scripts, then hand it to an agent for review."
-version = 1
+description = "Collect deterministic PR context with scripts, hand it to an agent for review, then optionally pause for explicit typed runtime sign-off before tests."
+version = 2
 type = "workflow"
 
 [vars]
@@ -43,9 +43,30 @@ output_key = "review_summary"
 name = "coder"
 
 [[steps]]
+id = "test-approval"
+title = "Approve running tests"
+execution = "human_input"
+depends_on = ["review"]
+output_key = "test_approval"
+description = "Demonstrates explicit human input before running a local command."
+
+[steps.form]
+title = "Run local tests?"
+description = "The next step runs `go test ./...` locally. Confirm before continuing."
+submit_label = "Continue"
+
+[[steps.form.fields]]
+name = "approved"
+label = "Run go test ./...?"
+type = "radio"
+required = true
+options = ["yes", "no"]
+
+[[steps]]
 id = "test"
 title = "Run Go tests"
-depends_on = ["review"]
+depends_on = ["test-approval"]
+condition = "test_approval.approved == yes"
 execution = "script"
 output_key = "test_result"
 
@@ -59,8 +80,8 @@ continue_on_error = true
 id = "report"
 title = "Write final report"
 depends_on = ["test"]
-input_context = ["review_summary", "test_result"]
-description = "Write a concise final PR review report using the analysis and test result."
+input_context = ["review_summary", "test_approval", "test_result"]
+description = "Write a concise final PR review report using the analysis, explicit test approval, and test result if tests ran. If test_approval.approved != yes, say tests were intentionally skipped."
 output_key = "final_report"
 
 [steps.agent]

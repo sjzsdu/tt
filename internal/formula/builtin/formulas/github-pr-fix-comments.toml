@@ -1,6 +1,6 @@
 formula = "github-pr-fix-comments"
-description = "遍历 PR 的所有待处理 review comments，并对每条评论内嵌执行 bug-fix，最后汇总处理结果。"
-version = 1
+description = "遍历 PR 的所有待处理 review comments，用 typed runtime foreach 并发内嵌 bug-fix 处理每条评论，最后汇总处理结果。"
+version = 2
 type = "workflow"
 
 [vars]
@@ -88,10 +88,14 @@ id = "fix-each-comment"
 title = "逐条执行 bug-fix"
 depends_on = ["normalize-comment-items"]
 input_context = ["comment_items"]
+condition = "comment_items.total != 0"
+output_key = "comment_results"
 
   [steps.loop]
   for_each = "comment_items.items"
   var = "comment"
+  parallel = true
+  max_concurrency = 3
 
   [[steps.loop.body]]
   id = "run-bug-fix"
@@ -125,7 +129,7 @@ input_context = ["comment_items"]
 id = "final-report"
 title = "输出 PR 评论处理总报告"
 depends_on = ["fix-each-comment"]
-input_context = ["pr_metadata", "comment_context", "comment_items", "fix-each-comment.comment_result"]
+input_context = ["pr_metadata", "comment_context", "comment_items", "comment_results"]
 output_key = "final_report"
 description = """
 输出最终中文总结。
@@ -135,6 +139,7 @@ description = """
 2. 每条评论的结论摘要（fixed / not-confirmed / needs-followup）；
 3. 需要人工继续处理的项；
 4. 下一步建议。
+5. 如果 comment_items.total == 0，明确说明没有待处理评论且没有执行 bug-fix。
 
 要求：
 - 结论先行。

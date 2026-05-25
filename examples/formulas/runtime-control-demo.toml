@@ -1,6 +1,6 @@
 formula = "runtime-control-demo"
-description = "Demo: use agent JSON output to choose a runtime branch and stop an until loop."
-version = 1
+description = "Demo: use typed runtime JSON output to choose a runtime branch, optionally pause for explicit human input, and stop an until loop."
+version = 2
 type = "workflow"
 
 [vars]
@@ -22,7 +22,29 @@ title = "Frontend path selected"
 depends_on = ["decide"]
 input_context = ["decision"]
 condition = "decision.path == frontend"
-description = "This step runs only when the decide step produced JSON with path=frontend."
+description = "This step runs only when the decide step produced JSON with path=frontend. Output ONLY compact JSON: {\"plan\":\"...\",\"needs_user_choice\":false}."
+output_key = "frontend_plan"
+
+[[steps]]
+id = "choose-frontend-detail"
+title = "Optional frontend detail choice"
+execution = "human_input"
+depends_on = ["frontend-plan"]
+condition = "frontend_plan.needs_user_choice == true"
+output_key = "frontend_choice"
+description = "Explicit typed runtime pause used only when frontend_plan says it needs user choice."
+
+[steps.form]
+title = "Choose frontend detail"
+description = "This demonstrates first-class human input pause/resume."
+submit_label = "Continue"
+
+[[steps.form.fields]]
+name = "detail"
+label = "Detail to prioritize"
+type = "radio"
+required = true
+options = ["accessibility", "performance", "state-management"]
 
 [[steps]]
 id = "backend-plan"
@@ -35,8 +57,8 @@ description = "This step runs only when the decide step produced JSON with path=
 [[steps]]
 id = "improve"
 title = "Iterate until review approves"
-depends_on = ["frontend-plan"]
-input_context = ["decision"]
+depends_on = ["frontend-plan", "choose-frontend-detail"]
+input_context = ["decision", "frontend_plan", "frontend_choice"]
 condition = "decision.path == frontend"
 description = "Runtime loop: every iteration can use the latest agent output and decide whether to stop."
 

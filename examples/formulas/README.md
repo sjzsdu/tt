@@ -73,7 +73,7 @@ When a run reaches this step, it enters `waiting_input`. Submit through the live
 tt formula run input latest choose-path --field path=frontend
 ```
 
-Agents can also pause dynamically by outputting a fenced `tt-human-input` JSON block when they detect missing information. The submitted response is saved as the step output and can be consumed by downstream `input_context`.
+Prefer explicit `execution = "human_input"` steps with `[steps.form]`. Do not rely on agents emitting ad-hoc fenced input blocks; typed runtime owns pause/resume state and keeps forms visible to CLI/dashboard tooling.
 
 Safety policy:
 
