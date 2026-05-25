@@ -1,6 +1,6 @@
 # Formula runtime control flow demos
 
-This directory contains small formulas demonstrating runtime decisions, loops, deterministic script steps, and human input pauses.
+This directory contains small formulas demonstrating Workflow IR runtime decisions, loops, deterministic script steps, and human input pauses.
 
 `tt` also includes a small curated builtin formula for generating a multi-document learning pack about a new topic:
 
@@ -46,7 +46,7 @@ The saved output is a JSON envelope containing `command`, `cwd`, `exit_code`, `s
 
 ## Human input pauses
 
-Use `execution = "human_input"` when a formula must stop and collect structured user input before continuing. This is preferred over asking an agent to “ask the user”, because formula runs are autonomous and need an explicit pause state.
+Use `execution = "human_input"` when a formula must stop at a known gate and collect structured user input before continuing. For triage-style missing context where the necessary questions are only known at runtime, prefer an agent step with `form = true`; the typed runtime injects the dynamic `tt-human-input` protocol and still owns pause/resume state.
 
 ```toml
 [[steps]]
@@ -71,7 +71,7 @@ When a run reaches this step, it enters `waiting_input`. Submit through the live
 tt formula run input latest choose-path --field path=frontend
 ```
 
-Prefer explicit `execution = "human_input"` steps with `[steps.form]`. Do not rely on agents emitting ad-hoc fenced input blocks; typed runtime owns pause/resume state and keeps forms visible to CLI/dashboard tooling.
+Prefer static `execution = "human_input"` only for known gates. Prefer `form = true` for dynamic clarification. Do not invent ad-hoc protocols; use the built-in `tt-human-input` fenced JSON block that typed runtime parses and exposes to CLI/dashboard tooling.
 
 Safety policy:
 

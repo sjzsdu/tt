@@ -46,7 +46,7 @@ title = "整理结构化 PR 上下文"
 depends_on = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
 input_context = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
 description = """
-基于 pr_metadata、pr_files、pr_diff 与 review_focus，整理本次审查所需的结构化上下文。
+基于 fetch-pr-metadata、fetch-pr-files、fetch-pr-diff 与 review_focus，整理本次审查所需的结构化上下文。
 
 输出 ONLY 紧凑 JSON，至少包含：
 {
@@ -73,7 +73,7 @@ description = """
 
 要求：
 - submit_review 直接根据变量 submit_review 判断：当且仅当其值为字符串 "true" 时输出 true，否则输出 false
-- changed_files 需要从 pr_files.files 中提取并规范化
+- changed_files 需要从 fetch-pr-files 的 files 字段中提取并规范化
 - pr_summary 需要简洁概括 PR 目标
 - diff_overview 需要总结改动热点与模块边界
 - review_constraints 需要说明审阅时的证据边界，例如“不要编造未在 diff 中出现的行为”
@@ -88,7 +88,7 @@ title = "分析改动并产出审阅问题清单"
 depends_on = ["build-pr-context"]
 input_context = ["build-pr-context", "fetch-pr-diff"]
 description = """
-基于 pr_context 与 pr_diff 对该 PR 做代码审阅。
+基于 build-pr-context 与 fetch-pr-diff 对该 PR 做代码审阅。
 
 重点关注：
 - 正确性
