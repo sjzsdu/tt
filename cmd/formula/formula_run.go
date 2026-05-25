@@ -143,6 +143,9 @@ func executeFormulaResume(cmd *cobra.Command, recipe *formula.Recipe, runStore *
 }
 
 func executeFormulaResumeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []executor.StepResult, initialContext map[string]string, stepAdvice map[string]string) error {
+	if len(stepAdvice) == 0 {
+		return executeFormulaResumeRuntime(cmd, recipe, runStore, dashboard, initialResults, initialContext)
+	}
 	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
 	if projectRoot == "" {
 		projectRoot, _ = os.Getwd()
@@ -299,6 +302,90 @@ func executeFormulaResumeWithAdvice(cmd *cobra.Command, recipe *formula.Recipe, 
 		_ = dashboard.persistSnapshot()
 	}
 	if waitingForInput {
+		return nil
+	}
+	return err
+}
+
+func executeFormulaResumeRuntime(cmd *cobra.Command, recipe *formula.Recipe, runStore *formularun.Store, dashboard *formulaDashboardServer, initialResults []executor.StepResult, initialContext map[string]string) error {
+	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
+	}
+	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
+		return err
+	}
+	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
+	if err != nil {
+		return err
+	}
+	defer formulaRT.Close()
+	rt := formulaRT.Runtime
+	agentWorkspace := formulaRT.Workspace
+	embeddedAgents, err := agents.List()
+	if err != nil {
+		return fmt.Errorf("list embedded agents failed: %w", err)
+	}
+	defaultAgent := defaultFormulaAgent(runStore.Meta.Agent)
+	if err := validateFormulaAgentConfiguration(rt, recipe, defaultAgent, runStore.Meta.Model, runStore.Meta.Session); err != nil {
+		return err
+	}
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: runStore.Meta.Session, Model: runStore.Meta.Model, Debug: formulaDebug, Quiet: true, Workspace: agentWorkspace, EmbeddedAgents: embeddedAgents})
+	if err != nil {
+		return formulaRT.UnavailableError(err)
+	}
+	defer runner.Close()
+
+	agentRunner := formulaRuntimeAgentRunner{
+		processor:    runner,
+		defaultAgent: defaultAgent,
+		defaultModel: runStore.Meta.Model,
+		session:      runStore.Meta.Session,
+		workspace:    agentWorkspace,
+		debug:        formulaDebug,
+		quiet:        true,
+	}
+	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
+		Recipe:       recipe,
+		RunStore:     runStore,
+		AgentRunner:  agentRunner,
+		AllowScripts: !formulaNoScript,
+	})
+	if err != nil {
+		return err
+	}
+	seedFormulaRuntimeResumeState(exec, initialResults, initialContext)
+	if dashboard != nil {
+		exec.Events = formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: exec.Workflow}
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Resuming formula run with typed runtime: %s\n", runStore.Meta.RunID)
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	result, err := exec.Run(runCtx)
+	if runCtx.Err() != nil && err == nil {
+		err = runCtx.Err()
+	}
+	renderFormulaRuntimeResult(cmd, recipe, result, err != nil)
+	status := formularun.StatusCompleted
+	errMsg := ""
+	if result != nil && result.Status == "waiting" {
+		status = formularun.StatusWaitingInput
+		fmt.Fprintln(out, "Formula paused: waiting for human input")
+	} else if runCtx.Err() != nil {
+		status = formularun.StatusInterrupted
+		errMsg = runCtx.Err().Error()
+	} else if err != nil {
+		status = formularun.StatusFailed
+		errMsg = err.Error()
+	}
+	if status != formularun.StatusWaitingInput {
+		_ = runStore.Finish(status, errMsg)
+	}
+	if dashboard != nil {
+		_ = dashboard.persistSnapshot()
+	}
+	if status == formularun.StatusWaitingInput {
 		return nil
 	}
 	return err

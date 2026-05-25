@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -201,6 +203,70 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		return err
 	}
 	return nil
+}
+
+func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults []executor.StepResult, initialContext map[string]string) {
+	if exec == nil || exec.Workflow == nil || exec.Store == nil {
+		return
+	}
+	for key, value := range initialContext {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		data, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		_ = exec.Context.Set(key, steps.Value{Type: "json", Raw: data})
+	}
+	for _, result := range initialResults {
+		if result.Status != executor.StatusCompleted || strings.TrimSpace(result.StepID) == "" {
+			continue
+		}
+		data, err := json.Marshal(result.Output)
+		if err != nil {
+			continue
+		}
+		runtimeResult := &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: data}}
+		_ = exec.Store.SaveStep(formularuntime.StepState{
+			WorkflowID: exec.Workflow.ID,
+			NodeID:     ir.NodeID(result.StepID),
+			Status:     steps.StatusCompleted,
+			Result:     runtimeResult,
+			UpdatedAt:  time.Now(),
+		})
+	}
+}
+
+func renderFormulaRuntimeResult(cmd *cobra.Command, recipe *formula.Recipe, result *formularuntime.RunResult, hasError bool) {
+	out := cmd.OutOrStdout()
+	name := ""
+	if recipe != nil {
+		name = recipe.Name
+	}
+	if result == nil {
+		fmt.Fprintf(out, "\nRuntime Result: %s\n", name)
+		return
+	}
+	completed, failed, waiting, skipped := 0, 0, 0, 0
+	for _, nodeResult := range result.Nodes {
+		if nodeResult == nil {
+			continue
+		}
+		switch nodeResult.Status {
+		case steps.StatusCompleted:
+			completed++
+		case steps.StatusFailed:
+			failed++
+		case steps.StatusWaiting:
+			waiting++
+		case steps.StatusSkipped:
+			skipped++
+		}
+	}
+	fmt.Fprintf(out, "\nRuntime Result: %s\n", name)
+	fmt.Fprintf(out, "Status: %s | Total: %d | Completed: %d | Failed: %d | Skipped: %d | Waiting input: %d\n\n", result.Status, len(result.Nodes), completed, failed, skipped, waiting)
+	_ = hasError
 }
 
 type formulaRuntimeDashboardEventSink struct {

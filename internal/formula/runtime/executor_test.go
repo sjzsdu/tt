@@ -23,6 +23,14 @@ func (fakeScript) RunScript(context.Context, steps.ScriptRequest) (steps.Value, 
 	return steps.Value{Type: "json", Raw: raw}, nil
 }
 
+type countingAgent struct{ calls int }
+
+func (a *countingAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, error) {
+	a.calls++
+	raw, _ := json.Marshal("fresh")
+	return steps.Value{Type: "json", Raw: raw}, nil
+}
+
 func TestExecutorRunsTypedWorkflowInTopologicalOrder(t *testing.T) {
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "a", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "a", Kind: steps.KindAgent}}}})
@@ -55,5 +63,40 @@ func TestExecutorReturnsWaitingForHumanInput(t *testing.T) {
 	}
 	if result.Nodes["ask"].Await == nil {
 		t.Fatal("missing await request")
+	}
+}
+
+func TestExecutorSkipsCompletedStoredStepsAndRestoresOutputContext(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "a", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "a", Kind: steps.KindAgent}}, OutputKey: "decision"}})
+	g.AddNode(&ir.Node{ID: "b", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "b", Kind: steps.KindAgent}}}})
+	g.AddEdge("a", "b", "blocks")
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &countingAgent{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent})
+	raw, _ := json.Marshal("stored")
+	if err := exec.Store.SaveStep(StepState{WorkflowID: wf.ID, NodeID: "a", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if agent.calls != 1 {
+		t.Fatalf("agent calls = %d, want only the non-stored step", agent.calls)
+	}
+	value, ok := exec.Context.Get("decision")
+	if !ok {
+		t.Fatal("missing restored output context")
+	}
+	var got string
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "stored" {
+		t.Fatalf("context = %q", got)
 	}
 }

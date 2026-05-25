@@ -60,6 +60,13 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		if node == nil || node.Step == nil {
 			continue
 		}
+		if state, ok, err := e.Store.GetStep(e.Workflow.ID, nodeID); err != nil {
+			return out, err
+		} else if ok && state.Status == steps.StatusCompleted {
+			out.Nodes[nodeID] = state.Result
+			e.rememberStepOutput(node.Step, state.Result)
+			continue
+		}
 		exec, ok := node.Step.(steps.Executable)
 		if !ok {
 			continue
@@ -89,12 +96,43 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
 			return out, nil
 		}
+		e.rememberStepOutput(node.Step, res)
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 		e.emit(nodeID, "step.completed", res)
 	}
 	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
+}
+
+func (e *Executor) rememberStepOutput(step steps.Step, result *steps.RunResult) {
+	if e.Context == nil || step == nil || result == nil || len(result.Output.Raw) == 0 {
+		return
+	}
+	key := stepOutputKey(step)
+	if key == "" {
+		return
+	}
+	_ = e.Context.Set(key, result.Output)
+}
+
+func stepOutputKey(step steps.Step) string {
+	switch s := step.(type) {
+	case steps.AgentStep:
+		return s.OutputKey
+	case *steps.AgentStep:
+		return s.OutputKey
+	case steps.ScriptStep:
+		return s.OutputKey
+	case *steps.ScriptStep:
+		return s.OutputKey
+	case steps.HumanInputStep:
+		return s.OutputKey
+	case *steps.HumanInputStep:
+		return s.OutputKey
+	default:
+		return ""
+	}
 }
 
 func (e *Executor) saveStep(state StepState) {
