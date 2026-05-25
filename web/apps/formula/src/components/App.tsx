@@ -115,6 +115,18 @@ function loopActivitySummary(step: FormulaDashboardStep) {
   return bits.join(' · ');
 }
 
+function latestLoopActivity(step: FormulaDashboardStep) {
+  return [...(step.activities || [])].reverse().find(activity => /\.iter\d+\./.test(activity.step_id));
+}
+
+function loopActivityIteration(activity?: { step_id: string }) {
+  return activity?.step_id.match(/\.iter(\d+)\./)?.[1] || '';
+}
+
+function loopActivityBodyID(activity?: { step_id: string }) {
+  return activity?.step_id.match(/\.iter\d+\.([^.]*)$/)?.[1] || '';
+}
+
 type StepNodeData = {
   step: FormulaDashboardStep;
   kind?: 'step' | 'loop-body';
@@ -143,6 +155,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
           <span className={`graph-node-state ${step.status}`}>{statusLabel(step.status)}</span>
         </div>
         <strong>{step.title}</strong>
+        {step.metadata?.iteration && <div className="loop-iteration-pill">iteration {step.metadata.iteration}</div>}
         <div className="graph-node-meta">
           {step.output_key && <span>out · {step.output_key}</span>}
           {!!step.input_ctx?.length && <span>in · {step.input_ctx.join(', ')}</span>}
@@ -174,11 +187,15 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
 function LoopGroupNode({ data }: NodeProps<Node<LoopGroupNodeData>>) {
   const step = data.step;
   const summary = loopActivitySummary(step) || 'loop body';
+  const latest = latestLoopActivity(step);
+  const iteration = loopActivityIteration(latest);
+  const bodyID = loopActivityBodyID(latest);
   return (
-    <div className="loop-group-node">
-      <div className="loop-group-title">↻ Loop lane</div>
+    <div className={`loop-group-node ${step.status}`}>
+      <div className="loop-group-title">↻ Loop subgraph</div>
       <strong>{step.title}</strong>
       <span>{summary} · {data.bodyCount} step{data.bodyCount === 1 ? '' : 's'}</span>
+      {latest && <em>active: iter {iteration || '?'} · {bodyID || activityShortId(latest.step_id)} · {statusLabel(latest.status)}</em>}
     </div>
   );
 }
@@ -186,12 +203,23 @@ function LoopGroupNode({ data }: NodeProps<Node<LoopGroupNodeData>>) {
 const nodeTypes = { step: StepFlowNode, loopGroup: LoopGroupNode };
 
 function loopBodyStatus(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody) {
+  const current = latestLoopActivity(parent);
+  const currentBodyID = loopActivityBodyID(current);
+  if (currentBodyID === body.id) return current?.status || 'running';
+
   const activity = [...(parent.activities || [])].reverse().find(item => item.step_id.endsWith(`.${body.id}`));
   if (activity) return activity.status;
   if (parent.status === 'completed') return 'completed';
   if (parent.status === 'failed') return 'failed';
   if (parent.status === 'running') return 'pending';
   return parent.status;
+}
+
+function loopBodyIteration(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody) {
+  const current = latestLoopActivity(parent);
+  if (loopActivityBodyID(current) === body.id) return loopActivityIteration(current);
+  const activity = [...(parent.activities || [])].reverse().find(item => item.step_id.endsWith(`.${body.id}`));
+  return loopActivityIteration(activity);
 }
 
 function edgeVisualClass(sourceStatus?: string, targetStatus?: string, extra = '') {
@@ -283,6 +311,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
       loopBodies.forEach((body, index) => {
         const virtualID = `${step.id}.__loop.${body.id}`;
         const status = loopBodyStatus(step, body);
+        const iteration = loopBodyIteration(step, body);
         virtualStatus.set(virtualID, status);
         const virtualStep: FormulaDashboardStep = {
           id: virtualID,
@@ -294,6 +323,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
           output_key: body.output_key,
           input_ctx: body.input_ctx || [],
           condition: body.condition,
+          metadata: iteration ? { iteration } : undefined,
           depends_on: body.depends_on || [],
           index,
         };
@@ -331,20 +361,21 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     const bodies = step.loop?.body || [];
     if (!bodies.length || !mainPositions.has(step.id)) continue;
     const bodyIDs = new Map(bodies.map(body => [body.id, `${step.id}.__loop.${body.id}`]));
-    const entryIDs = bodies.filter(body => !(body.depends_on || []).some(dep => bodyIDs.has(dep))).map(body => bodyIDs.get(body.id)!);
-    for (const entryID of entryIDs) {
-      const targetStatus = statusFor(entryID);
-      edges.push({ id: `${step.id}-${entryID}`, source: step.id, target: entryID, type: 'step', animated: targetStatus === 'running', markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) }, className: edgeVisualClass(step.status, targetStatus, 'loop-entry') });
-    }
-    for (const body of bodies) {
+
+    for (let index = 0; index < bodies.length; index += 1) {
+      const body = bodies[index];
       const targetID = bodyIDs.get(body.id)!;
-      const deps = body.depends_on?.filter(dep => bodyIDs.has(dep)) || [];
+      const explicitDeps = body.depends_on?.filter(dep => bodyIDs.has(dep)) || [];
+      const deps = explicitDeps.length > 0
+        ? explicitDeps
+        : index > 0
+          ? [bodies[index - 1].id]
+          : [];
       for (const dep of deps) {
         const sourceID = bodyIDs.get(dep)!;
         const targetStatus = statusFor(targetID);
         edges.push({ id: `${sourceID}-${targetID}`, source: sourceID, target: targetID, type: 'step', animated: targetStatus === 'running', markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) }, className: edgeVisualClass(statusFor(sourceID), targetStatus, 'loop-body-edge') });
       }
-      if (!deps.length) continue;
     }
   }
 
