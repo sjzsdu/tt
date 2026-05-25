@@ -57,7 +57,7 @@ func BuiltinFormulaContent(name string) ([]byte, bool, error) {
 	}
 	candidates := []string{name}
 	if !strings.HasSuffix(name, ".toml") {
-		candidates = append(candidates, name+CanonicalTOMLExt, name+LegacyTOMLExt)
+		candidates = append(candidates, name+CanonicalTOMLExt)
 	}
 	for _, c := range candidates {
 		base := filepath.Base(c)
@@ -72,7 +72,7 @@ func BuiltinFormulaContent(name string) ([]byte, bool, error) {
 	}
 	for _, e := range entries {
 		if e.Name == name {
-			for _, ext := range []string{CanonicalTOMLExt, LegacyTOMLExt} {
+			for _, ext := range []string{CanonicalTOMLExt} {
 				data, err := builtinFormulaFS.ReadFile("builtin/formulas/" + e.Name + ext)
 				if err == nil {
 					return data, true, nil

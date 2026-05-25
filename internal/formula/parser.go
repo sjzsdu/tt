@@ -202,7 +202,7 @@ func (p *Parser) loadFormula(name string) (*Formula, error) {
 		return cached, nil
 	}
 
-	extensions := []string{CanonicalTOMLExt, LegacyTOMLExt, FormulaExtJSON}
+	extensions := []string{CanonicalTOMLExt, FormulaExtJSON}
 	for _, dir := range p.searchPaths {
 		for _, ext := range extensions {
 			path := filepath.Join(dir, name+ext)

@@ -5,7 +5,7 @@ import (
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
-// WorkflowFromRecipe adapts the legacy compiled Recipe into the new workflow IR.
+// WorkflowFromRecipe adapts the compiled Recipe into the new workflow IR.
 // This is the bridge that lets cmd/formula keep using the existing parser while
 // execution moves toward typed step runners and graph-first runtime semantics.
 func WorkflowFromRecipe(recipe *Recipe) *ir.Workflow {

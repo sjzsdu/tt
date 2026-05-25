@@ -112,12 +112,12 @@ func isFormulaFile(name string) bool {
 	if ext == ".toml" || ext == ".json" {
 		return true
 	}
-	return strings.HasSuffix(name, ".formula.toml") || strings.HasSuffix(name, ".formula.json")
+	return false
 }
 
 func extractFormulaName(filename string) string {
 	name := filename
-	for _, ext := range []string{".formula.toml", ".formula.json", ".toml", ".json"} {
+	for _, ext := range []string{".formula.json", ".toml", ".json"} {
 		if strings.HasSuffix(name, ext) {
 			name = strings.TrimSuffix(name, ext)
 			break

@@ -538,7 +538,7 @@ func (a *loopTOMLAlias) toLoopSpec() (*LoopSpec, error) {
 	}, nil
 }
 
-// RalphSpec defines an inline run/check retry loop (legacy, mapped to Retry).
+// RalphSpec defines an inline run/check retry loop (mapped to Retry).
 type RalphSpec struct {
 	MaxAttempts int             `json:"max_attempts,omitempty" toml:"max_attempts,omitempty"`
 	Check       *RalphCheckSpec `json:"check,omitempty" toml:"check,omitempty"`
