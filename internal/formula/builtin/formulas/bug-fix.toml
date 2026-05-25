@@ -28,13 +28,11 @@ description = """
 {
   "issue_summary":"...",
   "research_brief":"...",
-  "clarification_used":false,
   "assumptions":["..."]
 }
 
 约束：
 - research_brief 必须足够支撑后续 code-research 调研；
-- 如果没有经过用户澄清，clarification_used=false；如果是基于用户补充信息后继续完成，clarification_used=true；
 - assumptions 记录仍然不确定但不阻塞调研的假设。
 """
 agent.name = "coder"
