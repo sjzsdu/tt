@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula"
@@ -49,5 +51,17 @@ func TestNewFormulaRuntimeExecutorBuildsWorkflowExecutor(t *testing.T) {
 	}
 	if exec.Capabilities.Agents == nil || exec.Capabilities.Scripts == nil {
 		t.Fatalf("missing dry-run capabilities: %+v", exec.Capabilities)
+	}
+}
+
+func TestExecuteFormulaRecipeRuntimeDryRun(t *testing.T) {
+	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo", IsRoot: true}, {ID: "demo.start", Execution: "noop"}}}
+	var out bytes.Buffer
+	err := executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{Recipe: recipe, DryRun: true, AllowScripts: true, Out: &out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Runtime status: completed") {
+		t.Fatalf("output = %s", out.String())
 	}
 }

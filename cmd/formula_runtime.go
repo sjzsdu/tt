@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula"
@@ -86,4 +87,52 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)
 	}
 	return exec, nil
+}
+
+type executeFormulaRuntimeOptions struct {
+	Recipe       *formula.Recipe
+	RunStore     *formularun.Store
+	Processor    formulaDirectProcessor
+	DefaultAgent string
+	DefaultModel string
+	Session      string
+	Workspace    string
+	Debug        bool
+	DryRun       bool
+	AllowScripts bool
+	Out          io.Writer
+}
+
+func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeOptions) error {
+	agentRunner := formulaRuntimeAgentRunner{
+		processor:    opt.Processor,
+		defaultAgent: opt.DefaultAgent,
+		defaultModel: opt.DefaultModel,
+		session:      opt.Session,
+		workspace:    opt.Workspace,
+		debug:        opt.Debug,
+		quiet:        true,
+	}
+	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
+		Recipe:       opt.Recipe,
+		RunStore:     opt.RunStore,
+		AgentRunner:  agentRunner,
+		DryRun:       opt.DryRun,
+		AllowScripts: opt.AllowScripts,
+	})
+	if err != nil {
+		return err
+	}
+	if opt.Out != nil {
+		fmt.Fprintf(opt.Out, "Executing formula with typed runtime: %s\n", opt.Recipe.Name)
+	}
+	result, err := exec.Run(ctx)
+	if opt.Out != nil && result != nil {
+		fmt.Fprintf(opt.Out, "Runtime status: %s\n", result.Status)
+		fmt.Fprintf(opt.Out, "Runtime steps: %d\n", len(result.Nodes))
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }

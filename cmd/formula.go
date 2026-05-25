@@ -46,6 +46,7 @@ var (
 	formulaNoSave          bool
 	formulaNoScript        bool
 	formulaAllowShell      bool
+	formulaRuntimeEngine   bool
 	formulaCreateOutput    string
 	formulaCreateForce     bool
 	formulaCreateStdout    bool
@@ -308,6 +309,7 @@ func init() {
 	formulaRunCmd.Flags().BoolVar(&formulaNoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
 	formulaRunCmd.Flags().BoolVar(&formulaNoScript, "no-script", false, "disable formula script steps for this run")
 	formulaRunCmd.Flags().BoolVar(&formulaAllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
+	formulaRunCmd.Flags().BoolVar(&formulaRuntimeEngine, "runtime-engine", false, "execute with the new typed Workflow runtime engine (experimental)")
 	formulaRunsCmd.Flags().IntVar(&formulaRunsLimit, "limit", 20, "maximum number of runs to list")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsFormula, "formula", "", "filter runs by formula name")
 	formulaRunsCmd.Flags().StringVar(&formulaRunsStatus, "status", "", "filter runs by status")
@@ -2187,6 +2189,33 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		if err := dashboard.start(formulaWebPort); err != nil {
 			return err
 		}
+	}
+
+	if formulaRuntimeEngine {
+		runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stopRunSignals()
+		err := executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
+			Recipe:       recipe,
+			RunStore:     runStore,
+			Processor:    runner,
+			DefaultAgent: runAgent,
+			DefaultModel: formulaModel,
+			Session:      runSession,
+			Workspace:    agentWorkspace,
+			Debug:        formulaDebug,
+			DryRun:       formulaDryRun,
+			AllowScripts: !formulaNoScript,
+			Out:          out,
+		})
+		if dashboard != nil {
+			_ = dashboard.persistSnapshot()
+		}
+		if showWeb {
+			fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
+			fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
+			waitForFormulaDashboardExit(dashboard)
+		}
+		return err
 	}
 
 	exec := executor.New(recipe, executor.RunOptions{
