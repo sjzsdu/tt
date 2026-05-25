@@ -36,7 +36,7 @@ func WorkflowFromRecipe(recipe *Recipe) *ir.Workflow {
 }
 
 func typedStepFromRecipeStep(step RecipeStep) steps.Step {
-	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, DependsOn: nil, Labels: append([]string(nil), step.Labels...)}
+	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, DependsOn: nil, Labels: append([]string(nil), step.Labels...), Condition: step.Condition}
 	if step.IsRoot || (step.Metadata != nil && step.Metadata["formula_boundary"] != "") {
 		meta.Kind = steps.KindNoop
 		return steps.NoopStep{Base: steps.Base{Metadata: meta}}

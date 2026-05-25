@@ -30,6 +30,7 @@ type Metadata struct {
 	Title     string
 	DependsOn []ID
 	Labels    []string
+	Condition string
 }
 
 type Step interface {

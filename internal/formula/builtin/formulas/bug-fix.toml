@@ -8,8 +8,7 @@ issue_summary = { description = "用户反馈的 bug 摘要或问题描述", req
 
 [[steps]]
 id = "analyze-issue"
-title = "分析用户问题并按需生成动态澄清表单"
-form = true
+title = "分析用户问题并判断是否需要人工澄清"
 output_key = "issue_triage"
 description = """
 基于 '{{issue_summary}}' 先理解用户问题，不要急于判断代码是否有 bug。
@@ -17,7 +16,7 @@ description = """
 目标：
 1. 提炼问题现象、预期行为、可能的触发路径；
 2. 判断当前信息是否足够进入代码调研；
-3. 只有在信息不足时，使用动态 human input 表单向用户请求最小补充信息；
+3. 只有在信息不足时，将 needs_clarification 置为 true，并写清楚需要补充什么；
 4. 若信息已足够，明确告诉后续步骤可以直接进入代码调研。
 
 输出 ONLY compact JSON，格式必须严格如下：
@@ -25,13 +24,14 @@ description = """
   "issue_summary":"...",
   "needs_clarification":true,
   "clarification_reason":"...",
+  "clarification_questions":["..."],
   "research_brief":"..."
 }
 
 约束：
 - needs_clarification 必须是布尔值。
 - 当 needs_clarification=false 时，research_brief 必须足够支撑后续代码调研。
-- 当 needs_clarification=true 且需要立刻暂停等待用户补充时，按动态表单说明输出 tt-human-input block。
+- 当 needs_clarification=true 时，clarification_questions 必须列出 1-5 个具体问题，后续显式 human_input step 会负责暂停收集。
 - research_brief 要写成给 code-research 使用的调研任务摘要。
 """
 agent.name = "coder"
@@ -42,19 +42,46 @@ required = ["issue_summary", "needs_clarification", "research_brief"]
 
 [[steps]]
 id = "clarify-with-user"
-title = "按动态表单向用户收集缺失信息"
+title = "向用户收集缺失的 bug 复现信息"
 execution = "human_input"
 depends_on = ["analyze-issue"]
 condition = "issue_triage.needs_clarification == true"
 output_key = "user_clarification"
 description = """
-根据 issue_triage.clarification_form 向用户展示动态表单并收集补充信息。
-
-要求：
-- 表单内容完全以 issue_triage.clarification_form 为准；
-- 不要使用静态字段；
-- 只收集当前定位 bug 所需的最小补充信息。
+issue_triage 判断当前信息不足，需要用户补充最小复现信息。
+请根据表单填写复现路径、期望行为、实际行为和环境线索。
 """
+
+[steps.form]
+title = "补充 bug 复现信息"
+description = "这些信息会被合并进后续代码调研摘要。若某项未知，可写“不确定”。"
+submit_label = "继续调研"
+
+[[steps.form.fields]]
+name = "reproduction_steps"
+label = "复现步骤"
+type = "textarea"
+required = true
+placeholder = "请描述从什么入口、执行什么操作后出现问题"
+
+[[steps.form.fields]]
+name = "expected_behavior"
+label = "期望行为"
+type = "textarea"
+required = true
+
+[[steps.form.fields]]
+name = "actual_behavior"
+label = "实际行为 / 错误信息"
+type = "textarea"
+required = true
+
+[[steps.form.fields]]
+name = "environment"
+label = "环境或上下文"
+type = "input"
+required = false
+placeholder = "例如分支、版本、命令、浏览器、平台、账号状态等"
 
 [[steps]]
 id = "prepare-research-brief"

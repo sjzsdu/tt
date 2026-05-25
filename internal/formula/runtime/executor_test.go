@@ -100,3 +100,27 @@ func TestExecutorSkipsCompletedStoredStepsAndRestoresOutputContext(t *testing.T)
 		t.Fatalf("context = %q", got)
 	}
 }
+
+func TestExecutorSkipsStepWhenRuntimeConditionIsFalse(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "a", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "a", Kind: steps.KindAgent}}, OutputKey: "decision"}})
+	g.AddNode(&ir.Node{ID: "b", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "b", Kind: steps.KindAgent, Condition: "decision.approved == true"}}}})
+	g.AddEdge("a", "b", "blocks")
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &countingAgent{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent})
+	raw, _ := json.Marshal(map[string]any{"approved": false})
+	if err := exec.Store.SaveStep(StepState{WorkflowID: wf.ID, NodeID: "a", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Nodes["b"].Status != steps.StatusSkipped {
+		t.Fatalf("b status = %s, want skipped", result.Nodes["b"].Status)
+	}
+	if agent.calls != 0 {
+		t.Fatalf("agent calls = %d, want skipped target not executed", agent.calls)
+	}
+}

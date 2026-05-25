@@ -1,10 +1,10 @@
 formula = "shan-yi-zhe"
 title = "善易者决策参谋"
-description = "一个以易经为象、以义理为魂、以现实决策为本的善易者 Agent：先辨事，必要时动态澄清，再展示卦序、卦象、上下卦、卦辞、彖传、爻辞，合参本卦、动爻、变卦、之卦，最后给出兼具传统文化底蕴与现实可执行性的人生指导。"
-version = 2
+description = "一个以易经为象、以义理为魂、以现实决策为本的善易者 Agent：先辨事，必要时通过 typed runtime 显式澄清，再展示卦序、卦象、上下卦、卦辞、彖传、爻辞，合参本卦、动爻、变卦、之卦，最后给出兼具传统文化底蕴与现实可执行性的人生指导。"
+version = 3
 type = "workflow"
 category = "advice"
-tags = ["易经", "占卦", "决策", "人生指导", "动态澄清", "传统文化"]
+tags = ["易经", "占卦", "决策", "人生指导", "显式澄清", "传统文化"]
 
 [vars]
 question = { description = "用户面对的现实问题、困惑、选择或想采取的行动", required = true }
@@ -28,7 +28,7 @@ description = """
 2. 识别：当前处境、关键选择、时间压力、关系人、风险、用户的隐含期待。
 3. 判断信息是否足以进入取卦取爻阶段。
 4. 判断这件事更像在问：时机、进退、关系、取舍、守正、变通、风险还是修身。
-5. 如果缺少关键上下文，必须生成动态表单向用户澄清；如果信息足够，则直接输出辨事分析。
+5. 如果缺少关键上下文，输出 needs_clarification=true，并列出需要用户补充的具体信息；后续显式 human_input step 会暂停收集。
 
 需要澄清的典型情况：
 - 用户只说“我该怎么办”，但没有说明可选方案。
@@ -36,49 +36,54 @@ description = """
 - 用户问“要不要做某事”，但没有说明若做/不做分别会付出什么代价。
 - 继续分析会明显变成编造背景。
 
-动态表单协议是运行时强约束，若需要澄清，必须在分析文本末尾追加合法 fenced block：
-- 第一行只能是 ```tt-human-input 或 ```tt-human-input json。
-- fenced block 内必须是合法 JSON object，不允许注释、尾逗号、Markdown 或自然语言。
-- 顶层必须直接包含 `reason` 和 `form`，不要包一层 `human_input_request`。
-- `form.fields` 必须是非空数组，最多 5 个字段。
-- 每个 field 必须有 `name`、`label`、`type`。
-- `type` 只能是 `input`、`textarea`、`radio`、`checkbox`、`select`。
-- `radio`、`checkbox`、`select` 必须提供非空 `options` 字符串数组。
-- `name` 只能用英文小写、数字、下划线，不能重复。
-
-示例格式：
-```tt-human-input
-{
-  "reason": "为了判断这件事是宜进、宜守、宜缓还是宜止，需要先确认选择边界和时间压力。",
-  "form": {
-    "title": "请补充关键背景",
-    "description": "回答后我会据此取象、取卦、取爻，并给出行动建议。",
-    "submit_label": "继续解卦",
-    "fields": [
-      {
-        "name": "main_choice",
-        "label": "你现在最想判断的选择是什么？",
-        "type": "textarea",
-        "required": true,
-        "placeholder": "例如：要不要辞职创业；是否应该主动修复关系；这个项目是否继续投入"
-      }
-    ]
-  }
-}
-```
-
 输出要求：
-- 如果信息足够：输出 Markdown 辨事分析，包含“问题本质”“关键选择”“风险与约束”“义理主题”“取象方向”。
-- 如果信息不足：先输出简短辨事分析，再追加 tt-human-input 块。
+- 输出 ONLY compact JSON，不要 Markdown，不要代码块。
+- 格式：
+{"needs_clarification":true,"problem_essence":"...","key_choices":["..."],"risks":["..."],"constraints":["..."],"yili_theme":"...","xiang_direction":"...","clarification_reason":"..."}
+- 如果信息足够，needs_clarification=false，但其它字段仍要填充。
 - 不要在本步骤给最终建议。
 """
 agent.name = "planner"
 
 [[steps]]
+id = "clarify-situation"
+title = "补充决策背景"
+execution = "human_input"
+depends_on = ["discern-situation"]
+condition = "situation_reading.needs_clarification == true"
+output_key = "situation_clarification"
+description = "辨事阶段认为信息不足。请补充选择边界、时间压力、约束和你最关心的判断。"
+
+[steps.form]
+title = "请补充关键背景"
+description = "回答后会继续取象、定卦、解爻，并给出可执行建议。"
+submit_label = "继续解卦"
+
+[[steps.form.fields]]
+name = "main_choice"
+label = "你现在最想判断的选择是什么？"
+type = "textarea"
+required = true
+placeholder = "例如：要不要辞职创业；是否应该主动修复关系；这个项目是否继续投入"
+
+[[steps.form.fields]]
+name = "constraints"
+label = "现实约束和时间压力"
+type = "textarea"
+required = false
+
+[[steps.form.fields]]
+name = "desired_guidance"
+label = "你最希望得到哪类指引？"
+type = "select"
+required = true
+options = ["是否推进", "如何取舍", "关系应对", "风险判断", "修身与心态", "时机判断"]
+
+[[steps]]
 id = "cast-frame"
 title = "取象定卦：选择本卦、动爻、变卦与之卦"
 depends_on = ["discern-situation"]
-input_context = ["situation_reading"]
+input_context = ["situation_reading", "situation_clarification"]
 output_key = "divination_frame"
 description = """
 基于用户问题和 situation_reading，建立易经分析框架。这个步骤要让用户一眼看到“卦”的身份、气象和经典依据。

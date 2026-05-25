@@ -67,6 +67,23 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 			e.rememberStepOutput(node.Step, state.Result)
 			continue
 		}
+		shouldRun, err := shouldRunStep(node.Step.Meta().Condition, e.Context)
+		if err != nil {
+			out.Status = steps.StatusFailed
+			res := &steps.RunResult{Status: steps.StatusFailed, Error: &steps.StepError{Message: err.Error()}}
+			out.Nodes[nodeID] = res
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, UpdatedAt: time.Now(), CompletedAt: time.Now()})
+			e.emit(nodeID, "step.failed", res)
+			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			return out, err
+		}
+		if !shouldRun {
+			res := &steps.RunResult{Status: steps.StatusSkipped}
+			out.Nodes[nodeID] = res
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusSkipped, Result: res, UpdatedAt: time.Now(), CompletedAt: time.Now()})
+			e.emit(nodeID, "step.skipped", res)
+			continue
+		}
 		exec, ok := node.Step.(steps.Executable)
 		if !ok {
 			continue

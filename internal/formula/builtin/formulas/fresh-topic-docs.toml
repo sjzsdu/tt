@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
-description = "根据用户输入的新鲜事物、概念、趋势或话题，先动态分析范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 .tt/docs。"
-version = 7
+description = "根据用户输入的新鲜事物、概念、趋势或话题，先用 typed runtime 显式澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 .tt/docs。"
+version = 8
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach"]
@@ -40,52 +40,64 @@ description = """
 4. 有疑问时，倾向于弹表单让用户确认，而不是自作主张。
 5. 只有极其简单的话题才跳过表单。
 
-如果需要向用户了解信息，必须在分析文本末尾追加下面这种精确格式的 fenced block。注意第一行只能是 ```tt-human-input 或 ```tt-human-input json，不要写成“JSON 块”等自然语言。
-
-动态表单是运行时强约束协议，必须严格满足：
-- fenced block 内必须是合法 JSON object，不允许注释、尾逗号、Markdown、自然语言解释。
-- 顶层必须直接包含 `reason` 和 `form`，不要再包一层 `human_input_request`。
-- `form.fields` 必须是非空数组。
-- 每个 field 必须有 `name`、`label`、`type`。
-- `type` 只能是 `input`、`textarea`、`radio`、`checkbox`、`select`。
-- `radio`、`checkbox`、`select` 必须提供非空 `options` 字符串数组。
-- `name` 只能用英文小写、数字、下划线，不能重复。
-
-```tt-human-input
-{
-  "reason": "说明为什么这些信息对写「{{topic}}」有帮助",
-  "form": {
-    "title": "表单标题",
-    "description": "表单描述，说明用户需要做什么",
-    "submit_label": "开始生成文档",
-    "fields": [
-      {
-        "name": "focus",
-        "label": "你最关注的方向",
-        "type": "input",
-        "required": true,
-        "placeholder": "例如：原理、应用、风险、入门路线",
-        "help": "字段必须根据话题动态设计，这里只是格式示例"
-      }
-    ]
-  }
-}
-```
-
 输出要求：
-- 输出分析文本。
-- 如需用户输入，追加合法 tt-human-input 块。
-- 如果不需要表单，直接输出分析文本即可。
+- 输出 ONLY compact JSON，不要 Markdown，不要代码块。
+- 格式：
+{"needs_user_scope":true,"topic_type":"...","recommended_focus_options":["..."],"recommended_depth":"入门|进阶|深入","scope_notes":"...","plan_brief":"..."}
+- needs_user_scope 表示是否建议通过显式 human_input step 让用户确认方向。
+- recommended_focus_options 给后续表单选项和文章规划参考。
 """
+
+[[steps]]
+id = "scope-user-input"
+title = "确认系列文档范围"
+execution = "human_input"
+depends_on = ["scope-analysis"]
+condition = "scope_config.needs_user_scope == true"
+output_key = "user_scope"
+description = "scope-analysis 建议先确认写作范围。请选择关注方向、读者背景和期望深度。"
+
+[steps.form]
+title = "确认文档写作范围"
+description = "这些选择会影响系列文章的结构、深度和侧重点。"
+submit_label = "开始规划文章"
+
+[[steps.form.fields]]
+name = "focus"
+label = "最关注的方向"
+type = "textarea"
+required = true
+placeholder = "例如：核心原理、产业影响、入门实践、风险争议、历史脉络"
+
+[[steps.form.fields]]
+name = "audience"
+label = "目标读者背景"
+type = "select"
+required = true
+options = ["完全入门", "有相关基础", "专业从业者", "决策者/管理者", "通识读者"]
+
+[[steps.form.fields]]
+name = "depth"
+label = "文章深度"
+type = "radio"
+required = true
+options = ["入门", "进阶", "深入"]
+
+[[steps.form.fields]]
+name = "deliverable_preference"
+label = "偏好的交付风格"
+type = "checkbox"
+required = false
+options = ["多图表", "多案例", "学习路线", "风险清单", "实践步骤", "对比表格"]
 
 [[steps]]
 id = "article-plan"
 title = "规划系列文章清单"
-depends_on = ["scope-analysis"]
-input_context = ["scope_config"]
+depends_on = ["scope-analysis", "scope-user-input"]
+input_context = ["scope_config", "user_scope"]
 output_key = "article_specs"
 description = """
-根据 topic 和 scope_config，为「{{topic}}」规划一组系列文章。
+根据 topic、scope_config 和可选的 user_scope，为「{{topic}}」规划一组系列文章。
 
 你的输出会被后续 foreach loop 直接消费，因此必须输出 ONLY compact JSON array，不要 Markdown，不要代码块。
 
