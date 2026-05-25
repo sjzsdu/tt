@@ -2758,8 +2758,12 @@ func runFormulaRunOpen(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	var snapshot formulaDashboardSnapshot
-	if err := formularun.LoadState(record.Dir, &snapshot); err != nil {
+	recipe, err := formularun.LoadRecipe(record.Dir)
+	if err != nil {
+		return err
+	}
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, recipe)
+	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
@@ -2783,8 +2787,8 @@ func runFormulaRunShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	var snapshot formulaDashboardSnapshot
-	_ = formularun.LoadState(record.Dir, &snapshot)
+	recipe, _ := formularun.LoadRecipe(record.Dir)
+	snapshot, _ := loadFormulaRunSnapshot(record.Dir, recipe)
 	out := cmd.OutOrStdout()
 	meta := record.Metadata
 	fmt.Fprintf(out, "Run: %s\n", record.ID)
@@ -2853,8 +2857,8 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	var snapshot formulaDashboardSnapshot
-	if err := formularun.LoadState(record.Dir, &snapshot); err != nil {
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, recipe)
+	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
 	initialResults, initialContext := buildResumeState(recipe, snapshot)
@@ -2893,8 +2897,8 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	var snapshot formulaDashboardSnapshot
-	if err := formularun.LoadState(record.Dir, &snapshot); err != nil {
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, recipe)
+	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
 	resolvedStepID, err := resolveFormulaRunStepID(snapshot, stepID)

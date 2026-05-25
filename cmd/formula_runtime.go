@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/executor"
 	"github.com/sjzsdu/tt/internal/formula"
@@ -18,6 +19,64 @@ import (
 
 type formulaDirectProcessor interface {
 	ProcessDirect(pcwrap.RunOptions) (string, error)
+}
+
+func loadFormulaRunSnapshot(dir string, recipe *formula.Recipe) (formulaDashboardSnapshot, error) {
+	var dashboardSnapshot formulaDashboardSnapshot
+	if err := formularun.LoadState(dir, &dashboardSnapshot); err == nil {
+		if dashboardSnapshot.RecipeName != "" || len(dashboardSnapshot.Steps) > 0 {
+			return dashboardSnapshot, nil
+		}
+	}
+	var runtimeSnapshot formularuntime.Snapshot
+	if err := formularun.LoadState(dir, &runtimeSnapshot); err != nil {
+		return dashboardSnapshot, err
+	}
+	return runtimeSnapshotToDashboardSnapshot(recipe, runtimeSnapshot), nil
+}
+
+func runtimeSnapshotToDashboardSnapshot(recipe *formula.Recipe, snapshot formularuntime.Snapshot) formulaDashboardSnapshot {
+	if recipe == nil {
+		return formulaDashboardSnapshot{RecipeName: string(snapshot.WorkflowID), Status: string(snapshot.Status)}
+	}
+	dashboard := newFormulaDashboardServer(recipe)
+	out := dashboard.state
+	out.Status = string(snapshot.Status)
+	for i := range out.Steps {
+		state, ok := snapshot.Steps[ir.NodeID(out.Steps[i].ID)]
+		if !ok {
+			continue
+		}
+		applyRuntimeStepStateToDashboardStep(&out.Steps[i], state)
+	}
+	return out
+}
+
+func applyRuntimeStepStateToDashboardStep(step *formulaDashboardStep, state formularuntime.StepState) {
+	if step == nil {
+		return
+	}
+	step.Status = runtimeStatusToDashboardStatus(state.Status)
+	if !state.StartedAt.IsZero() {
+		step.StartedAt = state.StartedAt.Format(time.RFC3339)
+	}
+	if !state.CompletedAt.IsZero() {
+		step.FinishedAt = state.CompletedAt.Format(time.RFC3339)
+	}
+	if state.Result != nil {
+		step.Output = runtimeEventOutput(state.Result)
+		step.Error = runtimeEventError(state.Result)
+		if state.Result.Await != nil {
+			step.HumanInputRequest = runtimeEventHumanInputRequest(state.Result.Await)
+		}
+	}
+}
+
+func runtimeStatusToDashboardStatus(status steps.Status) string {
+	if status == steps.StatusWaiting {
+		return string(executor.StatusWaitingInput)
+	}
+	return string(status)
 }
 
 type formulaRuntimeAgentRunner struct {

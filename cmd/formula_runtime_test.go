@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
@@ -80,5 +81,24 @@ func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
 	sink.Emit(formularuntime.Event{Type: "step.completed", NodeID: "demo.work", Payload: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}})
 	if dashboard.state.Steps[0].Status != "completed" || dashboard.state.Steps[0].Output != "done" {
 		t.Fatalf("step = %+v", dashboard.state.Steps[0])
+	}
+}
+
+func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
+	recipe := &formula.Recipe{Name: "demo", Vars: map[string]*formula.VarDef{}, Steps: []formula.RecipeStep{{ID: "demo.work", Title: "Work"}}}
+	raw, _ := json.Marshal("saved output")
+	snapshot := formularuntime.Snapshot{
+		WorkflowID: "demo",
+		Status:     steps.StatusWaiting,
+		Steps: map[ir.NodeID]formularuntime.StepState{
+			"demo.work": {NodeID: "demo.work", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}},
+		},
+	}
+	dashboard := runtimeSnapshotToDashboardSnapshot(recipe, snapshot)
+	if dashboard.Status != string(steps.StatusWaiting) {
+		t.Fatalf("status = %s", dashboard.Status)
+	}
+	if len(dashboard.Steps) != 1 || dashboard.Steps[0].Output != "saved output" || dashboard.Steps[0].Status != "completed" {
+		t.Fatalf("steps = %+v", dashboard.Steps)
 	}
 }
