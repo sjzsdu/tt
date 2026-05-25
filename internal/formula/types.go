@@ -262,6 +262,12 @@ type Step struct {
 	// Form describes fields required by execution="human_input" steps.
 	Form *FormSpec `json:"form,omitempty" toml:"form,omitempty"`
 
+	// DynamicForm allows an agent step to emit a dynamic human-input request.
+	DynamicForm bool `json:"dynamic_form,omitempty" toml:"dynamic_form,omitempty"`
+
+	// Validate checks a step output before it is marked completed.
+	Validate *ValidateSpec `json:"validate,omitempty" toml:"validate,omitempty"`
+
 	// OutputKey stores the step's output for downstream steps to reference.
 	OutputKey string `json:"output_key,omitempty" toml:"output_key,omitempty"`
 
@@ -376,7 +382,9 @@ type stepTOMLAlias struct {
 	Timeout         string            `json:"timeout,omitempty"`
 	Agent           *AgentConfig      `json:"agent,omitempty"`
 	Script          *ScriptSpec       `json:"script,omitempty"`
-	Form            *FormSpec         `json:"form,omitempty"`
+	Form            json.RawMessage   `json:"form,omitempty"`
+	DynamicForm     bool              `json:"dynamic_form,omitempty"`
+	Validate        *ValidateSpec     `json:"validate,omitempty"`
 	OutputKey       string            `json:"output_key,omitempty"`
 	InputCtx        []string          `json:"input_context,omitempty"`
 	Execution       string            `json:"execution,omitempty"`
@@ -441,6 +449,14 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		return Step{}, err
 	}
 
+	form, dynamicForm, err := decodeStepForm(a.Form)
+	if err != nil {
+		return Step{}, err
+	}
+	if a.DynamicForm {
+		dynamicForm = true
+	}
+
 	return Step{
 		ID:              a.ID,
 		Title:           a.Title,
@@ -468,11 +484,28 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Timeout:         a.Timeout,
 		Agent:           a.Agent,
 		Script:          a.Script,
-		Form:            a.Form,
+		Form:            form,
+		DynamicForm:     dynamicForm,
+		Validate:        a.Validate,
 		OutputKey:       a.OutputKey,
 		InputCtx:        a.InputCtx,
 		Execution:       a.Execution,
 	}, nil
+}
+
+func decodeStepForm(raw json.RawMessage) (*FormSpec, bool, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, false, nil
+	}
+	var dynamic bool
+	if err := json.Unmarshal(raw, &dynamic); err == nil {
+		return nil, dynamic, nil
+	}
+	var form FormSpec
+	if err := json.Unmarshal(raw, &form); err != nil {
+		return nil, false, fmt.Errorf("step.form: expected true or form object: %w", err)
+	}
+	return &form, false, nil
 }
 
 func (a *loopTOMLAlias) toLoopSpec() (*LoopSpec, error) {
@@ -647,6 +680,12 @@ type FormField struct {
 	Default     string   `json:"default,omitempty" toml:"default,omitempty"`
 	Options     []string `json:"options,omitempty" toml:"options,omitempty"`
 	Help        string   `json:"help,omitempty" toml:"help,omitempty"`
+}
+
+// ValidateSpec describes runtime validation for step output.
+type ValidateSpec struct {
+	Format   string   `json:"format,omitempty" toml:"format,omitempty"`
+	Required []string `json:"required,omitempty" toml:"required,omitempty"`
 }
 
 // RetrySpec defines first-class transient retry semantics.

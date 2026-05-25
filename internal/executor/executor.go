@@ -338,6 +338,16 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 			e.emitStepUpdate(failed)
 			return fmt.Errorf("step %s failed: %w", step.ID, err)
 		}
+		if err := validateStepOutput(step, output); err != nil {
+			failed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()}
+			e.mu.Lock()
+			e.results[step.ID].Status = StatusFailed
+			e.results[step.ID].Error = err.Error()
+			e.results[step.ID].Output = output
+			e.mu.Unlock()
+			e.emitStepUpdate(failed)
+			return fmt.Errorf("step %s output validation failed: %w", step.ID, err)
+		}
 		completed := StepResult{StepID: step.ID, Title: step.Title, Status: StatusCompleted, Output: output}
 		e.mu.Lock()
 		e.results[step.ID].Status = StatusCompleted
@@ -371,6 +381,16 @@ func (e *Executor) executeStep(ctx context.Context, runner StepRunner, step *for
 	}
 	if foundHumanInput && request != nil {
 		return e.pauseForHumanInput(step, request)
+	}
+
+	if err := validateStepOutput(step, output); err != nil {
+		e.mu.Lock()
+		e.results[step.ID].Status = StatusFailed
+		e.results[step.ID].Error = err.Error()
+		e.results[step.ID].Output = output
+		e.mu.Unlock()
+		e.emitStepUpdate(StepResult{StepID: step.ID, Title: step.Title, Status: StatusFailed, Output: output, Error: err.Error()})
+		return fmt.Errorf("step %s output validation failed: %w", step.ID, err)
 	}
 
 	e.mu.Lock()
@@ -1080,6 +1100,25 @@ func (e *Executor) buildPromptWithContext(step *formula.RecipeStep, local map[st
 		b.WriteString(fmt.Sprintf("## Notes\n\n%s\n\n", render(step.Notes)))
 	}
 
+	if step.DynamicForm {
+		b.WriteString("## Dynamic human input\n\n")
+		b.WriteString("If you need user clarification before completing this step, output ONLY a fenced `tt-human-input` JSON block using this shape:\n\n")
+		b.WriteString("```tt-human-input json\n")
+		b.WriteString(`{"reason":"why input is needed","form":{"title":"Short title","description":"What to provide","fields":[{"name":"field_name","label":"Field label","type":"input|textarea|radio|checkbox|select","required":true,"options":["only for radio/checkbox/select"],"placeholder":"optional"}]}}`)
+		b.WriteString("\n```\n\n")
+		b.WriteString("Use field names matching ^[a-z][a-z0-9_]*$. If no clarification is needed, do not include a tt-human-input block and complete the normal task output.\n\n")
+	}
+
+	if step.Validate != nil && strings.EqualFold(strings.TrimSpace(step.Validate.Format), "json") {
+		b.WriteString("## Output validation\n\n")
+		b.WriteString("Your final output must be valid JSON")
+		if len(step.Validate.Required) > 0 {
+			b.WriteString(" and include these required fields: ")
+			b.WriteString(strings.Join(step.Validate.Required, ", "))
+		}
+		b.WriteString(". Do not wrap the final JSON in markdown fences.\n\n")
+	}
+
 	if advice := strings.TrimSpace(e.opts.StepAdvice[step.ID]); advice != "" {
 		b.WriteString("## User retry instructions\n\n")
 		b.WriteString(advice)
@@ -1087,6 +1126,62 @@ func (e *Executor) buildPromptWithContext(step *formula.RecipeStep, local map[st
 	}
 
 	return b.String()
+}
+
+func validateStepOutput(step *formula.RecipeStep, output string) error {
+	if step == nil || step.Validate == nil {
+		return nil
+	}
+	spec := step.Validate
+	format := strings.ToLower(strings.TrimSpace(spec.Format))
+	if format == "" {
+		return nil
+	}
+	switch format {
+	case "json":
+		var value any
+		if err := json.Unmarshal([]byte(normalizeJSONOutput(output)), &value); err != nil {
+			return fmt.Errorf("output must be valid json: %w", err)
+		}
+		for _, required := range spec.Required {
+			path := strings.TrimSpace(required)
+			if path == "" {
+				continue
+			}
+			if !jsonPathExists(value, strings.Split(path, ".")) {
+				return fmt.Errorf("output json missing required field %q", path)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported validation format %q", spec.Format)
+	}
+}
+
+func normalizeJSONOutput(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if strings.HasPrefix(trimmed, "```") {
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) >= 3 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+			return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+		}
+	}
+	return trimmed
+}
+
+func jsonPathExists(value any, path []string) bool {
+	if len(path) == 0 {
+		return true
+	}
+	obj, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	next, ok := obj[path[0]]
+	if !ok || next == nil {
+		return false
+	}
+	return jsonPathExists(next, path[1:])
 }
 
 func (e *Executor) renderTemplate(s string) string {

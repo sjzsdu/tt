@@ -83,3 +83,40 @@ func TestFormValidationRejectsInvalidFields(t *testing.T) {
 		t.Fatal("expected validation error for select field without options")
 	}
 }
+
+func TestDynamicFormAndValidateParseCompile(t *testing.T) {
+	const src = `
+formula = "dynamic-demo"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "triage"
+title = "Triage"
+form = true
+output_key = "triage"
+
+[steps.validate]
+format = "json"
+required = ["ok", "nested.value"]
+`
+	p := NewParser()
+	f, err := p.ParseTOML([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseTOML() error = %v", err)
+	}
+	if err := f.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if !f.Steps[0].DynamicForm || f.Steps[0].Form != nil {
+		t.Fatalf("dynamic form not parsed correctly: dynamic=%v form=%+v", f.Steps[0].DynamicForm, f.Steps[0].Form)
+	}
+	recipe, err := toRecipe(f)
+	if err != nil {
+		t.Fatalf("toRecipe() error = %v", err)
+	}
+	step := recipe.StepByID("dynamic-demo.triage")
+	if step == nil || !step.DynamicForm || step.Validate == nil || len(step.Validate.Required) != 2 {
+		t.Fatalf("compiled dynamic form/validate mismatch: %+v", step)
+	}
+}

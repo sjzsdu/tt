@@ -42,6 +42,8 @@ type RecipeStep struct {
 	Agent       *AgentConfig
 	Script      *ScriptSpec
 	Form        *FormSpec
+	DynamicForm bool
+	Validate    *ValidateSpec
 	OutputKey   string
 	InputCtx    []string
 	Execution   string
@@ -249,6 +251,8 @@ func flattenSteps(steps []*Step, parentID string, idMapping map[string]string, o
 			Agent:       step.Agent,
 			Script:      step.Script,
 			Form:        step.Form,
+			DynamicForm: step.DynamicForm,
+			Validate:    step.Validate,
 			OutputKey:   step.OutputKey,
 			InputCtx:    step.InputCtx,
 			Execution:   step.Execution,

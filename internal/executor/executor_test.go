@@ -62,6 +62,24 @@ func TestExecutorAddsRetryAdviceToPrompt(t *testing.T) {
 	}
 }
 
+func TestExecutorDynamicFormAndValidate(t *testing.T) {
+	step := &formula.RecipeStep{ID: "demo.triage", Title: "Triage", DynamicForm: true, Validate: &formula.ValidateSpec{Format: "json", Required: []string{"ok", "nested.value"}}}
+	exec := New(&formula.Recipe{Name: "demo"}, RunOptions{})
+	prompt := exec.buildPrompt(step)
+	if !strings.Contains(prompt, "## Dynamic human input") || !strings.Contains(prompt, "tt-human-input") {
+		t.Fatalf("dynamic form instructions missing: %s", prompt)
+	}
+	if !strings.Contains(prompt, "## Output validation") || !strings.Contains(prompt, "nested.value") {
+		t.Fatalf("validation instructions missing: %s", prompt)
+	}
+	if err := validateStepOutput(step, `{"ok":true,"nested":{"value":"yes"}}`); err != nil {
+		t.Fatalf("valid json rejected: %v", err)
+	}
+	if err := validateStepOutput(step, `{"ok":true,"nested":{}}`); err == nil || !strings.Contains(err.Error(), "nested.value") {
+		t.Fatalf("missing required field err = %v", err)
+	}
+}
+
 func TestExecutorRunsScriptStepAndCapturesJSON(t *testing.T) {
 	recipe := &formula.Recipe{
 		Name: "script-demo",

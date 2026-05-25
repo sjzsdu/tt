@@ -9,6 +9,7 @@ issue_summary = { description = "用户反馈的 bug 摘要或问题描述", req
 [[steps]]
 id = "analyze-issue"
 title = "分析用户问题并按需生成动态澄清表单"
+form = true
 output_key = "issue_triage"
 description = """
 基于 '{{issue_summary}}' 先理解用户问题，不要急于判断代码是否有 bug。
@@ -16,42 +17,28 @@ description = """
 目标：
 1. 提炼问题现象、预期行为、可能的触发路径；
 2. 判断当前信息是否足够进入代码调研；
-3. 只有在信息不足时，生成动态 human input 表单；
+3. 只有在信息不足时，使用动态 human input 表单向用户请求最小补充信息；
 4. 若信息已足够，明确告诉后续步骤可以直接进入代码调研。
 
 输出 ONLY compact JSON，格式必须严格如下：
 {
   "issue_summary":"...",
-  "observed_behavior":"...",
-  "expected_behavior":"...",
-  "repro_clues":["..."],
-  "scope_hint":["..."],
   "needs_clarification":true,
   "clarification_reason":"...",
-  "clarification_form":{
-    "title":"补充 bug 信息",
-    "description":"请补充定位该问题所需的最小信息",
-    "fields":[
-      {
-        "name":"field_name",
-        "label":"字段标题",
-        "type":"input|textarea|radio|checkbox|select",
-        "required":true,
-        "options":["仅当 type=radio|checkbox|select 时提供"],
-        "placeholder":"可选"
-      }
-    ]
-  },
   "research_brief":"..."
 }
 
 约束：
 - needs_clarification 必须是布尔值。
-- 当 needs_clarification=false 时，clarification_form 必须为 null，且 research_brief 必须足够支撑后续代码调研。
-- 当 needs_clarification=true 时，clarification_form 必须完整且字段必须只包含本次问题真正缺失的信息，不要输出固定模板。
+- 当 needs_clarification=false 时，research_brief 必须足够支撑后续代码调研。
+- 当 needs_clarification=true 且需要立刻暂停等待用户补充时，按动态表单说明输出 tt-human-input block。
 - research_brief 要写成给 code-research 使用的调研任务摘要。
 """
 agent.name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["issue_summary", "needs_clarification", "research_brief"]
 
 [[steps]]
 id = "clarify-with-user"
@@ -97,6 +84,10 @@ description = """
 """
 agent.name = "coder"
 
+[steps.validate]
+format = "json"
+required = ["problem_statement", "search_targets", "acceptance_checklist"]
+
 [[steps]]
 id = "code-research"
 title = "使用 code-research 调研代码并判断问题是否存在"
@@ -135,6 +126,10 @@ description = """
 """
 agent.name = "code-research"
 
+[steps.validate]
+format = "json"
+required = ["issue_exists", "existence", "evidence"]
+
 [[steps]]
 id = "fix-plan"
 title = "为已确认 bug 制定最小影响修复方案"
@@ -162,6 +157,10 @@ description = """
 - validation_plan 必须能支撑“修复 bug 同时不引入新问题”。
 """
 agent.name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["fix_goal", "minimal_change_strategy", "validation_plan"]
 
 [[steps]]
 id = "execute-fix"
@@ -196,6 +195,10 @@ description = """
 """
 agent.name = "coder"
 
+[steps.validate]
+format = "json"
+required = ["files_changed", "change_summary", "verification_actions", "fully_fixed"]
+
 [[steps]]
 id = "no-bug-report"
 title = "问题不成立时输出说明"
@@ -221,6 +224,10 @@ description = """
 - 不要含糊其辞。
 """
 agent.name = "reporter"
+
+[steps.validate]
+format = "json"
+required = ["decision", "reason", "recommended_next_steps"]
 
 [[steps]]
 id = "final-report"
