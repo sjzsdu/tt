@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
 description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 docs。"
-version = 14
+version = 15
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -113,16 +113,21 @@ depends_on = ["article-plan"]
   title = "撰写 {{article.title}}"
   input_context = ["scope-analysis", "article"]
   description = """
-根据当前 article 对象和 scope-analysis 的完整范围配置，撰写关于「{{topic}}」的一篇完整 Markdown 文章。
+根据当前 article 对象和 scope-analysis 的完整范围配置，撰写关于「{{topic}}」的一篇完整 Markdown 文章，并整理成文件条目。
 
 当前 article 对象可通过上下文 article 读取，常用字段包括：filename、title、angle、audience、depth、must_cover、mermaid_hint、table_hint。
 
 输出要求：
-- 输出 ONLY Markdown 正文，不要额外解释。
-- 第一行使用 `# {{article.title}}`。
-- 内容至少 500 字，必须有实质内容，不要只有提纲。
-- 按需包含Mermaid 图表，优先参考 article.mermaid_hint。
-- 按需包含Markdown 表格，优先参考 article.table_hint。
+- 输出 ONLY compact JSON object，不要 Markdown 代码块，不要额外解释。
+- 格式：
+{"filename":"...","title":"...","summary":"...","content":"完整 Markdown 内容"}
+- filename 必须使用 article.filename。
+- title 必须使用 article.title。
+- summary 用 1-2 句话概括本文。
+- content 是完整 Markdown 正文，第一行使用 `# {{article.title}}`。
+- content 至少 500 字，必须有实质内容，不要只有提纲。
+- 按需包含 Mermaid 图表，优先参考 article.mermaid_hint。
+- 按需包含 Markdown 表格，优先参考 article.table_hint。
 - 使用 blockquote、分隔线、列表、加粗、代码等方式增强可读性。
 - 不要编造具体数据或新闻；不确定信息标注“需要进一步核实”。
 """
@@ -130,44 +135,9 @@ depends_on = ["article-plan"]
   [steps.loop.body.agent]
   name = "writer"
 
-  [[steps.loop.body]]
-  id = "package-entry"
-  title = "整理 {{article.title}} 为文件条目"
-  depends_on = ["draft"]
-  input_context = ["article", "draft"]
-  description = """
-将当前文章整理为后续打包步骤可消费的 JSON 对象。
-
-输出要求：
-- 输出 ONLY compact JSON object。
-- 格式：
-{"filename":"...","title":"...","summary":"...","content":"完整 Markdown 内容"}
-- filename 使用 article.filename。
-- content 使用 draft 的完整 Markdown 内容，保留 Mermaid、表格和 Markdown 格式。
-"""
-
-  [steps.loop.body.agent]
-  name = "planner"
-
   [steps.loop.body.validate]
   format = "json"
   required = ["filename", "title", "summary", "content"]
-
-[[steps]]
-id = "article-manifest"
-title = "聚合文章文件清单"
-depends_on = ["write-articles"]
-execution = "aggregate"
-
-[steps.aggregate]
-source = "write-articles"
-as = "articles"
-require = ["filename", "title", "summary", "content"]
-exclude = ["content"]
-
-[steps.validate]
-format = "json"
-required = ["articles"]
 
 [[steps]]
 id = "write-doc-files"
@@ -189,32 +159,30 @@ required = ["directory", "files"]
 
 [[steps]]
 id = "series-package"
-title = "生成 README 并汇总文档包"
-depends_on = ["write-doc-files", "article-manifest"]
-input_context = ["topic-package-plan", "article-manifest", "write-doc-files"]
+title = "生成 README 并验收文档包"
+depends_on = ["write-doc-files"]
+input_context = ["topic-package-plan", "write-doc-files"]
 description = """
-文章正文已经由 write-doc-files 这个确定性步骤写入磁盘。你只需要基于 topic-package-plan、article-manifest 和 write-doc-files 的轻量文件清单，写入 README 并输出最终汇总，不要再读取或复述所有文章正文。
+文章正文已经由 write-doc-files 这个确定性步骤写入磁盘。你只需要基于 topic-package-plan 和 write-doc-files 的轻量文件清单，写入 README 并做最终验收，不要再读取、复述或改写所有文章正文。
 
 目录命名要求：
 - 使用 topic-package-plan.topic_name 和 write-doc-files.directory。
 - 本次所有文件必须位于同一个 `docs/<topic-name>/` 目录，不要写到 `docs/` 根目录。
 
 你的工作：
-1. 撰写并写入 `docs/<topic-name>/README.md`，描述整个系列。
+1. 撰写并写入 `docs/<topic-name>/README.md`，简要介绍整个系列。
 2. 不要重写各篇文章文件，文章文件已经由 write-doc-files 写入。
-3. 输出 Markdown 汇总，列出主题目录、README、文章文件清单、阅读顺序和后续建议。
+3. 输出 Markdown 验收汇总，列出主题目录、README 路径、文章文件清单和阅读顺序即可。
 
 README.md 应包含：
 - 系列标题（基于 {{topic}} 和 topic-package-plan.series_title）
 - 适合谁读（使用 topic-package-plan.audience）
-- 阅读顺序建议（使用 topic-package-plan.reading_order，可用 Mermaid flowchart 展示）
+- 阅读顺序建议（使用 topic-package-plan.reading_order）
 - 每篇的文件名、标题和简短摘要
-- README 本身也建议用表格或 Mermaid 来组织内容
+- 简短验收说明：已生成哪些文件、建议从哪篇读起
 
 整体要求：
-- 统一术语，删除重复内容。
-- 明确标注不确定信息和需要进一步核实的地方。
-- 最终结果要像一个完整的小型知识库。
+- README 控制在 300-600 字，不要做复杂设计。
 - 控制 token，不要把文章正文复制进 README 或最终汇总。
 """
 

@@ -303,23 +303,19 @@ func validateRequiredFields(obj map[string]any, fields []string, prefix string) 
 			continue
 		}
 		value, ok := obj[field]
-		if !ok || isEmptyJSONValue(value) {
+		if !ok || isMissingRequiredJSONValue(value) {
 			return fmt.Errorf("%s.%s is required", prefix, field)
 		}
 	}
 	return nil
 }
 
-func isEmptyJSONValue(value any) bool {
+func isMissingRequiredJSONValue(value any) bool {
 	switch v := value.(type) {
 	case nil:
 		return true
 	case string:
 		return strings.TrimSpace(v) == ""
-	case []any:
-		return len(v) == 0
-	case map[string]any:
-		return len(v) == 0
 	default:
 		return false
 	}

@@ -178,6 +178,21 @@ func TestExecutorAcceptsValidJSONArrayItems(t *testing.T) {
 	}
 }
 
+func TestExecutorRequiredFieldsAllowEmptyCollections(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "manifest", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "manifest", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"articles", "meta"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: `{"articles":[],"meta":{}}`}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
 func TestExecutorReturnsWaitingForHumanInput(t *testing.T) {
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "ask", Step: steps.HumanInputStep{Base: steps.Base{Metadata: steps.Metadata{ID: "ask", Kind: steps.KindHumanInput}}, Reason: "need input"}})
