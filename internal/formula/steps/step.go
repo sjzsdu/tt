@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -96,6 +97,60 @@ type AwaitRequest struct {
 type StepError struct {
 	Message string
 	Cause   error
+}
+
+type stepErrorJSON struct {
+	Message string          `json:"Message,omitempty"`
+	Cause   json.RawMessage `json:"Cause,omitempty"`
+}
+
+func (e StepError) MarshalJSON() ([]byte, error) {
+	type encodedStepError struct {
+		Message string `json:"Message,omitempty"`
+		Cause   string `json:"Cause,omitempty"`
+	}
+	cause := ""
+	if e.Cause != nil {
+		cause = e.Cause.Error()
+	}
+	return json.Marshal(encodedStepError{Message: e.Message, Cause: cause})
+}
+
+func (e *StepError) UnmarshalJSON(data []byte) error {
+	if e == nil {
+		return nil
+	}
+	var decoded stepErrorJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	e.Message = decoded.Message
+	causeText := decodeStepErrorCause(decoded.Cause)
+	if causeText != "" {
+		e.Cause = errors.New(causeText)
+	} else {
+		e.Cause = nil
+	}
+	return nil
+}
+
+func decodeStepErrorCause(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		for _, key := range []string{"message", "Message", "error", "Error"} {
+			if value, ok := obj[key].(string); ok && value != "" {
+				return value
+			}
+		}
+	}
+	return string(raw)
 }
 
 // OutputValidationSpec describes lightweight runtime checks for step output.

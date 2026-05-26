@@ -64,6 +64,30 @@ type errMissingArticle struct{}
 
 func (errMissingArticle) Error() string { return "missing article" }
 
+func TestStepErrorUnmarshalAcceptsObjectCause(t *testing.T) {
+	var result RunResult
+	data := []byte(`{"Status":"failed","Error":{"Message":"step output validation failed","Cause":{"message":"output.articles is required"}}}`)
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Error == nil || result.Error.Cause == nil {
+		t.Fatalf("missing error cause: %+v", result.Error)
+	}
+	if got := result.Error.Error(); got != "step output validation failed: output.articles is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestStepErrorMarshalStoresStringCause(t *testing.T) {
+	data, err := json.Marshal(&RunResult{Status: StatusFailed, Error: &StepError{Message: "failed", Cause: errMissingArticle{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"Cause":{}`) || !strings.Contains(string(data), `"Cause":"missing article"`) {
+		t.Fatalf("encoded result = %s", data)
+	}
+}
+
 type recordingAgentRunner struct {
 	prompt string
 }
