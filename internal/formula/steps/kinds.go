@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ast"
@@ -843,19 +844,17 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 	if varName == "" {
 		return failedRun(fmt.Errorf("loop var is required when for_each is set"))
 	}
+	if s.Parallel {
+		return s.runForEachParallel(ctx, req, items, varName)
+	}
 	outputs := make([]any, 0, len(items))
 	for i, item := range items {
 		iteration := i + 1
-		if req.Outputs != nil {
-			iterationRaw, _ := json.Marshal(iteration)
-			_ = req.Outputs.Set("iteration", Value{Type: "json", Raw: iterationRaw})
-			itemRaw, err := json.Marshal(item)
-			if err != nil {
-				return failedRun(fmt.Errorf("loop item %d must be JSON: %w", iteration, err))
-			}
-			_ = req.Outputs.Set(varName, Value{Type: "json", Raw: itemRaw})
+		iterReq, err := loopIterationRequest(req, iteration, item, varName)
+		if err != nil {
+			return failedRun(err)
 		}
-		last, res, err := s.runBodyOnce(ctx, req, iteration)
+		last, res, err := s.runBodyOnce(ctx, iterReq, iteration)
 		if err != nil || res != nil {
 			if res != nil && res.Status == StatusWaiting {
 				return res, nil
@@ -874,6 +873,163 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 		return failedRun(err)
 	}
 	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+type loopIterationResult struct {
+	index int
+	last  Value
+	res   *RunResult
+	err   error
+}
+
+func (s LoopStep) runForEachParallel(ctx context.Context, req RunRequest, items []any, varName string) (*RunResult, error) {
+	limit := s.MaxConcurrency
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit <= 0 {
+		return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: []byte(`[]`)}}, nil
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	sem := make(chan struct{}, limit)
+	results := make(chan loopIterationResult, len(items))
+	var wg sync.WaitGroup
+	scheduled := 0
+	scheduling := true
+	for i, item := range items {
+		select {
+		case <-ctx.Done():
+			scheduling = false
+		case sem <- struct{}{}:
+		}
+		if !scheduling {
+			break
+		}
+		scheduled++
+		wg.Add(1)
+		go func(index int, item any) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			iteration := index + 1
+			iterReq, err := loopIterationRequest(req, iteration, item, varName)
+			if err != nil {
+				results <- loopIterationResult{index: index, err: err}
+				cancel()
+				return
+			}
+			last, res, err := s.runBodyOnce(ctx, iterReq, iteration)
+			if err != nil || res != nil {
+				cancel()
+			}
+			results <- loopIterationResult{index: index, last: last, res: res, err: err}
+		}(i, item)
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	lastByIndex := make([]Value, scheduled)
+	for result := range results {
+		if result.err != nil || result.res != nil {
+			if result.res != nil && result.res.Status == StatusWaiting {
+				return result.res, nil
+			}
+			return result.res, result.err
+		}
+		lastByIndex[result.index] = result.last
+	}
+
+	outputs := make([]any, 0, len(items))
+	for _, last := range lastByIndex {
+		if len(last.Raw) > 0 {
+			var decoded any
+			if err := json.Unmarshal(last.Raw, &decoded); err == nil {
+				outputs = append(outputs, decoded)
+			}
+		}
+	}
+	raw, err := json.Marshal(outputs)
+	if err != nil {
+		return failedRun(err)
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func loopIterationRequest(req RunRequest, iteration int, item any, varName string) (RunRequest, error) {
+	iterationRaw, _ := json.Marshal(iteration)
+	itemRaw, err := json.Marshal(item)
+	if err != nil {
+		return RunRequest{}, fmt.Errorf("loop item %d must be JSON: %w", iteration, err)
+	}
+	store := newLoopIterationStore(req.Context)
+	_ = store.Set("iteration", Value{Type: "json", Raw: iterationRaw})
+	_ = store.Set(varName, Value{Type: "json", Raw: itemRaw})
+	req.Context = store
+	req.Outputs = store
+	return req, nil
+}
+
+type loopIterationStore struct {
+	parent ContextView
+	mu     sync.RWMutex
+	values map[string]Value
+}
+
+func newLoopIterationStore(parent ContextView) *loopIterationStore {
+	return &loopIterationStore{parent: parent, values: map[string]Value{}}
+}
+
+func (s *loopIterationStore) Get(path string) (Value, bool) {
+	s.mu.RLock()
+	value, ok := s.values[path]
+	s.mu.RUnlock()
+	if ok {
+		return value, true
+	}
+	if root, rest, split := strings.Cut(path, "."); split {
+		s.mu.RLock()
+		value, ok = s.values[root]
+		s.mu.RUnlock()
+		if ok {
+			return getNestedJSONValue(value, rest)
+		}
+	}
+	if s.parent == nil {
+		return Value{}, false
+	}
+	return s.parent.Get(path)
+}
+
+func (s *loopIterationStore) Set(path string, value Value) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.values[path] = value
+	return nil
+}
+
+func getNestedJSONValue(value Value, path string) (Value, bool) {
+	var current any
+	if err := json.Unmarshal(value.Raw, &current); err != nil {
+		return Value{}, false
+	}
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return Value{}, false
+		}
+		current, ok = object[part]
+		if !ok {
+			return Value{}, false
+		}
+	}
+	raw, err := json.Marshal(current)
+	if err != nil {
+		return Value{}, false
+	}
+	return Value{Type: "json", Raw: raw}, true
 }
 
 func decodeJSONArrayValue(raw []byte) ([]any, error) {

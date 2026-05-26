@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type mapContextView map[string]Value
@@ -63,6 +65,36 @@ func (s contextEchoStep) Run(_ context.Context, req RunRequest) (*RunResult, err
 type errMissingArticle struct{}
 
 func (errMissingArticle) Error() string { return "missing article" }
+
+type concurrencyProbeStep struct {
+	Base
+	current *int32
+	maxSeen *int32
+	delay   time.Duration
+}
+
+func (s concurrencyProbeStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	now := atomic.AddInt32(s.current, 1)
+	for {
+		max := atomic.LoadInt32(s.maxSeen)
+		if now <= max || atomic.CompareAndSwapInt32(s.maxSeen, max, now) {
+			break
+		}
+	}
+	defer atomic.AddInt32(s.current, -1)
+	timer := time.NewTimer(s.delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return failedRun(ctx.Err())
+	case <-timer.C:
+	}
+	article, ok := req.Context.Get("article")
+	if !ok {
+		return failedRun(errMissingArticle{})
+	}
+	return &RunResult{Status: StatusCompleted, Output: article}, nil
+}
 
 func TestStepErrorUnmarshalAcceptsObjectCause(t *testing.T) {
 	var result RunResult
@@ -409,5 +441,47 @@ func TestLoopStepForEachAcceptsJSONStringArray(t *testing.T) {
 	}
 	if len(got) != 2 || got[0]["filename"] != "01.md" || got[1]["content"] != "# Two" {
 		t.Fatalf("loop output = %+v", got)
+	}
+}
+
+func TestLoopStepForEachParallelHonorsMaxConcurrency(t *testing.T) {
+	ctx := mapContextStore{
+		"article-plan": {Raw: []byte(`[
+			{"filename":"01.md"},
+			{"filename":"02.md"},
+			{"filename":"03.md"},
+			{"filename":"04.md"}
+		]`)},
+	}
+	var current int32
+	var maxSeen int32
+	loop := LoopStep{
+		Base:           Base{Metadata: Metadata{ID: "write-articles", Kind: KindLoop}},
+		ForEach:        "article-plan",
+		Var:            "article",
+		Parallel:       true,
+		MaxConcurrency: 2,
+		Body: []Step{
+			concurrencyProbeStep{Base: Base{Metadata: Metadata{ID: "draft", Kind: KindAgent}}, current: &current, maxSeen: &maxSeen, delay: 40 * time.Millisecond},
+		},
+	}
+
+	started := time.Now()
+	res, err := loop.Run(context.Background(), RunRequest{NodeID: "write-articles", Context: ctx, Outputs: ctx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= 150*time.Millisecond {
+		t.Fatalf("parallel loop took too long: %s", elapsed)
+	}
+	if got := atomic.LoadInt32(&maxSeen); got != 2 {
+		t.Fatalf("max concurrency = %d, want 2", got)
+	}
+	var got []map[string]string
+	if err := json.Unmarshal(res.Output.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 || got[0]["filename"] != "01.md" || got[3]["filename"] != "04.md" {
+		t.Fatalf("loop output order = %+v", got)
 	}
 }
