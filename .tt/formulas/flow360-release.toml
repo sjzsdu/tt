@@ -2,8 +2,8 @@ formula = "flow360-release"
 title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
-description = "Flow360 专用发布流程：触发固定 GitHub Actions workflow，记录本次参数和 original_run_id，持续监视；遇到 multi-branch merge conflict 时修复 tmp branch 后 rerun failed jobs，直到发布成功或进入人工审批。"
-version = 3
+description = "Flow360 专用发布流程：触发固定 GitHub Actions workflow，记录参数和 original_run_id，然后循环监视 run 状态；遇到 multi-branch merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到发布成功或进入人工审批阶段。"
+version = 4
 type = "workflow"
 
 [vars]
@@ -23,7 +23,7 @@ description = "hard-code Flow360 repo 和 workflow，执行一次 gh workflow ru
   command = ["python3", "-c", """
 import json, os, subprocess, time
 
-REPO = 'flexcompute/Flow360'
+REPO = 'flexcompute/flex'
 WORKFLOW = '.github/workflows/frontend_flow360-ui-next-cd.yml'
 ENV_NAME = os.environ['TT_ENV_NAME'].strip()
 TAG = os.environ.get('TT_TAG','').strip()
@@ -101,82 +101,177 @@ print(json.dumps(result, separators=(',', ':')))
 
 [[steps]]
 id = "monitor-and-rerun"
-title = "监视状态、修冲突并 rerun"
+title = "循环监视状态、修冲突并 rerun"
 depends_on = ["dispatch-run"]
 input_context = ["env", "dispatch-run"]
-description = """
-这是 Flow360 专用发布推进步骤。你要用 gh/git 工具监视 dispatch-run.original_run_id，必要时修复 merge conflict，并 rerun failed jobs，直到成功、blocked 或进入人工审批。
+description = "循环监控 dispatch-run.original_run_id，直到发布成功、进入人工审批阶段，或遇到不可自动处理的 blocker。"
 
-hard-coded 事实：
-- repo: flexcompute/Flow360
-- workflow: .github/workflows/frontend_flow360-ui-next-cd.yml
-- 本次 run id: dispatch-run.original_run_id
-- 轮询间隔：{{poll_interval_seconds}} 秒
-- 当前本地目录：{{env.cwd}}
-- 启动分支：{{env.git.branch}}
+  [steps.loop]
+  until = "release-progress.done == true"
+  max = 80
 
-工作流：
-1. 如果 dispatch-run.run_created=false，直接输出 blocked，summary 写明 dispatch-run.dispatch_error。
-2. 循环执行：gh run view <original_run_id> -R flexcompute/Flow360 --json status,conclusion,url,jobs。
-3. 如果 status/conclusion 表示成功，输出 final_state=succeeded。
-4. 如果进入人工审批或环境等待状态，输出 final_state=approval_required。
-5. 如果仍 running/queued/in_progress，等待 {{poll_interval_seconds}} 秒后继续监视。
-6. 如果失败：读取失败 job 日志，只判断是否为 Flow360 multi-branch merge conflict。
-7. 如果不是 merge conflict，输出 final_state=blocked。
-8. 如果是 merge conflict：
-   - 从日志提取 tmp_branch、remaining_queue、conflicted_branches。
-   - git fetch origin。
-   - 从 origin/<tmp_branch> 建立/重建本地工作分支。
-   - rebase origin/<tmp_branch>。
-   - 按 remaining_queue 顺序 merge origin/<branch>，解决冲突并 commit。
-   - 运行必要的轻量验证。
-   - push 回 tmp_branch；如果普通 push 只因 hook-only 失败，可用 --no-verify。
-   - 对 original_run_id 执行 gh run rerun --failed。
-   - rerun 后继续监视同一个 original_run_id，禁止新建 workflow run。
+  [[steps.loop.body]]
+  id = "fetch-run-info"
+  title = "获取 original run 信息"
+  execution = "script"
+  input_context = ["dispatch-run"]
+  description = "读取本次 original_run_id 的 run/job/log 信息，供后续判断。"
+
+    [steps.loop.body.script]
+    command = ["python3", "-c", """
+import json, os, subprocess
+REPO = 'flexcompute/flex'
+RID = os.environ.get('TT_ORIGINAL_RUN_ID','').strip()
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+result = {'repo': REPO, 'original_run_id': RID, 'run_url': '', 'status': '', 'conclusion': '', 'jobs': [], 'failed_job_logs': [], 'error': ''}
+if not RID:
+    result['error'] = 'missing original_run_id'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+rc, out, err = run(['gh','run','view',RID,'-R',REPO,'--json','databaseId,url,status,conclusion,jobs'])
+if rc != 0:
+    result['error'] = err or out or 'gh run view failed'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+try:
+    data = json.loads(out)
+except Exception as exc:
+    result['error'] = f'parse gh run view failed: {exc}'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+result.update(run_url=data.get('url',''), status=data.get('status',''), conclusion=data.get('conclusion') or '', jobs=data.get('jobs') or [])
+for job in result['jobs']:
+    if (job.get('conclusion') or '').lower() == 'failure' or (job.get('status') or '').lower() == 'completed':
+        jid = str(job.get('databaseId') or '')
+        if not jid:
+            continue
+        rc, log, _ = run(['gh','run','view',RID,'-R',REPO,'--job',jid,'--log'])
+        if rc == 0 and log:
+            result['failed_job_logs'].append({'job_id': jid, 'name': job.get('name',''), 'log_excerpt': log[-20000:]})
+print(json.dumps(result, separators=(',', ':')))
+"""]
+    format = "json"
+    timeout = "60s"
+
+    [steps.loop.body.script.env]
+    TT_ORIGINAL_RUN_ID = "{{dispatch-run.original_run_id}}"
+
+  [[steps.loop.body]]
+  id = "classify-run-state"
+  title = "判断 run 状态和下一步动作"
+  depends_on = ["fetch-run-info"]
+  input_context = ["dispatch-run", "fetch-run-info"]
+  description = """
+根据 fetch-run-info 判断本轮状态。
+
+规则：
+- dispatch-run.run_created=false 或 fetch-run-info.error 非空 -> action=block, done=true。
+- GitHub Actions 进入人工 approval / waiting / environment protection 阶段，算发布成功终态，action=none, done=true, final_state=approval_required。
+- 成功 -> action=none, done=true, final_state=succeeded。
+- 仍 queued/in_progress/running -> action=wait, done=false。
+- 失败且日志是 Flow360 multi-branch merge conflict -> action=repair_conflict, done=false，必须提取 tmp_branch、remaining_queue、conflicted_branches。
+- 其他失败 -> action=block, done=true。
 
 输出 ONLY compact JSON：
-{"final_state":"succeeded|approval_required|blocked","run_url":"","original_run_id":"","tmp_branch":"","conflicted_branches":[],"repair_attempted":false,"repair_resolved":false,"rerun_requested":false,"validations_run":[],"blocker_type":"none|dispatch|non_conflict_failure|git_state|validation_failed|auth|unknown","summary":""}
+{"done":false,"final_state":"running|succeeded|approval_required|blocked","action":"wait|repair_conflict|block|none","run_url":"","tmp_branch":"","remaining_queue":[],"conflicted_branches":[],"reason":""}
 """
 
-[steps.agent]
-name = "coder"
+    [steps.loop.body.agent]
+    name = "coder"
 
-[steps.validate]
-format = "json"
-required = ["final_state", "original_run_id", "summary", "rerun_requested", "blocker_type"]
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["done", "final_state", "action", "reason"]
 
-[[steps]]
-id = "approval-checkpoint"
-title = "人工确认审批状态"
-execution = "human_input"
-depends_on = ["monitor-and-rerun"]
-condition = "monitor-and-rerun.final_state == approval_required"
-input_context = ["monitor-and-rerun"]
-description = "workflow 进入人工审批时暂停，记录审批状态。"
+  [[steps.loop.body]]
+  id = "repair-conflict"
+  title = "修复 tmp branch 的 multi-branch merge conflict"
+  depends_on = ["classify-run-state"]
+  condition = "classify-run-state.action == repair_conflict"
+  input_context = ["env", "dispatch-run", "fetch-run-info", "classify-run-state"]
+  description = """
+根据 classify-run-state 提取到的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。
 
-  [steps.form]
-  title = "Flow360 release 等待审批"
-  submit_label = "记录"
+必须执行：
+1. git fetch origin。
+2. 从 origin/<tmp_branch> 建立/重建本地工作分支。
+3. rebase origin/<tmp_branch>。
+4. 按 remaining_queue 顺序 merge origin/<branch>。
+5. 解决冲突并 commit。
+6. 运行必要轻量验证。
+7. push 回 tmp_branch，必须使用 `git push --no-verify origin HEAD:<tmp_branch>`。
 
-  [[steps.form.fields]]
-  name = "approval_status"
-  label = "审批状态"
-  type = "select"
-  required = true
-  options = ["waiting", "approved", "rejected", "unknown"]
+不要新建 workflow run，不要 rerun，这一步只负责修复并 push tmp branch。
+输出 ONLY compact JSON：
+{"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"push_completed":true,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":""}
+"""
 
-  [[steps.form.fields]]
-  name = "notes"
-  label = "补充说明"
-  type = "textarea"
+    [steps.loop.body.agent]
+    name = "coder"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["attempted", "resolved", "tmp_branch", "push_completed", "blocker_type"]
+
+  [[steps.loop.body]]
+  id = "rerun-failed-jobs"
+  title = "rerun failed jobs"
+  execution = "script"
+  depends_on = ["repair-conflict"]
+  condition = "repair-conflict.resolved == true"
+  input_context = ["dispatch-run", "repair-conflict"]
+
+    [steps.loop.body.script]
+    command = ["gh", "run", "rerun", "{{dispatch-run.original_run_id}}", "-R", "flexcompute/flex", "--failed"]
+    format = "text"
+    timeout = "60s"
+
+  [[steps.loop.body]]
+  id = "wait-next-poll"
+  title = "等待下一轮轮询"
+  execution = "script"
+  depends_on = ["classify-run-state"]
+  condition = "classify-run-state.action == wait"
+
+    [steps.loop.body.script]
+    command = ["python3", "-c", "import json,time,sys; s=int(sys.argv[1]); time.sleep(s); print(json.dumps({'wait_seconds':s},separators=(',',':')))", "{{poll_interval_seconds}}"]
+    format = "json"
+    timeout = "120s"
+
+  [[steps.loop.body]]
+  id = "release-progress"
+  title = "更新发布进度"
+  depends_on = ["classify-run-state", "repair-conflict", "rerun-failed-jobs", "wait-next-poll"]
+  input_context = ["dispatch-run", "fetch-run-info", "classify-run-state", "repair-conflict", "rerun-failed-jobs", "wait-next-poll"]
+  description = """
+汇总本轮结果，决定 loop 是否结束。
+
+规则：
+- classify-run-state.done=true -> done=true，final_state 使用 classify-run-state.final_state。
+- repair-conflict 执行且 resolved=false -> done=true，final_state=blocked。
+- repair-conflict resolved=true 且 rerun-failed-jobs 已执行 -> done=false，summary 写明已 rerun failed jobs，下一轮继续监视同一个 original_run_id。
+- action=wait -> done=false。
+
+注意：approval_required 算成功终态，不要要求用户输入。
+输出 ONLY compact JSON：
+{"done":false,"final_state":"running|succeeded|approval_required|blocked","run_url":"","original_run_id":"","tmp_branch":"","conflicted_branches":[],"repair_attempted":false,"repair_resolved":false,"rerun_requested":false,"validations_run":[],"blocker_type":"none|dispatch|non_conflict_failure|git_state|validation_failed|auth|unknown","summary":""}
+"""
+
+    [steps.loop.body.agent]
+    name = "planner"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["done", "final_state", "original_run_id", "summary", "rerun_requested", "blocker_type"]
 
 [[steps]]
 id = "final-report"
 title = "输出发布报告"
-depends_on = ["monitor-and-rerun", "approval-checkpoint"]
-input_context = ["env", "dispatch-run", "monitor-and-rerun", "approval-checkpoint"]
+depends_on = ["monitor-and-rerun"]
+input_context = ["env", "dispatch-run", "release-progress", "fetch-run-info", "classify-run-state", "repair-conflict", "rerun-failed-jobs"]
 description = """
-输出中文发布报告，包含：env_name、tag、fresh_deploy、repo/workflow、original_run_id/run_url、最终状态、是否人工审批、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。强调本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch。
+输出中文发布报告，包含：env_name、tag、fresh_deploy、repo/workflow、original_run_id/run_url、最终状态、是否进入人工审批阶段、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。强调本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch。
 """
 
 [steps.agent]

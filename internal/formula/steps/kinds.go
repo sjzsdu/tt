@@ -252,12 +252,86 @@ type LoopStep struct {
 	Body           []Step
 	Parallel       bool
 	MaxConcurrency int
+	Until          string
+	Max            int
 }
 type LoopDecoder struct{}
 
 func (LoopDecoder) Kind() Kind { return KindLoop }
 func (LoopDecoder) Decode(decl ast.StepDecl) (Step, error) {
 	return LoopStep{Base: Base{metadataFromDecl(decl, KindLoop)}}, nil
+}
+
+func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	max := s.Max
+	if max <= 0 {
+		max = 1
+	}
+	var last Value
+	for i := 1; i <= max; i++ {
+		if req.Outputs != nil {
+			raw, _ := json.Marshal(i)
+			_ = req.Outputs.Set("iteration", Value{Type: "json", Raw: raw})
+		}
+		for _, child := range s.Body {
+			if child == nil {
+				continue
+			}
+			if !stepConditionMatches(child.Meta().Condition, req.Context) {
+				continue
+			}
+			exec, ok := child.(Executable)
+			if !ok {
+				continue
+			}
+			res, err := exec.Run(ctx, RunRequest{RunID: req.RunID, NodeID: string(child.Meta().ID), Step: child, Context: req.Context, Outputs: req.Outputs, Capabilities: req.Capabilities})
+			if res == nil {
+				res = &RunResult{}
+			}
+			if err != nil || res.Status == StatusFailed {
+				return res, err
+			}
+			if res.Status == StatusWaiting {
+				return res, nil
+			}
+			if len(res.Output.Raw) > 0 {
+				last = res.Output
+				if req.Outputs != nil {
+					_ = req.Outputs.Set(string(child.Meta().ID), res.Output)
+				}
+			}
+		}
+		if stepConditionMatches(s.Until, req.Context) {
+			return &RunResult{Status: StatusCompleted, Output: last}, nil
+		}
+	}
+	return &RunResult{Status: StatusCompleted, Output: last}, nil
+}
+
+func stepConditionMatches(condition string, ctx ContextView) bool {
+	condition = strings.TrimSpace(condition)
+	if condition == "" {
+		return true
+	}
+	for _, op := range []string{"==", "!="} {
+		parts := strings.SplitN(condition, op, 2)
+		if len(parts) != 2 {
+			continue
+		}
+		left := strings.TrimSpace(parts[0])
+		expected := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+		actual := ""
+		if ctx != nil {
+			if value, ok := ctx.Get(left); ok {
+				actual = valueForPrompt(value)
+			}
+		}
+		if op == "==" {
+			return actual == expected
+		}
+		return actual != expected
+	}
+	return false
 }
 
 type RetryStep struct {

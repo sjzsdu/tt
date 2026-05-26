@@ -115,6 +115,17 @@ func addFormulaStepToWorkflow(wf *ir.Workflow, step *Step) {
 
 func typedStepFromFormulaStep(step *Step) steps.Step {
 	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, Labels: append([]string(nil), step.Labels...), Condition: step.Condition}
+	if step.Loop != nil {
+		meta.Kind = steps.KindLoop
+		body := make([]steps.Step, 0, len(step.Loop.Body))
+		for _, child := range step.Loop.Body {
+			if child == nil {
+				continue
+			}
+			body = append(body, typedStepFromFormulaStep(child))
+		}
+		return steps.LoopStep{Base: steps.Base{Metadata: meta}, Body: body, Parallel: step.Loop.Parallel, MaxConcurrency: step.Loop.MaxConcurrency, Until: step.Loop.Until, Max: step.Loop.Max}
+	}
 	execution := strings.TrimSpace(step.Execution)
 	switch execution {
 	case "noop":
