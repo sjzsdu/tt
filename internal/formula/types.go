@@ -262,6 +262,9 @@ type Step struct {
 	// Aggregate projects and collects data from prior step outputs.
 	Aggregate *AggregateSpec `json:"aggregate,omitempty" toml:"aggregate,omitempty"`
 
+	// WriteFiles materializes JSON objects into files deterministically.
+	WriteFiles *WriteFilesSpec `json:"write_files,omitempty" toml:"write_files,omitempty"`
+
 	// Form describes fields required by execution="human_input" steps.
 	Form *FormSpec `json:"form,omitempty" toml:"form,omitempty"`
 
@@ -386,6 +389,7 @@ type stepTOMLAlias struct {
 	Agent           *AgentConfig      `json:"agent,omitempty"`
 	Script          *ScriptSpec       `json:"script,omitempty"`
 	Aggregate       *AggregateSpec    `json:"aggregate,omitempty"`
+	WriteFiles      *WriteFilesSpec   `json:"write_files,omitempty"`
 	Form            json.RawMessage   `json:"form,omitempty"`
 	DynamicForm     bool              `json:"dynamic_form,omitempty"`
 	Validate        *ValidateSpec     `json:"validate,omitempty"`
@@ -489,6 +493,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Agent:           a.Agent,
 		Script:          a.Script,
 		Aggregate:       a.Aggregate,
+		WriteFiles:      a.WriteFiles,
 		Form:            form,
 		DynamicForm:     dynamicForm,
 		Validate:        a.Validate,
@@ -670,6 +675,17 @@ type AggregateSpec struct {
 	Include []string `json:"include,omitempty" toml:"include,omitempty"`
 	Exclude []string `json:"exclude,omitempty" toml:"exclude,omitempty"`
 	Flatten bool     `json:"flatten,omitempty" toml:"flatten,omitempty"`
+}
+
+// WriteFilesSpec describes deterministic file creation from JSON context objects.
+type WriteFilesSpec struct {
+	Source      string `json:"source" toml:"source"`
+	Root        string `json:"root,omitempty" toml:"root,omitempty"`
+	DirName     string `json:"dir_name" toml:"dir_name"`
+	FilenameKey string `json:"filename_key,omitempty" toml:"filename_key,omitempty"`
+	TitleKey    string `json:"title_key,omitempty" toml:"title_key,omitempty"`
+	SummaryKey  string `json:"summary_key,omitempty" toml:"summary_key,omitempty"`
+	ContentKey  string `json:"content_key,omitempty" toml:"content_key,omitempty"`
 }
 
 // FormSpec describes a human input form for execution="human_input" steps.

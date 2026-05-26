@@ -155,6 +155,13 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			agg = &AggregateSpec{}
 		}
 		return steps.AggregateStep{Base: steps.Base{Metadata: meta}, Source: agg.Source, As: agg.As, Require: append([]string(nil), agg.Require...), Include: append([]string(nil), agg.Include...), Exclude: append([]string(nil), agg.Exclude...), Flatten: agg.Flatten, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+	case "write_files":
+		meta.Kind = steps.KindWriteFiles
+		writeFiles := step.WriteFiles
+		if writeFiles == nil {
+			writeFiles = &WriteFilesSpec{}
+		}
+		return steps.WriteFilesStep{Base: steps.Base{Metadata: meta}, Source: writeFiles.Source, Root: writeFiles.Root, DirName: writeFiles.DirName, FilenameKey: writeFiles.FilenameKey, TitleKey: writeFiles.TitleKey, SummaryKey: writeFiles.SummaryKey, ContentKey: writeFiles.ContentKey, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "human_input":
 		meta.Kind = steps.KindHumanInput
 		return steps.HumanInputStep{Base: steps.Base{Metadata: meta}, Reason: step.Description, Form: step.Form, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}

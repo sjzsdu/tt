@@ -217,6 +217,10 @@ func outputValidationForStep(step steps.Step) *steps.OutputValidationSpec {
 		return s.Validation
 	case *steps.AggregateStep:
 		return s.Validation
+	case steps.WriteFilesStep:
+		return s.Validation
+	case *steps.WriteFilesStep:
+		return s.Validation
 	default:
 		return nil
 	}
@@ -280,6 +284,10 @@ func stepOutputKey(step steps.Step) string {
 	case steps.AggregateStep:
 		key = s.OutputKey
 	case *steps.AggregateStep:
+		key = s.OutputKey
+	case steps.WriteFilesStep:
+		key = s.OutputKey
+	case *steps.WriteFilesStep:
 		key = s.OutputKey
 	}
 	if key != "" {

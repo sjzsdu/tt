@@ -3,6 +3,8 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -167,6 +169,41 @@ func TestAggregateStepCollectsAndProjectsObjects(t *testing.T) {
 	}
 	if articles[0]["filename"] != "01.md" || articles[0]["title"] != "One" {
 		t.Fatalf("article projection = %+v", articles[0])
+	}
+}
+
+func TestWriteFilesStepCreatesFilesAndManifest(t *testing.T) {
+	tmp := t.TempDir()
+	step := WriteFilesStep{
+		Base:    Base{Metadata: Metadata{ID: "write", Kind: KindWriteFiles}},
+		Source:  "write-articles",
+		Root:    tmp,
+		DirName: "{{topic_name}}",
+	}
+	res, err := step.Run(context.Background(), RunRequest{Context: mapContextView{
+		"topic_name":     {Raw: []byte(`"demo"`)},
+		"write-articles": {Raw: []byte(`[{"filename":"01.md","title":"One","summary":"S","content":"# One\nBody"}]`)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(tmp, "demo", "01.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "# One\nBody\n" {
+		t.Fatalf("content = %q", string(data))
+	}
+	var manifest struct {
+		Directory string              `json:"directory"`
+		Files     []map[string]string `json:"files"`
+	}
+	if err := json.Unmarshal(res.Output.Raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Directory != filepath.Join(tmp, "demo") || len(manifest.Files) != 1 {
+		t.Fatalf("manifest = %+v", manifest)
 	}
 }
 

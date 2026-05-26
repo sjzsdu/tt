@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
 description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 docs。"
-version = 12
+version = 13
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -173,71 +173,27 @@ required = ["articles"]
 id = "write-doc-files"
 title = "写入文章文件并生成文件清单"
 depends_on = ["topic-package-plan", "write-articles"]
-execution = "script"
+execution = "write_files"
 
-[steps.script]
-command = ["python3", "-c", """
-import json, os, pathlib, re, sys
-
-topic_name = os.environ.get('TOPIC_NAME', '').strip()
-if not re.fullmatch(r'[a-z0-9-]{1,40}', topic_name):
-    raise SystemExit(f'invalid topic_name: {topic_name!r}')
-
-raw = os.environ.get('ARTICLES_JSON', '').strip()
-try:
-    payload = json.loads(raw)
-except Exception as exc:
-    raise SystemExit(f'write-articles must be JSON: {exc}')
-
-entries = []
-def collect(value):
-    if isinstance(value, dict):
-        if all(k in value for k in ('filename', 'title', 'summary', 'content')):
-            entries.append(value)
-        for child in value.values():
-            collect(child)
-    elif isinstance(value, list):
-        for child in value:
-            collect(child)
-
-collect(payload)
-if not entries:
-    raise SystemExit('no article package entries found in write-articles output')
-
-root = pathlib.Path('docs') / topic_name
-root.mkdir(parents=True, exist_ok=True)
-written = []
-for item in entries:
-    filename = str(item['filename']).strip()
-    if not filename.endswith('.md') or '/' in filename or '\\' in filename or filename.startswith('.'):
-        raise SystemExit(f'unsafe filename: {filename!r}')
-    path = root / filename
-    path.write_text(str(item['content']).rstrip() + '\n', encoding='utf-8')
-    written.append({'filename': filename, 'title': item.get('title', ''), 'summary': item.get('summary', ''), 'path': str(path)})
-
-print(json.dumps({'topic_name': topic_name, 'directory': str(root), 'articles': written}, ensure_ascii=False, separators=(',', ':')))
-"""]
-format = "json"
-timeout = "60s"
-
-[steps.script.env]
-TOPIC_NAME = "{{topic-package-plan.topic_name}}"
-ARTICLES_JSON = "{{write-articles}}"
+[steps.write_files]
+source = "write-articles"
+root = "docs"
+dir_name = "{{topic-package-plan.topic_name}}"
 
 [steps.validate]
 format = "json"
-required = ["stdout", "exit_code"]
+required = ["directory", "files"]
 
 [[steps]]
 id = "series-package"
 title = "生成 README 并汇总文档包"
 depends_on = ["write-doc-files", "article-manifest"]
-input_context = ["topic-package-plan", "article-manifest", "write-doc-files.stdout"]
+input_context = ["topic-package-plan", "article-manifest", "write-doc-files"]
 description = """
-文章正文已经由 write-doc-files 这个 script 确定性写入磁盘。你只需要基于 topic-package-plan、article-manifest 和 write-doc-files.stdout 的轻量文件清单，写入 README 并输出最终汇总，不要再读取或复述所有文章正文。
+文章正文已经由 write-doc-files 这个确定性步骤写入磁盘。你只需要基于 topic-package-plan、article-manifest 和 write-doc-files 的轻量文件清单，写入 README 并输出最终汇总，不要再读取或复述所有文章正文。
 
 目录命名要求：
-- 使用 topic-package-plan.topic_name 和 write-doc-files.stdout.directory。
+- 使用 topic-package-plan.topic_name 和 write-doc-files.directory。
 - 本次所有文件必须位于同一个 `docs/<topic-name>/` 目录，不要写到 `docs/` 根目录。
 
 你的工作：

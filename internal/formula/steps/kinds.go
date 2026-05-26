@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -365,6 +367,124 @@ func objectHasKeys(object map[string]any, keys map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+type WriteFilesStep struct {
+	Base
+	Source      string
+	Root        string
+	DirName     string
+	FilenameKey string
+	TitleKey    string
+	SummaryKey  string
+	ContentKey  string
+	OutputKey   string
+	Validation  *OutputValidationSpec `json:"validate,omitempty"`
+}
+
+func (s WriteFilesStep) Run(_ context.Context, req RunRequest) (*RunResult, error) {
+	if req.Context == nil {
+		return failedRun(fmt.Errorf("write_files context is required"))
+	}
+	source := strings.TrimSpace(s.Source)
+	if source == "" {
+		return failedRun(fmt.Errorf("write_files source is required"))
+	}
+	value, ok := req.Context.Get(source)
+	if !ok {
+		return failedRun(fmt.Errorf("write_files source %q not found", source))
+	}
+	var data any
+	if err := json.Unmarshal(value.Raw, &data); err != nil {
+		return failedRun(fmt.Errorf("write_files source %q must be JSON: %w", source, err))
+	}
+	filenameKey := defaultString(s.FilenameKey, "filename")
+	titleKey := defaultString(s.TitleKey, "title")
+	summaryKey := defaultString(s.SummaryKey, "summary")
+	contentKey := defaultString(s.ContentKey, "content")
+	entries := collectWriteFileEntries(data, filenameKey, titleKey, summaryKey, contentKey)
+	if len(entries) == 0 {
+		return failedRun(fmt.Errorf("write_files source %q contains no objects with %s and %s", source, filenameKey, contentKey))
+	}
+	root := strings.TrimSpace(renderContextTemplates(defaultString(s.Root, "docs"), req.Context))
+	dirName := strings.TrimSpace(renderContextTemplates(s.DirName, req.Context))
+	if dirName == "" {
+		return failedRun(fmt.Errorf("write_files dir_name is required"))
+	}
+	if !safePathSegment(dirName) {
+		return failedRun(fmt.Errorf("write_files dir_name %q is unsafe", dirName))
+	}
+	dir := filepath.Join(root, dirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return failedRun(fmt.Errorf("create directory %s: %w", dir, err))
+	}
+	written := make([]map[string]string, 0, len(entries))
+	for _, entry := range entries {
+		filename := strings.TrimSpace(entry[filenameKey])
+		if !safeMarkdownFilename(filename) {
+			return failedRun(fmt.Errorf("write_files filename %q is unsafe", filename))
+		}
+		path := filepath.Join(dir, filename)
+		if err := os.WriteFile(path, []byte(strings.TrimRight(entry[contentKey], "\n")+"\n"), 0o644); err != nil {
+			return failedRun(fmt.Errorf("write file %s: %w", path, err))
+		}
+		written = append(written, map[string]string{"filename": filename, "title": entry[titleKey], "summary": entry[summaryKey], "path": path})
+	}
+	raw, err := json.Marshal(map[string]any{"directory": dir, "root": root, "dir_name": dirName, "files": written})
+	if err != nil {
+		return failedRun(err)
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func failedRun(err error) (*RunResult, error) {
+	return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func collectWriteFileEntries(value any, filenameKey, titleKey, summaryKey, contentKey string) []map[string]string {
+	var out []map[string]string
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case []any:
+			for _, item := range x {
+				walk(item)
+			}
+		case map[string]any:
+			filename, fok := stringValue(x[filenameKey])
+			content, cok := stringValue(x[contentKey])
+			if fok && cok {
+				title, _ := stringValue(x[titleKey])
+				summary, _ := stringValue(x[summaryKey])
+				out = append(out, map[string]string{filenameKey: filename, titleKey: title, summaryKey: summary, contentKey: content})
+			}
+			for _, child := range x {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return out
+}
+
+func stringValue(value any) (string, bool) {
+	s, ok := value.(string)
+	return s, ok && strings.TrimSpace(s) != ""
+}
+
+func safePathSegment(value string) bool {
+	return value != "" && !strings.Contains(value, "/") && !strings.Contains(value, "\\") && !strings.HasPrefix(value, ".")
+}
+
+func safeMarkdownFilename(filename string) bool {
+	return safePathSegment(filename) && strings.HasSuffix(filename, ".md")
 }
 
 type LoopStep struct {

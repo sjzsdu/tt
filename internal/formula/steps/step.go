@@ -21,6 +21,7 @@ const (
 	KindEmbed      Kind = "embed"
 	KindExpand     Kind = "expand"
 	KindAggregate  Kind = "aggregate"
+	KindWriteFiles Kind = "write_files"
 )
 
 type ID string
