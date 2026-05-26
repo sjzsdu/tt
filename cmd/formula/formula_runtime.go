@@ -114,7 +114,7 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 	}
 	opt := pcwrap.RunOptions{
 		Message:   prompt,
-		Session:   r.session,
+		Session:   agentSessionForNode(r.session, req.NodeID),
 		Agent:     agent,
 		Model:     model,
 		Workspace: r.workspace,
@@ -136,6 +136,32 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 		return steps.Value{}, err
 	}
 	return steps.Value{Type: "json", Raw: data}, nil
+}
+
+func agentSessionForNode(baseSession, nodeID string) string {
+	if strings.TrimSpace(baseSession) == "" || !strings.Contains(nodeID, ".iter") {
+		return baseSession
+	}
+	return strings.TrimRight(baseSession, ".-") + "." + sanitizeAgentSessionSuffix(nodeID)
+}
+
+func sanitizeAgentSessionSuffix(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "step"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 type formulaRuntimeRunOptions struct {

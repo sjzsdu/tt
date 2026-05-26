@@ -65,6 +65,30 @@ func TestFormulaRuntimeAgentRunnerUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestFormulaRuntimeAgentRunnerIsolatesLoopIterationSessions(t *testing.T) {
+	fake := &fakeFormulaDirectProcessor{}
+	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", session: "session-a"}
+	_, err := runner.RunAgent(context.Background(), steps.AgentRequest{NodeID: "write-articles.iter3.draft", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.opt.Session != "session-a.write-articles.iter3.draft" {
+		t.Fatalf("session = %q", fake.opt.Session)
+	}
+}
+
+func TestFormulaRuntimeAgentRunnerKeepsTopLevelSession(t *testing.T) {
+	fake := &fakeFormulaDirectProcessor{}
+	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", session: "session-a"}
+	_, err := runner.RunAgent(context.Background(), steps.AgentRequest{NodeID: "article-plan", Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.opt.Session != "session-a" {
+		t.Fatalf("session = %q", fake.opt.Session)
+	}
+}
+
 func TestFormulaRuntimeAgentRunnerInjectsStepAdvice(t *testing.T) {
 	fake := &fakeFormulaDirectProcessor{}
 	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", session: "session-a", stepAdvice: map[string]string{"step-1": "try a smaller change"}}
