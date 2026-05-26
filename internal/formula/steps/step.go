@@ -20,6 +20,7 @@ const (
 	KindRetry      Kind = "retry"
 	KindEmbed      Kind = "embed"
 	KindExpand     Kind = "expand"
+	KindTool       Kind = "tool"
 	KindAggregate  Kind = "aggregate"
 	KindWriteFiles Kind = "write_files"
 )

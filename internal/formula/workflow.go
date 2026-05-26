@@ -155,6 +155,13 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			agg = &AggregateSpec{}
 		}
 		return steps.AggregateStep{Base: steps.Base{Metadata: meta}, Source: agg.Source, As: agg.As, Require: append([]string(nil), agg.Require...), Include: append([]string(nil), agg.Include...), Exclude: append([]string(nil), agg.Exclude...), Flatten: agg.Flatten, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+	case "tool":
+		meta.Kind = steps.KindTool
+		tool := step.Tool
+		if tool == nil {
+			tool = &ToolSpec{}
+		}
+		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "write_files":
 		meta.Kind = steps.KindWriteFiles
 		writeFiles := step.WriteFiles
@@ -175,6 +182,13 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 		}
 		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	}
+}
+
+func writeFilesToolStep(spec *WriteFilesSpec) *steps.WriteFilesStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.WriteFilesStep{Source: spec.Source, Root: spec.Root, DirName: spec.DirName, FilenameKey: spec.FilenameKey, TitleKey: spec.TitleKey, SummaryKey: spec.SummaryKey, ContentKey: spec.ContentKey}
 }
 
 func outputValidationSpec(step *Step) *steps.OutputValidationSpec {

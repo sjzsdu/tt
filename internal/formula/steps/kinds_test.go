@@ -207,6 +207,28 @@ func TestWriteFilesStepCreatesFilesAndManifest(t *testing.T) {
 	}
 }
 
+func TestToolStepDispatchesWriteFiles(t *testing.T) {
+	tmp := t.TempDir()
+	step := ToolStep{
+		Base: Base{Metadata: Metadata{ID: "tool", Kind: KindTool}},
+		Name: "write_files",
+		WriteFiles: &WriteFilesStep{
+			Source:  "write-articles",
+			Root:    tmp,
+			DirName: "docs",
+		},
+	}
+	_, err := step.Run(context.Background(), RunRequest{Context: mapContextView{
+		"write-articles": {Raw: []byte(`[{"filename":"01.md","content":"# One"}]`)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "docs", "01.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoopStepEmitsBodyActivityEvents(t *testing.T) {
 	loop := LoopStep{
 		Base: Base{Metadata: Metadata{ID: "loop", Kind: KindLoop}},

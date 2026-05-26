@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
 description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 docs。"
-version = 13
+version = 14
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -173,9 +173,12 @@ required = ["articles"]
 id = "write-doc-files"
 title = "写入文章文件并生成文件清单"
 depends_on = ["topic-package-plan", "write-articles"]
-execution = "write_files"
+execution = "tool"
 
-[steps.write_files]
+[steps.tool]
+name = "write_files"
+
+[steps.tool.write_files]
 source = "write-articles"
 root = "docs"
 dir_name = "{{topic-package-plan.topic_name}}"

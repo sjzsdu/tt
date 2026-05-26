@@ -382,6 +382,31 @@ type WriteFilesStep struct {
 	Validation  *OutputValidationSpec `json:"validate,omitempty"`
 }
 
+type ToolStep struct {
+	Base
+	Name       string
+	WriteFiles *WriteFilesStep
+	OutputKey  string
+	Validation *OutputValidationSpec `json:"validate,omitempty"`
+}
+
+func (s ToolStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	switch strings.TrimSpace(s.Name) {
+	case "write_files":
+		if s.WriteFiles == nil {
+			return failedRun(fmt.Errorf("tool write_files config is required"))
+		}
+		child := *s.WriteFiles
+		if child.OutputKey == "" {
+			child.OutputKey = s.OutputKey
+		}
+		child.Validation = s.Validation
+		return child.Run(ctx, req)
+	default:
+		return failedRun(fmt.Errorf("unknown tool %q", s.Name))
+	}
+}
+
 func (s WriteFilesStep) Run(_ context.Context, req RunRequest) (*RunResult, error) {
 	if req.Context == nil {
 		return failedRun(fmt.Errorf("write_files context is required"))

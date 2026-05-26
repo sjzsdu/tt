@@ -262,6 +262,9 @@ type Step struct {
 	// Aggregate projects and collects data from prior step outputs.
 	Aggregate *AggregateSpec `json:"aggregate,omitempty" toml:"aggregate,omitempty"`
 
+	// Tool invokes a deterministic built-in local tool.
+	Tool *ToolSpec `json:"tool,omitempty" toml:"tool,omitempty"`
+
 	// WriteFiles materializes JSON objects into files deterministically.
 	WriteFiles *WriteFilesSpec `json:"write_files,omitempty" toml:"write_files,omitempty"`
 
@@ -389,6 +392,7 @@ type stepTOMLAlias struct {
 	Agent           *AgentConfig      `json:"agent,omitempty"`
 	Script          *ScriptSpec       `json:"script,omitempty"`
 	Aggregate       *AggregateSpec    `json:"aggregate,omitempty"`
+	Tool            *ToolSpec         `json:"tool,omitempty"`
 	WriteFiles      *WriteFilesSpec   `json:"write_files,omitempty"`
 	Form            json.RawMessage   `json:"form,omitempty"`
 	DynamicForm     bool              `json:"dynamic_form,omitempty"`
@@ -493,6 +497,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Agent:           a.Agent,
 		Script:          a.Script,
 		Aggregate:       a.Aggregate,
+		Tool:            a.Tool,
 		WriteFiles:      a.WriteFiles,
 		Form:            form,
 		DynamicForm:     dynamicForm,
@@ -675,6 +680,12 @@ type AggregateSpec struct {
 	Include []string `json:"include,omitempty" toml:"include,omitempty"`
 	Exclude []string `json:"exclude,omitempty" toml:"exclude,omitempty"`
 	Flatten bool     `json:"flatten,omitempty" toml:"flatten,omitempty"`
+}
+
+// ToolSpec selects and configures a deterministic built-in local tool.
+type ToolSpec struct {
+	Name       string          `json:"name" toml:"name"`
+	WriteFiles *WriteFilesSpec `json:"write_files,omitempty" toml:"write_files,omitempty"`
 }
 
 // WriteFilesSpec describes deterministic file creation from JSON context objects.

@@ -221,6 +221,10 @@ func outputValidationForStep(step steps.Step) *steps.OutputValidationSpec {
 		return s.Validation
 	case *steps.WriteFilesStep:
 		return s.Validation
+	case steps.ToolStep:
+		return s.Validation
+	case *steps.ToolStep:
+		return s.Validation
 	default:
 		return nil
 	}
@@ -288,6 +292,10 @@ func stepOutputKey(step steps.Step) string {
 	case steps.WriteFilesStep:
 		key = s.OutputKey
 	case *steps.WriteFilesStep:
+		key = s.OutputKey
+	case steps.ToolStep:
+		key = s.OutputKey
+	case *steps.ToolStep:
 		key = s.OutputKey
 	}
 	if key != "" {
