@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formularun"
 	"github.com/sjzsdu/tt/internal/formularunview"
 )
@@ -34,7 +36,8 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
-	initialResults, initialContext := formularunview.BuildResumeState(snapshot)
+	exclude := resumeDependencyExclusions(workflow, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeStateExcluding(snapshot, exclude)
 	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
 	store.Meta.Status = formularun.StatusRunning
 	store.Meta.Error = ""
@@ -112,7 +115,8 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err := store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"}); err != nil {
 		return err
 	}
-	initialResults, initialContext := formularunview.BuildResumeState(snapshot)
+	exclude := resumeDependencyExclusions(workflow, snapshot)
+	initialResults, initialContext := formularunview.BuildResumeStateExcluding(snapshot, exclude)
 	store.Meta.Status = formularun.StatusRunning
 	store.Meta.Error = ""
 	store.Meta.FinishedAt = ""
@@ -189,6 +193,50 @@ func isEmptyHumanInputValue(value any) bool {
 	default:
 		return value == nil
 	}
+}
+
+func resumeDependencyExclusions(workflow *ir.Workflow, snapshot formulaui.Snapshot) map[string]bool {
+	if workflow == nil {
+		return nil
+	}
+	failed := map[string]bool{}
+	completed := map[string]bool{}
+	for _, step := range snapshot.Steps {
+		switch step.Status {
+		case "failed":
+			failed[step.ID] = true
+		case "completed":
+			completed[step.ID] = true
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	parents := map[string][]string{}
+	for _, edge := range workflow.Graph.Edges {
+		parents[string(edge.To)] = append(parents[string(edge.To)], string(edge.From))
+	}
+	exclude := map[string]bool{}
+	var visit func(string)
+	visit = func(id string) {
+		for _, parent := range parents[id] {
+			if exclude[parent] {
+				continue
+			}
+			node := workflow.Graph.Nodes[ir.NodeID(parent)]
+			if completed[parent] && node != nil && node.Step != nil && node.Step.Meta().Kind == steps.KindLoop {
+				exclude[parent] = true
+			}
+			visit(parent)
+		}
+	}
+	for id := range failed {
+		visit(id)
+	}
+	if len(exclude) == 0 {
+		return nil
+	}
+	return exclude
 }
 
 func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaui.Snapshot, stepID string) error {

@@ -254,21 +254,13 @@ func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults
 		if strings.TrimSpace(key) == "" {
 			continue
 		}
-		data, err := json.Marshal(value)
-		if err != nil {
-			continue
-		}
-		_ = exec.Context.Set(key, steps.Value{Type: "json", Raw: data})
+		_ = exec.Context.Set(key, resumeOutputValue(value))
 	}
 	for _, result := range initialResults {
 		if result.Status != formulaui.StatusCompleted || strings.TrimSpace(result.StepID) == "" {
 			continue
 		}
-		data, err := json.Marshal(result.Output)
-		if err != nil {
-			continue
-		}
-		runtimeResult := &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: data}}
+		runtimeResult := &steps.RunResult{Status: steps.StatusCompleted, Output: resumeOutputValue(result.Output)}
 		_ = exec.Store.SaveStep(formularuntime.StepState{
 			WorkflowID: exec.Workflow.ID,
 			NodeID:     ir.NodeID(result.StepID),
@@ -277,6 +269,21 @@ func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults
 			UpdatedAt:  time.Now(),
 		})
 	}
+}
+
+func resumeOutputValue(output string) steps.Value {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return steps.Value{Type: "json", Raw: []byte(`""`)}
+	}
+	if json.Valid([]byte(trimmed)) {
+		return steps.Value{Type: "json", Raw: []byte(trimmed)}
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		return steps.Value{Type: "json", Raw: []byte(`""`)}
+	}
+	return steps.Value{Type: "json", Raw: data}
 }
 
 func renderFormulaRuntimeResult(cmd *cobra.Command, workflow *ir.Workflow, result *formularuntime.RunResult, hasError bool) {

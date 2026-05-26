@@ -11,6 +11,7 @@ import (
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -147,5 +148,39 @@ func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
 	}
 	if len(dashboard.Steps) != 1 || dashboard.Steps[0].Output != "saved output" || dashboard.Steps[0].Status != "completed" {
 		t.Fatalf("steps = %+v", dashboard.Steps)
+	}
+}
+
+func TestResumeOutputValuePreservesJSON(t *testing.T) {
+	value := resumeOutputValue(`[{"filename":"01.md","content":"# One"}]`)
+	var got []map[string]string
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0]["filename"] != "01.md" {
+		t.Fatalf("value = %s", value.Raw)
+	}
+}
+
+func TestResumeDependencyExclusionsRerunsLoopAncestorOfFailedStep(t *testing.T) {
+	workflow := testFormulaWorkflow("demo",
+		steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}},
+		steps.LoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "write-articles", Kind: steps.KindLoop}}},
+		steps.ToolStep{Base: steps.Base{Metadata: steps.Metadata{ID: "write-doc-files", Kind: steps.KindTool}}},
+	)
+	workflow.Graph.AddEdge("plan", "write-articles", "blocks")
+	workflow.Graph.AddEdge("write-articles", "write-doc-files", "blocks")
+	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
+		{ID: "plan", Status: "completed"},
+		{ID: "write-articles", Status: "completed"},
+		{ID: "write-doc-files", Status: "failed"},
+	}}
+
+	exclude := resumeDependencyExclusions(workflow, snapshot)
+	if !exclude["write-articles"] {
+		t.Fatalf("expected write-articles to be excluded, got %+v", exclude)
+	}
+	if exclude["plan"] {
+		t.Fatalf("non-loop ancestor should remain reusable: %+v", exclude)
 	}
 }
