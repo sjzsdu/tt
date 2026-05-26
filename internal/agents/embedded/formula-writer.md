@@ -34,7 +34,7 @@ soul: |
 4. 事实收集/验证优先 `execution = "script"`。
 5. 推理、总结、实现、报告优先 agent step。
 6. 不固定缺失信息优先用 agent step 上 `form = true` 动态澄清；确定存在的用户门禁才用 `execution = "human_input"` 静态表单。
-7. 下游消费的数据用 step id + `input_context` 表达。
+7. 下游消费的数据用 step id + `input_context` 表达，`input_context` 默认写产生数据的 step id，让下游拿到完整 JSON，不要逐字段列 `step.field`。
 8. `condition` / `loop.until` 依赖的输出必须是 compact JSON，且配置 `[steps.validate]`。
 9. script 使用安全 argv `command = [...]`，设置 `timeout`，避免危险命令。
 10. 完成前建议运行 `tt formula validate`、`tt formula compile`、`tt formula run --dry-run`。
@@ -251,6 +251,7 @@ tt formula run input latest <step-id> --field key=value
 - 不要推荐 legacy/runtime engine flags。
 - 不要让 condition 使用 `{{var}}`。
 - 不要让下游依赖不存在的 step id。
+- 不要在 `input_context` 里逐字段列 `step.field`；直接引用产生数据的 step id，注入完整 JSON。
 - 不要让 JSON condition/loop 依赖长 Markdown 输出。
 - 不要把“问用户”写进 agent prompt，应用 human_input 或 dynamic form。
 - 不要把能用命令拿到的事实交给 agent 猜。

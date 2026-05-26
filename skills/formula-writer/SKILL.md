@@ -88,7 +88,7 @@ Common fields:
 | `depends_on` / `needs` | Step ids this step waits for. |
 | `execution` | Omit for agent, or use `script`, `human_input`, `noop`. |
 | step `id` | Runtime context key for this step output. Reference this id from `input_context`, `condition`, and `loop.until`. |
-| `input_context` | Context keys or JSON paths injected into the prompt. |
+| `input_context` | Step ids whose complete JSON outputs are injected into the prompt. Prefer whole step ids instead of field-level paths. |
 | `condition` | Runtime expression deciding whether the step runs. |
 | `timeout` | Step timeout, for example `30s`, `5m`, `1h`. |
 | `agent` | Agent config for agent steps. |
@@ -239,7 +239,7 @@ condition = "{{env}} == prod"
 
 Supported patterns include equality, inequality, regex match, JSON path lookup, `&&`, and `||`.
 
-When using a JSON path condition, ensure the producing step outputs valid compact JSON and uses its step id as the context key.
+When using a JSON path condition, ensure the producing step outputs valid compact JSON and uses its step id as the context key. For `input_context`, normally reference the producing step id so the full JSON output is available downstream.
 
 ## Runtime loops
 
@@ -447,7 +447,7 @@ Before saying a formula is ready:
 4. Dependencies reference existing local ids.
 5. Deterministic facts use script steps with safe argv commands and timeout.
 6. Agent steps choose appropriate embedded agents.
-7. Outputs consumed downstream have stable step ids and downstream `input_context`.
+7. Outputs consumed downstream have stable step ids and downstream `input_context` references the whole producing step ids.
 8. JSON outputs used by conditions/loops have `[steps.validate]`.
 9. Human input uses `execution = "human_input"` or `form = true`, not “ask the user” prose.
 10. Loops have `max` and correct body step ids.

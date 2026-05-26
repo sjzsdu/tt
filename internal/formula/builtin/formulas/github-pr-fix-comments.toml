@@ -105,7 +105,7 @@ condition = "normalize-comment-items.total != 0"
   id = "collect-result"
   title = "汇总评论 {{comment.comment_id}} 处理结果"
   depends_on = ["run-bug-fix"]
-  input_context = ["comment", "run-bug-fix.final-report", "run-bug-fix.code-research", "run-bug-fix.execute-fix", "run-bug-fix.no-bug-report"]
+  input_context = ["comment", "run-bug-fix"]
   description = """
   汇总当前 comment 的处理结果。
 

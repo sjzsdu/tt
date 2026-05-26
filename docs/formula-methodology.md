@@ -73,7 +73,7 @@ fetch-pr -> review-risk -> run-tests -> report
 Any step that consumes prior output should declare both:
 
 - `depends_on = [...]` for execution order.
-- `input_context = [...]` for data injected into the prompt.
+- `input_context = ["step-id"]` for data injected into the prompt. Prefer whole producing step ids so the downstream agent receives the full JSON object.
 
 Example:
 
@@ -342,7 +342,7 @@ When a formula fails, debug the workflow like a data pipeline:
 2. Is the expected step-id key present in the runtime context?
 3. Is the output valid JSON if a condition uses JSON paths?
 4. Does the consuming step depend on the producer?
-5. Is `input_context` present?
+5. Is `input_context` present and referencing whole producing step ids?
 6. Did a script command fail or timeout?
 7. Did agent preflight fail because an agent ID is wrong?
 8. Would splitting a large step make the failure easier to isolate?

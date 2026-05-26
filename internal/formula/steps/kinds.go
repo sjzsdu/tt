@@ -26,6 +26,7 @@ type AgentStep struct {
 	Agent       string
 	Model       string
 	Prompt      string
+	InputCtx    []string
 	DynamicForm bool
 	OutputKey   string
 }
@@ -43,7 +44,7 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		err := &StepError{Message: "agent capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	prompt := s.Prompt
+	prompt := appendInputContext(s.Prompt, s.InputCtx, req.Context)
 	if s.DynamicForm {
 		prompt = appendDynamicHumanInputProtocol(prompt)
 	}
@@ -62,6 +63,50 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		}
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
+}
+
+func appendInputContext(prompt string, keys []string, ctx ContextView) string {
+	if len(keys) == 0 || ctx == nil {
+		return prompt
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(prompt))
+	if b.Len() > 0 {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Input context\n\n")
+	b.WriteString("The following values are outputs from upstream steps. A plain step id contains the complete JSON output for that step.\n\n")
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		b.WriteString("### ")
+		b.WriteString(key)
+		b.WriteString("\n\n")
+		if value, ok := ctx.Get(key); ok {
+			b.WriteString(valueForPrompt(value))
+		} else {
+			b.WriteString("(not available)")
+		}
+		b.WriteString("\n\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func valueForPrompt(out Value) string {
+	var text string
+	if err := json.Unmarshal(out.Raw, &text); err == nil {
+		return text
+	}
+	var decoded any
+	if err := json.Unmarshal(out.Raw, &decoded); err == nil {
+		pretty, err := json.MarshalIndent(decoded, "", "  ")
+		if err == nil {
+			return string(pretty)
+		}
+	}
+	return strings.TrimSpace(string(out.Raw))
 }
 
 func appendDynamicHumanInputProtocol(prompt string) string {

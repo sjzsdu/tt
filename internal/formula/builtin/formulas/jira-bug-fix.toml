@@ -59,7 +59,7 @@ issue_summary = "{{summarize-ticket.bug_issue_summary}}"
 id = "final-report"
 title = "输出 Jira 处理最终报告"
 depends_on = ["run-bug-fix"]
-input_context = ["summarize-ticket", "run-bug-fix", "run-bug-fix.final-report", "run-bug-fix.code-research", "run-bug-fix.execute-fix", "run-bug-fix.no-bug-report"]
+input_context = ["summarize-ticket", "run-bug-fix"]
 description = """
 面向用户输出简明中文报告。
 

@@ -142,6 +142,6 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			agentName = step.Agent.Name
 			model = step.Agent.Model
 		}
-		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, DynamicForm: step.DynamicForm}
+		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm}
 	}
 }

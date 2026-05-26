@@ -36,7 +36,7 @@ required = ["issue_summary", "research_brief"]
 id = "prepare-research-brief"
 title = "整合用户问题与补充信息，生成代码调研摘要"
 depends_on = ["analyze-issue"]
-input_context = ["analyze-issue.issue_summary", "analyze-issue.research_brief", "analyze-issue.assumptions"]
+input_context = ["analyze-issue"]
 description = """
 基于 analyze-issue 的最终 JSON 生成后续代码调研使用的统一摘要。
 
@@ -63,7 +63,7 @@ required = ["research_task", "search_targets", "acceptance_criteria"]
 id = "code-research"
 title = "使用 code-research 调研代码并判断问题是否存在"
 depends_on = ["prepare-research-brief"]
-input_context = ["prepare-research-brief.research_task", "prepare-research-brief.search_targets", "prepare-research-brief.acceptance_criteria"]
+input_context = ["prepare-research-brief"]
 description = """
 你是 code-research agent。基于 research_brief 调研当前代码库，重点使用 code-context、grep、符号命名、调用链和配置入口来判断用户描述的问题在当前代码中是否真实存在。
 
@@ -104,7 +104,7 @@ required = ["issue_exists", "existence", "evidence"]
 id = "fix-plan"
 title = "为已确认 bug 制定最小影响修复方案"
 depends_on = ["code-research"]
-input_context = ["prepare-research-brief.research_task", "prepare-research-brief.acceptance_criteria", "code-research.root_cause", "code-research.minimal_fix_scope", "code-research.risk_points", "code-research.verification_focus"]
+input_context = ["prepare-research-brief", "code-research"]
 condition = "code-research.issue_exists == true"
 description = """
 基于 research_brief 与 bug_verification，为已确认存在的 bug 制定最小影响范围修复方案。
@@ -135,7 +135,7 @@ required = ["fix_goal", "minimal_change_strategy", "validation_plan"]
 id = "execute-fix"
 title = "执行最小影响修复并做必要验证"
 depends_on = ["fix-plan"]
-input_context = ["prepare-research-brief.acceptance_criteria", "code-research.root_cause", "code-research.minimal_fix_scope", "code-research.verification_focus", "fix-plan.files_to_touch", "fix-plan.do_not_touch", "fix-plan.minimal_change_strategy", "fix-plan.validation_plan"]
+input_context = ["prepare-research-brief", "code-research", "fix-plan"]
 condition = "code-research.issue_exists == true"
 description = """
 基于 bug_verification 与 fix_plan 执行修复。
@@ -171,7 +171,7 @@ required = ["files_changed", "change_summary", "verification_actions", "fully_fi
 id = "no-bug-report"
 title = "问题不成立时输出说明"
 depends_on = ["code-research"]
-input_context = ["prepare-research-brief.research_task", "code-research.existence", "code-research.why_not_exists", "code-research.evidence"]
+input_context = ["prepare-research-brief", "code-research"]
 condition = "code-research.issue_exists != true"
 description = """
 当 bug_verification 判断当前代码中问题不存在或未被确认时，输出给用户的清晰说明。
@@ -200,7 +200,7 @@ required = ["decision", "reason", "recommended_next_steps"]
 id = "final-report"
 title = "输出最终 bug 处理结论"
 depends_on = ["execute-fix", "no-bug-report"]
-input_context = ["analyze-issue.issue_summary", "prepare-research-brief.research_task", "code-research.existence", "code-research.root_cause", "code-research.why_not_exists", "execute-fix.change_summary", "execute-fix.verification_result", "execute-fix.remaining_risks", "no-bug-report.reason", "no-bug-report.recommended_next_steps"]
+input_context = ["analyze-issue", "prepare-research-brief", "code-research", "execute-fix", "no-bug-report"]
 description = """
 面向用户输出最终结论，整合 analyze-issue、research_brief、bug_verification、fix_plan、fix_result 与 no_bug_resolution。
 

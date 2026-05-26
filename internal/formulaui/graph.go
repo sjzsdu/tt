@@ -43,6 +43,7 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 			uiStep.Agent = typed.Agent
 			uiStep.Model = typed.Model
 			uiStep.Description = typed.Prompt
+			uiStep.InputCtx = append([]string(nil), typed.InputCtx...)
 		case steps.ScriptStep:
 			uiStep.Execution = string(steps.KindScript)
 		case steps.HumanInputStep:
