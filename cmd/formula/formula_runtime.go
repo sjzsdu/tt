@@ -349,7 +349,11 @@ type formulaRuntimeDashboardEventSink struct {
 }
 
 func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
-	if s.dashboard == nil || event.NodeID == "" {
+	if s.dashboard == nil {
+		return
+	}
+	if event.NodeID == "" {
+		s.emitWorkflowEvent(event)
 		return
 	}
 	node := s.workflow.Graph.Nodes[event.NodeID]
@@ -376,6 +380,34 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 	case "step.waiting":
 		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
 	}
+}
+
+func (s formulaRuntimeDashboardEventSink) emitWorkflowEvent(event formularuntime.Event) {
+	switch event.Type {
+	case "workflow.started":
+		s.dashboard.markWorkflowRunning()
+	case "workflow.completed":
+		result, _ := event.Payload.(*formularuntime.RunResult)
+		s.dashboard.markWorkflowCompleted(finalOutputFromRunResult(s.workflow, result))
+	}
+}
+
+func finalOutputFromRunResult(workflow *ir.Workflow, result *formularuntime.RunResult) string {
+	if workflow == nil || result == nil || len(result.Nodes) == 0 {
+		return ""
+	}
+	order, err := formularuntime.PlanTopological(workflow.Graph)
+	if err != nil {
+		return ""
+	}
+	for i := len(order) - 1; i >= 0; i-- {
+		res := result.Nodes[order[i]]
+		if res == nil || res.Status != steps.StatusCompleted || len(res.Output.Raw) == 0 {
+			continue
+		}
+		return runtimeEventOutput(res)
+	}
+	return ""
 }
 
 func loopBodyEventDetails(workflow *ir.Workflow, nodeID string) (title, agent, model string) {

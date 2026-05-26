@@ -156,6 +156,22 @@ func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
 	}
 }
 
+func TestFormulaRuntimeDashboardEventSinkCompletesWorkflow(t *testing.T) {
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.final", Kind: steps.KindAgent, Title: "Final"}}})
+	dashboard := newFormulaDashboardServer(workflow)
+	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
+	raw, _ := json.Marshal("final report")
+	result := &formularuntime.RunResult{WorkflowID: "demo", Status: steps.StatusCompleted, Nodes: map[ir.NodeID]*steps.RunResult{
+		"demo.final": {Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}},
+	}}
+
+	sink.Emit(formularuntime.Event{Type: "workflow.completed", Payload: result})
+
+	if dashboard.state.Status != "completed" || dashboard.state.FinalOutput != "final report" {
+		t.Fatalf("dashboard = %+v", dashboard.state)
+	}
+}
+
 func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
 	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
 	raw, _ := json.Marshal("saved output")

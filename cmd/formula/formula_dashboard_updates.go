@@ -21,6 +21,25 @@ func (s *formulaDashboardServer) appendLogLocked(text string) {
 	}
 }
 
+func (s *formulaDashboardServer) markWorkflowRunning() {
+	s.mu.Lock()
+	s.state.Status = "running"
+	s.state.Error = ""
+	s.appendLogLocked("Workflow started")
+	s.mu.Unlock()
+	s.broadcast()
+}
+
+func (s *formulaDashboardServer) markWorkflowCompleted(finalOutput string) {
+	s.mu.Lock()
+	s.state.Status = "completed"
+	s.state.Error = ""
+	s.state.FinalOutput = finalOutput
+	s.appendLogLocked("Workflow completed")
+	s.mu.Unlock()
+	s.broadcast()
+}
+
 func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, session string) {
 	s.mu.Lock()
 	found := false
