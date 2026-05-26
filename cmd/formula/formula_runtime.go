@@ -165,6 +165,7 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 	}
 	exec := formularuntime.NewExecutor(workflow, capabilities)
 	exec.SeedEnvironment(opt.Workspace)
+	exec.SeedWorkflowVars(workflow)
 	exec.SeedVars(opt.Vars)
 	if opt.RunStore != nil {
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)

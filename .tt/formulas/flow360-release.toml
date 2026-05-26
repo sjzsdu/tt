@@ -51,7 +51,7 @@ if PASS_TAG:
 rc, out, err = run(cmd)
 if rc != 0:
     emit(dispatch_error=err or out or 'gh workflow run failed')
-    raise SystemExit(0)
+    raise SystemExit(1)
 
 for _ in range(12):
     time.sleep(5)
@@ -69,6 +69,7 @@ for _ in range(12):
         raise SystemExit(0)
 
 emit(dispatch_error='workflow dispatched but new run id was not visible within polling window')
+raise SystemExit(1)
 """]
   format = "json"
   timeout = "90s"

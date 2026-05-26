@@ -8,6 +8,7 @@ import (
 	goruntime "runtime"
 	"strings"
 
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -79,6 +80,19 @@ func (e *Executor) SeedVars(vars map[string]string) {
 		raw, _ := json.Marshal(value)
 		_ = e.Context.Set(name, steps.Value{Type: "json", Raw: raw})
 	}
+}
+
+func (e *Executor) SeedWorkflowVars(workflow *ir.Workflow) {
+	if e == nil || workflow == nil || len(workflow.Vars) == 0 {
+		return
+	}
+	defaults := make(map[string]string, len(workflow.Vars))
+	for name, schema := range workflow.Vars {
+		if schema.Default != nil {
+			defaults[name] = *schema.Default
+		}
+	}
+	e.SeedVars(defaults)
 }
 
 func detectGitEnvironment(cwd string) EnvironmentGit {
