@@ -102,8 +102,15 @@ func (dr *DirectRunner) Close() {
 }
 
 func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
+	return dr.ProcessDirectContext(context.Background(), opt)
+}
+
+func (dr *DirectRunner) ProcessDirectContext(ctx context.Context, opt RunOptions) (string, error) {
 	if dr == nil || dr.rt == nil || dr.loop == nil {
 		return "", fmt.Errorf("picoclaw direct runner not initialized")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	if str(opt.Model) == "" {
@@ -118,7 +125,7 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 	}
 
 	if str(resolved.Agent) != "" && !strings.EqualFold(str(resolved.Agent), dr.defaultAgent) {
-		resp, err := dr.loop.ProcessDirectForAgent(context.Background(), resolved.Message, resolved.Session, resolved.Agent)
+		resp, err := dr.loop.ProcessDirectForAgent(ctx, resolved.Message, resolved.Session, resolved.Agent)
 		if err != nil {
 			return "", fmt.Errorf("process picoclaw message failed: %w", err)
 		}
@@ -135,7 +142,7 @@ func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
 		return resp, nil
 	}
 
-	resp, err := dr.loop.ProcessDirect(context.Background(), resolved.Message, resolved.Session)
+	resp, err := dr.loop.ProcessDirect(ctx, resolved.Message, resolved.Session)
 	if err != nil {
 		return "", fmt.Errorf("process picoclaw message failed: %w", err)
 	}

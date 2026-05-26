@@ -23,6 +23,10 @@ type formulaDirectProcessor interface {
 	ProcessDirect(pcwrap.RunOptions) (string, error)
 }
 
+type formulaContextDirectProcessor interface {
+	ProcessDirectContext(context.Context, pcwrap.RunOptions) (string, error)
+}
+
 func loadFormulaRunSnapshot(dir string, workflow *ir.Workflow) (formulaui.Snapshot, error) {
 	var dashboardSnapshot formulaui.Snapshot
 	if err := formularun.LoadState(dir, &dashboardSnapshot); err == nil {
@@ -92,7 +96,7 @@ type formulaRuntimeAgentRunner struct {
 	stepAdvice   map[string]string
 }
 
-func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRequest) (steps.Value, error) {
+func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.AgentRequest) (steps.Value, error) {
 	if r.processor == nil {
 		return steps.Value{}, fmt.Errorf("picoclaw direct runner is required")
 	}
@@ -108,7 +112,7 @@ func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRe
 	if advice := strings.TrimSpace(r.stepAdvice[req.NodeID]); advice != "" {
 		prompt = strings.TrimSpace(prompt) + "\n\nRetry advice from dashboard:\n" + advice
 	}
-	resp, err := r.processor.ProcessDirect(pcwrap.RunOptions{
+	opt := pcwrap.RunOptions{
 		Message:   prompt,
 		Session:   r.session,
 		Agent:     agent,
@@ -116,7 +120,14 @@ func (r formulaRuntimeAgentRunner) RunAgent(_ context.Context, req steps.AgentRe
 		Workspace: r.workspace,
 		Debug:     r.debug,
 		Quiet:     r.quiet,
-	})
+	}
+	var resp string
+	var err error
+	if contextProcessor, ok := r.processor.(formulaContextDirectProcessor); ok {
+		resp, err = contextProcessor.ProcessDirectContext(ctx, opt)
+	} else {
+		resp, err = r.processor.ProcessDirect(opt)
+	}
 	if err != nil {
 		return steps.Value{}, err
 	}
@@ -205,6 +216,24 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 	if opt.Out != nil && result != nil {
 		fmt.Fprintf(opt.Out, "Runtime status: %s\n", result.Status)
 		fmt.Fprintf(opt.Out, "Runtime steps: %d\n", len(result.Nodes))
+	}
+	if opt.RunStore != nil {
+		status := formularun.StatusCompleted
+		errMsg := ""
+		if ctx.Err() != nil {
+			status = formularun.StatusInterrupted
+			errMsg = ctx.Err().Error()
+		} else if result != nil && result.Status == steps.StatusWaiting {
+			status = formularun.StatusWaitingInput
+		} else if err != nil || (result != nil && result.Status == steps.StatusFailed) {
+			status = formularun.StatusFailed
+			if err != nil {
+				errMsg = err.Error()
+			}
+		}
+		if status != formularun.StatusWaitingInput {
+			_ = opt.RunStore.Finish(status, errMsg)
+		}
 	}
 	if err != nil {
 		return err

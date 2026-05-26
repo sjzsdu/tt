@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -20,6 +21,19 @@ func testFormulaWorkflow(name string, nodes ...steps.Step) *ir.Workflow {
 		wf.Graph.AddNode(&ir.Node{ID: ir.NodeID(meta.ID), Step: step})
 	}
 	return wf
+}
+
+type fakeContextFormulaDirectProcessor struct {
+	ctxErr error
+}
+
+func (f *fakeContextFormulaDirectProcessor) ProcessDirect(opt pcwrap.RunOptions) (string, error) {
+	return "", errors.New("context-aware processor was not used")
+}
+
+func (f *fakeContextFormulaDirectProcessor) ProcessDirectContext(ctx context.Context, opt pcwrap.RunOptions) (string, error) {
+	f.ctxErr = ctx.Err()
+	return "", f.ctxErr
 }
 
 type fakeFormulaDirectProcessor struct {
@@ -59,6 +73,20 @@ func TestFormulaRuntimeAgentRunnerInjectsStepAdvice(t *testing.T) {
 	}
 	if !strings.Contains(fake.opt.Message, "original prompt") || !strings.Contains(fake.opt.Message, "try a smaller change") {
 		t.Fatalf("message = %q, want original prompt and retry advice", fake.opt.Message)
+	}
+}
+
+func TestFormulaRuntimeAgentRunnerPropagatesContextCancellation(t *testing.T) {
+	fake := &fakeContextFormulaDirectProcessor{}
+	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := runner.RunAgent(ctx, steps.AgentRequest{Prompt: "hello"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if !errors.Is(fake.ctxErr, context.Canceled) {
+		t.Fatalf("processor ctx err = %v, want context.Canceled", fake.ctxErr)
 	}
 }
 

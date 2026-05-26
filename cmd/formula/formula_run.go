@@ -134,8 +134,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	})
 	if showWeb {
 		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
-		fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
-		waitForFormulaDashboardExit(dashboard)
+		if runCtx.Err() == nil {
+			fmt.Fprintln(out, "Press Ctrl-C to stop the dashboard.")
+			waitForFormulaDashboardExit(dashboard)
+		}
 	}
 	return err
 }

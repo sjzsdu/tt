@@ -58,6 +58,12 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 	}
 	out := &RunResult{WorkflowID: e.Workflow.ID, Status: steps.StatusCompleted, Nodes: map[ir.NodeID]*steps.RunResult{}}
 	for _, nodeID := range order {
+		if err := ctx.Err(); err != nil {
+			out.Status = steps.StatusFailed
+			e.emit(nodeID, "step.interrupted", map[string]string{"error": err.Error()})
+			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			return out, err
+		}
 		node := e.Workflow.Graph.Nodes[nodeID]
 		if node == nil || node.Step == nil {
 			continue
@@ -100,6 +106,15 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		out.Nodes[nodeID] = res
 		if err != nil || res.Status == steps.StatusFailed {
 			out.Status = steps.StatusFailed
+			if err != nil && ctx.Err() != nil {
+				if res.Error == nil {
+					res.Error = &steps.StepError{Message: ctx.Err().Error(), Cause: ctx.Err()}
+				}
+				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
+				e.emit(nodeID, "step.interrupted", res)
+				_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+				return out, ctx.Err()
+			}
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 			e.emit(nodeID, "step.failed", res)
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
