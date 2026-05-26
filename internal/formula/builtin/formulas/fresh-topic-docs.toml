@@ -96,14 +96,14 @@ depends_on = ["article-plan"]
 - 输出 ONLY Markdown 正文，不要额外解释。
 - 第一行使用 `# {{article.title}}`。
 - 内容至少 500 字，必须有实质内容，不要只有提纲。
-- 至少包含 1 个 Mermaid 图表，优先参考 article.mermaid_hint。
-- 至少包含 1 个 Markdown 表格，优先参考 article.table_hint。
+- 按需包含Mermaid 图表，优先参考 article.mermaid_hint。
+- 按需包含Markdown 表格，优先参考 article.table_hint。
 - 使用 blockquote、分隔线、列表、加粗、代码等方式增强可读性。
 - 不要编造具体数据或新闻；不确定信息标注“需要进一步核实”。
 """
 
   [steps.loop.body.agent]
-  name = "tech-blog-writer"
+  name = "writer"
 
   [[steps.loop.body]]
   id = "package-entry"
@@ -130,26 +130,25 @@ depends_on = ["article-plan"]
 
 [[steps]]
 id = "series-package"
-title = "汇总为文档包并写入 .tt/docs/<topic-name>"
+title = "汇总为文档包并写入 docs/<topic-name>"
 depends_on = ["write-articles"]
 input_context = ["scope-analysis", "article-plan", "write-articles"]
 description = """
-把 foreach loop 生成的 write-articles 输出汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `.tt/docs/<topic-name>/` 主题子目录，避免不同主题的文档混在一起。
+把 foreach loop 生成的 write-articles 输出汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `docs/<topic-name>/` 主题子目录，避免不同主题的文档混在一起。
 
 目录命名要求：
 - 先为 topic 生成安全、可读、稳定的 `topic-name`。
 - 中文话题可使用简短拼音或英文译名；英文话题使用小写 kebab-case。
 - 只允许小写字母、数字、连字符 `-`，不要空格、斜杠、冒号或其它特殊字符。
 - 如果 topic 很长，保留核心词，目录名控制在 40 个字符以内。
-- 本次所有文件必须写入同一个 `.tt/docs/<topic-name>/` 目录，不要写到 `.tt/docs/` 根目录。
+- 本次所有文件必须写入同一个 `docs/<topic-name>/` 目录，不要写到 `docs/` 根目录。
 
 write-articles 是一个 JSON array，每个元素包含本次循环中 package-entry 的输出。你需要从中提取 filename、title、summary、content。
 
 你的工作：
-1. 创建 `.tt/docs/<topic-name>/` 目录（如果不存在）。
-2. 撰写并写入 `.tt/docs/<topic-name>/README.md`，描述整个系列。
-3. 将每篇文章的 content 写入 `.tt/docs/<topic-name>/<filename>`。
-4. 撰写并写入 `.tt/docs/<topic-name>/附录-问题清单.md`。
+1. 创建 `/docs/<topic-name>/` 目录（如果不存在）。
+2. 撰写并写入 `/docs/<topic-name>/README.md`，描述整个系列。
+3. 将每篇文章的 content 写入 `/docs/<topic-name>/<filename>`。
 
 README.md 应包含：
 - 系列标题（基于 {{topic}}，参考 scope-analysis 和 article-plan）
@@ -158,18 +157,12 @@ README.md 应包含：
 - 每篇的简短摘要
 - README 本身也建议用表格或 Mermaid 来组织内容
 
-附录-问题清单.md：
-- 列出 20 个后续可以继续追问的问题
-- 覆盖不同层次：理解、应用、批判性思考
-- 避免“是什么”类问题，侧重“为什么”和“如果”类问题
-- 可以用表格组织（问题 | 类型 | 适合谁）
-
 整体要求：
 - 统一术语，删除重复内容。
 - 明确标注不确定信息和需要进一步核实的地方。
 - 最终结果要像一个完整的小型知识库。
-- 最后输出 Markdown 汇总，明确写出主题目录 `.tt/docs/<topic-name>/`、已写入文件、阅读顺序和后续建议。
+- 最后输出 Markdown 汇总，明确写出主题目录 `docs/<topic-name>/`、已写入文件、阅读顺序和后续建议。
 """
 
 [steps.agent]
-name = "tech-blog-writer"
+name = "writer"
