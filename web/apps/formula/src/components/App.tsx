@@ -392,6 +392,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
 function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void }) {
   const layout = useMemo(() => computeGraphLayout(snapshot, onSelect), [snapshot, onSelect]);
   const running = snapshot.steps.find(step => step.status === 'running');
+  const loopSteps = snapshot.steps.filter(step => !!step.loop?.body?.length).length;
 
   if (!snapshot.steps.length) {
     return <Empty description="No executable steps" />;
@@ -402,7 +403,12 @@ function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot
       <div className="graph-header">
         <div>
           <h3>Execution graph</h3>
-          <p>Live flow map with luminous stages, dependency paths, and direct click-to-inspect details.</p>
+          <p>Top-level steps plus loop body nodes. Click any node to inspect output, errors, and iteration activity.</p>
+          <div className="graph-header-metrics">
+            <span>{layout.nodes.length} nodes</span>
+            <span>{layout.edges.length} edges</span>
+            {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} expanded</span>}
+          </div>
         </div>
         <div className="graph-header-side">
           {running && (
@@ -438,6 +444,24 @@ function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot
       </div>
     </div>
   );
+}
+
+function attentionStep(snapshot: FormulaDashboardSnapshot) {
+  return snapshot.steps.find(step => step.status === 'waiting_input')
+    || snapshot.steps.find(step => step.status === 'failed')
+    || snapshot.steps.find(step => step.status === 'running')
+    || null;
+}
+
+function attentionCopy(step: FormulaDashboardStep | null, status: string) {
+  if (!step) {
+    if (status === 'completed') return { title: 'Run completed', detail: 'Open the final report or inspect completed steps.', tone: 'completed' };
+    return { title: 'No active step', detail: 'The run is waiting for the scheduler or next update.', tone: 'pending' };
+  }
+  if (step.status === 'waiting_input') return { title: 'Input required', detail: step.title, tone: 'waiting_input' };
+  if (step.status === 'failed') return { title: 'Action needed', detail: step.title, tone: 'failed' };
+  if (step.status === 'running') return { title: 'Currently running', detail: step.title, tone: 'running' };
+  return { title: statusLabel(step.status), detail: step.title, tone: step.status };
 }
 
 function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (step: FormulaDashboardStep) => void }) {
@@ -850,6 +874,8 @@ export function App() {
   const progress = summary?.steps ? Math.round(((summary.completed + summary.skipped) / summary.steps) * 100) : 0;
   const runningStep = snapshot?.steps.find(step => step.status === 'running');
   const waitingInputStep = snapshot?.steps.find(step => step.status === 'waiting_input' && step.human_input_request);
+  const focusedStep = snapshot ? attentionStep(snapshot) : null;
+  const focusCopy = snapshot ? attentionCopy(focusedStep, snapshot.status) : null;
 
   const orderedSteps = useMemo(() => {
     return [...(snapshot?.steps || [])].sort((a, b) => {
@@ -934,6 +960,21 @@ export function App() {
         </div>
       </section>
 
+      {focusCopy && (
+        <section className={`run-attention-strip ${focusCopy.tone}`}>
+          <div>
+            <span className="attention-label">Next focus</span>
+            <strong>{focusCopy.title}</strong>
+            <p>{focusCopy.detail}</p>
+          </div>
+          <div className="attention-actions">
+            {focusedStep && <Button type="primary" onClick={() => setSelectedStep(focusedStep)}>Inspect step</Button>}
+            {focusedStep?.status === 'failed' && <Button danger onClick={() => setRetryStep(focusedStep)}>Retry</Button>}
+            {snapshot.final_output && <Button onClick={() => setFinalOutputOpen(true)}>Final report</Button>}
+          </div>
+        </section>
+      )}
+
       <section className="run-overview-panel">
         <div className="run-overview-main">
           <div className="overview-kicker">Run progress</div>
@@ -964,16 +1005,18 @@ export function App() {
 
         <aside className="workspace-side">
           <Card className="console-card" title="Execution timeline">
-            <Timeline
-              items={snapshot.logs.slice(-14).map(log => ({
-                children: (
-                  <div>
-                    <div className="timeline-time">{log.at}</div>
-                    <div className="timeline-text">{log.text}</div>
-                  </div>
-                ),
-              }))}
-            />
+            {snapshot.logs.length ? (
+              <Timeline
+                items={snapshot.logs.slice(-14).map(log => ({
+                  children: (
+                    <div>
+                      <div className="timeline-time">{log.at}</div>
+                      <div className="timeline-text">{log.text}</div>
+                    </div>
+                  ),
+                }))}
+              />
+            ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No timeline events yet" />}
           </Card>
         </aside>
       </section>
