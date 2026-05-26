@@ -131,6 +131,38 @@ func TestExecutorValidatesJSONArrayItems(t *testing.T) {
 	}
 }
 
+func TestExecutorValidatesJSONArrayItemsFromAgentString(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", MinItems: 1, ItemRequired: []string{"filename", "title"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	text, _ := json.Marshal(`[{"filename":"01-intro.md","title":"Intro"}]`)
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: string(text)}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
+func TestExecutorValidatesJSONArrayItemsFromFencedAgentString(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", MinItems: 1, ItemRequired: []string{"filename", "title"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	text, _ := json.Marshal("```json\n" + `[{"filename":"01-intro.md","title":"Intro"}]` + "\n```")
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: string(text)}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
 func TestExecutorAcceptsValidJSONArrayItems(t *testing.T) {
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", MinItems: 1, ItemRequired: []string{"filename", "title"}}}})

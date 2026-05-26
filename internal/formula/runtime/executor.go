@@ -169,6 +169,7 @@ func validateStepOutput(step steps.Step, out steps.Value) error {
 	if err := json.Unmarshal(out.Raw, &decoded); err != nil {
 		return fmt.Errorf("output must be valid JSON: %w", err)
 	}
+	decoded = normalizeDecodedJSON(decoded)
 	if len(spec.Required) > 0 {
 		obj, ok := decoded.(map[string]any)
 		if !ok {
@@ -197,6 +198,71 @@ func validateStepOutput(step steps.Step, out steps.Value) error {
 		}
 	}
 	return nil
+}
+
+func normalizeDecodedJSON(value any) any {
+	text, ok := value.(string)
+	if !ok {
+		return value
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return value
+	}
+	for _, candidate := range jsonTextCandidates(text) {
+		var decoded any
+		if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+			return decoded
+		}
+	}
+	return value
+}
+
+func jsonTextCandidates(text string) []string {
+	candidates := []string{text}
+	if fenced, ok := extractFencedJSON(text); ok {
+		candidates = append(candidates, fenced)
+	}
+	if extracted, ok := extractFirstJSONContainer(text); ok {
+		candidates = append(candidates, extracted)
+	}
+	return candidates
+}
+
+func extractFencedJSON(text string) (string, bool) {
+	start := strings.Index(text, "```")
+	if start < 0 {
+		return "", false
+	}
+	rest := text[start+3:]
+	if newline := strings.Index(rest, "\n"); newline >= 0 {
+		rest = rest[newline+1:]
+	}
+	end := strings.Index(rest, "```")
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(rest[:end]), true
+}
+
+func extractFirstJSONContainer(text string) (string, bool) {
+	arrayStart := strings.Index(text, "[")
+	objectStart := strings.Index(text, "{")
+	start := -1
+	close := byte(0)
+	switch {
+	case arrayStart >= 0 && (objectStart < 0 || arrayStart < objectStart):
+		start, close = arrayStart, ']'
+	case objectStart >= 0:
+		start, close = objectStart, '}'
+	default:
+		return "", false
+	}
+	end := strings.LastIndexByte(text, close)
+	if end <= start {
+		return "", false
+	}
+	return strings.TrimSpace(text[start : end+1]), true
 }
 
 func outputValidationForStep(step steps.Step) *steps.OutputValidationSpec {
