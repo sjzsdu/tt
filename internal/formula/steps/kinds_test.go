@@ -42,6 +42,28 @@ func (m mapContextView) Get(path string) (Value, bool) {
 	return Value{Raw: raw}, true
 }
 
+type mapContextStore map[string]Value
+
+func (m mapContextStore) Get(path string) (Value, bool) { return mapContextView(m).Get(path) }
+func (m mapContextStore) Set(path string, value Value) error {
+	m[path] = value
+	return nil
+}
+
+type contextEchoStep struct{ Base }
+
+func (s contextEchoStep) Run(_ context.Context, req RunRequest) (*RunResult, error) {
+	article, ok := req.Context.Get("article")
+	if !ok {
+		return failedRun(errMissingArticle{})
+	}
+	return &RunResult{Status: StatusCompleted, Output: article}, nil
+}
+
+type errMissingArticle struct{}
+
+func (errMissingArticle) Error() string { return "missing article" }
+
 type recordingAgentRunner struct {
 	prompt string
 }
@@ -306,5 +328,31 @@ func TestLoopStepEmitsBodyActivityEvents(t *testing.T) {
 	joined := strings.Join(events, "\n")
 	if !strings.Contains(joined, wantStarted) || !strings.Contains(joined, wantCompleted) {
 		t.Fatalf("events = %v, want %s and %s", events, wantStarted, wantCompleted)
+	}
+}
+
+func TestLoopStepForEachSetsVarAndAggregatesOutputs(t *testing.T) {
+	ctx := mapContextStore{
+		"article-plan": {Raw: []byte(`[{"filename":"01.md","content":"# One"},{"filename":"02.md","content":"# Two"}]`)},
+	}
+	loop := LoopStep{
+		Base:    Base{Metadata: Metadata{ID: "write-articles", Kind: KindLoop}},
+		ForEach: "article-plan",
+		Var:     "article",
+		Body: []Step{
+			contextEchoStep{Base: Base{Metadata: Metadata{ID: "draft", Kind: KindAgent}}},
+		},
+	}
+
+	res, err := loop.Run(context.Background(), RunRequest{NodeID: "write-articles", Context: ctx, Outputs: ctx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]string
+	if err := json.Unmarshal(res.Output.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0]["filename"] != "01.md" || got[1]["content"] != "# Two" {
+		t.Fatalf("loop output = %+v", got)
 	}
 }

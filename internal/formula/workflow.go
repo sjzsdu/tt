@@ -130,7 +130,7 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			}
 			body = append(body, typedStepFromFormulaStep(child))
 		}
-		return steps.LoopStep{Base: steps.Base{Metadata: meta}, Body: body, Parallel: step.Loop.Parallel, MaxConcurrency: step.Loop.MaxConcurrency, Until: step.Loop.Until, Max: step.Loop.Max}
+		return steps.LoopStep{Base: steps.Base{Metadata: meta}, Body: body, Parallel: step.Loop.Parallel, MaxConcurrency: step.Loop.MaxConcurrency, ForEach: step.Loop.ForEach, Var: step.Loop.Var, Until: step.Loop.Until, Max: step.Loop.Max}
 	}
 	execution := strings.TrimSpace(step.Execution)
 	switch execution {

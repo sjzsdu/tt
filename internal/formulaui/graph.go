@@ -83,6 +83,8 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 
 func BuildLoopFromStep(loop steps.LoopStep) *Loop {
 	dashboardLoop := &Loop{
+		ForEach:        loop.ForEach,
+		Var:            loop.Var,
 		Until:          loop.Until,
 		Max:            loop.Max,
 		Parallel:       loop.Parallel,
@@ -139,6 +141,16 @@ func metadataDependsOn(meta steps.Metadata) []string {
 }
 
 func typedLoopSummary(loop steps.LoopStep) string {
+	if loop.ForEach != "" {
+		mode := "sequential"
+		if loop.Parallel {
+			mode = "parallel"
+		}
+		if loop.MaxConcurrency > 0 {
+			return fmt.Sprintf("foreach %s as %s · %s · max concurrency %d", loop.ForEach, loop.Var, mode, loop.MaxConcurrency)
+		}
+		return fmt.Sprintf("foreach %s as %s · %s", loop.ForEach, loop.Var, mode)
+	}
 	if loop.Until != "" {
 		max := loop.Max
 		if max <= 0 {

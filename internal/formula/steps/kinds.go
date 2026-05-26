@@ -752,6 +752,8 @@ type LoopStep struct {
 	Body           []Step
 	Parallel       bool
 	MaxConcurrency int
+	ForEach        string
+	Var            string
 	Until          string
 	Max            int
 }
@@ -763,6 +765,9 @@ func (LoopDecoder) Decode(decl ast.StepDecl) (Step, error) {
 }
 
 func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if strings.TrimSpace(s.ForEach) != "" {
+		return s.runForEach(ctx, req)
+	}
 	max := s.Max
 	if max <= 0 {
 		max = 1
@@ -819,6 +824,102 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		}
 	}
 	return &RunResult{Status: StatusCompleted, Output: last}, nil
+}
+
+func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if req.Context == nil {
+		return failedRun(fmt.Errorf("loop context is required"))
+	}
+	source := strings.TrimSpace(s.ForEach)
+	value, ok := req.Context.Get(source)
+	if !ok {
+		return failedRun(fmt.Errorf("loop for_each source %q not found", source))
+	}
+	var items []any
+	if err := json.Unmarshal(value.Raw, &items); err != nil {
+		return failedRun(fmt.Errorf("loop for_each source %q must be a JSON array: %w", source, err))
+	}
+	varName := strings.TrimSpace(s.Var)
+	if varName == "" {
+		return failedRun(fmt.Errorf("loop var is required when for_each is set"))
+	}
+	outputs := make([]any, 0, len(items))
+	for i, item := range items {
+		iteration := i + 1
+		if req.Outputs != nil {
+			iterationRaw, _ := json.Marshal(iteration)
+			_ = req.Outputs.Set("iteration", Value{Type: "json", Raw: iterationRaw})
+			itemRaw, err := json.Marshal(item)
+			if err != nil {
+				return failedRun(fmt.Errorf("loop item %d must be JSON: %w", iteration, err))
+			}
+			_ = req.Outputs.Set(varName, Value{Type: "json", Raw: itemRaw})
+		}
+		last, res, err := s.runBodyOnce(ctx, req, iteration)
+		if err != nil || res != nil {
+			if res != nil && res.Status == StatusWaiting {
+				return res, nil
+			}
+			return res, err
+		}
+		if len(last.Raw) > 0 {
+			var decoded any
+			if err := json.Unmarshal(last.Raw, &decoded); err == nil {
+				outputs = append(outputs, decoded)
+			}
+		}
+	}
+	raw, err := json.Marshal(outputs)
+	if err != nil {
+		return failedRun(err)
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int) (Value, *RunResult, error) {
+	var last Value
+	for _, child := range s.Body {
+		if child == nil {
+			continue
+		}
+		if !stepConditionMatches(child.Meta().Condition, req.Context) {
+			continue
+		}
+		exec, ok := child.(Executable)
+		if !ok {
+			continue
+		}
+		childNodeID := fmt.Sprintf("%s.iter%d.%s", req.NodeID, iteration, child.Meta().ID)
+		if req.Emit != nil {
+			req.Emit(childNodeID, "step.started", nil)
+		}
+		res, err := exec.Run(ctx, RunRequest{RunID: req.RunID, NodeID: childNodeID, Step: child, Context: req.Context, Outputs: req.Outputs, Capabilities: req.Capabilities, Emit: req.Emit})
+		if res == nil {
+			res = &RunResult{}
+		}
+		if err != nil || res.Status == StatusFailed {
+			if req.Emit != nil {
+				req.Emit(childNodeID, "step.failed", res)
+			}
+			return last, res, err
+		}
+		if res.Status == StatusWaiting {
+			if req.Emit != nil {
+				req.Emit(childNodeID, "step.waiting", res.Await)
+			}
+			return last, res, nil
+		}
+		if req.Emit != nil {
+			req.Emit(childNodeID, "step.completed", res)
+		}
+		if len(res.Output.Raw) > 0 {
+			last = res.Output
+			if req.Outputs != nil {
+				_ = req.Outputs.Set(string(child.Meta().ID), res.Output)
+			}
+		}
+	}
+	return last, nil, nil
 }
 
 func stepConditionMatches(condition string, ctx ContextView) bool {
