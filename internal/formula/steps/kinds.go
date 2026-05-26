@@ -835,8 +835,8 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 	if !ok {
 		return failedRun(fmt.Errorf("loop for_each source %q not found", source))
 	}
-	var items []any
-	if err := json.Unmarshal(value.Raw, &items); err != nil {
+	items, err := decodeJSONArrayValue(value.Raw)
+	if err != nil {
 		return failedRun(fmt.Errorf("loop for_each source %q must be a JSON array: %w", source, err))
 	}
 	varName := strings.TrimSpace(s.Var)
@@ -874,6 +874,68 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 		return failedRun(err)
 	}
 	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func decodeJSONArrayValue(raw []byte) ([]any, error) {
+	var items []any
+	if err := json.Unmarshal(raw, &items); err == nil {
+		return items, nil
+	}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return nil, err
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fmt.Errorf("empty JSON string")
+	}
+	for _, candidate := range jsonArrayTextCandidates(text) {
+		items = nil
+		if err := json.Unmarshal([]byte(candidate), &items); err == nil {
+			return items, nil
+		}
+	}
+	return nil, fmt.Errorf("JSON string did not contain an array")
+}
+
+func jsonArrayTextCandidates(text string) []string {
+	candidates := []string{text}
+	if fenced, ok := extractFencedJSONText(text); ok {
+		candidates = append(candidates, fenced)
+	}
+	if extracted, ok := extractFirstJSONArrayText(text); ok {
+		candidates = append(candidates, extracted)
+	}
+	return candidates
+}
+
+func extractFencedJSONText(text string) (string, bool) {
+	start := strings.Index(text, "```")
+	if start < 0 {
+		return "", false
+	}
+	rest := text[start+3:]
+	if newline := strings.Index(rest, "\n"); newline >= 0 {
+		rest = rest[newline+1:]
+	}
+	end := strings.Index(rest, "```")
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(rest[:end]), true
+}
+
+func extractFirstJSONArrayText(text string) (string, bool) {
+	start := strings.Index(text, "[")
+	if start < 0 {
+		return "", false
+	}
+	end := strings.LastIndex(text, "]")
+	if end <= start {
+		return "", false
+	}
+	return strings.TrimSpace(text[start : end+1]), true
 }
 
 func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int) (Value, *RunResult, error) {

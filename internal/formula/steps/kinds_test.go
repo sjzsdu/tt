@@ -380,3 +380,34 @@ func TestLoopStepForEachSetsVarAndAggregatesOutputs(t *testing.T) {
 		t.Fatalf("loop output = %+v", got)
 	}
 }
+
+func TestLoopStepForEachAcceptsJSONStringArray(t *testing.T) {
+	encodedPlan, err := json.Marshal(`[
+		{"filename":"01.md","content":"# One"},
+		{"filename":"02.md","content":"# Two"}
+	]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := mapContextStore{"article-plan": {Raw: encodedPlan}}
+	loop := LoopStep{
+		Base:    Base{Metadata: Metadata{ID: "write-articles", Kind: KindLoop}},
+		ForEach: "article-plan",
+		Var:     "article",
+		Body: []Step{
+			contextEchoStep{Base: Base{Metadata: Metadata{ID: "draft", Kind: KindAgent}}},
+		},
+	}
+
+	res, err := loop.Run(context.Background(), RunRequest{NodeID: "write-articles", Context: ctx, Outputs: ctx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]string
+	if err := json.Unmarshal(res.Output.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0]["filename"] != "01.md" || got[1]["content"] != "# Two" {
+		t.Fatalf("loop output = %+v", got)
+	}
+}
