@@ -192,7 +192,7 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 		meta := step.Meta()
 		id := ir.NodeID(meta.ID)
 		ids[id] = struct{}{}
-		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidNodeID(string(id)), escapeMermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
+		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidNodeID(string(id)), mermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
 		writeLoopMermaidSubgraph(&b, step)
 	}
 	if workflow != nil {
@@ -226,7 +226,7 @@ func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
 		return
 	}
 	parentID := string(step.Meta().ID)
-	b.WriteString(fmt.Sprintf("  subgraph %s_loop[\"%s loop body\"]\n", mermaidNodeID(parentID), escapeMermaidLabel(parentID)))
+	b.WriteString(fmt.Sprintf("  subgraph %s_loop[%s]\n", mermaidNodeID(parentID), mermaidLabel(parentID+" loop body")))
 	bodyIDs := map[string]struct{}{}
 	for _, child := range loop.Body {
 		if child == nil {
@@ -234,7 +234,7 @@ func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
 		}
 		meta := child.Meta()
 		bodyIDs[string(meta.ID)] = struct{}{}
-		b.WriteString(fmt.Sprintf("    %s[%s]\n", mermaidNodeID(parentID+"__"+string(meta.ID)), escapeMermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
+		b.WriteString(fmt.Sprintf("    %s[%s]\n", mermaidNodeID(parentID+"__"+string(meta.ID)), mermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
 	}
 	for i, child := range loop.Body {
 		if child == nil {
@@ -343,12 +343,19 @@ func generateQuickStart(f *formula.Formula) string {
 	return b.String()
 }
 
-func escapeYAML(s string) string { return strings.ReplaceAll(s, "\"", "\\\"") }
+func escapeYAML(s string) string   { return strings.ReplaceAll(s, "\"", "\\\"") }
+func mermaidLabel(s string) string { return fmt.Sprintf("\"%s\"", escapeMermaidLabel(s)) }
 func escapeMermaidLabel(s string) string {
-	s = strings.ReplaceAll(s, "\"", "'")
-	s = strings.ReplaceAll(s, "[", "(")
-	s = strings.ReplaceAll(s, "]", ")")
-	return s
+	s = strings.NewReplacer(
+		"\n", " ",
+		"\r", " ",
+		"\"", "'",
+		"[", "(",
+		"]", ")",
+		"{", "(",
+		"}", ")",
+	).Replace(s)
+	return strings.TrimSpace(s)
 }
 func mermaidNodeID(id string) string {
 	id = strings.NewReplacer(".", "_", "-", "_", ":", "_").Replace(id)
