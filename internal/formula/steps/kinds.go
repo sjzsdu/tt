@@ -71,11 +71,17 @@ func appendDynamicHumanInputProtocol(prompt string) string {
 		b.WriteString("\n\n")
 	}
 	b.WriteString("## Dynamic human input\n\n")
-	b.WriteString("If you need user clarification before completing this step, output ONLY a fenced `tt-human-input` JSON block using this shape:\n\n")
+	b.WriteString("This step has dynamic clarification enabled. Before completing the normal task, decide whether missing user information blocks safe progress.\n\n")
+	b.WriteString("If clarification is required, output ONLY a fenced `tt-human-input` JSON block using this shape:\n\n")
 	b.WriteString("```tt-human-input json\n")
 	b.WriteString(`{"reason":"why input is needed","form":{"title":"Short title","description":"What to provide","fields":[{"name":"field_name","label":"Field label","type":"input|textarea|radio|checkbox|select","required":true,"options":["only for radio/checkbox/select"],"placeholder":"optional"}]}}`)
 	b.WriteString("\n```\n\n")
-	b.WriteString("Use field names matching ^[a-z][a-z0-9_]*$. If no clarification is needed, do not include a tt-human-input block and complete the normal task output.\n")
+	b.WriteString("Clarification rules:\n")
+	b.WriteString("- Ask only for information that blocks this step or downstream work; do not ask for nice-to-have details.\n")
+	b.WriteString("- Generate the minimum necessary form at runtime. Do not assume fixed fields.\n")
+	b.WriteString("- Prefer 1-5 fields. Use field names matching ^[a-z][a-z0-9_]*$.\n")
+	b.WriteString("- For radio, checkbox, and select fields, include options.\n")
+	b.WriteString("- If no clarification is needed, do not include a tt-human-input block and complete the normal task output exactly as requested by the step.\n")
 	return b.String()
 }
 

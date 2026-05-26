@@ -197,7 +197,7 @@ title = "Analyze issue and clarify if needed"
 form = true
 description = """
 Analyze the issue. If information is missing and guessing would be unsafe,
-emit a tt-human-input request. Otherwise output ONLY compact JSON:
+dynamically clarify it. Otherwise output ONLY compact JSON:
 {"summary":"...","assumptions":[],"next_action":"..."}
 """
 

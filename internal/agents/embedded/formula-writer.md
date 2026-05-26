@@ -150,7 +150,7 @@ id = "triage"
 title = "Triage and clarify if needed"
 form = true
 description = """
-If required information is missing, emit a tt-human-input request.
+If required information is missing, dynamically clarify it.
 Otherwise output ONLY compact JSON:
 {"ready":true,"summary":"..."}
 """
