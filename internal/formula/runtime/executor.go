@@ -99,7 +99,9 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		started := time.Now()
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: "running", StartedAt: started, UpdatedAt: started})
 		e.emit(nodeID, "step.started", nil)
-		res, err := exec.Run(ctx, steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: node.Step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities})
+		res, err := exec.Run(ctx, steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: node.Step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities, Emit: func(childNodeID string, eventType string, payload any) {
+			e.emit(ir.NodeID(childNodeID), eventType, payload)
+		}})
 		if res == nil {
 			res = &steps.RunResult{}
 		}

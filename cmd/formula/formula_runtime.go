@@ -330,6 +330,8 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 			agent = agentStep.Agent
 			model = agentStep.Model
 		}
+	} else {
+		title, agent, model = loopBodyEventDetails(s.workflow, string(event.NodeID))
 	}
 	switch event.Type {
 	case "step.started":
@@ -341,6 +343,37 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 	case "step.waiting":
 		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
 	}
+}
+
+func loopBodyEventDetails(workflow *ir.Workflow, nodeID string) (title, agent, model string) {
+	parentID := formulaui.LoopParentStepID(nodeID)
+	if workflow == nil || parentID == "" {
+		return "", "", ""
+	}
+	bodyID := nodeID[strings.LastIndex(nodeID, ".")+1:]
+	parent := workflow.Graph.Nodes[ir.NodeID(parentID)]
+	if parent == nil || parent.Step == nil {
+		return "", "", ""
+	}
+	var body []steps.Step
+	switch loop := parent.Step.(type) {
+	case steps.LoopStep:
+		body = loop.Body
+	case *steps.LoopStep:
+		body = loop.Body
+	}
+	for _, child := range body {
+		if child == nil || string(child.Meta().ID) != bodyID {
+			continue
+		}
+		title = child.Meta().Title
+		if agentStep, ok := child.(steps.AgentStep); ok {
+			agent = agentStep.Agent
+			model = agentStep.Model
+		}
+		return title, agent, model
+	}
+	return "", "", ""
 }
 
 func runtimeEventOutput(payload any) string {

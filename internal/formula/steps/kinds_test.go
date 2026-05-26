@@ -139,3 +139,27 @@ func TestScriptStepRendersRuntimeContextTemplates(t *testing.T) {
 		t.Fatalf("script req = %+v", script.req)
 	}
 }
+
+func TestLoopStepEmitsBodyActivityEvents(t *testing.T) {
+	loop := LoopStep{
+		Base: Base{Metadata: Metadata{ID: "loop", Kind: KindLoop}},
+		Max:  1,
+		Body: []Step{NoopStep{Base: Base{Metadata: Metadata{ID: "child", Kind: KindNoop}}}},
+	}
+	var events []string
+	_, err := loop.Run(context.Background(), RunRequest{
+		NodeID: "loop",
+		Emit: func(nodeID string, eventType string, payload any) {
+			events = append(events, nodeID+":"+eventType)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStarted := "loop.iter1.child:step.started"
+	wantCompleted := "loop.iter1.child:step.completed"
+	joined := strings.Join(events, "\n")
+	if !strings.Contains(joined, wantStarted) || !strings.Contains(joined, wantCompleted) {
+		t.Fatalf("events = %v, want %s and %s", events, wantStarted, wantCompleted)
+	}
+}

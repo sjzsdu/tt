@@ -65,6 +65,7 @@ type RunRequest struct {
 	Context      ContextView
 	Outputs      OutputSink
 	Capabilities Capabilities
+	Emit         func(nodeID string, eventType string, payload any)
 }
 
 type Status string

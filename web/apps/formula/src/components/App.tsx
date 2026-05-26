@@ -35,6 +35,7 @@ import { MarkdownOutput, OutputModal, OutputSurface } from './MarkdownOutput';
 import type {
   DashboardView,
   FormulaDashboardMessage,
+  FormulaStepActivity,
   FormulaDashboardLoopBody,
   FormulaDashboardSnapshot,
   FormulaDashboardStep,
@@ -127,6 +128,20 @@ function loopActivityBodyID(activity?: { step_id: string }) {
   return activity?.step_id.match(/\.iter\d+\.([^.]*)$/)?.[1] || '';
 }
 
+function groupLoopActivities(activities: FormulaStepActivity[]) {
+  const groups: Array<{ iteration: string; activities: FormulaStepActivity[] }> = [];
+  const byIteration = new Map<string, FormulaStepActivity[]>();
+  for (const activity of activities) {
+    const iteration = loopActivityIteration(activity) || 'step';
+    if (!byIteration.has(iteration)) {
+      byIteration.set(iteration, []);
+      groups.push({ iteration: iteration === 'step' ? '' : iteration, activities: byIteration.get(iteration)! });
+    }
+    byIteration.get(iteration)!.push(activity);
+  }
+  return groups;
+}
+
 type StepNodeData = {
   step: FormulaDashboardStep;
   kind?: 'step' | 'loop-body';
@@ -202,26 +217,6 @@ function LoopGroupNode({ data }: NodeProps<Node<LoopGroupNodeData>>) {
 
 const nodeTypes = { step: StepFlowNode, loopGroup: LoopGroupNode };
 
-function loopBodyStatus(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody) {
-  const current = latestLoopActivity(parent);
-  const currentBodyID = loopActivityBodyID(current);
-  if (currentBodyID === body.id) return current?.status || 'running';
-
-  const activity = [...(parent.activities || [])].reverse().find(item => item.step_id.endsWith(`.${body.id}`));
-  if (activity) return activity.status;
-  if (parent.status === 'completed') return 'completed';
-  if (parent.status === 'failed') return 'failed';
-  if (parent.status === 'running') return 'pending';
-  return parent.status;
-}
-
-function loopBodyIteration(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody) {
-  const current = latestLoopActivity(parent);
-  if (loopActivityBodyID(current) === body.id) return loopActivityIteration(current);
-  const activity = [...(parent.activities || [])].reverse().find(item => item.step_id.endsWith(`.${body.id}`));
-  return loopActivityIteration(activity);
-}
-
 function edgeVisualClass(sourceStatus?: string, targetStatus?: string, extra = '') {
   const state = targetStatus === 'running'
     ? 'active'
@@ -256,26 +251,18 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
 
   const nodeWidth = 300;
   const nodeHeight = 178;
-  const loopNodeWidth = 268;
-  const loopNodeHeight = 92;
-  const loopLaneGap = 72;
-  const loopLanePadding = 18;
   const colGap = 110;
   const rowGap = 44;
   const paddingX = 28;
   const paddingTop = 52;
   const paddingBottom = 28;
   const nodes: Node<StepNodeData | LoopGroupNodeData>[] = [];
-  const virtualStatus = new Map<string, string>();
   const stepStatus = new Map(snapshot.steps.map(step => [step.id, step.status]));
-  const mainPositions = new Map<string, { x: number; y: number }>();
   let maxY = paddingTop;
 
   const depthWidths = new Map<number, number>();
   for (const depth of depths) {
-    const column = grouped.get(depth) || [];
-    const hasLoop = column.some(step => (step.loop?.body || []).length > 0);
-    depthWidths.set(depth, hasLoop ? nodeWidth + loopLaneGap + loopNodeWidth + loopLanePadding * 2 : nodeWidth);
+    depthWidths.set(depth, nodeWidth);
   }
   const depthX = new Map<number, number>();
   let nextX = paddingX;
@@ -289,59 +276,15 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     const column = grouped.get(depth) || [];
     for (const step of column) {
       const x = depthX.get(depth) || paddingX;
-      mainPositions.set(step.id, { x, y });
       nodes.push({ id: step.id, type: 'step', data: { step, kind: 'step', onSelect }, position: { x, y }, style: { width: nodeWidth, height: nodeHeight } });
 
-      const loopBodies = step.loop?.body || [];
-      const loopLaneX = x + nodeWidth + loopLaneGap;
-      const loopLaneY = y - loopLanePadding;
-      const loopStackHeight = Math.max(0, loopBodies.length * loopNodeHeight + Math.max(0, loopBodies.length - 1) * 18);
-      if (loopBodies.length) {
-        nodes.push({
-          id: `${step.id}.__loop.group`,
-          type: 'loopGroup',
-          data: { step, bodyCount: loopBodies.length },
-          position: { x: loopLaneX - loopLanePadding, y: loopLaneY },
-          selectable: false,
-          draggable: false,
-          zIndex: -1,
-          style: { width: loopNodeWidth + loopLanePadding * 2, height: Math.max(nodeHeight + loopLanePadding * 2, loopStackHeight + loopLanePadding * 2) },
-        });
-      }
-      loopBodies.forEach((body, index) => {
-        const virtualID = `${step.id}.__loop.${body.id}`;
-        const status = loopBodyStatus(step, body);
-        const iteration = loopBodyIteration(step, body);
-        virtualStatus.set(virtualID, status);
-        const virtualStep: FormulaDashboardStep = {
-          id: virtualID,
-          title: body.title || body.id,
-          description: body.description,
-          agent: body.agent || step.agent,
-          model: body.model || step.model,
-          status,
-          output_key: body.output_key,
-          input_ctx: body.input_ctx || [],
-          condition: body.condition,
-          metadata: iteration ? { iteration } : undefined,
-          depends_on: body.depends_on || [],
-          index,
-        };
-        nodes.push({
-          id: virtualID,
-          type: 'step',
-          data: { step: virtualStep, parentStep: step, body, kind: 'loop-body', onSelect },
-          position: { x: loopLaneX, y: y + index * (loopNodeHeight + 18) },
-          style: { width: loopNodeWidth, height: loopNodeHeight },
-        });
-      });
-      y += Math.max(nodeHeight, loopStackHeight) + rowGap;
+      y += nodeHeight + rowGap;
       maxY = Math.max(maxY, y);
     }
   }
 
   const nodeIDs = new Set(nodes.map(node => node.id));
-  const statusFor = (id: string) => stepStatus.get(id) || virtualStatus.get(id) || 'pending';
+  const statusFor = (id: string) => stepStatus.get(id) || 'pending';
   const edges: Edge[] = snapshot.edges.flatMap(edge => {
     if (!nodeIDs.has(edge.from) || !nodeIDs.has(edge.to)) return [];
     const targetStatus = statusFor(edge.to);
@@ -356,28 +299,6 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
       className: edgeVisualClass(sourceStatus, targetStatus, edge.type || 'default'),
     }];
   });
-
-  for (const step of snapshot.steps) {
-    const bodies = step.loop?.body || [];
-    if (!bodies.length || !mainPositions.has(step.id)) continue;
-    const bodyIDs = new Map(bodies.map(body => [body.id, `${step.id}.__loop.${body.id}`]));
-
-    for (let index = 0; index < bodies.length; index += 1) {
-      const body = bodies[index];
-      const targetID = bodyIDs.get(body.id)!;
-      const explicitDeps = body.depends_on?.filter(dep => bodyIDs.has(dep)) || [];
-      const deps = explicitDeps.length > 0
-        ? explicitDeps
-        : index > 0
-          ? [bodies[index - 1].id]
-          : [];
-      for (const dep of deps) {
-        const sourceID = bodyIDs.get(dep)!;
-        const targetStatus = statusFor(targetID);
-        edges.push({ id: `${sourceID}-${targetID}`, source: sourceID, target: targetID, type: 'step', animated: targetStatus === 'running', markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) }, className: edgeVisualClass(statusFor(sourceID), targetStatus, 'loop-body-edge') });
-      }
-    }
-  }
 
   const width = Math.max(720, nextX + paddingX - colGap);
   const height = Math.max(420, paddingBottom + maxY);
@@ -473,6 +394,7 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
   const inputCtx = step.input_ctx || [];
   const activities = step.activities || [];
   const loopBody = step.loop?.body || [];
+  const loopActivityGroups = step.loop ? groupLoopActivities(activities) : [];
   const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
 
   return (
@@ -617,10 +539,13 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
                 <h4>Activity timeline</h4>
               </div>
               <p className="step-section-hint">
-                Status events for this step. The final output is shown once in the Output section above.
+                {step.loop ? 'Internal loop body activity grouped by iteration. These are not separate top-level steps.' : 'Status events for this step. The final output is shown once in the Output section above.'}
               </p>
               <div className="step-activity-list">
-                {activities.map(activity => (
+                {(step.loop && loopActivityGroups.length ? loopActivityGroups : [{ iteration: '', activities }]).map(group => (
+                  <div key={group.iteration || 'step'} className="step-activity-group">
+                    {group.iteration && <div className="step-activity-group-title">Iteration {group.iteration}</div>}
+                    {group.activities.map(activity => (
                   <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
                     <div className="step-activity-status-dot" />
                     <div className="step-activity-content">
@@ -634,6 +559,8 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
                       {activity.output && sameOutput(activity.output, step.output) && <div className="step-activity-output-note">Output matches final step output.</div>}
                       {activity.error && <pre className="code-block error-block">{activity.error}</pre>}
                     </div>
+                  </div>
+                    ))}
                   </div>
                 ))}
               </div>

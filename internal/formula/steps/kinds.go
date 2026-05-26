@@ -284,15 +284,28 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			if !ok {
 				continue
 			}
-			res, err := exec.Run(ctx, RunRequest{RunID: req.RunID, NodeID: string(child.Meta().ID), Step: child, Context: req.Context, Outputs: req.Outputs, Capabilities: req.Capabilities})
+			childNodeID := fmt.Sprintf("%s.iter%d.%s", req.NodeID, i, child.Meta().ID)
+			if req.Emit != nil {
+				req.Emit(childNodeID, "step.started", nil)
+			}
+			res, err := exec.Run(ctx, RunRequest{RunID: req.RunID, NodeID: childNodeID, Step: child, Context: req.Context, Outputs: req.Outputs, Capabilities: req.Capabilities, Emit: req.Emit})
 			if res == nil {
 				res = &RunResult{}
 			}
 			if err != nil || res.Status == StatusFailed {
+				if req.Emit != nil {
+					req.Emit(childNodeID, "step.failed", res)
+				}
 				return res, err
 			}
 			if res.Status == StatusWaiting {
+				if req.Emit != nil {
+					req.Emit(childNodeID, "step.waiting", res.Await)
+				}
 				return res, nil
+			}
+			if req.Emit != nil {
+				req.Emit(childNodeID, "step.completed", res)
 			}
 			if len(res.Output.Raw) > 0 {
 				last = res.Output
