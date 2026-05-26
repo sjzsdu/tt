@@ -659,6 +659,7 @@ func (s WriteFilesStep) Run(_ context.Context, req RunRequest) (*RunResult, erro
 	if err := json.Unmarshal(value.Raw, &data); err != nil {
 		return failedRun(fmt.Errorf("write_files source %q must be JSON: %w", source, err))
 	}
+	data = normalizeJSONTextValue(data)
 	filenameKey := defaultString(s.FilenameKey, "filename")
 	titleKey := defaultString(s.TitleKey, "title")
 	summaryKey := defaultString(s.SummaryKey, "summary")
@@ -713,6 +714,7 @@ func collectWriteFileEntries(value any, filenameKey, titleKey, summaryKey, conte
 	var out []map[string]string
 	var walk func(any)
 	walk = func(v any) {
+		v = normalizeJSONTextValue(v)
 		switch x := v.(type) {
 		case []any:
 			for _, item := range x {
@@ -733,6 +735,64 @@ func collectWriteFileEntries(value any, filenameKey, titleKey, summaryKey, conte
 	}
 	walk(value)
 	return out
+}
+
+func normalizeJSONTextValue(value any) any {
+	switch x := value.(type) {
+	case string:
+		text := strings.TrimSpace(x)
+		if text == "" {
+			return value
+		}
+		for _, candidate := range jsonContainerTextCandidates(text) {
+			var decoded any
+			if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+				return normalizeJSONTextValue(decoded)
+			}
+		}
+	case []any:
+		for i, item := range x {
+			x[i] = normalizeJSONTextValue(item)
+		}
+		return x
+	case map[string]any:
+		for key, item := range x {
+			x[key] = normalizeJSONTextValue(item)
+		}
+		return x
+	}
+	return value
+}
+
+func jsonContainerTextCandidates(text string) []string {
+	candidates := []string{text}
+	if fenced, ok := extractFencedJSONText(text); ok {
+		candidates = append(candidates, fenced)
+	}
+	if extracted, ok := extractFirstJSONContainerText(text); ok {
+		candidates = append(candidates, extracted)
+	}
+	return candidates
+}
+
+func extractFirstJSONContainerText(text string) (string, bool) {
+	arrayStart := strings.Index(text, "[")
+	objectStart := strings.Index(text, "{")
+	start := -1
+	close := byte(0)
+	switch {
+	case arrayStart >= 0 && (objectStart < 0 || arrayStart < objectStart):
+		start, close = arrayStart, ']'
+	case objectStart >= 0:
+		start, close = objectStart, '}'
+	default:
+		return "", false
+	}
+	end := strings.LastIndexByte(text, close)
+	if end <= start {
+		return "", false
+	}
+	return strings.TrimSpace(text[start : end+1]), true
 }
 
 func stringValue(value any) (string, bool) {
@@ -864,6 +924,7 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 		if len(last.Raw) > 0 {
 			var decoded any
 			if err := json.Unmarshal(last.Raw, &decoded); err == nil {
+				decoded = normalizeJSONTextValue(decoded)
 				outputs = append(outputs, decoded)
 			}
 		}
@@ -947,6 +1008,7 @@ func (s LoopStep) runForEachParallel(ctx context.Context, req RunRequest, items 
 		if len(last.Raw) > 0 {
 			var decoded any
 			if err := json.Unmarshal(last.Raw, &decoded); err == nil {
+				decoded = normalizeJSONTextValue(decoded)
 				outputs = append(outputs, decoded)
 			}
 		}

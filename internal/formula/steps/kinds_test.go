@@ -285,6 +285,38 @@ func TestWriteFilesStepCreatesFilesAndManifest(t *testing.T) {
 	}
 }
 
+func TestWriteFilesStepAcceptsJSONStringObjects(t *testing.T) {
+	tmp := t.TempDir()
+	article, err := json.Marshal(`{"filename":"01.md","title":"One","summary":"S","content":"# One\nBody"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	articles, err := json.Marshal([]string{string(article)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := WriteFilesStep{Base: Base{Metadata: Metadata{ID: "write", Kind: KindWriteFiles}}, Source: "write-articles", Root: tmp, DirName: "demo"}
+
+	res, err := step.Run(context.Background(), RunRequest{Context: mapContextView{
+		"write-articles": {Raw: articles},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "demo", "01.md")); err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Files []map[string]string `json:"files"`
+	}
+	if err := json.Unmarshal(res.Output.Raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Files) != 1 || manifest.Files[0]["filename"] != "01.md" {
+		t.Fatalf("manifest = %+v", manifest)
+	}
+}
+
 func TestToolStepDispatchesWriteFiles(t *testing.T) {
 	tmp := t.TempDir()
 	step := ToolStep{
