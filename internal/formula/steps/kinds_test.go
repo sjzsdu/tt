@@ -229,6 +229,34 @@ func TestToolStepDispatchesWriteFiles(t *testing.T) {
 	}
 }
 
+func TestToolStepDispatchesSleep(t *testing.T) {
+	step := ToolStep{
+		Base:  Base{Metadata: Metadata{ID: "pause", Kind: KindTool}},
+		Name:  "sleep",
+		Sleep: &SleepStep{Duration: "1ms"},
+	}
+	res, err := step.Run(context.Background(), RunRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(res.Output.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["duration"] != "1ms" {
+		t.Fatalf("sleep output = %+v", got)
+	}
+}
+
+func TestSleepToolHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (SleepStep{Duration: "1s"}).Run(ctx, RunRequest{})
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+}
+
 func TestLoopStepEmitsBodyActivityEvents(t *testing.T) {
 	loop := LoopStep{
 		Base: Base{Metadata: Metadata{ID: "loop", Kind: KindLoop}},

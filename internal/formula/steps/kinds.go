@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ast"
 )
@@ -386,6 +387,7 @@ type ToolStep struct {
 	Base
 	Name       string
 	WriteFiles *WriteFilesStep
+	Sleep      *SleepStep
 	OutputKey  string
 	Validation *OutputValidationSpec `json:"validate,omitempty"`
 }
@@ -402,9 +404,60 @@ func (s ToolStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		}
 		child.Validation = s.Validation
 		return child.Run(ctx, req)
+	case "sleep":
+		if s.Sleep == nil {
+			return failedRun(fmt.Errorf("tool sleep config is required"))
+		}
+		child := *s.Sleep
+		child.Validation = s.Validation
+		return child.Run(ctx, req)
 	default:
 		return failedRun(fmt.Errorf("unknown tool %q", s.Name))
 	}
+}
+
+type SleepStep struct {
+	Duration   string
+	Seconds    int
+	Validation *OutputValidationSpec `json:"validate,omitempty"`
+}
+
+func (s SleepStep) Run(ctx context.Context, _ RunRequest) (*RunResult, error) {
+	duration, err := s.sleepDuration()
+	if err != nil {
+		return failedRun(err)
+	}
+	if duration > 0 {
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return failedRun(ctx.Err())
+		case <-timer.C:
+		}
+	}
+	raw, err := json.Marshal(map[string]any{"slept_ms": duration.Milliseconds(), "duration": duration.String()})
+	if err != nil {
+		return failedRun(err)
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func (s SleepStep) sleepDuration() (time.Duration, error) {
+	if strings.TrimSpace(s.Duration) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(s.Duration))
+		if err != nil {
+			return 0, fmt.Errorf("sleep duration is invalid: %w", err)
+		}
+		if d < 0 {
+			return 0, fmt.Errorf("sleep duration must be non-negative")
+		}
+		return d, nil
+	}
+	if s.Seconds < 0 {
+		return 0, fmt.Errorf("sleep seconds must be non-negative")
+	}
+	return time.Duration(s.Seconds) * time.Second, nil
 }
 
 func (s WriteFilesStep) Run(_ context.Context, req RunRequest) (*RunResult, error) {

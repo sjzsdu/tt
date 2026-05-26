@@ -161,7 +161,7 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 		if tool == nil {
 			tool = &ToolSpec{}
 		}
-		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), Sleep: sleepToolStep(tool.Sleep), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "write_files":
 		meta.Kind = steps.KindWriteFiles
 		writeFiles := step.WriteFiles
@@ -189,6 +189,13 @@ func writeFilesToolStep(spec *WriteFilesSpec) *steps.WriteFilesStep {
 		return nil
 	}
 	return &steps.WriteFilesStep{Source: spec.Source, Root: spec.Root, DirName: spec.DirName, FilenameKey: spec.FilenameKey, TitleKey: spec.TitleKey, SummaryKey: spec.SummaryKey, ContentKey: spec.ContentKey}
+}
+
+func sleepToolStep(spec *SleepSpec) *steps.SleepStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.SleepStep{Duration: spec.Duration, Seconds: spec.Seconds}
 }
 
 func outputValidationSpec(step *Step) *steps.OutputValidationSpec {

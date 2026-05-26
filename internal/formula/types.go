@@ -686,6 +686,13 @@ type AggregateSpec struct {
 type ToolSpec struct {
 	Name       string          `json:"name" toml:"name"`
 	WriteFiles *WriteFilesSpec `json:"write_files,omitempty" toml:"write_files,omitempty"`
+	Sleep      *SleepSpec      `json:"sleep,omitempty" toml:"sleep,omitempty"`
+}
+
+// SleepSpec describes a deterministic wait duration.
+type SleepSpec struct {
+	Duration string `json:"duration,omitempty" toml:"duration,omitempty"`
+	Seconds  int    `json:"seconds,omitempty" toml:"seconds,omitempty"`
 }
 
 // WriteFilesSpec describes deterministic file creation from JSON context objects.
