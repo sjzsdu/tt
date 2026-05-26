@@ -21,7 +21,8 @@ What a formula can model:
 Data flow:
   - each step output is saved under its step id by default
   - downstream steps reference prior output with input_context = ["step-id"]
-  - JSON fields can be addressed as step-id.field in conditions and context
+  - JSON fields can be addressed as step-id.field in conditions
+  - runtime env is always available as env.cwd, env.git.branch, env.git.is_repo
   - use clear, stable step ids; no output_key is needed for normal authoring
 
 Common commands:
@@ -43,7 +44,7 @@ Minimal TOML shape:
   [[steps]]
   id = "analyze"
   title = "Analyze request"
-  description = "Output ONLY compact JSON: {\"kind\":\"frontend\"}."
+  description = "Use repo {{env.git.repo}} on branch {{env.git.branch}}. Output ONLY compact JSON: {\"kind\":\"frontend\"}."
   agent.name = "coder"
 
   [[steps]]

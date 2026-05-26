@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +17,51 @@ type fakeAgent struct{}
 func (fakeAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, error) {
 	raw, _ := json.Marshal("agent-ok")
 	return steps.Value{Type: "json", Raw: raw}, nil
+}
+
+func TestExecutorSeedsEnvironmentContext(t *testing.T) {
+	tmp := t.TempDir()
+	wf := &ir.Workflow{ID: "demo", Graph: ir.NewGraph()}
+	exec := NewExecutor(wf, steps.Capabilities{})
+	exec.SeedEnvironment(tmp)
+
+	value, ok := exec.Context.Get("env.cwd")
+	if !ok {
+		t.Fatal("missing env.cwd")
+	}
+	var got string
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.Abs(tmp)
+	if got != want {
+		t.Fatalf("env.cwd = %q, want %q", got, want)
+	}
+
+	gitValue, ok := exec.Context.Get("env.git.is_repo")
+	if !ok {
+		t.Fatal("missing env.git.is_repo")
+	}
+	var isRepo bool
+	if err := json.Unmarshal(gitValue.Raw, &isRepo); err != nil {
+		t.Fatal(err)
+	}
+	if isRepo {
+		t.Fatalf("temp dir %s unexpectedly detected as git repo", tmp)
+	}
+}
+
+func TestBuildEnvironmentContextDetectsGitRepo(t *testing.T) {
+	if _, err := os.Stat(".git"); err != nil {
+		t.Skip("test workspace is not a git repository")
+	}
+	env := BuildEnvironmentContext(".")
+	if !env.Git.IsRepo {
+		t.Fatal("expected git repository")
+	}
+	if env.Git.Root == "" || env.Git.Repo == "" {
+		t.Fatalf("incomplete git env: %+v", env.Git)
+	}
 }
 
 type fakeScript struct{}

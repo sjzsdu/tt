@@ -38,16 +38,17 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	projectRoot, _ := os.Getwd()
 	if formulaDryRun {
 		return executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{
 			Workflow:     workflow,
 			DryRun:       true,
 			AllowScripts: !formulaNoScript,
+			Workspace:    projectRoot,
 			Out:          cmd.OutOrStdout(),
 		})
 	}
 
-	projectRoot, _ := os.Getwd()
 	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
 		return err
 	}
@@ -197,6 +198,7 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 		Workflow:     workflow,
 		RunStore:     runStore,
 		AgentRunner:  agentRunner,
+		Workspace:    projectRoot,
 		AllowScripts: !formulaNoScript,
 	})
 	if err != nil {

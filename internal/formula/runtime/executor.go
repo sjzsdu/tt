@@ -36,7 +36,9 @@ type RunResult struct {
 
 func NewExecutor(workflow *ir.Workflow, capabilities steps.Capabilities) *Executor {
 	store := NewMemoryStateStore()
-	return &Executor{Workflow: workflow, Context: NewContextStore(), Capabilities: capabilities, Store: store}
+	exec := &Executor{Workflow: workflow, Context: NewContextStore(), Capabilities: capabilities, Store: store}
+	exec.SeedEnvironment("")
+	return exec
 }
 
 func (e *Executor) Run(ctx context.Context) (*RunResult, error) {

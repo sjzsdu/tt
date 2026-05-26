@@ -23,6 +23,7 @@ A good formula separates:
 - Canonical formula file names are `<name>.toml`. Do not create `.formula.toml` files.
 - Compiled output is a Workflow IR graph. Authors usually should not write manual boundary/noop steps unless they need real structure there.
 - Step output is saved under the local step `id` by default. New formulas should reference prior outputs by step id.
+- Runtime injects global `env` context: `env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`. Agent descriptions and script command/cwd/env strings may use `{{env.git.branch}}`; conditions may use `env.git.is_repo == true`.
 
 ## Delivery contract
 
@@ -72,7 +73,7 @@ env = { description = "Target environment", default = "staging", enum = ["stagin
 dry_run = { description = "Whether to avoid writes", default = "true", type = "bool" }
 ```
 
-Variables are rendered with `{{var}}` in titles, descriptions, script argv, env, and cwd.
+Variables are rendered with `{{var}}` in titles, descriptions, script argv, env, and cwd. Runtime context templates such as `{{env.cwd}}` and `{{env.git.branch}}` are rendered when a step runs.
 
 `tt formula run <name> <value>` positional shorthand works only when exactly one variable is required.
 

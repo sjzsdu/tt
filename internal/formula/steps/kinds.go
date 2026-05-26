@@ -44,7 +44,8 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		err := &StepError{Message: "agent capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	prompt := appendInputContext(s.Prompt, s.InputCtx, req.Context)
+	prompt := renderContextTemplates(s.Prompt, req.Context)
+	prompt = appendInputContext(prompt, s.InputCtx, req.Context)
 	if s.DynamicForm {
 		prompt = appendDynamicHumanInputProtocol(prompt)
 	}
@@ -131,6 +132,24 @@ func appendDynamicHumanInputProtocol(prompt string) string {
 }
 
 var dynamicHumanInputBlockPattern = regexp.MustCompile("(?s)```tt-human-input(?:\\s+json)?\\s*\\n(.*?)\\n```")
+var runtimeTemplatePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_-]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)\s*\}\}`)
+
+func renderContextTemplates(input string, ctx ContextView) string {
+	if input == "" || ctx == nil {
+		return input
+	}
+	return runtimeTemplatePattern.ReplaceAllStringFunc(input, func(match string) string {
+		parts := runtimeTemplatePattern.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		value, ok := ctx.Get(parts[1])
+		if !ok {
+			return match
+		}
+		return valueForPrompt(value)
+	})
+}
 
 func parseDynamicHumanInputRequest(out Value) (*AwaitRequest, bool, error) {
 	text := valueText(out)
@@ -180,11 +199,33 @@ func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error)
 		err := &StepError{Message: "script capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: s.Command, Cwd: s.Cwd, Env: s.Env})
+	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderContextTemplates(s.Cwd, req.Context), Env: renderContextTemplateMap(s.Env, req.Context)})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "script step failed", Cause: err}}, err
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
+}
+
+func renderContextTemplateSlice(values []string, ctx ContextView) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = renderContextTemplates(value, ctx)
+	}
+	return out
+}
+
+func renderContextTemplateMap(values map[string]string, ctx ContextView) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = renderContextTemplates(value, ctx)
+	}
+	return out
 }
 
 type HumanInputStep struct {

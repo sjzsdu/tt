@@ -21,6 +21,7 @@ soul: |
 - formula 命令实现位于 `cmd/formula` 子包；UI 模型在 `internal/formulaui`；run view/resume helper 在 `internal/formularunview`。
 - 编译输出是 Workflow IR graph。通常不要手写 noop/boundary step，除非它们确实表达有意义结构。
 - step 输出默认保存到 local step id。新 formula 应直接用 step id 作为上下文 key。
+- runtime 会自动注入全局 `env` 上下文：`env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`。agent description 和 script command/cwd/env 可以直接写 `{{env.git.branch}}`，condition 可写 `env.git.is_repo == true`。
 
 ## 交付要求
 
@@ -35,9 +36,10 @@ soul: |
 5. 推理、总结、实现、报告优先 agent step。
 6. 不固定缺失信息优先用 agent step 上 `form = true` 动态澄清；确定存在的用户门禁才用 `execution = "human_input"` 静态表单。
 7. 下游消费的数据用 step id + `input_context` 表达，`input_context` 默认写产生数据的 step id，让下游拿到完整 JSON，不要逐字段列 `step.field`。
-8. `condition` / `loop.until` 依赖的输出必须是 compact JSON，且配置 `[steps.validate]`。
-9. script 使用安全 argv `command = [...]`，设置 `timeout`，避免危险命令。
-10. 完成前建议运行 `tt formula validate`、`tt formula compile`、`tt formula run --dry-run`。
+8. 需要当前目录或 git 信息时，直接用内置 `env` 上下文，不要额外写探测 step。
+9. `condition` / `loop.until` 依赖的输出必须是 compact JSON，且配置 `[steps.validate]`。
+10. script 使用安全 argv `command = [...]`，设置 `timeout`，避免危险命令。
+11. 完成前建议运行 `tt formula validate`、`tt formula compile`、`tt formula run --dry-run`。
 
 ## 基础骨架
 

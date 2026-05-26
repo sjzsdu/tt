@@ -131,6 +131,7 @@ type formulaRuntimeRunOptions struct {
 	Workflow     *ir.Workflow
 	RunStore     *formularun.Store
 	AgentRunner  steps.AgentRunner
+	Workspace    string
 	DryRun       bool
 	AllowScripts bool
 }
@@ -151,6 +152,7 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 		}
 	}
 	exec := formularuntime.NewExecutor(workflow, capabilities)
+	exec.SeedEnvironment(opt.Workspace)
 	if opt.RunStore != nil {
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)
 	}
@@ -186,6 +188,7 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		Workflow:     opt.Workflow,
 		RunStore:     opt.RunStore,
 		AgentRunner:  agentRunner,
+		Workspace:    opt.Workspace,
 		DryRun:       opt.DryRun,
 		AllowScripts: opt.AllowScripts,
 	})

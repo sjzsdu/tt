@@ -75,6 +75,8 @@ Any step that consumes prior output should declare both:
 - `depends_on = [...]` for execution order.
 - `input_context = ["step-id"]` for data injected into the prompt. Prefer whole producing step ids so the downstream agent receives the full JSON object.
 
+Runtime also injects a global `env` object. Use it directly in agent descriptions and script command/cwd/env strings with `{{env.cwd}}`, `{{env.git.repo}}`, `{{env.git.branch}}`, or inject the whole object with `input_context = ["env"]`. Conditions may use paths such as `condition = "env.git.is_repo == true"`.
+
 Example:
 
 ```toml
