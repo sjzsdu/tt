@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
 description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 .tt/docs。"
-version = 9
+version = 10
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -69,6 +69,8 @@ name = "planner"
 
 [steps.validate]
 format = "json"
+min_items = 1
+item_required = ["filename", "title", "angle", "audience", "depth", "must_cover", "mermaid_hint", "table_hint"]
 
 [[steps]]
 id = "write-articles"

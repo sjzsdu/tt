@@ -147,10 +147,10 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			cwd = step.Script.Cwd
 			env = step.Script.Env
 		}
-		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, OutputKey: step.OutputKey}
+		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "human_input":
 		meta.Kind = steps.KindHumanInput
-		return steps.HumanInputStep{Base: steps.Base{Metadata: meta}, Reason: step.Description, Form: step.Form, OutputKey: step.OutputKey}
+		return steps.HumanInputStep{Base: steps.Base{Metadata: meta}, Reason: step.Description, Form: step.Form, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	default:
 		meta.Kind = steps.KindAgent
 		agentName := ""
@@ -159,6 +159,18 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			agentName = step.Agent.Name
 			model = step.Agent.Model
 		}
-		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey}
+		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+	}
+}
+
+func outputValidationSpec(step *Step) *steps.OutputValidationSpec {
+	if step == nil || step.Validate == nil {
+		return nil
+	}
+	return &steps.OutputValidationSpec{
+		Format:       step.Validate.Format,
+		Required:     append([]string(nil), step.Validate.Required...),
+		ItemRequired: append([]string(nil), step.Validate.ItemRequired...),
+		MinItems:     step.Validate.MinItems,
 	}
 }

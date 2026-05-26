@@ -29,6 +29,7 @@ type AgentStep struct {
 	InputCtx    []string
 	DynamicForm bool
 	OutputKey   string
+	Validation  *OutputValidationSpec `json:"validate,omitempty"`
 }
 type AgentDecoder struct{}
 
@@ -180,10 +181,11 @@ func valueText(out Value) string {
 
 type ScriptStep struct {
 	Base
-	Command   []string
-	Cwd       string
-	Env       map[string]string
-	OutputKey string
+	Command    []string
+	Cwd        string
+	Env        map[string]string
+	OutputKey  string
+	Validation *OutputValidationSpec `json:"validate,omitempty"`
 }
 type ScriptDecoder struct{}
 
@@ -230,9 +232,10 @@ func renderContextTemplateMap(values map[string]string, ctx ContextView) map[str
 
 type HumanInputStep struct {
 	Base
-	Reason    string
-	Form      any
-	OutputKey string
+	Reason     string
+	Form       any
+	OutputKey  string
+	Validation *OutputValidationSpec `json:"validate,omitempty"`
 }
 type HumanInputDecoder struct{}
 

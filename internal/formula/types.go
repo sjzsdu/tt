@@ -684,8 +684,10 @@ type FormField struct {
 
 // ValidateSpec describes runtime validation for step output.
 type ValidateSpec struct {
-	Format   string   `json:"format,omitempty" toml:"format,omitempty"`
-	Required []string `json:"required,omitempty" toml:"required,omitempty"`
+	Format       string   `json:"format,omitempty" toml:"format,omitempty"`
+	Required     []string `json:"required,omitempty" toml:"required,omitempty"`
+	ItemRequired []string `json:"item_required,omitempty" toml:"item_required,omitempty"`
+	MinItems     int      `json:"min_items,omitempty" toml:"min_items,omitempty"`
 }
 
 // RetrySpec defines first-class transient retry semantics.

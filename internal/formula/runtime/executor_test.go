@@ -19,6 +19,12 @@ func (fakeAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, err
 	return steps.Value{Type: "json", Raw: raw}, nil
 }
 
+type fixedOutputAgent struct{ raw string }
+
+func (a fixedOutputAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, error) {
+	return steps.Value{Type: "json", Raw: json.RawMessage(a.raw)}, nil
+}
+
 func TestExecutorSeedsEnvironmentContext(t *testing.T) {
 	tmp := t.TempDir()
 	wf := &ir.Workflow{ID: "demo", Graph: ir.NewGraph()}
@@ -104,6 +110,39 @@ func TestExecutorRunsTypedWorkflowInTopologicalOrder(t *testing.T) {
 	}
 	if len(result.Nodes) != 2 {
 		t.Fatalf("nodes = %d", len(result.Nodes))
+	}
+}
+
+func TestExecutorValidatesJSONArrayItems(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", MinItems: 1, ItemRequired: []string{"filename", "title"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: `[{"filename":"01-intro.md"}]`}})
+	result, err := exec.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if result.Status != steps.StatusFailed {
+		t.Fatalf("status = %s, want failed", result.Status)
+	}
+	if got := result.Nodes["plan"].Error.Error(); !strings.Contains(got, "output[0].title is required") {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestExecutorAcceptsValidJSONArrayItems(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", MinItems: 1, ItemRequired: []string{"filename", "title"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: `[{"filename":"01-intro.md","title":"Intro"}]`}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
 	}
 }
 

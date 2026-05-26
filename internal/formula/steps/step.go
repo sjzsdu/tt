@@ -95,6 +95,14 @@ type StepError struct {
 	Cause   error
 }
 
+// OutputValidationSpec describes lightweight runtime checks for step output.
+type OutputValidationSpec struct {
+	Format       string
+	Required     []string
+	ItemRequired []string
+	MinItems     int
+}
+
 func (e *StepError) Error() string {
 	if e == nil {
 		return ""

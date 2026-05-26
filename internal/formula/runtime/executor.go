@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -132,6 +134,15 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
 			return out, nil
 		}
+		if err := validateStepOutput(node.Step, res.Output); err != nil {
+			out.Status = steps.StatusFailed
+			res.Status = steps.StatusFailed
+			res.Error = &steps.StepError{Message: "step output validation failed", Cause: err}
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
+			e.emit(nodeID, "step.failed", res)
+			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			return out, res.Error
+		}
 		e.rememberStepOutput(node.Step, res)
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 		e.emit(nodeID, "step.completed", res)
@@ -139,6 +150,101 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
+}
+
+func validateStepOutput(step steps.Step, out steps.Value) error {
+	spec := outputValidationForStep(step)
+	if spec == nil {
+		return nil
+	}
+	format := strings.ToLower(strings.TrimSpace(spec.Format))
+	if format == "" && (len(spec.Required) > 0 || len(spec.ItemRequired) > 0 || spec.MinItems > 0) {
+		format = "json"
+	}
+	if format != "json" {
+		return nil
+	}
+
+	var decoded any
+	if err := json.Unmarshal(out.Raw, &decoded); err != nil {
+		return fmt.Errorf("output must be valid JSON: %w", err)
+	}
+	if len(spec.Required) > 0 {
+		obj, ok := decoded.(map[string]any)
+		if !ok {
+			return fmt.Errorf("output must be a JSON object with required fields %v", spec.Required)
+		}
+		if err := validateRequiredFields(obj, spec.Required, "output"); err != nil {
+			return err
+		}
+	}
+	if spec.MinItems > 0 || len(spec.ItemRequired) > 0 {
+		items, ok := decoded.([]any)
+		if !ok {
+			return fmt.Errorf("output must be a JSON array")
+		}
+		if len(items) < spec.MinItems {
+			return fmt.Errorf("output array must contain at least %d item(s), got %d", spec.MinItems, len(items))
+		}
+		for i, item := range items {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				return fmt.Errorf("output[%d] must be a JSON object", i)
+			}
+			if err := validateRequiredFields(obj, spec.ItemRequired, fmt.Sprintf("output[%d]", i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func outputValidationForStep(step steps.Step) *steps.OutputValidationSpec {
+	switch s := step.(type) {
+	case steps.AgentStep:
+		return s.Validation
+	case *steps.AgentStep:
+		return s.Validation
+	case steps.ScriptStep:
+		return s.Validation
+	case *steps.ScriptStep:
+		return s.Validation
+	case steps.HumanInputStep:
+		return s.Validation
+	case *steps.HumanInputStep:
+		return s.Validation
+	default:
+		return nil
+	}
+}
+
+func validateRequiredFields(obj map[string]any, fields []string, prefix string) error {
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		value, ok := obj[field]
+		if !ok || isEmptyJSONValue(value) {
+			return fmt.Errorf("%s.%s is required", prefix, field)
+		}
+	}
+	return nil
+}
+
+func isEmptyJSONValue(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []any:
+		return len(v) == 0
+	case map[string]any:
+		return len(v) == 0
+	default:
+		return false
+	}
 }
 
 func (e *Executor) rememberStepOutput(step steps.Step, result *steps.RunResult) {
