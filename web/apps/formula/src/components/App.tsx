@@ -495,11 +495,12 @@ function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (s
   );
 }
 
-function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboardStep | null; open: boolean; onClose: () => void; onRetry: (step: FormulaDashboardStep) => void }) {
+function StepInspector({ step, snapshot, open, onClose, onRetry }: { step: FormulaDashboardStep | null; snapshot: FormulaDashboardSnapshot | null; open: boolean; onClose: () => void; onRetry: (step: FormulaDashboardStep) => void }) {
   if (!step) return null;
   const metadataEntries = Object.entries(step.metadata || {});
   const labels = step.labels || [];
   const inputCtx = step.input_ctx || [];
+  const inputValues = collectStepInputValues(step, snapshot);
   const activities = step.activities || [];
   const loopBody = step.loop?.body || [];
   const loopActivityGroups = step.loop ? groupLoopActivities(activities) : [];
@@ -630,6 +631,28 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
             </section>
           )}
 
+          <section className="step-modal-section step-input-section">
+            <div className="step-modal-section-header">
+              <span className="step-modal-section-icon">📥</span>
+              <h4>Input</h4>
+            </div>
+            {inputValues.length > 0 ? (
+              <div className="step-input-list">
+                {inputValues.map(input => (
+                  <div className="step-input-card" key={input.key}>
+                    <div className="step-input-head">
+                      <strong>{input.key}</strong>
+                      <Tag>{input.source}</Tag>
+                    </div>
+                    <OutputSurface content={input.value} className="step-input-output" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No resolved input data yet" />
+            )}
+          </section>
+
           {step.output && (
             <section className="step-modal-section">
               <div className="step-modal-section-header">
@@ -693,6 +716,45 @@ function StepInspector({ step, open, onClose, onRetry }: { step: FormulaDashboar
 
 function sameOutput(a?: string, b?: string) {
   return !!a && !!b && a.trim() === b.trim();
+}
+
+function collectStepInputValues(step: FormulaDashboardStep, snapshot: FormulaDashboardSnapshot | null) {
+  if (!snapshot) return [];
+  const byID = new Map(snapshot.steps.map(item => [item.id, item]));
+  const keys: Array<{ key: string; source: string }> = [];
+  const seen = new Set<string>();
+  const add = (key?: string, source = 'context') => {
+    const clean = (key || '').trim();
+    if (!clean || seen.has(clean)) return;
+    seen.add(clean);
+    keys.push({ key: clean, source });
+  };
+  step.input_ctx?.forEach(key => add(key, 'input_context'));
+  step.depends_on?.forEach(key => add(key, 'dependency'));
+  if (step.loop?.for_each) add(step.loop.for_each, 'for_each');
+
+  return keys.map(({ key, source }) => {
+    const root = key.split('.')[0];
+    const sourceStep = byID.get(root);
+    const value = resolveStepInputValue(key, sourceStep?.output);
+    return value ? { key, source, value } : null;
+  }).filter((item): item is { key: string; source: string; value: string } => !!item);
+}
+
+function resolveStepInputValue(key: string, output?: string) {
+  if (!output) return '';
+  const parts = key.split('.').slice(1);
+  if (!parts.length) return output;
+  try {
+    let current: unknown = JSON.parse(output);
+    for (const part of parts) {
+      if (!current || typeof current !== 'object' || !(part in current)) return output;
+      current = (current as Record<string, unknown>)[part];
+    }
+    return typeof current === 'string' ? current : JSON.stringify(current, null, 2);
+  } catch {
+    return output;
+  }
 }
 
 function RetryStepModal({ step, open, onCancel, onSubmit }: { step: FormulaDashboardStep | null; open: boolean; onCancel: () => void; onSubmit: (stepID: string, advice?: string) => Promise<void> }) {
@@ -1021,7 +1083,7 @@ export function App() {
         </aside>
       </section>
 
-      <StepInspector step={selectedStep} open={!!selectedStep} onClose={() => setSelectedStep(null)} onRetry={setRetryStep} />
+      <StepInspector step={selectedStep} snapshot={snapshot} open={!!selectedStep} onClose={() => setSelectedStep(null)} onRetry={setRetryStep} />
       <RetryStepModal step={retryStep} open={!!retryStep} onCancel={() => setRetryStep(null)} onSubmit={submitRetryStep} />
       <HumanInputModal step={waitingInputStep} onSubmit={submitHumanInput} />
       {snapshot.final_output ? (

@@ -1468,6 +1468,46 @@ button, input, textarea { font: inherit; }
   padding: 16px;
 }
 
+.step-input-section {
+  border-color: rgba(52, 211, 153, 0.16);
+}
+
+.step-input-list {
+  display: grid;
+  gap: 12px;
+}
+
+.step-input-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 16px;
+  background: rgba(6, 12, 24, 0.48);
+}
+
+.step-input-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.step-input-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #dff7ff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-input-output {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(4, 9, 18, 0.52);
+}
+
 .inspector-body .json-output-shell,
 .inspector-body .auto-output-text,
 .inspector-body .formula-markdown-output {
