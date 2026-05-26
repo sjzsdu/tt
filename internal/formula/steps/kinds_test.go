@@ -248,6 +248,34 @@ func TestToolStepDispatchesSleep(t *testing.T) {
 	}
 }
 
+func TestGitToolCommandBuilders(t *testing.T) {
+	cases := []struct {
+		name string
+		got  []string
+		want string
+	}{
+		{name: "fetch", got: mustGitArgs(buildGitFetchCommand(GitFetchStep{Remote: "origin", Prune: true})), want: "git fetch origin --prune"},
+		{name: "push", got: mustGitArgs(buildGitPushCommand(GitPushStep{Remote: "origin", Branch: "main", SetUpstream: true})), want: "git push --set-upstream origin main"},
+		{name: "branch list", got: mustGitArgs(buildGitBranchCommand(GitBranchStep{All: true})), want: "git branch --all"},
+		{name: "branch create", got: mustGitArgs(buildGitBranchCommand(GitBranchStep{Name: "feature", StartPoint: "origin/main"})), want: "git branch feature origin/main"},
+		{name: "checkout", got: mustGitArgs(buildGitCheckoutCommand(GitCheckoutStep{Branch: "feature", Create: true, StartPoint: "main"})), want: "git checkout -b feature main"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := strings.Join(tc.got, " "); got != tc.want {
+				t.Fatalf("command = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func mustGitArgs(args []string, err error) []string {
+	if err != nil {
+		panic(err)
+	}
+	return args
+}
+
 func TestSleepToolHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

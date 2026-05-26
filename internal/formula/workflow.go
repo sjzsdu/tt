@@ -161,7 +161,7 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 		if tool == nil {
 			tool = &ToolSpec{}
 		}
-		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), Sleep: sleepToolStep(tool.Sleep), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), Sleep: sleepToolStep(tool.Sleep), GitFetch: gitFetchToolStep(tool.GitFetch), GitPush: gitPushToolStep(tool.GitPush), GitBranch: gitBranchToolStep(tool.GitBranch), GitCheckout: gitCheckoutToolStep(tool.GitCheckout), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "write_files":
 		meta.Kind = steps.KindWriteFiles
 		writeFiles := step.WriteFiles
@@ -196,6 +196,34 @@ func sleepToolStep(spec *SleepSpec) *steps.SleepStep {
 		return nil
 	}
 	return &steps.SleepStep{Duration: spec.Duration, Seconds: spec.Seconds}
+}
+
+func gitFetchToolStep(spec *GitFetchSpec) *steps.GitFetchStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.GitFetchStep{Remote: spec.Remote, Prune: spec.Prune, Tags: spec.Tags, All: spec.All}
+}
+
+func gitPushToolStep(spec *GitPushSpec) *steps.GitPushStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.GitPushStep{Remote: spec.Remote, Branch: spec.Branch, Refspec: spec.Refspec, SetUpstream: spec.SetUpstream, ForceWithLease: spec.ForceWithLease, Tags: spec.Tags}
+}
+
+func gitBranchToolStep(spec *GitBranchSpec) *steps.GitBranchStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.GitBranchStep{Name: spec.Name, StartPoint: spec.StartPoint, All: spec.All, Delete: spec.Delete, ForceDelete: spec.ForceDelete}
+}
+
+func gitCheckoutToolStep(spec *GitCheckoutSpec) *steps.GitCheckoutStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.GitCheckoutStep{Branch: spec.Branch, Create: spec.Create, StartPoint: spec.StartPoint}
 }
 
 func outputValidationSpec(step *Step) *steps.OutputValidationSpec {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -385,11 +386,15 @@ type WriteFilesStep struct {
 
 type ToolStep struct {
 	Base
-	Name       string
-	WriteFiles *WriteFilesStep
-	Sleep      *SleepStep
-	OutputKey  string
-	Validation *OutputValidationSpec `json:"validate,omitempty"`
+	Name        string
+	WriteFiles  *WriteFilesStep
+	Sleep       *SleepStep
+	GitFetch    *GitFetchStep
+	GitPush     *GitPushStep
+	GitBranch   *GitBranchStep
+	GitCheckout *GitCheckoutStep
+	OutputKey   string
+	Validation  *OutputValidationSpec `json:"validate,omitempty"`
 }
 
 func (s ToolStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
@@ -411,9 +416,186 @@ func (s ToolStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		child := *s.Sleep
 		child.Validation = s.Validation
 		return child.Run(ctx, req)
+	case "git_fetch":
+		if s.GitFetch == nil {
+			return failedRun(fmt.Errorf("tool git_fetch config is required"))
+		}
+		return s.GitFetch.Run(ctx, req)
+	case "git_push":
+		if s.GitPush == nil {
+			return failedRun(fmt.Errorf("tool git_push config is required"))
+		}
+		return s.GitPush.Run(ctx, req)
+	case "git_branch":
+		if s.GitBranch == nil {
+			return failedRun(fmt.Errorf("tool git_branch config is required"))
+		}
+		return s.GitBranch.Run(ctx, req)
+	case "git_checkout":
+		if s.GitCheckout == nil {
+			return failedRun(fmt.Errorf("tool git_checkout config is required"))
+		}
+		return s.GitCheckout.Run(ctx, req)
 	default:
 		return failedRun(fmt.Errorf("unknown tool %q", s.Name))
 	}
+}
+
+type GitFetchStep struct {
+	Remote string
+	Prune  bool
+	Tags   bool
+	All    bool
+}
+
+type GitPushStep struct {
+	Remote         string
+	Branch         string
+	Refspec        string
+	SetUpstream    bool
+	ForceWithLease bool
+	Tags           bool
+}
+
+type GitBranchStep struct {
+	Name        string
+	StartPoint  string
+	All         bool
+	Delete      string
+	ForceDelete string
+}
+
+type GitCheckoutStep struct {
+	Branch     string
+	Create     bool
+	StartPoint string
+}
+
+func (s GitFetchStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	argv, err := buildGitFetchCommand(s)
+	return runGitTool(ctx, req, argv, err)
+}
+
+func (s GitPushStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	argv, err := buildGitPushCommand(s)
+	return runGitTool(ctx, req, argv, err)
+}
+
+func (s GitBranchStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	argv, err := buildGitBranchCommand(s)
+	return runGitTool(ctx, req, argv, err)
+}
+
+func (s GitCheckoutStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	argv, err := buildGitCheckoutCommand(s)
+	return runGitTool(ctx, req, argv, err)
+}
+
+func buildGitFetchCommand(s GitFetchStep) ([]string, error) {
+	args := []string{"git", "fetch"}
+	if s.All {
+		args = append(args, "--all")
+	} else if remote := strings.TrimSpace(s.Remote); remote != "" {
+		args = append(args, remote)
+	}
+	if s.Prune {
+		args = append(args, "--prune")
+	}
+	if s.Tags {
+		args = append(args, "--tags")
+	}
+	return args, nil
+}
+
+func buildGitPushCommand(s GitPushStep) ([]string, error) {
+	args := []string{"git", "push"}
+	if s.SetUpstream {
+		args = append(args, "--set-upstream")
+	}
+	if s.ForceWithLease {
+		args = append(args, "--force-with-lease")
+	}
+	if s.Tags {
+		args = append(args, "--tags")
+	}
+	if remote := strings.TrimSpace(s.Remote); remote != "" {
+		args = append(args, remote)
+	}
+	if refspec := strings.TrimSpace(s.Refspec); refspec != "" {
+		args = append(args, refspec)
+	} else if branch := strings.TrimSpace(s.Branch); branch != "" {
+		args = append(args, branch)
+	}
+	return args, nil
+}
+
+func buildGitBranchCommand(s GitBranchStep) ([]string, error) {
+	args := []string{"git", "branch"}
+	if target := strings.TrimSpace(s.Delete); target != "" {
+		return append(args, "-d", target), nil
+	}
+	if target := strings.TrimSpace(s.ForceDelete); target != "" {
+		return append(args, "-D", target), nil
+	}
+	if s.All {
+		args = append(args, "--all")
+	}
+	if name := strings.TrimSpace(s.Name); name != "" {
+		args = append(args, name)
+		if start := strings.TrimSpace(s.StartPoint); start != "" {
+			args = append(args, start)
+		}
+	}
+	return args, nil
+}
+
+func buildGitCheckoutCommand(s GitCheckoutStep) ([]string, error) {
+	branch := strings.TrimSpace(s.Branch)
+	if branch == "" {
+		return nil, fmt.Errorf("git_checkout branch is required")
+	}
+	args := []string{"git", "checkout"}
+	if s.Create {
+		args = append(args, "-b")
+	}
+	args = append(args, branch)
+	if start := strings.TrimSpace(s.StartPoint); start != "" {
+		args = append(args, start)
+	}
+	return args, nil
+}
+
+func runGitTool(ctx context.Context, req RunRequest, argv []string, buildErr error) (*RunResult, error) {
+	if buildErr != nil {
+		return failedRun(buildErr)
+	}
+	if len(argv) == 0 {
+		return failedRun(fmt.Errorf("git command is required"))
+	}
+	rendered := renderContextTemplateSlice(argv, req.Context)
+	cmd := exec.CommandContext(ctx, rendered[0], rendered[1:]...)
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+		if ee, ok := err.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		}
+	}
+	raw, marshalErr := json.Marshal(map[string]any{"command": rendered, "exit_code": exitCode, "stdout": stdout.String(), "stderr": stderr.String()})
+	if marshalErr != nil {
+		return failedRun(marshalErr)
+	}
+	res := &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}
+	if err != nil {
+		res.Status = StatusFailed
+		res.Error = &StepError{Message: "git tool failed", Cause: err}
+		return res, err
+	}
+	return res, nil
 }
 
 type SleepStep struct {

@@ -684,15 +684,49 @@ type AggregateSpec struct {
 
 // ToolSpec selects and configures a deterministic built-in local tool.
 type ToolSpec struct {
-	Name       string          `json:"name" toml:"name"`
-	WriteFiles *WriteFilesSpec `json:"write_files,omitempty" toml:"write_files,omitempty"`
-	Sleep      *SleepSpec      `json:"sleep,omitempty" toml:"sleep,omitempty"`
+	Name        string           `json:"name" toml:"name"`
+	WriteFiles  *WriteFilesSpec  `json:"write_files,omitempty" toml:"write_files,omitempty"`
+	Sleep       *SleepSpec       `json:"sleep,omitempty" toml:"sleep,omitempty"`
+	GitFetch    *GitFetchSpec    `json:"git_fetch,omitempty" toml:"git_fetch,omitempty"`
+	GitPush     *GitPushSpec     `json:"git_push,omitempty" toml:"git_push,omitempty"`
+	GitBranch   *GitBranchSpec   `json:"git_branch,omitempty" toml:"git_branch,omitempty"`
+	GitCheckout *GitCheckoutSpec `json:"git_checkout,omitempty" toml:"git_checkout,omitempty"`
 }
 
 // SleepSpec describes a deterministic wait duration.
 type SleepSpec struct {
 	Duration string `json:"duration,omitempty" toml:"duration,omitempty"`
 	Seconds  int    `json:"seconds,omitempty" toml:"seconds,omitempty"`
+}
+
+type GitFetchSpec struct {
+	Remote string `json:"remote,omitempty" toml:"remote,omitempty"`
+	Prune  bool   `json:"prune,omitempty" toml:"prune,omitempty"`
+	Tags   bool   `json:"tags,omitempty" toml:"tags,omitempty"`
+	All    bool   `json:"all,omitempty" toml:"all,omitempty"`
+}
+
+type GitPushSpec struct {
+	Remote         string `json:"remote,omitempty" toml:"remote,omitempty"`
+	Branch         string `json:"branch,omitempty" toml:"branch,omitempty"`
+	Refspec        string `json:"refspec,omitempty" toml:"refspec,omitempty"`
+	SetUpstream    bool   `json:"set_upstream,omitempty" toml:"set_upstream,omitempty"`
+	ForceWithLease bool   `json:"force_with_lease,omitempty" toml:"force_with_lease,omitempty"`
+	Tags           bool   `json:"tags,omitempty" toml:"tags,omitempty"`
+}
+
+type GitBranchSpec struct {
+	Name        string `json:"name,omitempty" toml:"name,omitempty"`
+	StartPoint  string `json:"start_point,omitempty" toml:"start_point,omitempty"`
+	All         bool   `json:"all,omitempty" toml:"all,omitempty"`
+	Delete      string `json:"delete,omitempty" toml:"delete,omitempty"`
+	ForceDelete string `json:"force_delete,omitempty" toml:"force_delete,omitempty"`
+}
+
+type GitCheckoutSpec struct {
+	Branch     string `json:"branch" toml:"branch"`
+	Create     bool   `json:"create,omitempty" toml:"create,omitempty"`
+	StartPoint string `json:"start_point,omitempty" toml:"start_point,omitempty"`
 }
 
 // WriteFilesSpec describes deterministic file creation from JSON context objects.
