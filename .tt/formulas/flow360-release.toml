@@ -2,8 +2,8 @@ formula = "flow360-release"
 title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
-description = "Flow360 专用发布流程：触发固定 GitHub Actions workflow，记录参数和 original_run_id，然后循环监视 run 状态；遇到 multi-branch merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到发布成功或进入人工审批阶段。"
-version = 4
+description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控状态；遇到 multi-branch merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到成功、进入审批等待或阻塞。"
+version = 5
 type = "workflow"
 
 [vars]
@@ -16,80 +16,59 @@ poll_interval_seconds = { description = "轮询间隔秒数", default = "30", ty
 id = "dispatch-run"
 title = "触发 Flow360 CD workflow"
 execution = "script"
-input_context = ["env"]
-description = "hard-code Flow360 repo 和 workflow，执行一次 gh workflow run，并锁定本次 original_run_id。"
+description = "触发 flexcompute/flex 的 Flow360 CD workflow，并锁定本次 run id。"
 
   [steps.script]
   command = ["python3", "-c", """
 import json, os, subprocess, time
-
 REPO = 'flexcompute/flex'
 WORKFLOW = '.github/workflows/frontend_flow360-ui-next-cd.yml'
 ENV_NAME = os.environ['TT_ENV_NAME'].strip()
-TAG = os.environ.get('TT_TAG','').strip()
-FRESH = os.environ.get('TT_FRESH_DEPLOY','false').strip().lower()
+TAG = os.environ.get('TT_TAG', '').strip()
+FRESH = os.environ.get('TT_FRESH_DEPLOY', 'false').strip().lower()
 PASS_TAG = bool(TAG and TAG != '-')
 
 def run(cmd):
     p = subprocess.run(cmd, text=True, capture_output=True)
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
-result = {
-    'repo': REPO,
-    'workflow_path': WORKFLOW,
-    'env_name': ENV_NAME,
-    'tag': TAG,
-    'pass_tag': PASS_TAG,
-    'fresh_deploy': FRESH == 'true',
-    'run_created': False,
-    'original_run_id': '',
-    'active_run_id': '',
-    'run_url': '',
-    'dispatch_error': '',
-}
+def emit(**kw):
+    base = dict(repo=REPO, workflow_path=WORKFLOW, env_name=ENV_NAME, tag=TAG, pass_tag=PASS_TAG, fresh_deploy=FRESH == 'true', run_created=False, original_run_id='', active_run_id='', run_url='', dispatch_error='')
+    base.update(kw)
+    print(json.dumps(base, separators=(',', ':')))
 
-before_rc, before_out, _ = run(['gh','run','list','-R',REPO,'--workflow',WORKFLOW,'--limit','20','--json','databaseId'])
+rc, out, _ = run(['gh', 'run', 'list', '-R', REPO, '--workflow', WORKFLOW, '--limit', '20', '--json', 'databaseId'])
 known = set()
-if before_rc == 0 and before_out:
+if rc == 0 and out:
     try:
-        known = {str(x.get('databaseId','')) for x in json.loads(before_out)}
+        known = {str(x.get('databaseId') or '') for x in json.loads(out)}
     except Exception:
-        known = set()
+        pass
 
-cmd = ['gh','workflow','run',WORKFLOW,'-R',REPO,'-f',f'envName={ENV_NAME}','-f',f'freshDeploy={FRESH}']
+cmd = ['gh', 'workflow', 'run', WORKFLOW, '-R', REPO, '-f', f'envName={ENV_NAME}', '-f', f'freshDeploy={FRESH}']
 if PASS_TAG:
     cmd += ['-f', f'tag={TAG}']
 rc, out, err = run(cmd)
 if rc != 0:
-    result['dispatch_error'] = err or out or 'gh workflow run failed'
-    print(json.dumps(result, separators=(',', ':')))
+    emit(dispatch_error=err or out or 'gh workflow run failed')
     raise SystemExit(0)
 
 for _ in range(12):
     time.sleep(5)
-    rc, out, _ = run(['gh','run','list','-R',REPO,'--workflow',WORKFLOW,'--limit','20','--json','databaseId,url,status,createdAt,headBranch,event'])
+    rc, out, _ = run(['gh', 'run', 'list', '-R', REPO, '--workflow', WORKFLOW, '--limit', '20', '--json', 'databaseId,url,status,createdAt,event'])
     if rc != 0 or not out:
         continue
     try:
         runs = json.loads(out)
     except Exception:
         continue
-    pick = None
-    for item in runs:
-        rid = str(item.get('databaseId',''))
-        if rid and rid not in known:
-            pick = item
-            break
-    if pick is None and runs:
-        pick = runs[0]
+    pick = next((item for item in runs if str(item.get('databaseId') or '') not in known), runs[0] if runs else None)
     if pick and pick.get('databaseId'):
         rid = str(pick['databaseId'])
-        result.update(run_created=True, original_run_id=rid, active_run_id=rid, run_url=pick.get('url',''))
-        break
+        emit(run_created=True, original_run_id=rid, active_run_id=rid, run_url=pick.get('url', ''))
+        raise SystemExit(0)
 
-if not result['run_created']:
-    result['dispatch_error'] = 'workflow dispatched but new run id was not visible within polling window'
-print(json.dumps(result, separators=(',', ':')))
+emit(dispatch_error='workflow dispatched but new run id was not visible within polling window')
 """]
   format = "json"
   timeout = "90s"
@@ -101,10 +80,9 @@ print(json.dumps(result, separators=(',', ':')))
 
 [[steps]]
 id = "monitor-and-rerun"
-title = "循环监视状态、修冲突并 rerun"
+title = "监控 run、修冲突并 rerun"
 depends_on = ["dispatch-run"]
-input_context = ["env", "dispatch-run"]
-description = "循环监控 dispatch-run.original_run_id，直到发布成功、进入人工审批阶段，或遇到不可自动处理的 blocker。"
+description = "循环检查 original_run_id；成功或审批等待即结束；检测到 Flow360 multi-branch merge conflict 时自动修复 tmp branch 并 rerun failed jobs。"
 
   [steps.loop]
   until = "release-progress.done == true"
@@ -112,44 +90,52 @@ description = "循环监控 dispatch-run.original_run_id，直到发布成功、
 
   [[steps.loop.body]]
   id = "fetch-run-info"
-  title = "获取 original run 信息"
+  title = "获取 run 和失败日志"
   execution = "script"
-  input_context = ["dispatch-run"]
-  description = "读取本次 original_run_id 的 run/job/log 信息，供后续判断。"
+  description = "读取 original_run_id 的 run/job 信息，只抓取失败 job 日志，避免拉取所有 completed job 日志。"
 
     [steps.loop.body.script]
     command = ["python3", "-c", """
 import json, os, subprocess
 REPO = 'flexcompute/flex'
-RID = os.environ.get('TT_ORIGINAL_RUN_ID','').strip()
+RID = os.environ.get('TT_ORIGINAL_RUN_ID', '').strip()
 
 def run(cmd):
     p = subprocess.run(cmd, text=True, capture_output=True)
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
-result = {'repo': REPO, 'original_run_id': RID, 'run_url': '', 'status': '', 'conclusion': '', 'jobs': [], 'failed_job_logs': [], 'error': ''}
+def emit(**kw):
+    base = dict(repo=REPO, original_run_id=RID, run_url='', status='', conclusion='', jobs=[], failed_job_logs=[], error='')
+    base.update(kw)
+    print(json.dumps(base, separators=(',', ':')))
+
 if not RID:
-    result['error'] = 'missing original_run_id'
-    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
-rc, out, err = run(['gh','run','view',RID,'-R',REPO,'--json','databaseId,url,status,conclusion,jobs'])
+    emit(error='missing original_run_id')
+    raise SystemExit(0)
+
+rc, out, err = run(['gh', 'run', 'view', RID, '-R', REPO, '--json', 'databaseId,url,status,conclusion,jobs'])
 if rc != 0:
-    result['error'] = err or out or 'gh run view failed'
-    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+    emit(error=err or out or 'gh run view failed')
+    raise SystemExit(0)
 try:
     data = json.loads(out)
 except Exception as exc:
-    result['error'] = f'parse gh run view failed: {exc}'
-    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
-result.update(run_url=data.get('url',''), status=data.get('status',''), conclusion=data.get('conclusion') or '', jobs=data.get('jobs') or [])
-for job in result['jobs']:
-    if (job.get('conclusion') or '').lower() == 'failure' or (job.get('status') or '').lower() == 'completed':
-        jid = str(job.get('databaseId') or '')
-        if not jid:
-            continue
-        rc, log, _ = run(['gh','run','view',RID,'-R',REPO,'--job',jid,'--log'])
-        if rc == 0 and log:
-            result['failed_job_logs'].append({'job_id': jid, 'name': job.get('name',''), 'log_excerpt': log[-20000:]})
-print(json.dumps(result, separators=(',', ':')))
+    emit(error=f'parse gh run view failed: {exc}')
+    raise SystemExit(0)
+
+jobs = data.get('jobs') or []
+failed_logs = []
+for job in jobs:
+    if (job.get('conclusion') or '').lower() != 'failure':
+        continue
+    jid = str(job.get('databaseId') or '')
+    if not jid:
+        continue
+    rc, log, _ = run(['gh', 'run', 'view', RID, '-R', REPO, '--job', jid, '--log'])
+    if rc == 0 and log:
+        failed_logs.append({'job_id': jid, 'name': job.get('name', ''), 'log_excerpt': log[-20000:]})
+
+emit(run_url=data.get('url', ''), status=data.get('status', ''), conclusion=data.get('conclusion') or '', jobs=jobs, failed_job_logs=failed_logs)
 """]
     format = "json"
     timeout = "60s"
@@ -159,19 +145,19 @@ print(json.dumps(result, separators=(',', ':')))
 
   [[steps.loop.body]]
   id = "classify-run-state"
-  title = "判断 run 状态和下一步动作"
+  title = "判断 run 状态"
   depends_on = ["fetch-run-info"]
   input_context = ["dispatch-run", "fetch-run-info"]
   description = """
-根据 fetch-run-info 判断本轮状态。
+根据 fetch-run-info 输出判断本轮动作。
 
 规则：
-- dispatch-run.run_created=false 或 fetch-run-info.error 非空 -> action=block, done=true。
-- GitHub Actions 进入人工 approval / waiting / environment protection 阶段，算发布成功终态，action=none, done=true, final_state=approval_required。
-- 成功 -> action=none, done=true, final_state=succeeded。
-- 仍 queued/in_progress/running -> action=wait, done=false。
-- 失败且日志是 Flow360 multi-branch merge conflict -> action=repair_conflict, done=false，必须提取 tmp_branch、remaining_queue、conflicted_branches。
-- 其他失败 -> action=block, done=true。
+- dispatch-run.run_created=false 或 fetch-run-info.error 非空 -> done=true, action=block, final_state=blocked。
+- GitHub Actions 等待人工 approval / waiting / environment protection -> done=true, action=none, final_state=approval_required。
+- conclusion=success -> done=true, action=none, final_state=succeeded。
+- status 为 queued/in_progress/running -> done=false, action=wait, final_state=running。
+- 失败且 failed_job_logs 是 Flow360 multi-branch merge conflict -> done=false, action=repair_conflict，并提取 tmp_branch、remaining_queue、conflicted_branches。
+- 其他失败 -> done=true, action=block, final_state=blocked。
 
 输出 ONLY compact JSON：
 {"done":false,"final_state":"running|succeeded|approval_required|blocked","action":"wait|repair_conflict|block|none","run_url":"","tmp_branch":"","remaining_queue":[],"conflicted_branches":[],"reason":""}
@@ -186,12 +172,12 @@ print(json.dumps(result, separators=(',', ':')))
 
   [[steps.loop.body]]
   id = "repair-conflict"
-  title = "修复 tmp branch 的 multi-branch merge conflict"
+  title = "修复 multi-branch merge conflict"
   depends_on = ["classify-run-state"]
   condition = "classify-run-state.action == repair_conflict"
   input_context = ["env", "dispatch-run", "fetch-run-info", "classify-run-state"]
   description = """
-根据 classify-run-state 提取到的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。
+根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。
 
 必须执行：
 1. git fetch origin。
@@ -202,7 +188,7 @@ print(json.dumps(result, separators=(',', ':')))
 6. 运行必要轻量验证。
 7. push 回 tmp_branch，必须使用 `git push --no-verify origin HEAD:<tmp_branch>`。
 
-不要新建 workflow run，不要 rerun，这一步只负责修复并 push tmp branch。
+禁止新建 workflow run，禁止 rerun，本步骤只负责修复并 push tmp branch。
 输出 ONLY compact JSON：
 {"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"push_completed":true,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":""}
 """
@@ -220,12 +206,21 @@ print(json.dumps(result, separators=(',', ':')))
   execution = "script"
   depends_on = ["repair-conflict"]
   condition = "repair-conflict.resolved == true"
-  input_context = ["dispatch-run", "repair-conflict"]
+  description = "修复 tmp branch 后只 rerun failed jobs，继续监视同一个 original_run_id。"
 
     [steps.loop.body.script]
-    command = ["gh", "run", "rerun", "{{dispatch-run.original_run_id}}", "-R", "flexcompute/flex", "--failed"]
-    format = "text"
+    command = ["python3", "-c", """
+import json, os, subprocess
+REPO = 'flexcompute/flex'
+RID = os.environ.get('TT_ORIGINAL_RUN_ID', '').strip()
+p = subprocess.run(['gh', 'run', 'rerun', RID, '-R', REPO, '--failed'], text=True, capture_output=True)
+print(json.dumps({'requested': p.returncode == 0, 'original_run_id': RID, 'stdout': p.stdout.strip(), 'stderr': p.stderr.strip()}, separators=(',', ':')))
+"""]
+    format = "json"
     timeout = "60s"
+
+    [steps.loop.body.script.env]
+    TT_ORIGINAL_RUN_ID = "{{dispatch-run.original_run_id}}"
 
   [[steps.loop.body]]
   id = "wait-next-poll"
@@ -242,36 +237,90 @@ print(json.dumps(result, separators=(',', ':')))
   [[steps.loop.body]]
   id = "release-progress"
   title = "更新发布进度"
+  execution = "script"
   depends_on = ["classify-run-state", "repair-conflict", "rerun-failed-jobs", "wait-next-poll"]
-  input_context = ["dispatch-run", "fetch-run-info", "classify-run-state", "repair-conflict", "rerun-failed-jobs", "wait-next-poll"]
-  description = """
-汇总本轮结果，决定 loop 是否结束。
+  description = "用确定性脚本汇总本轮结果，避免额外 agent 漂移。"
 
-规则：
-- classify-run-state.done=true -> done=true，final_state 使用 classify-run-state.final_state。
-- repair-conflict 执行且 resolved=false -> done=true，final_state=blocked。
-- repair-conflict resolved=true 且 rerun-failed-jobs 已执行 -> done=false，summary 写明已 rerun failed jobs，下一轮继续监视同一个 original_run_id。
-- action=wait -> done=false。
+    [steps.loop.body.script]
+    command = ["python3", "-c", """
+import json, os
 
-注意：approval_required 算成功终态，不要要求用户输入。
-输出 ONLY compact JSON：
-{"done":false,"final_state":"running|succeeded|approval_required|blocked","run_url":"","original_run_id":"","tmp_branch":"","conflicted_branches":[],"repair_attempted":false,"repair_resolved":false,"rerun_requested":false,"validations_run":[],"blocker_type":"none|dispatch|non_conflict_failure|git_state|validation_failed|auth|unknown","summary":""}
-"""
+def load(name, default=None):
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default if default is not None else {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default if default is not None else {}
 
-    [steps.loop.body.agent]
-    name = "planner"
+cls = load('TT_CLASSIFY', {})
+repair = load('TT_REPAIR', {})
+rerun = load('TT_RERUN', {})
+dispatch = load('TT_DISPATCH', {})
+fetch = load('TT_FETCH', {})
 
-    [steps.loop.body.validate]
+action = cls.get('action') or 'block'
+repair_attempted = bool(repair.get('attempted'))
+repair_resolved = bool(repair.get('resolved'))
+rerun_requested = bool(rerun.get('requested'))
+
+done = bool(cls.get('done'))
+final_state = cls.get('final_state') or 'running'
+blocker_type = 'none'
+summary = cls.get('reason') or ''
+
+if action == 'repair_conflict':
+    if repair_attempted and not repair_resolved:
+        done, final_state = True, 'blocked'
+        blocker_type = repair.get('blocker_type') or 'unknown'
+        summary = repair.get('blocker_summary') or summary or 'repair failed'
+    elif repair_resolved and rerun_requested:
+        done, final_state = False, 'running'
+        summary = 'conflict repaired and failed jobs rerun; continue monitoring original run'
+    else:
+        done, final_state = True, 'blocked'
+        blocker_type = 'unknown'
+        summary = summary or 'repair or rerun did not complete'
+elif action == 'wait':
+    done, final_state = False, 'running'
+elif action == 'block':
+    done, final_state = True, 'blocked'
+    blocker_type = 'dispatch' if dispatch.get('dispatch_error') else 'non_conflict_failure'
+
+out = {
+    'done': done,
+    'final_state': final_state,
+    'run_url': cls.get('run_url') or fetch.get('run_url') or dispatch.get('run_url') or '',
+    'original_run_id': dispatch.get('original_run_id') or fetch.get('original_run_id') or '',
+    'tmp_branch': cls.get('tmp_branch') or repair.get('tmp_branch') or '',
+    'conflicted_branches': cls.get('conflicted_branches') or [],
+    'repair_attempted': repair_attempted,
+    'repair_resolved': repair_resolved,
+    'rerun_requested': rerun_requested,
+    'validations_run': repair.get('validations_run') or [],
+    'blocker_type': blocker_type,
+    'summary': summary,
+}
+print(json.dumps(out, separators=(',', ':')))
+"""]
     format = "json"
-    required = ["done", "final_state", "original_run_id", "summary", "rerun_requested", "blocker_type"]
+    timeout = "30s"
+
+    [steps.loop.body.script.env]
+    TT_DISPATCH = "{{dispatch-run}}"
+    TT_FETCH = "{{fetch-run-info}}"
+    TT_CLASSIFY = "{{classify-run-state}}"
+    TT_REPAIR = "{{repair-conflict}}"
+    TT_RERUN = "{{rerun-failed-jobs}}"
 
 [[steps]]
 id = "final-report"
 title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
-input_context = ["env", "dispatch-run", "release-progress", "fetch-run-info", "classify-run-state", "repair-conflict", "rerun-failed-jobs"]
+input_context = ["dispatch-run", "release-progress", "fetch-run-info", "classify-run-state", "repair-conflict", "rerun-failed-jobs"]
 description = """
-输出中文发布报告，包含：env_name、tag、fresh_deploy、repo/workflow、original_run_id/run_url、最终状态、是否进入人工审批阶段、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。强调本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch。
+输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、最终状态、是否进入人工审批阶段、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。强调本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch。
 """
 
 [steps.agent]
