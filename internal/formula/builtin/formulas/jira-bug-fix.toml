@@ -1,6 +1,6 @@
 formula = "jira-bug-fix"
-description = "获取 Jira ticket 与最新评论，整理出可执行的 bug 描述后，用 typed runtime 内嵌 bug-fix workflow 处理，并输出最终结论。"
-version = 2
+description = "获取 Jira ticket 与最新评论后，直接用 typed runtime 内嵌 bug-fix workflow 分析、修复并输出最终结论。"
+version = 3
 type = "workflow"
 
 [vars]
@@ -17,59 +17,33 @@ format = "json"
 timeout = "30s"
 
 [[steps]]
-id = "summarize-ticket"
-title = "整理 ticket 内容为 bug 描述"
-depends_on = ["fetch-ticket-data"]
-input_context = ["fetch-ticket-data"]
-description = """
-基于 ticket_raw，整理 Jira ticket 的核心内容、评论反馈和可用于排查 bug 的描述。
-
-输出 ONLY compact JSON：
-{
-  "ticket_key":"PROJ-123",
-  "ticket_summary":"...",
-  "comment_summary":"...",
-  "business_goal":"...",
-  "constraints":["..."],
-  "acceptance_signals":["..."],
-  "suggested_code_scope":["..."],
-  "bug_issue_summary":"...",
-  "open_questions":["..."]
-}
-
-要求：
-- 评论摘要要覆盖关键反馈、争议点和复现/期望行为线索。
-- bug_issue_summary 要写成可直接传给 bug-fix formula 的问题描述，包含现象、期望、评论中的复现线索和代码范围提示。
-- 不需要在这里判断是否进入 bug-fix；这个步骤的职责只是产出高质量 bug 描述。
-- 如果 ticket 本身信息混乱，也要尽量整理出最可执行的 issue_summary，并把缺口写进 open_questions。
-"""
-agent.name = "reviewer"
-
-[[steps]]
 id = "run-bug-fix"
 title = "内嵌 bug-fix workflow 处理 ticket"
-depends_on = ["summarize-ticket"]
-input_context = ["summarize-ticket"]
+depends_on = ["fetch-ticket-data"]
+input_context = ["fetch-ticket-data"]
 embed = "bug-fix"
 
 [steps.embed_vars]
-issue_summary = "{{summarize-ticket.bug_issue_summary}}"
+issue_summary = """
+Jira ticket {{ticket_key}} 的原始内容与最新评论如下。请先在 bug-fix 的 analyze-issue 步骤中整理问题现象、期望行为、评论线索和必要假设，再继续代码调研与修复判断。
+
+{{fetch-ticket-data}}
+"""
 
 [[steps]]
 id = "final-report"
 title = "输出 Jira 处理最终报告"
 depends_on = ["run-bug-fix"]
-input_context = ["summarize-ticket", "run-bug-fix"]
+input_context = ["fetch-ticket-data", "run-bug-fix"]
 description = """
 面向用户输出简明中文报告。
 
 报告必须回答：
 1. Jira ticket 核心内容与最新评论要点；
-2. 整理后的 bug 描述重点；
-3. bug-fix 的最终结论摘要；
-4. 若问题不存在，给出 no_bug_resolution 的核心说明；
-5. 若问题存在，简述修复结果、验证结论与剩余风险；
-6. 若流程卡在用户补充信息，也要说明当前卡点与所需补充内容。
+2. bug-fix 对问题的理解、代码调研和最终判断；
+3. 若问题不存在，给出 no_bug_resolution 的核心说明；
+4. 若问题存在，简述修复结果、验证结论与剩余风险；
+5. 若流程卡在用户补充信息，也要说明当前卡点与所需补充内容。
 
 要求：
 - 结论先行。
