@@ -238,6 +238,40 @@ function edgeMarkerColor(status?: string) {
   return 'rgba(148, 163, 184, 0.82)';
 }
 
+function loopBodyGraphID(parentID: string, bodyID: string) {
+  return `${parentID}__${bodyID}`;
+}
+
+function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody, index: number): FormulaDashboardStep {
+  const bodyActivity = [...(parent.activities || [])]
+    .reverse()
+    .find(activity => loopActivityBodyID(activity) === body.id);
+  return {
+    id: loopBodyGraphID(parent.id, body.id),
+    title: body.title || body.id,
+    description: body.description,
+    type: 'loop-body',
+    agent: body.agent || parent.agent,
+    model: body.model || parent.model,
+    status: bodyActivity?.status || 'pending',
+    output: bodyActivity?.output,
+    error: bodyActivity?.error,
+    duration_ms: bodyActivity?.duration_ms,
+    output_key: body.output_key,
+    input_ctx: body.input_ctx,
+    condition: body.condition,
+    depends_on: body.depends_on,
+    metadata: {
+      parent_step: parent.id,
+      body_id: body.id,
+      iteration: loopActivityIteration(bodyActivity),
+    },
+    activities: bodyActivity ? [bodyActivity] : [],
+    depth: (parent.depth || 0) + 1,
+    index,
+  };
+}
+
 function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void) {
   const grouped = new Map<number, FormulaDashboardStep[]>();
   for (const step of snapshot.steps) {
@@ -257,6 +291,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   const paddingTop = 52;
   const paddingBottom = 28;
   const nodes: Node<StepNodeData | LoopGroupNodeData>[] = [];
+  const nodeIDs = new Set<string>();
   const stepStatus = new Map(snapshot.steps.map(step => [step.id, step.status]));
   let maxY = paddingTop;
 
@@ -277,13 +312,33 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     for (const step of column) {
       const x = depthX.get(depth) || paddingX;
       nodes.push({ id: step.id, type: 'step', data: { step, kind: 'step', onSelect }, position: { x, y }, style: { width: nodeWidth, height: nodeHeight } });
+      nodeIDs.add(step.id);
+
+      const loopBody = step.loop?.body || [];
+      if (loopBody.length) {
+        const bodyX = x + nodeWidth + Math.floor(colGap * 0.72);
+        let bodyY = y + 26;
+        for (const [bodyIndex, body] of loopBody.entries()) {
+          const bodyStep = loopBodyStep(step, body, bodyIndex);
+          const bodyNodeID = loopBodyGraphID(step.id, body.id);
+          nodes.push({
+            id: bodyNodeID,
+            type: 'step',
+            data: { step: bodyStep, kind: 'loop-body', parentStep: step, body, onSelect },
+            position: { x: bodyX, y: bodyY },
+            style: { width: nodeWidth - 28, height: 132 },
+          });
+          bodyY += 152;
+          nodeIDs.add(bodyNodeID);
+          stepStatus.set(bodyNodeID, bodyStep.status);
+        }
+        maxY = Math.max(maxY, bodyY + paddingBottom);
+      }
 
       y += nodeHeight + rowGap;
       maxY = Math.max(maxY, y);
     }
   }
-
-  const nodeIDs = new Set(nodes.map(node => node.id));
   const statusFor = (id: string) => stepStatus.get(id) || 'pending';
   const edges: Edge[] = snapshot.edges.flatMap(edge => {
     if (!nodeIDs.has(edge.from) || !nodeIDs.has(edge.to)) return [];
@@ -300,7 +355,36 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     }];
   });
 
-  const width = Math.max(720, nextX + paddingX - colGap);
+  for (const step of snapshot.steps) {
+    const loopBody = step.loop?.body || [];
+    if (!loopBody.length) continue;
+    const bodyIDs = new Set(loopBody.map(body => body.id));
+    for (const [index, body] of loopBody.entries()) {
+      const target = loopBodyGraphID(step.id, body.id);
+      const deps = body.depends_on?.filter(dep => bodyIDs.has(dep)) || [];
+      const sources = deps.length
+        ? deps.map(dep => loopBodyGraphID(step.id, dep))
+        : index === 0
+          ? [step.id]
+          : [loopBodyGraphID(step.id, loopBody[index - 1].id)];
+      for (const source of sources) {
+        const targetStatus = statusFor(target);
+        const sourceStatus = statusFor(source);
+        edges.push({
+          id: `${source}-${target}`,
+          source,
+          target,
+          type: 'smoothstep',
+          animated: targetStatus === 'running',
+          markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) },
+          className: edgeVisualClass(sourceStatus, targetStatus, 'loop-body-edge'),
+        });
+      }
+    }
+  }
+
+  const hasLoopBodyNodes = snapshot.steps.some(step => !!step.loop?.body?.length);
+  const width = Math.max(720, nextX + paddingX - colGap + (hasLoopBodyNodes ? nodeWidth : 0));
   const height = Math.max(420, paddingBottom + maxY);
   return { widths: { nodeWidth, nodeHeight, colGap, paddingX }, depths, nodes, edges, width, height };
 }

@@ -22,7 +22,7 @@ func TestGenerateMermaidGraphExpandsLoopBody(t *testing.T) {
 	workflow.Graph.AddNode(&ir.Node{ID: "monitor", Step: loop})
 
 	graph := GenerateMermaidGraph(workflow)
-	for _, want := range []string{"subgraph monitor_loop", "monitor__fetch", "monitor__classify", "monitor__fetch --> monitor__classify"} {
+	for _, want := range []string{`subgraph monitor_loop ["monitor loop body"]`, "monitor__fetch", "monitor__classify", "monitor__fetch --> monitor__classify"} {
 		if !strings.Contains(graph, want) {
 			t.Fatalf("graph missing %q:\n%s", want, graph)
 		}

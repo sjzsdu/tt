@@ -226,7 +226,7 @@ func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
 		return
 	}
 	parentID := string(step.Meta().ID)
-	b.WriteString(fmt.Sprintf("  subgraph %s_loop[%s]\n", mermaidNodeID(parentID), mermaidLabel(parentID+" loop body")))
+	b.WriteString(fmt.Sprintf("  subgraph %s [%s]\n", mermaidNodeID(parentID)+"_loop", mermaidLabel(parentID+" loop body")))
 	bodyIDs := map[string]struct{}{}
 	for _, child := range loop.Body {
 		if child == nil {
