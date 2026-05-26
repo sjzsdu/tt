@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
 description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 docs。"
-version = 11
+version = 12
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -154,6 +154,22 @@ depends_on = ["article-plan"]
   required = ["filename", "title", "summary", "content"]
 
 [[steps]]
+id = "article-manifest"
+title = "聚合文章文件清单"
+depends_on = ["write-articles"]
+execution = "aggregate"
+
+[steps.aggregate]
+source = "write-articles"
+as = "articles"
+require = ["filename", "title", "summary", "content"]
+exclude = ["content"]
+
+[steps.validate]
+format = "json"
+required = ["articles"]
+
+[[steps]]
 id = "write-doc-files"
 title = "写入文章文件并生成文件清单"
 depends_on = ["topic-package-plan", "write-articles"]
@@ -215,10 +231,10 @@ required = ["stdout", "exit_code"]
 [[steps]]
 id = "series-package"
 title = "生成 README 并汇总文档包"
-depends_on = ["write-doc-files"]
-input_context = ["topic-package-plan", "write-doc-files.stdout"]
+depends_on = ["write-doc-files", "article-manifest"]
+input_context = ["topic-package-plan", "article-manifest", "write-doc-files.stdout"]
 description = """
-文章正文已经由 write-doc-files 确定性写入磁盘。你只需要基于轻量级打包计划和文件清单，写入 README 并输出最终汇总，不要再读取或复述所有文章正文。
+文章正文已经由 write-doc-files 这个 script 确定性写入磁盘。你只需要基于 topic-package-plan、article-manifest 和 write-doc-files.stdout 的轻量文件清单，写入 README 并输出最终汇总，不要再读取或复述所有文章正文。
 
 目录命名要求：
 - 使用 topic-package-plan.topic_name 和 write-doc-files.stdout.directory。

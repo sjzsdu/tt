@@ -20,6 +20,7 @@ const (
 	KindRetry      Kind = "retry"
 	KindEmbed      Kind = "embed"
 	KindExpand     Kind = "expand"
+	KindAggregate  Kind = "aggregate"
 )
 
 type ID string

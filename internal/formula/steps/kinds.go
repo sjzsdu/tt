@@ -250,6 +250,123 @@ func (s HumanInputStep) Run(context.Context, RunRequest) (*RunResult, error) {
 	return &RunResult{Status: StatusWaiting, Await: &AwaitRequest{Type: string(KindHumanInput), Reason: s.Reason, Form: s.Form}}, nil
 }
 
+type AggregateStep struct {
+	Base
+	Source     string
+	As         string
+	Require    []string
+	Include    []string
+	Exclude    []string
+	Flatten    bool
+	OutputKey  string
+	Validation *OutputValidationSpec `json:"validate,omitempty"`
+}
+
+func (s AggregateStep) Run(_ context.Context, req RunRequest) (*RunResult, error) {
+	if req.Context == nil {
+		err := fmt.Errorf("aggregate context is required")
+		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+	source := strings.TrimSpace(s.Source)
+	if source == "" {
+		err := fmt.Errorf("aggregate source is required")
+		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+	value, ok := req.Context.Get(source)
+	if !ok {
+		err := fmt.Errorf("aggregate source %q not found", source)
+		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+	var data any
+	if err := json.Unmarshal(value.Raw, &data); err != nil {
+		err = fmt.Errorf("aggregate source %q must be JSON: %w", source, err)
+		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+
+	items := aggregateCollect(data, s.Require)
+	projected := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		projected = append(projected, aggregateProject(item, s.Include, s.Exclude))
+	}
+	var out any = projected
+	if as := strings.TrimSpace(s.As); as != "" {
+		out = map[string]any{as: projected}
+	} else if s.Flatten && len(projected) == 1 {
+		out = projected[0]
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func aggregateCollect(value any, required []string) []map[string]any {
+	requiredSet := compactStringSet(required)
+	var out []map[string]any
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case []any:
+			for _, item := range x {
+				walk(item)
+			}
+		case map[string]any:
+			if objectHasKeys(x, requiredSet) {
+				out = append(out, x)
+			}
+			for _, child := range x {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return out
+}
+
+func aggregateProject(item map[string]any, include, exclude []string) map[string]any {
+	out := map[string]any{}
+	includeSet := compactStringSet(include)
+	excludeSet := compactStringSet(exclude)
+	if len(includeSet) > 0 {
+		for key := range includeSet {
+			if value, ok := item[key]; ok {
+				out[key] = value
+			}
+		}
+		return out
+	}
+	for key, value := range item {
+		if !excludeSet[key] {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func compactStringSet(values []string) map[string]bool {
+	out := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out[value] = true
+		}
+	}
+	return out
+}
+
+func objectHasKeys(object map[string]any, keys map[string]bool) bool {
+	if len(keys) == 0 {
+		return true
+	}
+	for key := range keys {
+		if _, ok := object[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 type LoopStep struct {
 	Base
 	Body           []Step

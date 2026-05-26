@@ -259,6 +259,9 @@ type Step struct {
 	// Script specifies a deterministic local command for execution="script" steps.
 	Script *ScriptSpec `json:"script,omitempty" toml:"script,omitempty"`
 
+	// Aggregate projects and collects data from prior step outputs.
+	Aggregate *AggregateSpec `json:"aggregate,omitempty" toml:"aggregate,omitempty"`
+
 	// Form describes fields required by execution="human_input" steps.
 	Form *FormSpec `json:"form,omitempty" toml:"form,omitempty"`
 
@@ -382,6 +385,7 @@ type stepTOMLAlias struct {
 	Timeout         string            `json:"timeout,omitempty"`
 	Agent           *AgentConfig      `json:"agent,omitempty"`
 	Script          *ScriptSpec       `json:"script,omitempty"`
+	Aggregate       *AggregateSpec    `json:"aggregate,omitempty"`
 	Form            json.RawMessage   `json:"form,omitempty"`
 	DynamicForm     bool              `json:"dynamic_form,omitempty"`
 	Validate        *ValidateSpec     `json:"validate,omitempty"`
@@ -484,6 +488,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Timeout:         a.Timeout,
 		Agent:           a.Agent,
 		Script:          a.Script,
+		Aggregate:       a.Aggregate,
 		Form:            form,
 		DynamicForm:     dynamicForm,
 		Validate:        a.Validate,
@@ -655,6 +660,16 @@ type ScriptSpec struct {
 	Format          string            `json:"format,omitempty" toml:"format,omitempty"`
 	Timeout         string            `json:"timeout,omitempty" toml:"timeout,omitempty"`
 	ContinueOnError bool              `json:"continue_on_error,omitempty" toml:"continue_on_error,omitempty"`
+}
+
+// AggregateSpec describes a deterministic projection/collection over JSON context.
+type AggregateSpec struct {
+	Source  string   `json:"source" toml:"source"`
+	As      string   `json:"as,omitempty" toml:"as,omitempty"`
+	Require []string `json:"require,omitempty" toml:"require,omitempty"`
+	Include []string `json:"include,omitempty" toml:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty" toml:"exclude,omitempty"`
+	Flatten bool     `json:"flatten,omitempty" toml:"flatten,omitempty"`
 }
 
 // FormSpec describes a human input form for execution="human_input" steps.

@@ -148,6 +148,13 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			env = step.Script.Env
 		}
 		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+	case "aggregate":
+		meta.Kind = steps.KindAggregate
+		agg := step.Aggregate
+		if agg == nil {
+			agg = &AggregateSpec{}
+		}
+		return steps.AggregateStep{Base: steps.Base{Metadata: meta}, Source: agg.Source, As: agg.As, Require: append([]string(nil), agg.Require...), Include: append([]string(nil), agg.Include...), Exclude: append([]string(nil), agg.Exclude...), Flatten: agg.Flatten, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "human_input":
 		meta.Kind = steps.KindHumanInput
 		return steps.HumanInputStep{Base: steps.Base{Metadata: meta}, Reason: step.Description, Form: step.Form, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}

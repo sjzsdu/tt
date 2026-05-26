@@ -140,6 +140,36 @@ func TestScriptStepRendersRuntimeContextTemplates(t *testing.T) {
 	}
 }
 
+func TestAggregateStepCollectsAndProjectsObjects(t *testing.T) {
+	step := AggregateStep{
+		Base:    Base{Metadata: Metadata{ID: "manifest", Kind: KindAggregate}},
+		Source:  "write-articles",
+		As:      "articles",
+		Require: []string{"filename", "title", "summary", "content"},
+		Exclude: []string{"content"},
+	}
+	res, err := step.Run(context.Background(), RunRequest{Context: mapContextView{
+		"write-articles": {Raw: []byte(`{"nested":[{"filename":"01.md","title":"One","summary":"S","content":"large"},{"skip":true}]}`)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string][]map[string]any
+	if err := json.Unmarshal(res.Output.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	articles := got["articles"]
+	if len(articles) != 1 {
+		t.Fatalf("articles = %+v", articles)
+	}
+	if _, ok := articles[0]["content"]; ok {
+		t.Fatalf("content should be excluded: %+v", articles[0])
+	}
+	if articles[0]["filename"] != "01.md" || articles[0]["title"] != "One" {
+		t.Fatalf("article projection = %+v", articles[0])
+	}
+}
+
 func TestLoopStepEmitsBodyActivityEvents(t *testing.T) {
 	loop := LoopStep{
 		Base: Base{Metadata: Metadata{ID: "loop", Kind: KindLoop}},
