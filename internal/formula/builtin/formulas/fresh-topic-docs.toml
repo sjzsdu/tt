@@ -1,100 +1,54 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
-description = "根据用户输入的新鲜事物、概念、趋势或话题，先用 typed runtime 显式澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 .tt/docs。"
-version = 8
+description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 .tt/docs。"
+version = 9
 type = "workflow"
 category = "learning"
-tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach"]
+tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
 
 [vars]
 topic = { description = "想了解的新鲜事物、概念、趋势、产品、人物、技术或现象", required = true }
 
 [[steps]]
 id = "scope-analysis"
-title = "分析话题并确定探索方向"
+title = "分析话题并动态澄清范围"
+form = true
 description = """
-首先，深入分析话题「{{topic}}」的本质。
+深入分析话题「{{topic}}」的本质，并形成后续系列文章的写作范围配置。
 
-判断这个话题属于什么领域——它可能涉及多个领域（技术、商业、历史、社会、文化、科学、政治、艺术、经济等），分析清楚它的核心属性。
+你的目标不是套固定模板，而是根据话题本身判断：
+- 它属于什么领域：技术、商业、历史、社会、文化、科学、政治、艺术、经济等，可能多领域交叉。
+- 用户意图是否已经足够明确。
+- 是否需要进一步澄清关注方向、读者背景、文章深度、交付风格或边界。
 
-然后，根据话题的特点，决定需要向用户了解哪些信息（如有），以便后续更好地撰写文档。
-
-**关键：不要使用固定的字段模版。每一次都应该根据话题本身，决定需要问什么、需要问几个问题、甚至是否需要问问题。**
-
-### 可能需要的用户信息（示例，仅供参考）：
-
-不同话题可能需要不同的信息。以下是几种举例：
-
-- 量子计算 → 需要问：关注的技术方向、读者背景、文章深度
-- WebGPU → 需要问：读者背景、关注方向、技术深度
-- 商鞅变法 → 需要问：关注维度、偏好的史观视角
-- 小红书运营 → 需要问：当前阶段、主要平台、内容形式
-- 什么是 P=NP 问题 → 可能需要问：数学背景程度、感兴趣的方面
-- "登鹳雀楼"诗歌赏析 → 极大概率不需要额外问题
-
-关键原则：
-1. 对于大多数话题，默认应该弹表单。除非话题极其简单和聚焦，否则都应通过表单向用户确认方向。
-2. 需要问什么，由话题决定。可以问方向选择、读者背景、深度偏好、关注维度等，不固定模版。
-3. 需要问几个问题，由复杂度决定。简单话题 1-2 个问题，复杂话题 2-4 个问题合适。最少 1 个，最多不超过 5 个。
-4. 有疑问时，倾向于弹表单让用户确认，而不是自作主张。
-5. 只有极其简单的话题才跳过表单。
+动态澄清原则：
+1. 对于大多数宽泛话题，应该动态澄清。除非话题非常简单、具体、边界清晰，否则不要自作主张。
+2. 需要问什么由话题决定，不要使用固定字段模板。
+3. 问题数量由复杂度决定，通常 1-4 个，最多 5 个。
+4. 只问会影响系列文章结构、深度或侧重点的问题。
+5. 如果不需要澄清，直接完成输出。
 
 输出要求：
-- 输出 ONLY compact JSON，不要 Markdown，不要代码块。
-- 格式：
-{"needs_user_scope":true,"topic_type":"...","recommended_focus_options":["..."],"recommended_depth":"入门|进阶|深入","scope_notes":"...","plan_brief":"..."}
-- needs_user_scope 表示是否建议通过显式 human_input step 让用户确认方向。
-- recommended_focus_options 给后续表单选项和文章规划参考。
+- 如果需要用户补充信息，按运行时注入的 dynamic human input 协议发起表单。
+- 如果信息已经足够，或用户已完成澄清，输出 ONLY compact JSON，不要 Markdown，不要代码块。
+- JSON 格式：
+{"topic":"{{topic}}","topic_type":"...","focus":"...","audience":"...","depth":"入门|进阶|深入","deliverable_preferences":["..."],"scope_notes":"...","plan_brief":"...","assumptions":["..."]}
 """
 
-[[steps]]
-id = "scope-user-input"
-title = "确认系列文档范围"
-execution = "human_input"
-depends_on = ["scope-analysis"]
-condition = "scope-analysis.needs_user_scope == true"
-description = "scope-analysis 建议先确认写作范围。请选择关注方向、读者背景和期望深度。"
+[steps.agent]
+name = "planner"
 
-[steps.form]
-title = "确认文档写作范围"
-description = "这些选择会影响系列文章的结构、深度和侧重点。"
-submit_label = "开始规划文章"
-
-[[steps.form.fields]]
-name = "focus"
-label = "最关注的方向"
-type = "textarea"
-required = true
-placeholder = "例如：核心原理、产业影响、入门实践、风险争议、历史脉络"
-
-[[steps.form.fields]]
-name = "audience"
-label = "目标读者背景"
-type = "select"
-required = true
-options = ["完全入门", "有相关基础", "专业从业者", "决策者/管理者", "通识读者"]
-
-[[steps.form.fields]]
-name = "depth"
-label = "文章深度"
-type = "radio"
-required = true
-options = ["入门", "进阶", "深入"]
-
-[[steps.form.fields]]
-name = "deliverable_preference"
-label = "偏好的交付风格"
-type = "checkbox"
-required = false
-options = ["多图表", "多案例", "学习路线", "风险清单", "实践步骤", "对比表格"]
+[steps.validate]
+format = "json"
+required = ["topic", "topic_type", "focus", "audience", "depth", "plan_brief"]
 
 [[steps]]
 id = "article-plan"
 title = "规划系列文章清单"
-depends_on = ["scope-analysis", "scope-user-input"]
-input_context = ["scope-analysis", "scope-user-input"]
+depends_on = ["scope-analysis"]
+input_context = ["scope-analysis"]
 description = """
-根据 topic、scope_config 和可选的 user_scope，为「{{topic}}」规划一组系列文章。
+根据 topic 和 scope-analysis 的完整范围配置，为「{{topic}}」规划一组系列文章。
 
 你的输出会被后续 foreach loop 直接消费，因此必须输出 ONLY compact JSON array，不要 Markdown，不要代码块。
 
@@ -106,8 +60,15 @@ description = """
 - filename 必须安全、简洁、以 .md 结尾，建议带两位数字前缀。
 - 每篇文章边界清晰，避免大量重复。
 - 覆盖理解、背景、机制/方法、应用、风险/争议、未来趋势等合适维度。
+- 严格使用 scope-analysis 中的 focus、audience、depth 和边界。
 - 不要编造具体数据或新闻；需要核实时可在 must_cover 中标注。
 """
+
+[steps.agent]
+name = "planner"
+
+[steps.validate]
+format = "json"
 
 [[steps]]
 id = "write-articles"
@@ -125,7 +86,7 @@ depends_on = ["article-plan"]
   title = "撰写 {{article.title}}"
   input_context = ["scope-analysis", "article"]
   description = """
-根据当前 article 对象和 scope_config，撰写关于「{{topic}}」的一篇完整 Markdown 文章。
+根据当前 article 对象和 scope-analysis 的完整范围配置，撰写关于「{{topic}}」的一篇完整 Markdown 文章。
 
 当前 article 对象可通过上下文 article 读取，常用字段包括：filename、title、angle、audience、depth、must_cover、mermaid_hint、table_hint。
 
@@ -138,6 +99,9 @@ depends_on = ["article-plan"]
 - 使用 blockquote、分隔线、列表、加粗、代码等方式增强可读性。
 - 不要编造具体数据或新闻；不确定信息标注“需要进一步核实”。
 """
+
+  [steps.loop.body.agent]
+  name = "tech-blog-writer"
 
   [[steps.loop.body]]
   id = "package-entry"
@@ -152,8 +116,15 @@ depends_on = ["article-plan"]
 - 格式：
 {"filename":"...","title":"...","summary":"...","content":"完整 Markdown 内容"}
 - filename 使用 article.filename。
-- content 使用 article_markdown 的完整内容，保留 Mermaid、表格和 Markdown 格式。
+- content 使用 draft 的完整 Markdown 内容，保留 Mermaid、表格和 Markdown 格式。
 """
+
+  [steps.loop.body.agent]
+  name = "planner"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["filename", "title", "summary", "content"]
 
 [[steps]]
 id = "series-package"
@@ -161,7 +132,7 @@ title = "汇总为文档包并写入 .tt/docs/<topic-name>"
 depends_on = ["write-articles"]
 input_context = ["scope-analysis", "article-plan", "write-articles"]
 description = """
-把 foreach loop 生成的 article_outputs 汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `.tt/docs/<topic-name>/` 主题子目录，避免不同主题的文档混在一起。
+把 foreach loop 生成的 write-articles 输出汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `.tt/docs/<topic-name>/` 主题子目录，避免不同主题的文档混在一起。
 
 目录命名要求：
 - 先为 topic 生成安全、可读、稳定的 `topic-name`。
@@ -170,7 +141,7 @@ description = """
 - 如果 topic 很长，保留核心词，目录名控制在 40 个字符以内。
 - 本次所有文件必须写入同一个 `.tt/docs/<topic-name>/` 目录，不要写到 `.tt/docs/` 根目录。
 
-article_outputs 是一个 JSON array，每个元素包含本次循环中 package_entry 的输出。你需要从中提取 filename、title、summary、content。
+write-articles 是一个 JSON array，每个元素包含本次循环中 package-entry 的输出。你需要从中提取 filename、title、summary、content。
 
 你的工作：
 1. 创建 `.tt/docs/<topic-name>/` 目录（如果不存在）。
@@ -179,7 +150,7 @@ article_outputs 是一个 JSON array，每个元素包含本次循环中 package
 4. 撰写并写入 `.tt/docs/<topic-name>/附录-问题清单.md`。
 
 README.md 应包含：
-- 系列标题（基于 {{topic}}，参考 scope_config 和 article_specs）
+- 系列标题（基于 {{topic}}，参考 scope-analysis 和 article-plan）
 - 适合谁读
 - 阅读顺序建议（可用 Mermaid flowchart 展示）
 - 每篇的简短摘要
@@ -197,3 +168,6 @@ README.md 应包含：
 - 最终结果要像一个完整的小型知识库。
 - 最后输出 Markdown 汇总，明确写出主题目录 `.tt/docs/<topic-name>/`、已写入文件、阅读顺序和后续建议。
 """
+
+[steps.agent]
+name = "tech-blog-writer"
