@@ -50,6 +50,9 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
+	if err := startResumeDashboard(cmd, dashboard); err != nil {
+		return err
+	}
 	return executeFormulaResume(cmd, record.Metadata.Formula, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
 }
 
@@ -128,8 +131,22 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
+	if err := startResumeDashboard(cmd, dashboard); err != nil {
+		return err
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Submitted human input for step %s\n", resolvedStepID)
 	return executeFormulaResume(cmd, record.Metadata.Formula, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+}
+
+func startResumeDashboard(cmd *cobra.Command, dashboard *formulaDashboardServer) error {
+	if dashboard == nil || formulaNoWeb {
+		return nil
+	}
+	if err := dashboard.start(formulaWebPort); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Web dashboard: http://localhost:%d\n", dashboard.port)
+	return nil
 }
 
 func parseHumanInputFields(fields []string) (map[string]any, error) {
