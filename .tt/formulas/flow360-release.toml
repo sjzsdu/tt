@@ -1,0 +1,206 @@
+formula = "flow360-release"
+title = "Flow360 UI Next release"
+category = "release"
+tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
+description = "独立触发并跟进一次 Flow360 UI Next CD workflow。每次 run 只能创建一次首次 workflow run，后续只能 rerun 本次 original_run_id。若遇到 multi-branch merge conflict，按 workflow 给出的 tmp branch 和 merge queue 修复后 push 并 rerun。"
+version = 2
+type = "workflow"
+
+[vars]
+env_name = { description = "发布环境", required = true, enum = ["dev", "uat2", "preprod"] }
+tag = { description = "可选 tag/branch；空或 - 时不传", default = "" }
+fresh_deploy = { description = "是否 fresh deploy", default = "false", enum = ["true", "false"] }
+poll_interval_seconds = { description = "轮询间隔秒数", default = "30", type = "int", pattern = "^[1-9][0-9]*$" }
+
+[[steps]]
+id = "prepare-deploy-request"
+title = "确认发布请求与仓库上下文"
+input_context = ["env"]
+description = """
+规范化本次 GitHub Actions dispatch 请求。
+
+固定 workflow_path=.github/workflows/frontend_flow360-ui-next-cd.yml。
+优先从 env.git.remote_url / env.git.repo 判断 target_repo，target_repo 必须是 GitHub owner/repo，不能是 origin/upstream 这种 remote 名。
+如果 env.git.is_repo=false 或无法确定 GitHub owner/repo，dispatch_allowed=false 并说明 blocked_reason。
+
+运行上下文：当前目录 {{env.cwd}}，仓库 {{env.git.repo}}，分支 {{env.git.branch}}。
+
+输出 ONLY compact JSON：
+{"target_repo":"owner/repo","workflow_path":".github/workflows/frontend_flow360-ui-next-cd.yml","env_name":"{{env_name}}","tag":"{{tag}}","pass_tag":false,"fresh_deploy":false,"poll_interval_seconds":30,"dispatch_allowed":true,"blocked_reason":"","start_branch":"{{env.git.branch}}"}
+"""
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["target_repo", "workflow_path", "env_name", "dispatch_allowed", "start_branch"]
+
+[[steps]]
+id = "dispatch-initial-run"
+title = "触发首次 workflow run 并锁定 original_run_id"
+execution = "script"
+depends_on = ["prepare-deploy-request"]
+input_context = ["prepare-deploy-request"]
+description = "必须执行首次 workflow dispatch；这是确定性动作，不交给 agent 判断。失败时输出 run_created=false 和具体 stderr。"
+
+  [steps.script]
+  command = ["python3", "-c", """
+import json, os, subprocess, time
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+def b(v):
+    return str(v).strip().lower() in ('1','true','yes','y')
+
+repo = os.environ.get('TT_TARGET_REPO','').strip()
+workflow = os.environ.get('TT_WORKFLOW_PATH','').strip() or '.github/workflows/frontend_flow360-ui-next-cd.yml'
+env_name = os.environ.get('TT_ENV_NAME','').strip()
+tag = os.environ.get('TT_TAG','').strip()
+pass_tag = b(os.environ.get('TT_PASS_TAG','false')) and tag and tag != '-'
+fresh = os.environ.get('TT_FRESH_DEPLOY','false').strip()
+allowed = b(os.environ.get('TT_DISPATCH_ALLOWED','true'))
+
+result = {'run_created': False, 'original_run_id': '', 'active_run_id': '', 'run_url': '', 'dispatch_blocked_reason': ''}
+if not allowed:
+    result['dispatch_blocked_reason'] = 'dispatch_allowed precheck failed'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+if not repo or '/' not in repo:
+    result['dispatch_blocked_reason'] = 'target_repo must be GitHub owner/repo, not remote name like origin'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+if not env_name:
+    result['dispatch_blocked_reason'] = 'envName is required'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+
+before_rc, before_out, _ = run(['gh','run','list','-R',repo,'--workflow',workflow,'--limit','20','--json','databaseId,createdAt,url'])
+known = set()
+if before_rc == 0 and before_out:
+    try:
+        known = {str(x.get('databaseId','')) for x in json.loads(before_out)}
+    except Exception:
+        known = set()
+
+cmd = ['gh','workflow','run',workflow,'-R',repo,'-f',f'envName={env_name}','-f',f'freshDeploy={fresh}']
+if pass_tag:
+    cmd += ['-f', f'tag={tag}']
+rc, out, err = run(cmd)
+if rc != 0:
+    result['dispatch_blocked_reason'] = err or out or 'gh workflow run failed'
+    print(json.dumps(result, separators=(',', ':'))); raise SystemExit(0)
+
+for _ in range(12):
+    time.sleep(5)
+    rc2, out2, _ = run(['gh','run','list','-R',repo,'--workflow',workflow,'--limit','20','--json','databaseId,url,createdAt,status,headBranch,event'])
+    if rc2 != 0 or not out2:
+        continue
+    try:
+        runs = json.loads(out2)
+    except Exception:
+        continue
+    pick = None
+    for item in runs:
+        rid = str(item.get('databaseId',''))
+        if rid and rid not in known:
+            pick = item; break
+    if pick is None and runs:
+        pick = runs[0]
+    if pick and pick.get('databaseId'):
+        rid = str(pick['databaseId'])
+        result.update(run_created=True, original_run_id=rid, active_run_id=rid, run_url=pick.get('url',''))
+        break
+
+if not result['run_created']:
+    result['dispatch_blocked_reason'] = 'workflow dispatched but new run id was not visible from gh run list within polling window'
+print(json.dumps(result, separators=(',', ':')))
+"""]
+  format = "json"
+  timeout = "90s"
+
+  [steps.script.env]
+  TT_TARGET_REPO = "{{prepare-deploy-request.target_repo}}"
+  TT_WORKFLOW_PATH = "{{prepare-deploy-request.workflow_path}}"
+  TT_ENV_NAME = "{{prepare-deploy-request.env_name}}"
+  TT_TAG = "{{prepare-deploy-request.tag}}"
+  TT_PASS_TAG = "{{prepare-deploy-request.pass_tag}}"
+  TT_FRESH_DEPLOY = "{{prepare-deploy-request.fresh_deploy}}"
+  TT_DISPATCH_ALLOWED = "{{prepare-deploy-request.dispatch_allowed}}"
+
+[[steps]]
+id = "drive-deploy-loop"
+title = "监控并推进发布"
+depends_on = ["dispatch-initial-run"]
+input_context = ["env", "prepare-deploy-request", "dispatch-initial-run"]
+description = """
+监控并推进本次 Flow360 UI Next release。
+
+硬性约束：
+- 只围绕 dispatch-initial-run.original_run_id 工作。
+- 禁止新建第二个 workflow run。
+- 如需重试，只能 rerun 本次 original_run_id。
+- 若 dispatch-initial-run.run_created=false，直接给出 blocked 结果，不要尝试 dispatch。
+
+执行策略：
+1. 查询 original_run_id 的当前状态和日志。
+2. 如果仍在 running/queued/in_progress，则按 prepare-deploy-request.poll_interval_seconds 等待后继续查询，直到成功、审批、失败或需要人工处理。
+3. 如果进入 approval_required，停止推进并输出 final_state=approval_required。
+4. 如果失败原因不是 multi-branch merge conflict，输出 blocked，并保留关键错误摘要。
+5. 如果是 multi-branch merge conflict：
+   - 只依据日志中的 tmp_branch、remaining_queue、conflicted_branches 修复。
+   - git fetch origin。
+   - 从 origin/<tmp_branch> 建立/重建本地工作分支，忽略启动分支 {{env.git.branch}}。
+   - rebase origin/<tmp_branch>。
+   - 按 remaining_queue 顺序 merge origin/<branch>。
+   - 解决冲突后完成必要验证并 commit。
+   - push 回 tmp_branch，普通 push 因 hook-only 失败时可用 --no-verify。
+   - 只对 original_run_id rerun。
+   - rerun 后继续监控直到最终状态明确。
+
+输出 ONLY compact JSON：
+{"done":true,"final_state":"approval_required|blocked|succeeded|merge_conflict_resolved_rerun_started","final_run_url":"","active_run_id":"","approval_required":false,"conflicted_branches":[],"tmp_branch":"","repair_attempted":false,"repair_resolved":false,"handled_branches":[],"validations_run":[],"rerun_requested":false,"blocker_type":"none|dispatch|non_conflict|git_state|validation_failed|auth|hook_only|unknown","summary":""}
+"""
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["done", "final_state", "summary", "rerun_requested", "blocker_type"]
+
+[[steps]]
+id = "approval-checkpoint"
+title = "人工确认审批状态"
+execution = "human_input"
+depends_on = ["drive-deploy-loop"]
+condition = "drive-deploy-loop.final_state == approval_required"
+input_context = ["drive-deploy-loop"]
+description = "workflow 进入人工审批时暂停，记录审批状态。"
+
+  [steps.form]
+  title = "Flow360 release 等待审批"
+  submit_label = "记录"
+
+  [[steps.form.fields]]
+  name = "approval_status"
+  label = "审批状态"
+  type = "select"
+  required = true
+  options = ["waiting", "approved", "rejected", "unknown"]
+
+  [[steps.form.fields]]
+  name = "notes"
+  label = "补充说明"
+  type = "textarea"
+
+[[steps]]
+id = "final-report"
+title = "输出发布报告"
+depends_on = ["drive-deploy-loop", "approval-checkpoint"]
+input_context = ["env", "prepare-deploy-request", "dispatch-initial-run", "drive-deploy-loop", "approval-checkpoint"]
+description = """
+输出中文结论报告，必须包含：目标环境、workflow、original_run_id/run_url、最终状态、是否审批、是否冲突、冲突修复和 rerun 结果、启动分支 {{env.git.branch}} 与实际 tmp_branch 区别。单独说明：run id 只属于当前 formula run，下一次执行必须重新 dispatch 并锁定新 original_run_id。不要臆造未确认的分支或日志。
+"""
+
+[steps.agent]
+name = "reporter"
