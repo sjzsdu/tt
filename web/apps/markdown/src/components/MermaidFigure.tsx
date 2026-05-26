@@ -22,6 +22,31 @@ interface PanZoomState {
 }
 
 const MIN_VIEWPORT_HEIGHT = 300;
+const MAX_VIEWPORT_HEIGHT = 720;
+const VIEWPORT_HEIGHT_RATIO = 0.72;
+
+function clampViewportHeight(height: number) {
+  const viewportCap = typeof window === 'undefined' ? MAX_VIEWPORT_HEIGHT : Math.floor(window.innerHeight * VIEWPORT_HEIGHT_RATIO);
+  return Math.max(MIN_VIEWPORT_HEIGHT, Math.min(MAX_VIEWPORT_HEIGHT, viewportCap, height));
+}
+
+function diagramKind(code: string) {
+  const first = code.trim().split(/\s+/)[0] || 'diagram';
+  const labels: Record<string, string> = {
+    flowchart: 'Flowchart',
+    graph: 'Flowchart',
+    sequenceDiagram: 'Sequence',
+    classDiagram: 'Class diagram',
+    stateDiagram: 'State diagram',
+    erDiagram: 'ER diagram',
+    gantt: 'Gantt',
+    pie: 'Pie chart',
+    journey: 'Journey',
+    timeline: 'Timeline',
+    mindmap: 'Mindmap',
+  };
+  return labels[first] || first.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
 
 function transformedBox(el: SVGGraphicsElement): SvgSize | null {
   const box = el.getBBox();
@@ -129,13 +154,16 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     const paddingX = paddingLeft + paddingRight;
     const paddingY = paddingTop + paddingBottom;
     const availableWidth = Math.max(1, (viewport?.clientWidth || 600) - paddingX);
+    const unclampedHeight = Math.ceil(baseSize.height + paddingY);
+    const nextViewportHeight = clampViewportHeight(unclampedHeight);
+    const availableHeight = Math.max(1, nextViewportHeight - paddingY);
 
     const widthFitScale = baseSize.width > 0 ? availableWidth / baseSize.width : 1;
-    const scale = Number.isFinite(widthFitScale) && widthFitScale > 0 ? widthFitScale : 1;
+    const heightFitScale = baseSize.height > 0 ? availableHeight / baseSize.height : 1;
+    const fitScale = Math.min(widthFitScale, heightFitScale, 1.25);
+    const scale = Number.isFinite(fitScale) && fitScale > 0 ? fitScale : 1;
     const scaledWidth = baseSize.width * scale;
     const scaledHeight = baseSize.height * scale;
-    const nextViewportHeight = Math.max(MIN_VIEWPORT_HEIGHT, Math.ceil(scaledHeight + paddingY));
-    const availableHeight = Math.max(1, nextViewportHeight - paddingY);
 
     setViewportHeight(nextViewportHeight);
     setInitialState({
@@ -183,7 +211,9 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     return () => ro.disconnect();
   }, [updateInitialView]);
 
-  const panZoom = usePanZoom(panZoomTarget, { initialState });
+  const panZoom = usePanZoom(panZoomTarget, { initialState, minScale: 0.25 });
+  const title = diagramKind(code);
+  const subtitle = `${Math.round(baseSize.width)}×${Math.round(baseSize.height)} · drag to pan · wheel to zoom`;
 
   useEffect(() => {
     const eventTarget = viewportRef.current;
@@ -231,6 +261,8 @@ export function MermaidFigure({ code, index }: MermaidFigureProps) {
     <section className="mermaid-figure">
       <MermaidToolbar
         scale={panZoom.scale}
+        title={title}
+        subtitle={subtitle}
         onZoomIn={panZoom.zoomIn}
         onZoomOut={panZoom.zoomOut}
         onReset={panZoom.reset}

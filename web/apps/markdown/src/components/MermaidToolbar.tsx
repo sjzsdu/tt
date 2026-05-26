@@ -1,7 +1,7 @@
 import { Button, Slider, Space, Tooltip } from 'antd';
 import {
   CopyOutlined,
-  ExpandOutlined,
+  DownloadOutlined,
   FileTextOutlined,
   FullscreenExitOutlined,
   ZoomInOutlined,
@@ -10,6 +10,8 @@ import {
 
 interface MermaidToolbarProps {
   scale: number;
+  title: string;
+  subtitle: string;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
@@ -21,6 +23,8 @@ interface MermaidToolbarProps {
 
 export function MermaidToolbar({
   scale,
+  title,
+  subtitle,
   onZoomIn,
   onZoomOut,
   onReset,
@@ -31,20 +35,24 @@ export function MermaidToolbar({
 }: MermaidToolbarProps) {
   return (
     <div className="mermaid-toolbar">
-      <Slider
-        min={40}
-        max={400}
-        value={Math.round(scale * 100)}
-        tooltip={{ formatter: v => `${v}%` }}
-        style={{ width: 100 }}
-        onChange={v => onScaleChange(v / 100)}
-      />
+      <div className="mermaid-toolbar-title">
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
+      </div>
       <div className="mermaid-toolbar-actions">
-        <Space>
+        <Slider
+          min={25}
+          max={400}
+          value={Math.round(scale * 100)}
+          tooltip={{ formatter: v => `${v}%` }}
+          className="mermaid-zoom-slider"
+          onChange={v => onScaleChange(v / 100)}
+        />
+        <Space size={6} wrap>
           <Tooltip title="Zoom Out">
             <Button size="small" icon={<ZoomOutOutlined />} onClick={onZoomOut} />
           </Tooltip>
-          <Tooltip title="Reset">
+          <Tooltip title="Fit to view">
             <Button size="small" icon={<FullscreenExitOutlined />} onClick={onReset} />
           </Tooltip>
           <Tooltip title="Zoom In">
@@ -54,7 +62,7 @@ export function MermaidToolbar({
             <Button size="small" icon={<FileTextOutlined />} onClick={onExportSvg} />
           </Tooltip>
           <Tooltip title="Export PNG">
-            <Button size="small" icon={<ExpandOutlined />} onClick={onExportPng} />
+            <Button size="small" icon={<DownloadOutlined />} onClick={onExportPng} />
           </Tooltip>
           <Tooltip title="Copy">
             <Button size="small" icon={<CopyOutlined />} onClick={onCopy} />
