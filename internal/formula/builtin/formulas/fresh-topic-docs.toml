@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
-description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 .tt/docs。"
-version = 10
+description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 docs。"
+version = 11
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -73,6 +73,31 @@ min_items = 1
 item_required = ["filename", "title", "angle", "audience", "depth", "must_cover", "mermaid_hint", "table_hint"]
 
 [[steps]]
+id = "topic-package-plan"
+title = "生成主题目录与 README 计划"
+depends_on = ["article-plan"]
+input_context = ["scope-analysis", "article-plan"]
+description = """
+基于 scope-analysis 和 article-plan，为最终文档包生成轻量级打包计划。这个步骤只输出目录名和 README 所需的摘要信息，不写文章正文。
+
+输出 ONLY compact JSON object，不要 Markdown，不要代码块：
+{"topic_name":"safe-topic-name","series_title":"...","audience":"...","reading_order":[{"filename":"01-xxx.md","title":"...","summary":"..."}],"readme_notes":["..."]}
+
+要求：
+- topic_name 必须安全、可读、稳定；中文话题可使用简短拼音或英文译名，英文话题使用小写 kebab-case。
+- topic_name 只允许小写字母、数字、连字符 `-`，不要空格、斜杠、冒号或其它特殊字符，控制在 40 个字符以内。
+- reading_order 必须覆盖 article-plan 中的每篇文章，但只保留 filename、title、summary，不要包含正文。
+- readme_notes 只放 README 组织信息和阅读建议，避免大段正文。
+"""
+
+[steps.agent]
+name = "planner"
+
+[steps.validate]
+format = "json"
+required = ["topic_name", "series_title", "audience", "reading_order"]
+
+[[steps]]
 id = "write-articles"
 title = "并发撰写每篇系列文章"
 depends_on = ["article-plan"]
@@ -129,39 +154,93 @@ depends_on = ["article-plan"]
   required = ["filename", "title", "summary", "content"]
 
 [[steps]]
+id = "write-doc-files"
+title = "写入文章文件并生成文件清单"
+depends_on = ["topic-package-plan", "write-articles"]
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib, re, sys
+
+topic_name = os.environ.get('TOPIC_NAME', '').strip()
+if not re.fullmatch(r'[a-z0-9-]{1,40}', topic_name):
+    raise SystemExit(f'invalid topic_name: {topic_name!r}')
+
+raw = os.environ.get('ARTICLES_JSON', '').strip()
+try:
+    payload = json.loads(raw)
+except Exception as exc:
+    raise SystemExit(f'write-articles must be JSON: {exc}')
+
+entries = []
+def collect(value):
+    if isinstance(value, dict):
+        if all(k in value for k in ('filename', 'title', 'summary', 'content')):
+            entries.append(value)
+        for child in value.values():
+            collect(child)
+    elif isinstance(value, list):
+        for child in value:
+            collect(child)
+
+collect(payload)
+if not entries:
+    raise SystemExit('no article package entries found in write-articles output')
+
+root = pathlib.Path('docs') / topic_name
+root.mkdir(parents=True, exist_ok=True)
+written = []
+for item in entries:
+    filename = str(item['filename']).strip()
+    if not filename.endswith('.md') or '/' in filename or '\\' in filename or filename.startswith('.'):
+        raise SystemExit(f'unsafe filename: {filename!r}')
+    path = root / filename
+    path.write_text(str(item['content']).rstrip() + '\n', encoding='utf-8')
+    written.append({'filename': filename, 'title': item.get('title', ''), 'summary': item.get('summary', ''), 'path': str(path)})
+
+print(json.dumps({'topic_name': topic_name, 'directory': str(root), 'articles': written}, ensure_ascii=False, separators=(',', ':')))
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TOPIC_NAME = "{{topic-package-plan.topic_name}}"
+ARTICLES_JSON = "{{write-articles}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout", "exit_code"]
+
+[[steps]]
 id = "series-package"
-title = "汇总为文档包并写入 docs/<topic-name>"
-depends_on = ["write-articles"]
-input_context = ["scope-analysis", "article-plan", "write-articles"]
+title = "生成 README 并汇总文档包"
+depends_on = ["write-doc-files"]
+input_context = ["topic-package-plan", "write-doc-files.stdout"]
 description = """
-把 foreach loop 生成的 write-articles 输出汇总为一系列 Markdown 文档，使用你的文件写入能力（write 工具）直接保存到 `docs/<topic-name>/` 主题子目录，避免不同主题的文档混在一起。
+文章正文已经由 write-doc-files 确定性写入磁盘。你只需要基于轻量级打包计划和文件清单，写入 README 并输出最终汇总，不要再读取或复述所有文章正文。
 
 目录命名要求：
-- 先为 topic 生成安全、可读、稳定的 `topic-name`。
-- 中文话题可使用简短拼音或英文译名；英文话题使用小写 kebab-case。
-- 只允许小写字母、数字、连字符 `-`，不要空格、斜杠、冒号或其它特殊字符。
-- 如果 topic 很长，保留核心词，目录名控制在 40 个字符以内。
-- 本次所有文件必须写入同一个 `docs/<topic-name>/` 目录，不要写到 `docs/` 根目录。
-
-write-articles 是一个 JSON array，每个元素包含本次循环中 package-entry 的输出。你需要从中提取 filename、title、summary、content。
+- 使用 topic-package-plan.topic_name 和 write-doc-files.stdout.directory。
+- 本次所有文件必须位于同一个 `docs/<topic-name>/` 目录，不要写到 `docs/` 根目录。
 
 你的工作：
-1. 创建 `/docs/<topic-name>/` 目录（如果不存在）。
-2. 撰写并写入 `/docs/<topic-name>/README.md`，描述整个系列。
-3. 将每篇文章的 content 写入 `/docs/<topic-name>/<filename>`。
+1. 撰写并写入 `docs/<topic-name>/README.md`，描述整个系列。
+2. 不要重写各篇文章文件，文章文件已经由 write-doc-files 写入。
+3. 输出 Markdown 汇总，列出主题目录、README、文章文件清单、阅读顺序和后续建议。
 
 README.md 应包含：
-- 系列标题（基于 {{topic}}，参考 scope-analysis 和 article-plan）
-- 适合谁读
-- 阅读顺序建议（可用 Mermaid flowchart 展示）
-- 每篇的简短摘要
+- 系列标题（基于 {{topic}} 和 topic-package-plan.series_title）
+- 适合谁读（使用 topic-package-plan.audience）
+- 阅读顺序建议（使用 topic-package-plan.reading_order，可用 Mermaid flowchart 展示）
+- 每篇的文件名、标题和简短摘要
 - README 本身也建议用表格或 Mermaid 来组织内容
 
 整体要求：
 - 统一术语，删除重复内容。
 - 明确标注不确定信息和需要进一步核实的地方。
 - 最终结果要像一个完整的小型知识库。
-- 最后输出 Markdown 汇总，明确写出主题目录 `docs/<topic-name>/`、已写入文件、阅读顺序和后续建议。
+- 控制 token，不要把文章正文复制进 README 或最终汇总。
 """
 
 [steps.agent]
