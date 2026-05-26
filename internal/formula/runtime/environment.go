@@ -64,6 +64,23 @@ func (e *Executor) SeedEnvironment(workspace string) {
 	_ = e.Context.Set(EnvironmentContextKey, EnvironmentValue(workspace))
 }
 
+func (e *Executor) SeedVars(vars map[string]string) {
+	if e == nil || len(vars) == 0 {
+		return
+	}
+	if e.Context == nil {
+		e.Context = NewContextStore()
+	}
+	for name, value := range vars {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		raw, _ := json.Marshal(value)
+		_ = e.Context.Set(name, steps.Value{Type: "json", Raw: raw})
+	}
+}
+
 func detectGitEnvironment(cwd string) EnvironmentGit {
 	root := gitOutput(cwd, "rev-parse", "--show-toplevel")
 	if root == "" {

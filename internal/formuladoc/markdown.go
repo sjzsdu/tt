@@ -102,6 +102,10 @@ func GenerateMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
 			if s.Reason != "" {
 				b.WriteString(fmt.Sprintf("%s\n\n", s.Reason))
 			}
+		case steps.LoopStep:
+			writeLoopMarkdown(&b, s)
+		case *steps.LoopStep:
+			writeLoopMarkdown(&b, *s)
 		}
 		deps := workflowDepsForStep(workflow, ir.NodeID(meta.ID))
 		if len(deps) > 0 {
@@ -112,6 +116,67 @@ func GenerateMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
 		}
 	}
 	return b.String()
+}
+
+func writeLoopMarkdown(b *strings.Builder, loop steps.LoopStep) {
+	if b == nil {
+		return
+	}
+	b.WriteString("**Execution:** loop\n\n")
+	if loop.Until != "" {
+		b.WriteString(fmt.Sprintf("**Until:** `%s`\n\n", loop.Until))
+	}
+	if loop.Max > 0 {
+		b.WriteString(fmt.Sprintf("**Max iterations:** `%d`\n\n", loop.Max))
+	}
+	if loop.Parallel {
+		b.WriteString("**Parallel:** enabled\n\n")
+	}
+	if loop.MaxConcurrency > 0 {
+		b.WriteString(fmt.Sprintf("**Max concurrency:** `%d`\n\n", loop.MaxConcurrency))
+	}
+	if len(loop.Body) == 0 {
+		return
+	}
+	b.WriteString("#### Loop body\n\n")
+	for i, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		meta := child.Meta()
+		b.WriteString(fmt.Sprintf("%d. `%s`", i+1, meta.ID))
+		if meta.Title != "" {
+			b.WriteString(fmt.Sprintf(" - %s", meta.Title))
+		}
+		b.WriteString("\n")
+		if len(meta.DependsOn) > 0 {
+			deps := make([]string, 0, len(meta.DependsOn))
+			for _, dep := range meta.DependsOn {
+				deps = append(deps, string(dep))
+			}
+			b.WriteString(fmt.Sprintf("   - depends on: `%s`\n", strings.Join(deps, "`, `")))
+		}
+		if meta.Condition != "" {
+			b.WriteString(fmt.Sprintf("   - condition: `%s`\n", meta.Condition))
+		}
+		switch typed := child.(type) {
+		case steps.AgentStep:
+			if typed.Agent != "" || typed.Model != "" {
+				b.WriteString(fmt.Sprintf("   - agent: `%s`, model: `%s`\n", emptyDefault(typed.Agent, "default"), emptyDefault(typed.Model, "default")))
+			}
+			if len(typed.InputCtx) > 0 {
+				b.WriteString(fmt.Sprintf("   - input context: `%s`\n", strings.Join(typed.InputCtx, "`, `")))
+			}
+		case steps.ScriptStep:
+			b.WriteString("   - execution: `script`\n")
+			if len(typed.Command) > 0 {
+				b.WriteString(fmt.Sprintf("   - command: `%s`\n", strings.Join(typed.Command, " ")))
+			}
+		case steps.HumanInputStep:
+			b.WriteString("   - execution: `human_input`\n")
+		}
+	}
+	b.WriteString("\n")
 }
 
 func GenerateMermaidGraph(workflow *ir.Workflow) string {
@@ -128,6 +193,7 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 		id := ir.NodeID(meta.ID)
 		ids[id] = struct{}{}
 		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidNodeID(string(id)), escapeMermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
+		writeLoopMermaidSubgraph(&b, step)
 	}
 	if workflow != nil {
 		for _, edge := range workflow.Graph.Edges {
@@ -141,6 +207,66 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
+	if b == nil || step == nil {
+		return
+	}
+	var loop steps.LoopStep
+	switch typed := step.(type) {
+	case steps.LoopStep:
+		loop = typed
+	case *steps.LoopStep:
+		loop = *typed
+	default:
+		return
+	}
+	if len(loop.Body) == 0 {
+		return
+	}
+	parentID := string(step.Meta().ID)
+	b.WriteString(fmt.Sprintf("  subgraph %s_loop[\"%s loop body\"]\n", mermaidNodeID(parentID), escapeMermaidLabel(parentID)))
+	bodyIDs := map[string]struct{}{}
+	for _, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		meta := child.Meta()
+		bodyIDs[string(meta.ID)] = struct{}{}
+		b.WriteString(fmt.Sprintf("    %s[%s]\n", mermaidNodeID(parentID+"__"+string(meta.ID)), escapeMermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
+	}
+	for i, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		meta := child.Meta()
+		to := mermaidNodeID(parentID + "__" + string(meta.ID))
+		deps := meta.DependsOn
+		if len(deps) == 0 && i > 0 && loop.Body[i-1] != nil {
+			deps = []steps.ID{loop.Body[i-1].Meta().ID}
+		}
+		for _, dep := range deps {
+			if _, ok := bodyIDs[string(dep)]; !ok {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("    %s --> %s\n", mermaidNodeID(parentID+"__"+string(dep)), to))
+		}
+	}
+	b.WriteString("  end\n")
+	first := firstLoopBodyID(loop)
+	if first != "" {
+		b.WriteString(fmt.Sprintf("  %s -. enters .-> %s\n", mermaidNodeID(parentID), mermaidNodeID(parentID+"__"+first)))
+	}
+}
+
+func firstLoopBodyID(loop steps.LoopStep) string {
+	for _, child := range loop.Body {
+		if child != nil {
+			return string(child.Meta().ID)
+		}
+	}
+	return ""
 }
 
 func sortedVarNames(vars map[string]*formula.VarDef) []string {

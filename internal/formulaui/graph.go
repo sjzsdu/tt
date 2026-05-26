@@ -54,6 +54,10 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 				request.Form = form
 			}
 			uiStep.HumanInputRequest = request
+		case steps.LoopStep:
+			uiStep.Loop = BuildLoopFromStep(typed)
+		case *steps.LoopStep:
+			uiStep.Loop = BuildLoopFromStep(*typed)
 		}
 		uiSteps = append(uiSteps, uiStep)
 	}
@@ -75,6 +79,74 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 		uiSteps[i].DependsOn = append([]string(nil), dependsOnMap[uiSteps[i].ID]...)
 	}
 	return uiSteps, uiEdges
+}
+
+func BuildLoopFromStep(loop steps.LoopStep) *Loop {
+	dashboardLoop := &Loop{
+		Until:          loop.Until,
+		Max:            loop.Max,
+		Parallel:       loop.Parallel,
+		MaxConcurrency: loop.MaxConcurrency,
+		Summary:        typedLoopSummary(loop),
+		Body:           make([]LoopBody, 0, len(loop.Body)),
+	}
+	for _, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		meta := child.Meta()
+		body := LoopBody{
+			ID:        string(meta.ID),
+			Title:     meta.Title,
+			Condition: meta.Condition,
+			DependsOn: metadataDependsOn(meta),
+		}
+		switch typed := child.(type) {
+		case steps.AgentStep:
+			body.Description = typed.Prompt
+			body.Agent = typed.Agent
+			body.Model = typed.Model
+			body.OutputKey = typed.OutputKey
+			body.InputCtx = append([]string(nil), typed.InputCtx...)
+		case *steps.AgentStep:
+			body.Description = typed.Prompt
+			body.Agent = typed.Agent
+			body.Model = typed.Model
+			body.OutputKey = typed.OutputKey
+			body.InputCtx = append([]string(nil), typed.InputCtx...)
+		case steps.ScriptStep:
+			body.OutputKey = typed.OutputKey
+		case *steps.ScriptStep:
+			body.OutputKey = typed.OutputKey
+		case steps.HumanInputStep:
+			body.Description = typed.Reason
+			body.OutputKey = typed.OutputKey
+		case *steps.HumanInputStep:
+			body.Description = typed.Reason
+			body.OutputKey = typed.OutputKey
+		}
+		dashboardLoop.Body = append(dashboardLoop.Body, body)
+	}
+	return dashboardLoop
+}
+
+func metadataDependsOn(meta steps.Metadata) []string {
+	out := make([]string, 0, len(meta.DependsOn))
+	for _, dep := range meta.DependsOn {
+		out = append(out, string(dep))
+	}
+	return out
+}
+
+func typedLoopSummary(loop steps.LoopStep) string {
+	if loop.Until != "" {
+		max := loop.Max
+		if max <= 0 {
+			max = 1
+		}
+		return fmt.Sprintf("until %s · max %d", loop.Until, max)
+	}
+	return fmt.Sprintf("%d body step(s)", len(loop.Body))
 }
 
 func computeWorkflowDepths(workflow *ir.Workflow) map[ir.NodeID]int {

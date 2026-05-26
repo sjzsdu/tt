@@ -45,6 +45,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			DryRun:       true,
 			AllowScripts: !formulaNoScript,
 			Workspace:    projectRoot,
+			Vars:         vars,
 			Out:          cmd.OutOrStdout(),
 		})
 	}
@@ -126,6 +127,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		DefaultModel: formulaModel,
 		Session:      runSession,
 		Workspace:    agentWorkspace,
+		Vars:         vars,
 		Debug:        formulaDebug,
 		DryRun:       formulaDryRun,
 		AllowScripts: !formulaNoScript,
@@ -201,6 +203,7 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 		RunStore:     runStore,
 		AgentRunner:  agentRunner,
 		Workspace:    projectRoot,
+		Vars:         runStore.Meta.Vars,
 		AllowScripts: !formulaNoScript,
 	})
 	if err != nil {

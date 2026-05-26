@@ -114,7 +114,13 @@ func addFormulaStepToWorkflow(wf *ir.Workflow, step *Step) {
 }
 
 func typedStepFromFormulaStep(step *Step) steps.Step {
-	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, Labels: append([]string(nil), step.Labels...), Condition: step.Condition}
+	dependsOn := make([]steps.ID, 0, len(step.DependsOn)+len(step.Needs))
+	for _, dep := range append(append([]string(nil), step.DependsOn...), step.Needs...) {
+		if strings.TrimSpace(dep) != "" {
+			dependsOn = append(dependsOn, steps.ID(dep))
+		}
+	}
+	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, DependsOn: dependsOn, Labels: append([]string(nil), step.Labels...), Condition: step.Condition}
 	if step.Loop != nil {
 		meta.Kind = steps.KindLoop
 		body := make([]steps.Step, 0, len(step.Loop.Body))
@@ -141,10 +147,10 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			cwd = step.Script.Cwd
 			env = step.Script.Env
 		}
-		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env}
+		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, OutputKey: step.OutputKey}
 	case "human_input":
 		meta.Kind = steps.KindHumanInput
-		return steps.HumanInputStep{Base: steps.Base{Metadata: meta}, Reason: step.Description, Form: step.Form}
+		return steps.HumanInputStep{Base: steps.Base{Metadata: meta}, Reason: step.Description, Form: step.Form, OutputKey: step.OutputKey}
 	default:
 		meta.Kind = steps.KindAgent
 		agentName := ""
@@ -153,6 +159,6 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			agentName = step.Agent.Name
 			model = step.Agent.Model
 		}
-		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm}
+		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey}
 	}
 }
