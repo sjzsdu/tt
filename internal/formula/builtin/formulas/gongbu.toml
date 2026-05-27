@@ -160,6 +160,7 @@ inspect-repo.stdout 中包含实际 branch_name、worktree_path、sparse_paths�
 - assumptions 记录仍然不确定但不阻塞调研的假设。
 """
 agent.name = "product-manager"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -190,6 +191,7 @@ description = """
 - constraints 写清楚不要修改原始仓库目录，只在 worktree_path 中实施。
 """
 agent.name = "coder"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -229,6 +231,7 @@ description = """
 - 不要直接开始改代码，先给研究结论。
 """
 agent.name = "code-research"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -267,6 +270,7 @@ description = """
 - needs_strategy_choice=true 时，strategy_choices 必须包含 2-4 个可选方案，label 适合展示给用户。
 """
 agent.name = "planner"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -295,6 +299,7 @@ plan-feature 判断存在多个合理实现方案，需要让用户选择。请�
 }
 """
 agent.name = "product-manager"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -313,6 +318,7 @@ description = """
 {"ui_needed":true,"screens":["..."],"interaction_changes":["..."],"copy_suggestions":["..."],"edge_states":["..."]}
 """
 agent.name = "ui"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "implement-feature"
@@ -333,6 +339,7 @@ description = """
 {"implemented":true,"files_changed":["..."],"summary":"...","blocked_items":["..."],"notes":["..."]}
 """
 agent.name = "full-stack"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "run-tests"
@@ -369,6 +376,7 @@ description = """
 {"ready":true,"acceptance_status":"met|partial|failed","gaps":["..."],"followup_fixes":["..."],"doc_updates_needed":["..."],"changelog_needed":true}
 """
 agent.name = "tester"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "write-docs"
@@ -383,6 +391,7 @@ description = """
 {"updated":true,"doc_files":["..."],"summary":"..."}
 """
 agent.name = "writer"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "update-changelog"
@@ -397,6 +406,7 @@ description = """
 {"updated":true,"changelog_files":["..."],"entry_summary":"..."}
 """
 agent.name = "writer"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "final-check"
@@ -410,6 +420,7 @@ description = """
 {"ready_to_commit":true,"final_gaps":["..."],"release_notes":"...","summary":"..."}
 """
 agent.name = "tester"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "commit-changes"
@@ -446,3 +457,4 @@ description = """
 面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path，以及未完成事项。
 """
 agent.name = "reporter"
+agent.cwd = "{{create-worktree.stdout.worktree_path}}"

@@ -30,6 +30,7 @@ type AgentStep struct {
 	Base
 	Agent       string
 	Model       string
+	Cwd         string
 	Prompt      string
 	InputCtx    []string
 	DynamicForm bool
@@ -55,7 +56,7 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 	if s.DynamicForm {
 		prompt = appendDynamicHumanInputProtocol(prompt)
 	}
-	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{NodeID: req.NodeID, Agent: s.Agent, Model: s.Model, Prompt: prompt})
+	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{NodeID: req.NodeID, Agent: s.Agent, Model: s.Model, Workspace: renderContextTemplates(s.Cwd, req.Context), Prompt: prompt})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Error: &StepError{Message: "agent step failed", Cause: err}}, err
 	}

@@ -65,6 +65,18 @@ func TestFormulaRuntimeAgentRunnerUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestFormulaRuntimeAgentRunnerUsesRequestWorkspace(t *testing.T) {
+	fake := &fakeFormulaDirectProcessor{}
+	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", session: "session-a", workspace: "/tmp/original"}
+	_, err := runner.RunAgent(context.Background(), steps.AgentRequest{Prompt: "hello", Workspace: "/tmp/worktree"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.opt.Workspace != "/tmp/worktree" {
+		t.Fatalf("workspace = %q, want /tmp/worktree", fake.opt.Workspace)
+	}
+}
+
 func TestFormulaRuntimeAgentRunnerIsolatesLoopIterationSessions(t *testing.T) {
 	fake := &fakeFormulaDirectProcessor{}
 	runner := formulaRuntimeAgentRunner{processor: fake, defaultAgent: "main", session: "session-a"}

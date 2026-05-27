@@ -655,6 +655,7 @@ type Gate struct {
 type AgentConfig struct {
 	Name    string `json:"name" toml:"name"`
 	Model   string `json:"model,omitempty" toml:"model,omitempty"`
+	Cwd     string `json:"cwd,omitempty" toml:"cwd,omitempty"`
 	Session string `json:"session,omitempty" toml:"session,omitempty"`
 	Timeout string `json:"timeout,omitempty" toml:"timeout,omitempty"`
 	Retries int    `json:"retries,omitempty" toml:"retries,omitempty"`

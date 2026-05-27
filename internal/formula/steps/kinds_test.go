@@ -123,10 +123,12 @@ func TestStepErrorMarshalStoresStringCause(t *testing.T) {
 
 type recordingAgentRunner struct {
 	prompt string
+	req    AgentRequest
 }
 
 func (r *recordingAgentRunner) RunAgent(_ context.Context, req AgentRequest) (Value, error) {
 	r.prompt = req.Prompt
+	r.req = req
 	return Value{Raw: []byte(`"ok"`)}, nil
 }
 
@@ -175,6 +177,7 @@ func TestAgentStepRendersRuntimeContextTemplates(t *testing.T) {
 	agent := &recordingAgentRunner{}
 	step := AgentStep{
 		Base:   Base{Metadata: Metadata{ID: "work", Kind: KindAgent}},
+		Cwd:    "{{env.cwd}}/worktree",
 		Prompt: "cwd={{env.cwd}} branch={{env.git.branch}} missing={{env.missing}}",
 	}
 
@@ -192,6 +195,9 @@ func TestAgentStepRendersRuntimeContextTemplates(t *testing.T) {
 	}
 	if !strings.Contains(agent.prompt, "missing={{env.missing}}") {
 		t.Fatalf("missing template should remain unchanged: %s", agent.prompt)
+	}
+	if agent.req.Workspace != "/repo/worktree" {
+		t.Fatalf("agent workspace = %q, want /repo/worktree", agent.req.Workspace)
 	}
 }
 

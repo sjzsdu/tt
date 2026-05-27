@@ -176,11 +176,13 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 		meta.Kind = steps.KindAgent
 		agentName := ""
 		model := ""
+		cwd := ""
 		if step.Agent != nil {
 			agentName = step.Agent.Name
 			model = step.Agent.Model
+			cwd = step.Agent.Cwd
 		}
-		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Cwd: cwd, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	}
 }
 

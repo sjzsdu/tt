@@ -182,10 +182,11 @@ type AgentRunner interface {
 }
 
 type AgentRequest struct {
-	NodeID string
-	Agent  string
-	Model  string
-	Prompt string
+	NodeID    string
+	Agent     string
+	Model     string
+	Workspace string
+	Prompt    string
 }
 
 type ScriptRunner interface {

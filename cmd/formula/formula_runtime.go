@@ -112,12 +112,16 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 	if advice := strings.TrimSpace(r.stepAdvice[req.NodeID]); advice != "" {
 		prompt = strings.TrimSpace(prompt) + "\n\nRetry advice from dashboard:\n" + advice
 	}
+	workspace := strings.TrimSpace(req.Workspace)
+	if workspace == "" {
+		workspace = r.workspace
+	}
 	opt := pcwrap.RunOptions{
 		Message:   prompt,
 		Session:   agentSessionForNode(r.session, req.NodeID),
 		Agent:     agent,
 		Model:     model,
-		Workspace: r.workspace,
+		Workspace: workspace,
 		Debug:     r.debug,
 		Quiet:     r.quiet,
 	}
