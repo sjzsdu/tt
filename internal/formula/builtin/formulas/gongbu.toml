@@ -132,7 +132,7 @@ timeout = "30s"
 id = "analyze-feature"
 title = "理解 feature 需求并形成代码调研线索"
 depends_on = ["inspect-repo"]
-input_context = ["inspect-repo"]
+input_context = ["inspect-repo.stdout"]
 form = true
 description = """
 基于 feature_request 和 inspect-repo.stdout，先理解本次 feature 的目标、边界和交付口径，不要急于制定实现方案。
@@ -170,7 +170,7 @@ required = ["feature_summary", "acceptance_criteria", "initial_search_targets"]
 id = "prepare-research-brief"
 title = "整合需求与执行环境，生成代码调研摘要"
 depends_on = ["analyze-feature"]
-input_context = ["inspect-repo", "analyze-feature"]
+input_context = ["inspect-repo.stdout", "analyze-feature"]
 description = """
 基于 analyze-feature 和 inspect-repo.stdout 生成后续 code-research 使用的统一摘要。
 
@@ -241,7 +241,7 @@ required = ["existing_behavior", "evidence", "code_scope", "implementation_optio
 id = "plan-feature"
 title = "制定最小可交付实施方案并判断是否需要用户选方案"
 depends_on = ["code-research"]
-input_context = ["inspect-repo", "analyze-feature", "prepare-research-brief", "code-research"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "prepare-research-brief", "code-research"]
 description = """
 基于需求理解和 code-research 的现有实现调研，输出可直接在 worktree_path 中执行的最小实施方案，并判断是否需要让用户选择实现方案。
 
@@ -324,7 +324,7 @@ agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 id = "implement-feature"
 title = "在 worktree 中实现 feature"
 depends_on = ["plan-feature", "choose-strategy", "design-ui"]
-input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "design-ui"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "design-ui"]
 description = """
 在 inspect-repo.stdout 里的 worktree_path 中完成 feature 实现。不要修改原始仓库目录。
 
@@ -382,7 +382,7 @@ agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 id = "write-docs"
 title = "补充文档"
 depends_on = ["review-quality"]
-input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality"]
 condition = "analyze-feature.needs_docs == true"
 description = """
 在 worktree_path 中补充必要文档，只覆盖本次 feature 真正新增或变化的部分。
@@ -397,7 +397,7 @@ agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 id = "update-changelog"
 title = "更新 changelog"
 depends_on = ["review-quality"]
-input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality", "write-docs"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality", "write-docs"]
 condition = "analyze-feature.needs_changelog == true && review-quality.changelog_needed == true"
 description = """
 在 worktree_path 中为本次 feature 更新 changelog。只记录用户可感知或对集成方有意义的变化。
@@ -412,7 +412,7 @@ agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 id = "final-check"
 title = "做最终交付检查"
 depends_on = ["write-docs", "update-changelog", "review-quality"]
-input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
 description = """
 做最终交付检查，确认实现、测试、文档、changelog 是否形成闭环。
 
@@ -452,7 +452,7 @@ continue_on_error = true
 id = "final-report"
 title = "输出最终结论与报告"
 depends_on = ["commit-changes", "final-check"]
-input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
 description = """
 面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path，以及未完成事项。
 """

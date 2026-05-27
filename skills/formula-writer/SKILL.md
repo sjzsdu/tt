@@ -309,6 +309,7 @@ ToolStep rules:
 - Use tools before script when a built-in exists.
 - Tools are deterministic and auditable.
 - Tool outputs are JSON and can be consumed by later agent steps.
+- Keep `input_context` minimal. If a downstream step only needs one field from a JSON output, pass the field path such as `input_context = ["inspect-repo.stdout"]`; pass the whole step id only when multiple fields or the full JSON object are needed.
 - Do not add `output_key` for normal formulas. A step's `id` is already the output key.
 - Avoid adding a new execution kind for every operation. Prefer adding a new `tool.name`.
 

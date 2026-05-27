@@ -315,6 +315,7 @@ set_upstream = true
 - 有内置 tool 就不要写 script。
 - 增加新的常规操作时优先扩展 `tool.name`，不要新增 execution kind。
 - Tool 输出是 JSON，可给后续 agent 用 `input_context` 消费。
+- `input_context` 要尽量小：如果下游只需要 JSON 输出里的一个字段，就传字段路径，例如 `input_context = ["inspect-repo.stdout"]`；只有依赖多个字段或完整对象时才传整个 step id。
 - 普通 formula 不要写 `output_key`；step 的 `id` 默认就是输出 key。
 
 ### 3. Aggregate step：聚合/投影/删大字段
