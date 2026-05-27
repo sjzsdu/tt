@@ -1,6 +1,6 @@
 formula = "github-pr-review"
 description = "使用 gh 收集 PR 信息与 diff，完成代码审阅、生成评论建议，并默认通过确定性脚本真实提交 GitHub review/comment，最后输出带表格汇总的最终报告。"
-version = 4
+version = 5
 type = "workflow"
 
 [vars]
@@ -20,7 +20,7 @@ command = ["python3", "-c", """
 import json, os, subprocess, sys
 pr = os.environ.get('TT_PR_REF', '').strip()
 repo = os.environ.get('TT_REPO_HINT', '').strip()
-fields = 'number,title,body,author,baseRefName,headRefName,url,state,isDraft,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify'
+fields = 'number,title,body,author,baseRefName,headRefName,headRefOid,url,state,isDraft,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify'
 cmd = ['gh', 'pr', 'view', pr, '--json', fields]
 if repo:
     cmd += ['--repo', repo]
@@ -167,6 +167,7 @@ out = {
     'author': (meta.get('author') or {}).get('login') if isinstance(meta.get('author'), dict) else str(meta.get('author') or ''),
     'base_branch': meta.get('baseRefName') or '',
     'head_branch': meta.get('headRefName') or '',
+    'head_sha': meta.get('headRefOid') or '',
     'url': meta.get('url') or '',
     'state': meta.get('state') or '',
     'is_draft': bool(meta.get('isDraft')),
@@ -269,28 +270,20 @@ required = ["submit_review", "has_findings", "summary_comment", "inline_comments
 
 [[steps]]
 id = "submit-review-comments"
-title = "通过 gh 真实提交 review comments"
+title = "提交 review summary 与 conversation comments"
 execution = "script"
 depends_on = ["prepare-review-summary"]
-input_context = ["prepare-review-summary.summary_comment", "prepare-review-summary.inline_comments", "prepare-review-summary.conversation_comments", "prepare-review-summary.submit_review", "build-pr-context.stdout.number", "build-pr-context.stdout.repo_hint"]
+input_context = ["prepare-review-summary.summary_comment", "prepare-review-summary.conversation_comments", "prepare-review-summary.submit_review", "build-pr-context.stdout.number", "build-pr-context.stdout.repo_hint"]
 condition = "prepare-review-summary.submit_review == true"
 
 [steps.script]
 command = ["python3", "-c", """
-import json, os, subprocess, sys, tempfile, traceback
+import json, subprocess, sys, traceback
 
 def emit(result):
     print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
 
-result = {
-    'submitted': False,
-    'review_action': 'COMMENT',
-    'summary_comment': '',
-    'submitted_comments': [],
-    'failed_comments': [],
-    'inline_comments_requested': 0,
-    'conversation_comments_requested': 0,
-}
+result = {'submitted': False, 'review_action': 'COMMENT', 'summary_comment': '', 'submitted_comments': [], 'failed_comments': [], 'conversation_comments_requested': 0, 'review_error': ''}
 try:
     pr_ref = sys.argv[1] if len(sys.argv) > 1 else ''
     repo_hint = (sys.argv[2] if len(sys.argv) > 2 else '').strip()
@@ -302,10 +295,9 @@ try:
         result['raw_plan_preview'] = raw_plan[:1200]
         emit(result)
         raise SystemExit(0)
-
     result['summary_comment'] = review_plan.get('summary_comment', '')
-    result['inline_comments_requested'] = len(review_plan.get('inline_comments') or [])
-    result['conversation_comments_requested'] = len(review_plan.get('conversation_comments') or [])
+    conversation_comments = review_plan.get('conversation_comments') or []
+    result['conversation_comments_requested'] = len(conversation_comments)
     repo_args = ['--repo', repo_hint] if repo_hint else []
     if not pr_ref:
         result['review_error'] = 'missing pr_ref'
@@ -317,68 +309,26 @@ try:
         raise SystemExit(0)
 
     body = (review_plan.get('summary_comment') or '').strip() or 'Automated PR review summary.'
-
-    for item in review_plan.get('conversation_comments') or []:
-        cbody = (item.get('body') or '').strip()
-        if not cbody:
-            continue
-        cmd = ['gh', 'pr', 'comment', pr_ref, '--body', cbody] + repo_args
-        cres = subprocess.run(cmd, capture_output=True, text=True)
-        if cres.returncode == 0:
-            result['submitted_comments'].append({'id': item.get('id'), 'type': 'conversation', 'body': cbody})
-        else:
-            result['failed_comments'].append({'id': item.get('id'), 'type': 'conversation', 'body': cbody, 'error': cres.stderr.strip() or cres.stdout.strip() or 'gh pr comment failed'})
-
-    inline_comments = []
-    for item in review_plan.get('inline_comments') or []:
-        cbody = (item.get('body') or '').strip()
-        path = item.get('path')
-        line = item.get('line')
-        side = item.get('side') or 'RIGHT'
-        if not cbody or not path or line is None:
-            result['failed_comments'].append({'id': item.get('id'), 'type': 'line', 'path': path, 'line': line, 'error': 'missing path/line/body'})
-            continue
-        try:
-            line_number = int(line)
-        except Exception:
-            result['failed_comments'].append({'id': item.get('id'), 'type': 'line', 'path': path, 'line': line, 'error': 'line must be an integer'})
-            continue
-        inline_comments.append({'path': path, 'line': line_number, 'side': side, 'body': cbody, '_id': item.get('id')})
-
-    review_payload = {'event': 'COMMENT', 'body': body}
-    if inline_comments:
-        review_payload['comments'] = [{k: v for k, v in item.items() if k != '_id'} for item in inline_comments]
-    if repo_hint and '/' in repo_hint:
-        owner, name = repo_hint.split('/', 1)
-        endpoint = f'repos/{owner}/{name}/pulls/{pr_ref}/reviews'
-        api_repo_args = []
-    else:
-        endpoint = f'repos/:owner/:repo/pulls/{pr_ref}/reviews'
-        api_repo_args = []
-    with tempfile.NamedTemporaryFile('w', delete=False, encoding='utf-8') as f:
-        json.dump(review_payload, f, ensure_ascii=False, separators=(',', ':'))
-        payload_path = f.name
-    try:
-        cmd = ['gh', 'api'] + api_repo_args + ['--method', 'POST', endpoint, '--input', payload_path]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-    finally:
-        try:
-            os.unlink(payload_path)
-        except Exception:
-            pass
+    res = subprocess.run(['gh', 'pr', 'review', pr_ref, '--comment', '--body', body] + repo_args, capture_output=True, text=True)
     if res.returncode == 0:
         result['submitted'] = True
         result['submitted_review_body'] = True
-        for item in inline_comments:
-            result['submitted_comments'].append({'id': item.get('_id'), 'type': 'line', 'path': item.get('path'), 'line': item.get('line'), 'side': item.get('side')})
     else:
-        result['review_error'] = res.stderr.strip() or res.stdout.strip() or 'gh api create review failed'
-        for item in inline_comments:
-            result['failed_comments'].append({'id': item.get('_id'), 'type': 'line', 'path': item.get('path'), 'line': item.get('line'), 'side': item.get('side'), 'error': result['review_error']})
+        result['review_error'] = res.stderr.strip() or res.stdout.strip() or 'gh pr review failed'
+
+    for item in conversation_comments:
+        cbody = (item.get('body') or '').strip()
+        if not cbody:
+            continue
+        cres = subprocess.run(['gh', 'pr', 'comment', pr_ref, '--body', cbody] + repo_args, capture_output=True, text=True)
+        if cres.returncode == 0:
+            result['submitted_comments'].append({'id': item.get('id'), 'type': 'conversation'})
+        else:
+            result['failed_comments'].append({'id': item.get('id'), 'type': 'conversation', 'error': cres.stderr.strip() or cres.stdout.strip() or 'gh pr comment failed'})
 except SystemExit:
     raise
 except Exception as exc:
-    result['review_error'] = f'submit script failed: {exc}'
+    result['review_error'] = f'submit summary script failed: {exc}'
     result['traceback'] = traceback.format_exc()[-2000:]
 emit(result)
 """, "{{pr_ref}}", "{{repo_hint}}", "{{prepare-review-summary}}"]
@@ -389,6 +339,95 @@ continue_on_error = true
 [steps.validate]
 format = "json"
 required = ["stdout"]
+
+[[steps]]
+id = "submit-inline-comments"
+title = "逐条提交 inline review comments"
+depends_on = ["prepare-review-summary", "submit-review-comments"]
+condition = "prepare-review-summary.submit_review == true"
+
+  [steps.loop]
+  for_each = "prepare-review-summary.inline_comments"
+  var = "review_comment"
+  parallel = false
+
+  [[steps.loop.body]]
+  id = "submit-inline-comment"
+  title = "提交 inline comment {{review_comment.id}}"
+  execution = "script"
+  input_context = ["review_comment", "build-pr-context.stdout.head_sha", "build-pr-context.stdout.repo_hint"]
+
+    [steps.loop.body.script]
+    command = ["python3", "-c", """
+import json, os, subprocess, sys, traceback
+
+def emit(result):
+    print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
+
+result = {'submitted': False, 'id': '', 'type': 'line', 'path': '', 'line': None, 'side': 'RIGHT', 'error': ''}
+try:
+    pr_ref = os.environ.get('TT_PR_REF', '').strip()
+    repo_hint = os.environ.get('TT_REPO_HINT', '').strip()
+    head_sha = os.environ.get('TT_HEAD_SHA', '').strip()
+    raw_comment = os.environ.get('TT_REVIEW_COMMENT') or '{}'
+    try:
+        item = json.loads(raw_comment)
+    except Exception as exc:
+        result['error'] = f'invalid review_comment JSON: {exc}'
+        result['raw_comment_preview'] = raw_comment[:1200]
+        emit(result)
+        raise SystemExit(0)
+    result.update({'id': item.get('id') or '', 'path': item.get('path') or '', 'line': item.get('line'), 'side': item.get('side') or 'RIGHT'})
+    body = (item.get('body') or '').strip()
+    if not pr_ref:
+        result['error'] = 'missing pr_ref'
+        emit(result)
+        raise SystemExit(0)
+    if not head_sha:
+        result['error'] = 'missing head_sha'
+        emit(result)
+        raise SystemExit(0)
+    if not body or not result['path'] or result['line'] is None:
+        result['error'] = 'missing body/path/line'
+        emit(result)
+        raise SystemExit(0)
+    try:
+        line = int(result['line'])
+    except Exception:
+        result['error'] = 'line must be an integer'
+        emit(result)
+        raise SystemExit(0)
+    if repo_hint and '/' in repo_hint:
+        owner, name = repo_hint.split('/', 1)
+        endpoint = f'repos/{owner}/{name}/pulls/{pr_ref}/comments'
+    else:
+        endpoint = f'repos/:owner/:repo/pulls/{pr_ref}/comments'
+    cmd = ['gh', 'api', '--method', 'POST', endpoint, '-f', f'body={body}', '-f', f'commit_id={head_sha}', '-f', f'path={result["path"]}', '-F', f'line={line}', '-f', f'side={result["side"]}']
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0:
+        result['submitted'] = True
+    else:
+        result['error'] = res.stderr.strip() or res.stdout.strip() or 'gh api inline comment failed'
+except SystemExit:
+    raise
+except Exception as exc:
+    result['error'] = f'inline comment script failed: {exc}'
+    result['traceback'] = traceback.format_exc()[-2000:]
+emit(result)
+"""]
+    format = "json"
+    timeout = "60s"
+    continue_on_error = true
+
+    [steps.loop.body.script.env]
+    TT_PR_REF = "{{pr_ref}}"
+    TT_REPO_HINT = "{{build-pr-context.stdout.repo_hint}}"
+    TT_HEAD_SHA = "{{build-pr-context.stdout.head_sha}}"
+    TT_REVIEW_COMMENT = "{{review_comment}}"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["stdout"]
 
 [[steps]]
 id = "draft-review-comments"
@@ -410,8 +449,8 @@ name = "coder"
 [[steps]]
 id = "final-report"
 title = "输出最终 PR 审查报告"
-depends_on = ["submit-review-comments", "draft-review-comments"]
-input_context = ["build-pr-context.stdout.ready", "build-pr-context.stdout.error", "build-pr-context.stdout.title", "build-pr-context.stdout.url", "build-pr-context.stdout.changed_files_count", "build-pr-context.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "formula_repairs.submit-review-comments", "draft-review-comments"]
+depends_on = ["submit-review-comments", "submit-inline-comments", "draft-review-comments"]
+input_context = ["build-pr-context.stdout.ready", "build-pr-context.stdout.error", "build-pr-context.stdout.title", "build-pr-context.stdout.url", "build-pr-context.stdout.changed_files_count", "build-pr-context.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "submit-inline-comments", "formula_repairs.submit-review-comments", "formula_repairs.submit-inline-comment", "draft-review-comments"]
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
 
@@ -421,7 +460,7 @@ description = """
 
 生成规则：
 - 表格基于 prepare-review-summary.table_rows。
-- 如果 prepare-review-summary.submit_review=true：已成功提交的问题标记为 submitted，提交失败标记为 submit-failed，未尝试提交标记为 pending。
+- 如果 prepare-review-summary.submit_review=true：结合 submit-review-comments 与 submit-inline-comments，已成功提交的问题标记为 submitted，提交失败标记为 submit-failed，未尝试提交标记为 pending。
 - 如果 prepare-review-summary.submit_review=false：所有问题标记为 draft-only。
 - 如果没有问题，仍然输出 no-issue 行。
 - 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败。
