@@ -112,3 +112,47 @@ You are a local demo agent.
 		t.Fatalf("Get(local-demo).ID = %q", got.ID)
 	}
 }
+
+func TestFilesystemAgentOverridesEmbeddedAgent(t *testing.T) {
+	tmp := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir(tmp) error = %v", err)
+	}
+
+	dir := filepath.Join(".tt", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	const md = `---
+id: writer
+name: Custom Writer
+soul: Override soul
+---
+You are an overridden writer agent.
+`
+	if err := os.WriteFile(filepath.Join(dir, "writer.md"), []byte(md), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	all, err := List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	count := 0
+	for _, a := range all {
+		if a.ID == "writer" {
+			count++
+			if a.Name != "Custom Writer" || a.Soul != "Override soul" || a.Prompt != "You are an overridden writer agent." {
+				t.Fatalf("writer override mismatch: %+v", a)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("writer count = %d, want 1", count)
+	}
+}

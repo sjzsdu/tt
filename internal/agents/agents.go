@@ -125,7 +125,7 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 		return nil, fmt.Errorf("read embedded agents failed: %w", err)
 	}
 	agents := make([]pcwrap.EmbeddedAgent, 0, len(entries))
-	seen := map[string]struct{}{}
+	indexByID := map[string]int{}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
 			continue
@@ -134,11 +134,7 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := seen[agent.ID]; exists {
-			return nil, fmt.Errorf("duplicate embedded agent id %q", agent.ID)
-		}
-		seen[agent.ID] = struct{}{}
-		agents = append(agents, agent)
+		agents = upsertAgent(agents, indexByID, agent)
 	}
 
 	fsAgents, err := loadFilesystemAgents()
@@ -146,14 +142,19 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 		return nil, err
 	}
 	for _, agent := range fsAgents {
-		if _, exists := seen[agent.ID]; exists {
-			return nil, fmt.Errorf("duplicate embedded agent id %q", agent.ID)
-		}
-		seen[agent.ID] = struct{}{}
-		agents = append(agents, agent)
+		agents = upsertAgent(agents, indexByID, agent)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
 	return agents, nil
+}
+
+func upsertAgent(agents []pcwrap.EmbeddedAgent, indexByID map[string]int, agent pcwrap.EmbeddedAgent) []pcwrap.EmbeddedAgent {
+	if idx, exists := indexByID[agent.ID]; exists {
+		agents[idx] = agent
+		return agents
+	}
+	indexByID[agent.ID] = len(agents)
+	return append(agents, agent)
 }
 
 func loadFilesystemAgents() ([]pcwrap.EmbeddedAgent, error) {
