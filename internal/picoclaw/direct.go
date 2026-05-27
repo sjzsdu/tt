@@ -3,6 +3,7 @@ package picoclaw
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
@@ -19,6 +20,7 @@ type DirectRunner struct {
 	loop           *pcagent.AgentLoop
 	closeProvider  func()
 	embeddedAgents []EmbeddedAgent
+	workspace      string
 }
 
 func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
@@ -32,7 +34,8 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	}
 
 	cfg := cloneConfig(rt.Config)
-	if workspace := resolveRunWorkspace(opt.Workspace); workspace != "" {
+	workspace := resolveRunWorkspace(opt.Workspace)
+	if workspace != "" {
 		configureProjectWorkspace(cfg, workspace)
 	}
 	cfg = prepareConfigForRun(cfg, resolved)
@@ -80,6 +83,7 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 		loop:           loop,
 		closeProvider:  closeProvider,
 		embeddedAgents: embeddedAgents,
+		workspace:      workspace,
 	}, nil
 }
 
@@ -119,6 +123,21 @@ func (dr *DirectRunner) ProcessDirectContext(ctx context.Context, opt RunOptions
 	if len(opt.EmbeddedAgents) == 0 && len(dr.embeddedAgents) > 0 {
 		opt.EmbeddedAgents = dr.embeddedAgents
 	}
+	if workspace := resolveRunWorkspace(opt.Workspace); workspace != "" && !sameWorkspace(workspace, dr.workspace) {
+		child, err := dr.rt.NewDirectRunner(RunOptions{
+			Model:          str(opt.Model),
+			Workspace:      workspace,
+			Debug:          opt.Debug,
+			Quiet:          opt.Quiet,
+			EmbeddedAgents: opt.EmbeddedAgents,
+		})
+		if err != nil {
+			return "", err
+		}
+		defer child.Close()
+		opt.Workspace = ""
+		return child.ProcessDirectContext(ctx, opt)
+	}
 	resolved, err := dr.rt.ResolveRunOptions(opt)
 	if err != nil {
 		return "", err
@@ -157,4 +176,13 @@ func (dr *DirectRunner) ProcessDirectContext(ctx context.Context, opt RunOptions
 		return "", err
 	}
 	return resp, nil
+}
+
+func sameWorkspace(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return a == b
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }

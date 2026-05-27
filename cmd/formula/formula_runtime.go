@@ -112,6 +112,9 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 	if advice := strings.TrimSpace(r.stepAdvice[req.NodeID]); advice != "" {
 		prompt = strings.TrimSpace(prompt) + "\n\nRetry advice from dashboard:\n" + advice
 	}
+	if strings.TrimSpace(prompt) == "" {
+		return steps.Value{}, fmt.Errorf("formula agent step %q produced an empty prompt", req.NodeID)
+	}
 	workspace := strings.TrimSpace(req.Workspace)
 	if workspace == "" {
 		workspace = r.workspace
