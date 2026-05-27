@@ -156,7 +156,7 @@ ToolStep 是常规电脑操作的统一入口。当前内置：
 - `git_push`：执行 git push。
 - `git_branch`：列出/创建/删除 branch。
 - `git_checkout`：checkout 或创建 branch。
-- `git_worktree`：创建/列出/删除 worktree，适合隔离开发新功能。
+- `git_worktree`：创建/列出/删除 worktree，适合隔离开发新功能；大仓库可设置 `sparse_paths = ["cmd", "internal/pkg"]` 只检出关注目录，`sparse_mode` 支持 `cone`（默认）或 `no-cone`。
 
 通用结构：
 

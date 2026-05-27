@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -383,11 +384,104 @@ func TestGitToolCommandBuilders(t *testing.T) {
 	}
 }
 
+func TestGitWorktreeSparseCommandBuilder(t *testing.T) {
+	commands, err := buildGitWorktreeCommands(GitWorktreeStep{
+		Path:        "../repo-feature",
+		Branch:      "feature",
+		Create:      true,
+		StartPoint:  "main",
+		SparsePaths: []string{"cmd", "internal/formula"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := joinCommands(commands)
+	want := "git worktree add --no-checkout -b feature ../repo-feature main\n" +
+		"git -C ../repo-feature sparse-checkout set --cone cmd internal/formula\n" +
+		"git -C ../repo-feature checkout"
+	if got != want {
+		t.Fatalf("commands = %q, want %q", got, want)
+	}
+}
+
+func TestGitWorktreeSparseRejectsInvalidMode(t *testing.T) {
+	_, err := buildGitWorktreeCommands(GitWorktreeStep{Path: "../repo-feature", SparseMode: "invalid", SparsePaths: []string{"cmd"}})
+	if err == nil || !strings.Contains(err.Error(), "sparse_mode") {
+		t.Fatalf("err = %v, want sparse_mode error", err)
+	}
+}
+
+func TestGitWorktreeSparseRunChecksOutOnlySparsePaths(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	worktree := filepath.Join(root, "wt")
+	runTestCommand(t, root, "git", "init", "repo")
+	runTestCommand(t, repo, "git", "config", "user.email", "test@example.com")
+	runTestCommand(t, repo, "git", "config", "user.name", "Test User")
+	mustWriteFile(t, filepath.Join(repo, "cmd", "a.txt"), "a\n")
+	mustWriteFile(t, filepath.Join(repo, "internal", "formula", "b.txt"), "b\n")
+	mustWriteFile(t, filepath.Join(repo, "huge", "c.txt"), "c\n")
+	runTestCommand(t, repo, "git", "add", ".")
+	runTestCommand(t, repo, "git", "commit", "-m", "init")
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+
+	step := GitWorktreeStep{Path: worktree, Branch: "feature", Create: true, StartPoint: "HEAD", SparsePaths: []string{"cmd", "internal/formula"}}
+	if _, err := step.Run(context.Background(), RunRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "cmd", "a.txt")); err != nil {
+		t.Fatalf("sparse file missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "internal", "formula", "b.txt")); err != nil {
+		t.Fatalf("nested sparse file missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "huge", "c.txt")); !os.IsNotExist(err) {
+		t.Fatalf("non-sparse file exists or unexpected error: %v", err)
+	}
+}
+
 func mustGitArgs(args []string, err error) []string {
 	if err != nil {
 		panic(err)
 	}
 	return args
+}
+
+func joinCommands(commands [][]string) string {
+	lines := make([]string, 0, len(commands))
+	for _, command := range commands {
+		lines = append(lines, strings.Join(command, " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func runTestCommand(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, out)
+	}
+}
+
+func mustWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSleepToolHonorsCancellation(t *testing.T) {

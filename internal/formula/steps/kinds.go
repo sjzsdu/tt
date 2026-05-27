@@ -479,16 +479,18 @@ type GitCheckoutStep struct {
 }
 
 type GitWorktreeStep struct {
-	Path       string
-	Branch     string
-	StartPoint string
-	Create     bool
-	Detach     bool
-	Force      bool
-	List       bool
-	Porcelain  bool
-	Remove     string
-	Prune      bool
+	Path        string
+	Branch      string
+	StartPoint  string
+	SparseMode  string
+	Create      bool
+	Detach      bool
+	Force       bool
+	List        bool
+	Porcelain   bool
+	Remove      string
+	Prune       bool
+	SparsePaths []string
 }
 
 func (s GitFetchStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
@@ -512,8 +514,8 @@ func (s GitCheckoutStep) Run(ctx context.Context, req RunRequest) (*RunResult, e
 }
 
 func (s GitWorktreeStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
-	argv, err := buildGitWorktreeCommand(s)
-	return runGitTool(ctx, req, argv, err)
+	commands, err := buildGitWorktreeCommands(s)
+	return runGitToolCommands(ctx, req, commands, err)
 }
 
 func buildGitFetchCommand(s GitFetchStep) ([]string, error) {
@@ -591,31 +593,46 @@ func buildGitCheckoutCommand(s GitCheckoutStep) ([]string, error) {
 }
 
 func buildGitWorktreeCommand(s GitWorktreeStep) ([]string, error) {
+	commands, err := buildGitWorktreeCommands(s)
+	if err != nil {
+		return nil, err
+	}
+	if len(commands) == 0 {
+		return nil, fmt.Errorf("git_worktree command is required")
+	}
+	return commands[0], nil
+}
+
+func buildGitWorktreeCommands(s GitWorktreeStep) ([][]string, error) {
 	args := []string{"git", "worktree"}
 	if s.Prune {
-		return append(args, "prune"), nil
+		return [][]string{append(args, "prune")}, nil
 	}
 	if s.List {
 		args = append(args, "list")
 		if s.Porcelain {
 			args = append(args, "--porcelain")
 		}
-		return args, nil
+		return [][]string{args}, nil
 	}
 	if target := strings.TrimSpace(s.Remove); target != "" {
 		args = append(args, "remove")
 		if s.Force {
 			args = append(args, "--force")
 		}
-		return append(args, target), nil
+		return [][]string{append(args, target)}, nil
 	}
 	path := strings.TrimSpace(s.Path)
 	if path == "" {
 		return nil, fmt.Errorf("git_worktree path is required")
 	}
+	sparsePaths := compactStrings(s.SparsePaths)
 	args = append(args, "add")
 	if s.Force {
 		args = append(args, "--force")
+	}
+	if len(sparsePaths) > 0 {
+		args = append(args, "--no-checkout")
 	}
 	if s.Detach {
 		args = append(args, "--detach")
@@ -630,16 +647,58 @@ func buildGitWorktreeCommand(s GitWorktreeStep) ([]string, error) {
 	} else if branch != "" && !s.Create {
 		args = append(args, branch)
 	}
-	return args, nil
+	if len(sparsePaths) == 0 {
+		return [][]string{args}, nil
+	}
+	sparseArgs := []string{"git", "-C", path, "sparse-checkout", "set"}
+	switch strings.TrimSpace(s.SparseMode) {
+	case "", "cone":
+		sparseArgs = append(sparseArgs, "--cone")
+	case "no-cone":
+		sparseArgs = append(sparseArgs, "--no-cone")
+	default:
+		return nil, fmt.Errorf("git_worktree sparse_mode must be cone or no-cone")
+	}
+	sparseArgs = append(sparseArgs, sparsePaths...)
+	checkoutArgs := []string{"git", "-C", path, "checkout"}
+	return [][]string{args, sparseArgs, checkoutArgs}, nil
 }
 
 func runGitTool(ctx context.Context, req RunRequest, argv []string, buildErr error) (*RunResult, error) {
+	return runGitToolCommands(ctx, req, [][]string{argv}, buildErr)
+}
+
+func runGitToolCommands(ctx context.Context, req RunRequest, commands [][]string, buildErr error) (*RunResult, error) {
 	if buildErr != nil {
 		return failedRun(buildErr)
 	}
-	if len(argv) == 0 {
+	if len(commands) == 0 {
 		return failedRun(fmt.Errorf("git command is required"))
 	}
+	results := make([]map[string]any, 0, len(commands))
+	for _, argv := range commands {
+		if len(argv) == 0 {
+			return failedRun(fmt.Errorf("git command is required"))
+		}
+		result, err := runOneGitToolCommand(ctx, req, argv)
+		results = append(results, result)
+		if err != nil {
+			raw, marshalErr := json.Marshal(map[string]any{"commands": results})
+			if marshalErr != nil {
+				return failedRun(marshalErr)
+			}
+			res := &RunResult{Status: StatusFailed, Output: Value{Type: "json", Raw: raw}, Error: &StepError{Message: "git tool failed", Cause: err}}
+			return res, err
+		}
+	}
+	raw, err := json.Marshal(map[string]any{"command": results[len(results)-1]["command"], "commands": results, "exit_code": 0, "stdout": results[len(results)-1]["stdout"], "stderr": results[len(results)-1]["stderr"]})
+	if err != nil {
+		return failedRun(err)
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func runOneGitToolCommand(ctx context.Context, req RunRequest, argv []string) (map[string]any, error) {
 	rendered := renderContextTemplateSlice(argv, req.Context)
 	cmd := exec.CommandContext(ctx, rendered[0], rendered[1:]...)
 	stdout, stderr := &strings.Builder{}, &strings.Builder{}
@@ -653,17 +712,18 @@ func runGitTool(ctx context.Context, req RunRequest, argv []string, buildErr err
 			exitCode = ee.ExitCode()
 		}
 	}
-	raw, marshalErr := json.Marshal(map[string]any{"command": rendered, "exit_code": exitCode, "stdout": stdout.String(), "stderr": stderr.String()})
-	if marshalErr != nil {
-		return failedRun(marshalErr)
+	return map[string]any{"command": rendered, "exit_code": exitCode, "stdout": stdout.String(), "stderr": stderr.String()}, err
+}
+
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
 	}
-	res := &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}
-	if err != nil {
-		res.Status = StatusFailed
-		res.Error = &StepError{Message: "git tool failed", Cause: err}
-		return res, err
-	}
-	return res, nil
+	return out
 }
 
 type SleepStep struct {

@@ -230,7 +230,7 @@ func gitWorktreeToolStep(spec *GitWorktreeSpec) *steps.GitWorktreeStep {
 	if spec == nil {
 		return nil
 	}
-	return &steps.GitWorktreeStep{Path: spec.Path, Branch: spec.Branch, StartPoint: spec.StartPoint, Create: spec.Create, Detach: spec.Detach, Force: spec.Force, List: spec.List, Porcelain: spec.Porcelain, Remove: spec.Remove, Prune: spec.Prune}
+	return &steps.GitWorktreeStep{Path: spec.Path, Branch: spec.Branch, StartPoint: spec.StartPoint, SparseMode: spec.SparseMode, Create: spec.Create, Detach: spec.Detach, Force: spec.Force, List: spec.List, Porcelain: spec.Porcelain, Remove: spec.Remove, Prune: spec.Prune, SparsePaths: append([]string(nil), spec.SparsePaths...)}
 }
 
 func outputValidationSpec(step *Step) *steps.OutputValidationSpec {

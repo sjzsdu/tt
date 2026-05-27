@@ -731,16 +731,18 @@ type GitCheckoutSpec struct {
 }
 
 type GitWorktreeSpec struct {
-	Path       string `json:"path,omitempty" toml:"path,omitempty"`
-	Branch     string `json:"branch,omitempty" toml:"branch,omitempty"`
-	StartPoint string `json:"start_point,omitempty" toml:"start_point,omitempty"`
-	Create     bool   `json:"create,omitempty" toml:"create,omitempty"`
-	Detach     bool   `json:"detach,omitempty" toml:"detach,omitempty"`
-	Force      bool   `json:"force,omitempty" toml:"force,omitempty"`
-	List       bool   `json:"list,omitempty" toml:"list,omitempty"`
-	Porcelain  bool   `json:"porcelain,omitempty" toml:"porcelain,omitempty"`
-	Remove     string `json:"remove,omitempty" toml:"remove,omitempty"`
-	Prune      bool   `json:"prune,omitempty" toml:"prune,omitempty"`
+	Path        string   `json:"path,omitempty" toml:"path,omitempty"`
+	Branch      string   `json:"branch,omitempty" toml:"branch,omitempty"`
+	StartPoint  string   `json:"start_point,omitempty" toml:"start_point,omitempty"`
+	SparseMode  string   `json:"sparse_mode,omitempty" toml:"sparse_mode,omitempty"`
+	Create      bool     `json:"create,omitempty" toml:"create,omitempty"`
+	Detach      bool     `json:"detach,omitempty" toml:"detach,omitempty"`
+	Force       bool     `json:"force,omitempty" toml:"force,omitempty"`
+	List        bool     `json:"list,omitempty" toml:"list,omitempty"`
+	Porcelain   bool     `json:"porcelain,omitempty" toml:"porcelain,omitempty"`
+	Remove      string   `json:"remove,omitempty" toml:"remove,omitempty"`
+	Prune       bool     `json:"prune,omitempty" toml:"prune,omitempty"`
+	SparsePaths []string `json:"sparse_paths,omitempty" toml:"sparse_paths,omitempty"`
 }
 
 // WriteFilesSpec describes deterministic file creation from JSON context objects.

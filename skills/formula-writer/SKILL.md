@@ -160,7 +160,7 @@ Use ToolStep for common computer actions. Current built-ins:
 - `git_push`: run `git push`.
 - `git_branch`: list/create/delete branches.
 - `git_checkout`: checkout or create branch.
-- `git_worktree`: create/list/remove git worktrees for isolated feature development.
+- `git_worktree`: create/list/remove git worktrees for isolated feature development. For large repos, set `sparse_paths = ["cmd", "internal/pkg"]`; this uses `git worktree add --no-checkout`, `git sparse-checkout set`, then `git checkout` so only the requested paths are populated. Optional `sparse_mode` is `cone` (default) or `no-cone`.
 
 General shape:
 
