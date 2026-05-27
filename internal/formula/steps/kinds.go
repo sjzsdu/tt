@@ -986,14 +986,17 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			if child == nil {
 				continue
 			}
+			childNodeID := loopChildNodeID(req.NodeID, i, child.Meta().ID)
 			if !stepConditionMatches(child.Meta().Condition, req.Context) {
+				if req.Emit != nil {
+					req.Emit(childNodeID, "step.skipped", skippedRun("loop body condition evaluated to false"))
+				}
 				continue
 			}
 			exec, ok := child.(Executable)
 			if !ok {
 				continue
 			}
-			childNodeID := fmt.Sprintf("%s.iter%d.%s", req.NodeID, i, child.Meta().ID)
 			if req.Emit != nil {
 				req.Emit(childNodeID, "step.started", nil)
 			}
@@ -1305,14 +1308,17 @@ func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int
 		if child == nil {
 			continue
 		}
+		childNodeID := loopChildNodeID(req.NodeID, iteration, child.Meta().ID)
 		if !stepConditionMatches(child.Meta().Condition, req.Context) {
+			if req.Emit != nil {
+				req.Emit(childNodeID, "step.skipped", skippedRun("loop body condition evaluated to false"))
+			}
 			continue
 		}
 		exec, ok := child.(Executable)
 		if !ok {
 			continue
 		}
-		childNodeID := fmt.Sprintf("%s.iter%d.%s", req.NodeID, iteration, child.Meta().ID)
 		if req.Emit != nil {
 			req.Emit(childNodeID, "step.started", nil)
 		}
@@ -1343,6 +1349,14 @@ func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int
 		}
 	}
 	return last, nil, nil
+}
+
+func loopChildNodeID(parentNodeID string, iteration int, childID ID) string {
+	return fmt.Sprintf("%s.iter%d.%s", parentNodeID, iteration, childID)
+}
+
+func skippedRun(reason string) *RunResult {
+	return &RunResult{Status: StatusSkipped, Error: &StepError{Message: reason}}
 }
 
 func stepConditionMatches(condition string, ctx ContextView) bool {

@@ -121,6 +121,57 @@ func TestStepErrorMarshalStoresStringCause(t *testing.T) {
 	}
 }
 
+func TestLoopStepEmitsSkippedForConditionFalseBodyStep(t *testing.T) {
+	loop := LoopStep{
+		Base: Base{Metadata: Metadata{ID: "monitor", Kind: KindLoop}},
+		Max:  1,
+		Body: []Step{
+			NoopStep{Base: Base{Metadata: Metadata{ID: "repair", Kind: KindNoop, Condition: "action == repair_conflict"}}},
+			NoopStep{Base: Base{Metadata: Metadata{ID: "wait", Kind: KindNoop, Condition: "action == wait"}}},
+		},
+	}
+	var events []struct {
+		nodeID string
+		typ    string
+		status Status
+	}
+	_, err := loop.Run(context.Background(), RunRequest{
+		NodeID:  "monitor",
+		Context: mapContextView{"action": {Raw: []byte(`"wait"`)}},
+		Emit: func(nodeID string, eventType string, payload any) {
+			status := Status("")
+			if res, ok := payload.(*RunResult); ok && res != nil {
+				status = res.Status
+			}
+			events = append(events, struct {
+				nodeID string
+				typ    string
+				status Status
+			}{nodeID: nodeID, typ: eventType, status: status})
+		},
+	})
+	if err != nil {
+		t.Fatalf("run loop: %v", err)
+	}
+	assertLoopEvent(t, events, "monitor.iter1.repair", "step.skipped", StatusSkipped)
+	assertLoopEvent(t, events, "monitor.iter1.wait", "step.started", "")
+	assertLoopEvent(t, events, "monitor.iter1.wait", "step.completed", StatusCompleted)
+}
+
+func assertLoopEvent(t *testing.T, events []struct {
+	nodeID string
+	typ    string
+	status Status
+}, nodeID, typ string, status Status) {
+	t.Helper()
+	for _, event := range events {
+		if event.nodeID == nodeID && event.typ == typ && event.status == status {
+			return
+		}
+	}
+	t.Fatalf("missing event %s %s %s in %#v", nodeID, typ, status, events)
+}
+
 type recordingAgentRunner struct {
 	prompt string
 	req    AgentRequest
