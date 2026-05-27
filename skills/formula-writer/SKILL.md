@@ -228,6 +228,69 @@ create = true
 start_point = "origin/main"
 ```
 
+Create an isolated worktree for feature work:
+
+```toml
+[[steps]]
+id = "create-feature-worktree"
+title = "Create isolated feature worktree"
+execution = "tool"
+
+[steps.tool]
+name = "git_worktree"
+
+[steps.tool.git_worktree]
+path = "../repo-{{ticket}}"
+branch = "feature/{{ticket}}"
+create = true
+start_point = "origin/main"
+```
+
+Create a sparse worktree for very large repositories. Use this when the task only needs a few directories:
+
+```toml
+[[steps]]
+id = "create-sparse-worktree"
+title = "Create sparse feature worktree"
+execution = "tool"
+
+[steps.tool]
+name = "git_worktree"
+
+[steps.tool.git_worktree]
+path = "../repo-{{ticket}}"
+branch = "feature/{{ticket}}"
+create = true
+start_point = "origin/main"
+sparse_paths = ["cmd", "internal/formula", "docs"]
+# sparse_mode defaults to "cone"; use "no-cone" only when you need gitignore-style patterns.
+sparse_mode = "cone"
+```
+
+List or remove worktrees:
+
+```toml
+[[steps]]
+id = "list-worktrees"
+title = "List worktrees"
+execution = "tool"
+[steps.tool]
+name = "git_worktree"
+[steps.tool.git_worktree]
+list = true
+porcelain = true
+
+[[steps]]
+id = "remove-feature-worktree"
+title = "Remove feature worktree"
+execution = "tool"
+[steps.tool]
+name = "git_worktree"
+[steps.tool.git_worktree]
+remove = "../repo-{{ticket}}"
+force = true
+```
+
 ```toml
 [[steps]]
 id = "push-branch"

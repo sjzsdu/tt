@@ -230,6 +230,69 @@ create = true
 start_point = "origin/main"
 ```
 
+创建隔离 worktree 做新功能开发：
+
+```toml
+[[steps]]
+id = "create-feature-worktree"
+title = "Create isolated feature worktree"
+execution = "tool"
+
+[steps.tool]
+name = "git_worktree"
+
+[steps.tool.git_worktree]
+path = "../repo-{{ticket}}"
+branch = "feature/{{ticket}}"
+create = true
+start_point = "origin/main"
+```
+
+大仓库只关注部分目录时，创建 sparse worktree：
+
+```toml
+[[steps]]
+id = "create-sparse-worktree"
+title = "Create sparse feature worktree"
+execution = "tool"
+
+[steps.tool]
+name = "git_worktree"
+
+[steps.tool.git_worktree]
+path = "../repo-{{ticket}}"
+branch = "feature/{{ticket}}"
+create = true
+start_point = "origin/main"
+sparse_paths = ["cmd", "internal/formula", "docs"]
+# sparse_mode 默认为 "cone"；只有需要 gitignore 风格 pattern 时才用 "no-cone"。
+sparse_mode = "cone"
+```
+
+列出或删除 worktree：
+
+```toml
+[[steps]]
+id = "list-worktrees"
+title = "List worktrees"
+execution = "tool"
+[steps.tool]
+name = "git_worktree"
+[steps.tool.git_worktree]
+list = true
+porcelain = true
+
+[[steps]]
+id = "remove-feature-worktree"
+title = "Remove feature worktree"
+execution = "tool"
+[steps.tool]
+name = "git_worktree"
+[steps.tool.git_worktree]
+remove = "../repo-{{ticket}}"
+force = true
+```
+
 git push：
 
 ```toml
