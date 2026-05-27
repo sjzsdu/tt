@@ -164,7 +164,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
     const parent = data.parentStep || step;
     return (
       <button type="button" className={`graph-node flow-graph-node loop-body-node ${step.status}`} onClick={() => data.onSelect(parent)}>
-        <Handle type="target" position={Position.Left} className="flow-handle" />
+        <Handle type="target" position={Position.Top} className="flow-handle" />
         <div className="graph-node-topline">
           <div className="graph-node-id">body · {graphShortId(step.id)}</div>
           <span className={`graph-node-state ${step.status}`}>{statusLabel(step.status)}</span>
@@ -175,7 +175,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
           {step.output_key && <span>out · {step.output_key}</span>}
           {!!step.input_ctx?.length && <span>in · {step.input_ctx.join(', ')}</span>}
         </div>
-        <Handle type="source" position={Position.Right} className="flow-handle" />
+        <Handle type="source" position={Position.Bottom} className="flow-handle" />
       </button>
     );
   }
@@ -286,7 +286,13 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   const nodeWidth = 300;
   const nodeHeight = 178;
   const colGap = 110;
-  const rowGap = 44;
+  const rowGap = 58;
+  const loopBodyWidth = nodeWidth - 36;
+  const loopBodyHeight = 132;
+  const loopBodyGap = 188;
+  const loopGroupTopGap = 34;
+  const loopGroupHeaderHeight = 104;
+  const loopGroupBottomPadding = 30;
   const paddingX = 28;
   const paddingTop = 52;
   const paddingBottom = 28;
@@ -315,9 +321,23 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
       nodeIDs.add(step.id);
 
       const loopBody = step.loop?.body || [];
+      let occupiedHeight = nodeHeight;
       if (loopBody.length) {
-        const bodyX = x + nodeWidth + Math.floor(colGap * 0.72);
-        let bodyY = y + 26;
+        const groupX = x + 18;
+        const groupY = y + nodeHeight + loopGroupTopGap;
+        const groupHeight = loopGroupHeaderHeight + loopBody.length * loopBodyHeight + (loopBody.length - 1) * (loopBodyGap - loopBodyHeight) + loopGroupBottomPadding;
+        const bodyX = groupX + 18;
+        let bodyY = groupY + loopGroupHeaderHeight;
+        nodes.push({
+          id: `${step.id}__loop_group`,
+          type: 'loopGroup',
+          data: { step, bodyCount: loopBody.length },
+          position: { x: groupX, y: groupY },
+          style: { width: nodeWidth, height: groupHeight },
+          selectable: false,
+          draggable: false,
+          zIndex: -1,
+        });
         for (const [bodyIndex, body] of loopBody.entries()) {
           const bodyStep = loopBodyStep(step, body, bodyIndex);
           const bodyNodeID = loopBodyGraphID(step.id, body.id);
@@ -326,16 +346,17 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
             type: 'step',
             data: { step: bodyStep, kind: 'loop-body', parentStep: step, body, onSelect },
             position: { x: bodyX, y: bodyY },
-            style: { width: nodeWidth - 28, height: 132 },
+            style: { width: loopBodyWidth, height: loopBodyHeight },
           });
-          bodyY += 152;
+          bodyY += loopBodyGap;
           nodeIDs.add(bodyNodeID);
           stepStatus.set(bodyNodeID, bodyStep.status);
         }
-        maxY = Math.max(maxY, bodyY + paddingBottom);
+        occupiedHeight = nodeHeight + loopGroupTopGap + groupHeight;
+        maxY = Math.max(maxY, y + occupiedHeight + paddingBottom);
       }
 
-      y += nodeHeight + rowGap;
+      y += occupiedHeight + rowGap;
       maxY = Math.max(maxY, y);
     }
   }
