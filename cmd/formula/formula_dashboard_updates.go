@@ -103,6 +103,42 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 	s.broadcast()
 }
 
+func (s *formulaDashboardServer) markStepSkipped(stepID, reason string) {
+	s.mu.Lock()
+	found := false
+	for i := range s.state.Steps {
+		if s.state.Steps[i].ID != stepID {
+			continue
+		}
+		found = true
+		s.state.Steps[i].Status = "skipped"
+		s.state.Steps[i].Error = ""
+		s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
+		if s.state.Steps[i].StartedAt != "" {
+			if started, err := time.Parse(time.RFC3339, s.state.Steps[i].StartedAt); err == nil {
+				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
+			}
+		}
+		detail := reason
+		if detail == "" {
+			detail = "Step condition evaluated to false"
+		}
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "skipped", Detail: detail})
+		s.appendLogLocked(fmt.Sprintf("Step %s skipped", stepID))
+		break
+	}
+	if !found {
+		detail := reason
+		if detail == "" {
+			detail = "Loop body condition evaluated to false"
+		}
+		s.markLoopActivityLocked(stepID, "", "skipped", detail, "", "", 0)
+		s.appendLogLocked(fmt.Sprintf("Loop step %s skipped", stepID))
+	}
+	s.mu.Unlock()
+	s.broadcast()
+}
+
 func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.mu.Lock()
 	found := false

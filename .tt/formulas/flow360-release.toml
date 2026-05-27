@@ -231,12 +231,18 @@ format = "json"
     [steps.loop.body.script]
     command = ["bash", "-lc", """
 set -euo pipefail
-cls="${TT_CLASSIFY:-{}}"
-repair="${TT_REPAIR:-{}}"
-rerun="${TT_RERUN:-{}}"
-dispatch="${TT_DISPATCH:-{}}"
-fetch="${TT_FETCH:-{}}"
-jq -cn --argjson cls "$cls" --argjson repair "$repair" --argjson rerun "$rerun" --argjson dispatch "$dispatch" --argjson fetch "$fetch" '
+jq -cn \
+  --arg cls "${TT_CLASSIFY:-}" \
+  --arg repair "${TT_REPAIR:-}" \
+  --arg rerun "${TT_RERUN:-}" \
+  --arg dispatch "${TT_DISPATCH:-}" \
+  --arg fetch "${TT_FETCH:-}" '
+  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
+  obj($cls) as $cls |
+  obj($repair) as $repair |
+  obj($rerun) as $rerun |
+  obj($dispatch) as $dispatch |
+  obj($fetch) as $fetch |
   def b(x): x == true;
   ($cls.action // "block") as $action |
   ($repair.attempted == true) as $repair_attempted |
