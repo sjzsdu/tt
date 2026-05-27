@@ -4,7 +4,11 @@ version = 1
 type = "workflow"
 
 [vars]
-feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述。可用 --var branch_name=...、--var worktree_path=...、--var base_branch=...、--var sparse_paths=... 覆盖默认推导。", required = true }
+feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述", required = true }
+branch_name = { description = "可选覆盖：特性分支名；默认从 feature_request 推导为 feature/<slug>" }
+worktree_path = { description = "可选覆盖：worktree 目录；默认推导为 ../<repo>-<slug>" }
+base_branch = { description = "可选覆盖：起始分支/commit；默认 origin/main，不存在则自动 fallback 到 HEAD" }
+sparse_paths = { description = "可选覆盖：逗号或分号分隔的 sparse checkout 目录；默认在非仓库根目录运行时使用当前相对目录，在根目录运行时不启用 sparse" }
 
 [[steps]]
 id = "create-worktree"
