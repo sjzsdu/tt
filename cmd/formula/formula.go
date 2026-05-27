@@ -165,7 +165,10 @@ func formulaDefaultDir(loaded ttconfig.Loaded) string {
 }
 
 func formulaDefaultRunDir(loaded ttconfig.Loaded) string {
-	return ttconfig.FormulaRunDir(loaded, formulaWorkingDir())
+	if strings.TrimSpace(loaded.Merged.Paths.FormulaRunDir) != "" {
+		return ttconfig.FormulaRunDir(loaded, formulaWorkingDir())
+	}
+	return filepath.Join(formulaWorkingDir(), ".tt", "runs", "formula")
 }
 
 func formulaWorkingDir() string {

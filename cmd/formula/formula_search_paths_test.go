@@ -1,6 +1,7 @@
 package formulacmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +55,52 @@ func TestFormulaSearchPathsDeduplicatesGlobalWhenProjectIsHome(t *testing.T) {
 	want := filepath.Join(homeDir, ".tt", "formulas")
 	if len(paths) != 1 || paths[0] != want {
 		t.Fatalf("paths = %v, want only %q", paths, want)
+	}
+}
+
+func TestFormulaDefaultRunDirUsesCurrentWorkingDirByDefault(t *testing.T) {
+	wd := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if err := os.Chdir(wd); err != nil {
+		t.Fatal(err)
+	}
+	wd, err = os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := ttconfig.Loaded{Sources: ttconfig.Sources{ProjectPath: filepath.Join(t.TempDir(), ".tt", "config.json")}}
+
+	got := formulaDefaultRunDir(loaded)
+	want := filepath.Join(wd, ".tt", "runs", "formula")
+	if got != want {
+		t.Fatalf("formulaDefaultRunDir = %q, want %q", got, want)
+	}
+}
+
+func TestFormulaDefaultRunDirHonorsExplicitConfig(t *testing.T) {
+	wd := t.TempDir()
+	projectRoot := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if err := os.Chdir(wd); err != nil {
+		t.Fatal(err)
+	}
+	loaded := ttconfig.Loaded{
+		Sources: ttconfig.Sources{ProjectPath: filepath.Join(projectRoot, ".tt", "config.json")},
+		Merged:  ttconfig.Config{Paths: ttconfig.PathsConfig{FormulaRunDir: "custom-runs"}},
+	}
+
+	got := formulaDefaultRunDir(loaded)
+	want := filepath.Join(projectRoot, "custom-runs")
+	if got != want {
+		t.Fatalf("formulaDefaultRunDir = %q, want %q", got, want)
 	}
 }
 
