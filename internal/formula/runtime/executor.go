@@ -165,11 +165,22 @@ func validateStepOutput(step steps.Step, out steps.Value) error {
 		return nil
 	}
 
-	var decoded any
-	if err := json.Unmarshal(out.Raw, &decoded); err != nil {
+	decodedValues, err := decodedOutputCandidates(out.Raw, spec)
+	if err != nil {
 		return fmt.Errorf("output must be valid JSON: %w", err)
 	}
-	decoded = normalizeDecodedJSON(decoded)
+	var validationErr error
+	for _, decoded := range decodedValues {
+		if err := validateDecodedStepOutput(decoded, spec); err == nil {
+			return nil
+		} else if validationErr == nil {
+			validationErr = err
+		}
+	}
+	return validationErr
+}
+
+func validateDecodedStepOutput(decoded any, spec *steps.OutputValidationSpec) error {
 	if len(spec.Required) > 0 {
 		obj, ok := decoded.(map[string]any)
 		if !ok {
@@ -200,6 +211,39 @@ func validateStepOutput(step steps.Step, out steps.Value) error {
 	return nil
 }
 
+func decodedOutputCandidates(raw []byte, spec *steps.OutputValidationSpec) ([]any, error) {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, err
+	}
+	text, ok := decoded.(string)
+	if !ok {
+		return []any{decoded}, nil
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []any{decoded}, nil
+	}
+	candidates := jsonTextCandidatesForSpec(text, spec)
+	out := make([]any, 0, len(candidates)+1)
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		var value any
+		if err := json.Unmarshal([]byte(candidate), &value); err == nil {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, decoded)
+	}
+	return out, nil
+}
+
 func normalizeDecodedJSON(value any) any {
 	text, ok := value.(string)
 	if !ok {
@@ -219,14 +263,40 @@ func normalizeDecodedJSON(value any) any {
 }
 
 func jsonTextCandidates(text string) []string {
+	return jsonTextCandidatesForSpec(text, nil)
+}
+
+func jsonTextCandidatesForSpec(text string, spec *steps.OutputValidationSpec) []string {
 	candidates := []string{text}
 	if fenced, ok := extractFencedJSON(text); ok {
 		candidates = append(candidates, fenced)
+	}
+	if spec != nil && len(spec.Required) > 0 {
+		if extracted, ok := extractFirstJSONContainerOfType(text, '{', '}'); ok {
+			candidates = append(candidates, extracted)
+		}
+	}
+	if spec != nil && (spec.MinItems > 0 || len(spec.ItemRequired) > 0) {
+		if extracted, ok := extractFirstJSONContainerOfType(text, '[', ']'); ok {
+			candidates = append(candidates, extracted)
+		}
 	}
 	if extracted, ok := extractFirstJSONContainer(text); ok {
 		candidates = append(candidates, extracted)
 	}
 	return candidates
+}
+
+func extractFirstJSONContainerOfType(text string, open, close byte) (string, bool) {
+	start := strings.IndexByte(text, open)
+	if start < 0 {
+		return "", false
+	}
+	end := strings.LastIndexByte(text, close)
+	if end <= start {
+		return "", false
+	}
+	return strings.TrimSpace(text[start : end+1]), true
 }
 
 func extractFencedJSON(text string) (string, bool) {

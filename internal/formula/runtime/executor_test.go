@@ -193,6 +193,23 @@ func TestExecutorRequiredFieldsAllowEmptyCollections(t *testing.T) {
 	}
 }
 
+func TestExecutorPrefersJSONObjectForRequiredFieldsFromAgentString(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "manifest", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "manifest", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"topic_name", "series_title", "audience", "reading_order"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	text, _ := json.Marshal("Required fields: [topic_name series_title audience reading_order]\n" +
+		`{"topic_name":"webgpu","series_title":"WebGPU 入门","audience":"开发者","reading_order":[]}`)
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: string(text)}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
 func TestExecutorReturnsWaitingForHumanInput(t *testing.T) {
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "ask", Step: steps.HumanInputStep{Base: steps.Base{Metadata: steps.Metadata{ID: "ask", Kind: steps.KindHumanInput}}, Reason: "need input"}})
