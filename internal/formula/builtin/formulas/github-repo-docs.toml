@@ -1,0 +1,310 @@
+formula = "github-repo-docs"
+title = "GitHub 仓库解读与文档生成"
+description = "针对 GitHub 仓库或本地仓库路径，先准备代码目录并抽取 README、目录树、关键文件和项目元数据，再由 docs-analyst 按需澄清范围、规划文档清单，并用 foreach loop 并发生成可落盘 Markdown 文档。"
+version = 1
+type = "workflow"
+category = "docs"
+tags = ["github", "repo", "docs", "code-reading", "foreach", "dynamic-form"]
+
+[vars]
+repo = { description = "GitHub 仓库 URL、owner/repo，或本地目录路径", required = true }
+focus = { description = "解读关注点，例如架构、上手导览、核心模块、API、数据流、迁移风险；空则由 agent 判断是否澄清", default = "" }
+audience = { description = "目标读者，例如新接手研发、架构师、产品、技术作者；空则由 agent 判断", default = "" }
+output_root = { description = "生成文档根目录", default = "docs" }
+max_docs = { description = "最多生成几篇文档", default = "5", type = "int", pattern = "^[1-9][0-9]*$" }
+
+[[steps]]
+id = "prepare-repo"
+title = "准备仓库并抽取基础信息"
+execution = "script"
+description = "解析 repo 输入。本地目录直接使用；GitHub URL 或 owner/repo 会浅克隆到 .tt/tmp/github-repo-docs 下。输出 repo_path、repo_slug、README 摘要、目录树与关键文件列表。"
+
+[steps.script]
+command = ["python3", "-c", '''
+import json, os, re, shutil, subprocess, sys
+from pathlib import Path
+repo = os.environ.get('TT_REPO', '').strip()
+base = Path(os.getcwd()) / '.tt' / 'tmp' / 'github-repo-docs'
+base.mkdir(parents=True, exist_ok=True)
+
+def slugify(value):
+    value = re.sub(r'^https?://github.com/', '', value.strip())
+    value = re.sub(r'\.git$', '', value)
+    value = value.strip('/').replace('/', '-')
+    value = re.sub(r'[^A-Za-z0-9._-]+', '-', value).strip('-').lower()
+    return value or 'repo'
+
+def run(cmd, cwd=None):
+    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+
+def emit(**kw):
+    base_obj = {'ok': False, 'repo_input': repo, 'repo_slug': slugify(repo), 'repo_path': '', 'source_type': '', 'default_branch': '', 'remote_url': '', 'readme_excerpt': '', 'tree_excerpt': '', 'key_files': [], 'error': ''}
+    base_obj.update(kw)
+    print(json.dumps(base_obj, ensure_ascii=False, separators=(',', ':')))
+
+if not repo:
+    emit(error='missing repo')
+    raise SystemExit(0)
+
+candidate = Path(repo).expanduser()
+if candidate.exists() and candidate.is_dir():
+    repo_path = candidate.resolve()
+    source_type = 'local'
+else:
+    source_type = 'github'
+    clone_url = repo
+    if not repo.startswith(('http://', 'https://', 'git@')):
+        clone_url = 'https://github.com/' + repo.strip('/') + '.git'
+    repo_path = (base / slugify(repo)).resolve()
+    if not (repo_path / '.git').exists():
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
+        p = run(['git', 'clone', '--depth', '1', clone_url, str(repo_path)])
+        if p.returncode != 0:
+            emit(source_type=source_type, repo_path=str(repo_path), remote_url=clone_url, error=p.stderr.strip() or p.stdout.strip() or 'git clone failed')
+            raise SystemExit(0)
+
+remote = run(['git', 'config', '--get', 'remote.origin.url'], cwd=repo_path)
+branch = run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path)
+readme = ''
+for name in ['README.md', 'README.MD', 'Readme.md', 'README', 'readme.md']:
+    path = repo_path / name
+    if path.exists() and path.is_file():
+        readme = path.read_text(errors='ignore')[:6000]
+        break
+ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '.next', 'coverage', '.tt', 'vendor', 'target'}
+files = []
+for root, dirs, filenames in os.walk(repo_path):
+    rel_root = Path(root).relative_to(repo_path)
+    dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+    for filename in filenames:
+        rel = rel_root / filename
+        rel_s = str(rel).replace('\\\\', '/')
+        if rel_s == '.':
+            rel_s = filename
+        if len(files) < 260:
+            files.append(rel_s)
+    if len(files) >= 260:
+        break
+key_patterns = re.compile(r'(^README|package.json$|go.mod$|pyproject.toml$|Cargo.toml$|pom.xml$|build.gradle$|Dockerfile$|docker-compose|Makefile$|tsconfig|vite.config|next.config|src/|cmd/|internal/|app/|pages/|routes/|config)', re.I)
+key_files = [f for f in files if key_patterns.search(f)][:80]
+tree_excerpt = '\n'.join(files[:220])
+emit(ok=True, source_type=source_type, repo_slug=slugify(repo), repo_path=str(repo_path), default_branch=(branch.stdout or '').strip(), remote_url=(remote.stdout or '').strip(), readme_excerpt=readme, tree_excerpt=tree_excerpt, key_files=key_files)
+''']
+format = "json"
+timeout = "180s"
+
+[steps.script.env]
+TT_REPO = "{{repo}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "scope-analysis"
+title = "分析文档目标并按需澄清范围"
+depends_on = ["prepare-repo"]
+form = true
+input_context = ["prepare-repo.stdout.repo_slug", "prepare-repo.stdout.remote_url", "prepare-repo.stdout.readme_excerpt", "prepare-repo.stdout.tree_excerpt", "prepare-repo.stdout.key_files"]
+description = """
+你要为仓库「{{repo}}」设计代码解读文档范围。使用 docs-analyst 的证据优先原则，不要把目录复述当架构分析。
+
+用户初始关注点：{{focus}}
+目标读者：{{audience}}
+最多文档数：{{max_docs}}
+
+判断是否需要动态澄清：
+- 如果 focus 或 audience 为空，且仓库范围较大或可写方向很多，使用 dynamic human input 表单澄清 1-4 个会影响文档结构的问题。
+- 如果信息已足够，直接输出 compact JSON。
+
+输出 ONLY compact JSON：
+{"repo_slug":"...","focus":"...","audience":"...","depth":"quick|standard|deep","doc_style":"guide|architecture|audit|mixed","deliverable_goals":["..."],"scope_notes":"...","assumptions":["..."]}
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+required = ["repo_slug", "focus", "audience", "depth", "doc_style", "deliverable_goals"]
+
+[[steps]]
+id = "repo-map"
+title = "抽取仓库证据地图"
+execution = "script"
+depends_on = ["scope-analysis"]
+description = "读取仓库中的 README、配置文件、入口文件、测试和主要源码文件摘要，形成轻量证据地图。"
+
+[steps.script]
+command = ["python3", "-c", '''
+import json, os
+from pathlib import Path
+repo_path = Path(os.environ.get('TT_REPO_PATH','')).resolve()
+focus = os.environ.get('TT_FOCUS','')
+if not repo_path.exists():
+    print(json.dumps({'ok':False,'error':'repo_path not found','repo_path':str(repo_path)}, ensure_ascii=False, separators=(',', ':')))
+    raise SystemExit(0)
+ignore_dirs = {'.git','node_modules','dist','build','.next','coverage','.tt','vendor','target'}
+important_names = {'README.md','package.json','go.mod','pyproject.toml','Cargo.toml','Makefile','Dockerfile','docker-compose.yml','tsconfig.json'}
+items = []
+for root, dirs, files in os.walk(repo_path):
+    rel_root = Path(root).relative_to(repo_path)
+    dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+    for fn in files:
+        rel = str((rel_root / fn)).replace('\\\\','/')
+        path = Path(root) / fn
+        score = 0
+        if fn in important_names or fn.lower().startswith('readme'):
+            score += 5
+        if rel.startswith(('src/','app/','pages/','routes/','cmd/','internal/','pkg/','lib/','server/','frontend/')):
+            score += 3
+        if any(x in rel.lower() for x in ['test','spec','config','router','route','main','index','entry','api','schema']):
+            score += 2
+        if score <= 0:
+            continue
+        try:
+            text = path.read_text(errors='ignore')[:2400]
+        except Exception:
+            text = ''
+        items.append({'path': rel, 'score': score, 'excerpt': text})
+items.sort(key=lambda x: (-x['score'], x['path']))
+print(json.dumps({'ok':True,'repo_path':str(repo_path),'focus':focus,'evidence_files':items[:60]}, ensure_ascii=False, separators=(',', ':')))
+''']
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_REPO_PATH = "{{prepare-repo.stdout.repo_path}}"
+TT_FOCUS = "{{scope-analysis.focus}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "doc-plan"
+title = "规划仓库解读文档清单"
+depends_on = ["scope-analysis", "repo-map"]
+input_context = ["scope-analysis", "prepare-repo.stdout.repo_slug", "prepare-repo.stdout.tree_excerpt", "repo-map.stdout"]
+description = """
+基于 scope-analysis 和 repo-map，为该 GitHub 项目规划一组需要生成的 Markdown 文档。
+
+输出 ONLY compact JSON array，不要 Markdown，不要代码块。每项格式：
+{"filename":"01-overview.md","title":"...","purpose":"...","reader_question":"...","must_cover":["..."],"evidence_targets":["path or module"],"mermaid_hint":"...","table_hint":"..."}
+
+要求：
+- 文档数量 1 到 {{max_docs}} 篇。
+- 只规划对读者有用的文档，不为了凑数。
+- 必须包含一篇 overview 或 getting-started 类文档。
+- 对每篇文档给出 evidence_targets，后续写作必须围绕证据。
+- filename 使用两位数字前缀，安全小写 kebab-case，以 .md 结尾。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+min_items = 1
+item_required = ["filename", "title", "purpose", "reader_question", "must_cover", "evidence_targets", "mermaid_hint", "table_hint"]
+
+[[steps]]
+id = "package-plan"
+title = "生成文档包目录与 README 计划"
+depends_on = ["scope-analysis", "doc-plan"]
+input_context = ["scope-analysis", "prepare-repo.stdout.repo_slug", "doc-plan"]
+description = """
+为最终写入的文档包生成目录名和 README 摘要计划。不要写正文。
+
+输出 ONLY compact JSON：
+{"topic_name":"repo-safe-name","series_title":"...","audience":"...","reading_order":[{"filename":"01-overview.md","title":"...","summary":"..."}],"readme_notes":["..."]}
+
+要求：
+- topic_name 只允许小写字母、数字、连字符，建议使用 repo_slug。
+- reading_order 必须覆盖 doc-plan 的每个 filename。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+required = ["topic_name", "series_title", "audience", "reading_order"]
+
+[[steps]]
+id = "write-docs"
+title = "并发撰写仓库解读文档"
+depends_on = ["doc-plan", "repo-map"]
+
+  [steps.loop]
+  for_each = "doc-plan"
+  var = "doc"
+  parallel = true
+  max_concurrency = 3
+
+  [[steps.loop.body]]
+  id = "draft"
+  title = "撰写 {{doc.title}}"
+  input_context = ["scope-analysis", "repo-map.stdout", "doc"]
+  description = """
+根据当前 doc 计划和 repo-map 证据，撰写一篇仓库解读 Markdown 文档。
+
+写作原则：
+- 使用 docs-analyst 风格：结论先行、证据可追溯、事实/推断/建议分层。
+- 不要编造未在 repo-map 或实际仓库中出现的行为。
+- 可以按需读取仓库文件验证证据，但不要修改代码。
+- 需要 Mermaid 图时使用 Markdown mermaid fenced block。
+
+输出 ONLY compact JSON object：
+{"filename":"...","title":"...","summary":"...","content":"完整 Markdown 正文"}
+
+要求：
+- filename 必须等于 doc.filename。
+- content 第一行为 `# {{doc.title}}`。
+- 必须包含“关键结论”“证据链”“不确定项/待验证”三个部分。
+- 重要结论尽量标注文件路径或配置位置。
+"""
+
+  [steps.loop.body.agent]
+  name = "docs-analyst"
+  cwd = "{{prepare-repo.stdout.repo_path}}"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["filename", "title", "summary", "content"]
+
+[[steps]]
+id = "write-doc-files"
+title = "写入文档文件"
+execution = "tool"
+depends_on = ["package-plan", "write-docs"]
+
+[steps.tool]
+name = "write_files"
+
+[steps.tool.write_files]
+source = "write-docs"
+root = "{{output_root}}"
+dir_name = "{{package-plan.topic_name}}"
+
+[steps.validate]
+format = "json"
+required = ["directory", "files"]
+
+[[steps]]
+id = "final-report"
+title = "输出文档生成报告"
+depends_on = ["write-doc-files", "package-plan"]
+input_context = ["prepare-repo.stdout.repo_slug", "prepare-repo.stdout.remote_url", "package-plan", "write-doc-files"]
+description = """
+输出中文总结，说明已为哪个仓库生成了哪些文档、写入目录、每篇文档用途、建议阅读顺序，以及哪些结论仍需要用户进一步验证。
+不要复述每篇文档正文。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
