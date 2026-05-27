@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 9
+version = 10
 type = "workflow"
 
 [vars]
@@ -175,12 +175,57 @@ format = "json"
     required = ["attempted", "resolved", "tmp_branch", "push_completed", "blocker_type"]
 
   [[steps.loop.body]]
-  id = "rerun-failed-jobs"
-  title = "rerun failed jobs"
+  id = "push-repair-branch"
+  title = "确认并 push 修复后的 tmp branch"
   execution = "script"
   depends_on = ["repair-conflict"]
   condition = "repair-conflict.resolved == true"
-  description = "修复 tmp branch 后只 rerun failed jobs，继续监视同一个 original_run_id。"
+  description = "agent 修复冲突后，用确定性脚本再次执行 git push --no-verify origin HEAD:<tmp_branch>，避免只本地提交未推送。"
+
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -u
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+repair="${TT_REPAIR:-}"
+cls="${TT_CLASSIFY:-}"
+tmp_branch="$(jq -nr --arg repair "$repair" --arg cls "$cls" '
+  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
+  (obj($repair).tmp_branch // obj($cls).tmp_branch // "")
+')"
+if [ -z "$tmp_branch" ]; then
+  jq -cn '{attempted:false,pushed:false,tmp_branch:"",stdout:"",stderr:"missing tmp_branch",head:"",repo_root:""}'
+  exit 0
+fi
+head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+out="$(git push --no-verify origin "HEAD:${tmp_branch}" 2>&1)"
+rc=$?
+jq -cn \
+  --arg tmp_branch "$tmp_branch" \
+  --arg output "$out" \
+  --arg head "$head_sha" \
+  --arg repo_root "$repo_root" \
+  --argjson pushed "$([ "$rc" -eq 0 ] && echo true || echo false)" \
+  '{attempted:true,pushed:$pushed,tmp_branch:$tmp_branch,stdout:(if $pushed then $output else "" end),stderr:(if $pushed then "" else $output end),head:$head,repo_root:$repo_root}'
+"""]
+format = "json"
+    timeout = "120s"
+
+    [steps.loop.body.script.env]
+    TT_CLASSIFY = "{{classify-run-state}}"
+    TT_REPAIR = "{{repair-conflict}}"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["stdout"]
+
+  [[steps.loop.body]]
+  id = "rerun-failed-jobs"
+  title = "rerun failed jobs"
+  execution = "script"
+  depends_on = ["push-repair-branch"]
+  condition = "push-repair-branch.stdout.pushed == true"
+  description = "修复 tmp branch 并确认 push 到 origin 后，只 rerun failed jobs，继续监视同一个 original_run_id。"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
@@ -225,7 +270,7 @@ format = "json"
   id = "release-progress"
   title = "更新发布进度"
   execution = "script"
-  depends_on = ["classify-run-state", "repair-conflict", "rerun-failed-jobs", "wait-next-poll"]
+  depends_on = ["classify-run-state", "repair-conflict", "push-repair-branch", "rerun-failed-jobs", "wait-next-poll"]
   description = "用确定性脚本汇总本轮结果，避免额外 agent 漂移。"
 
     [steps.loop.body.script]
@@ -234,12 +279,14 @@ set -euo pipefail
 jq -cn \
   --arg cls "${TT_CLASSIFY:-}" \
   --arg repair "${TT_REPAIR:-}" \
+  --arg push "${TT_PUSH:-}" \
   --arg rerun "${TT_RERUN:-}" \
   --arg dispatch "${TT_DISPATCH:-}" \
   --arg fetch "${TT_FETCH:-}" '
   def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
   obj($cls) as $cls |
   obj($repair) as $repair |
+  obj($push) as $push |
   obj($rerun) as $rerun |
   obj($dispatch) as $dispatch |
   obj($fetch) as $fetch |
@@ -247,6 +294,8 @@ jq -cn \
   ($cls.action // "block") as $action |
   ($repair.attempted == true) as $repair_attempted |
   ($repair.resolved == true) as $repair_resolved |
+  ($push.attempted == true) as $push_attempted |
+  ($push.pushed == true) as $push_completed |
   ($rerun.requested == true) as $rerun_requested |
   ($cls.done == true) as $class_done |
   ($cls.final_state // "running") as $class_state |
@@ -255,9 +304,11 @@ jq -cn \
     if $repair_attempted and ($repair_resolved | not) then
       {done:true, final_state:"blocked", blocker_type:($repair.blocker_type // "unknown"), summary:($repair.blocker_summary // $class_summary // "repair failed")}
     elif $repair_resolved and $rerun_requested then
-      {done:false, final_state:"running", blocker_type:"none", summary:"conflict repaired and failed jobs rerun; continue monitoring original run"}
+      {done:false, final_state:"running", blocker_type:"none", summary:"conflict repaired, pushed to origin, and failed jobs rerun; continue monitoring original run"}
+    elif $repair_resolved and ($push_completed | not) then
+      {done:true, final_state:"blocked", blocker_type:"push_failed", summary:($push.stderr // "repair resolved locally but push to origin did not complete")}
     else
-      {done:true, final_state:"blocked", blocker_type:"unknown", summary:($class_summary // "repair or rerun did not complete")}
+      {done:true, final_state:"blocked", blocker_type:"unknown", summary:($class_summary // "repair, push, or rerun did not complete")}
     end
   elif $action == "wait" then
     {done:false, final_state:"running", blocker_type:"none", summary:$class_summary}
@@ -269,10 +320,12 @@ jq -cn \
   + {
     run_url:($cls.run_url // $fetch.run_url // $dispatch.run_url // ""),
     original_run_id:($dispatch.original_run_id // $fetch.original_run_id // ""),
-    tmp_branch:($cls.tmp_branch // $repair.tmp_branch // ""),
+    tmp_branch:($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // ""),
     conflicted_branches:($cls.conflicted_branches // []),
     repair_attempted:$repair_attempted,
     repair_resolved:$repair_resolved,
+    push_attempted:$push_attempted,
+    push_completed:$push_completed,
     rerun_requested:$rerun_requested,
     validations_run:($repair.validations_run // [])
   }'
@@ -285,6 +338,7 @@ format = "json"
     TT_FETCH = "{{fetch-run-info.stdout}}"
     TT_CLASSIFY = "{{classify-run-state}}"
     TT_REPAIR = "{{repair-conflict}}"
+    TT_PUSH = "{{push-repair-branch.stdout}}"
     TT_RERUN = "{{rerun-failed-jobs.stdout}}"
 
     [steps.loop.body.validate]
@@ -295,9 +349,9 @@ format = "json"
 id = "final-report"
 title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
-input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
+input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
 description = """
-输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。
+输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、是否已 push 到 origin、冲突分支、rerun failed jobs 结果、验证项和 blocker。
 
 强调：
 - 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
