@@ -394,6 +394,7 @@ type ToolStep struct {
 	GitPush     *GitPushStep
 	GitBranch   *GitBranchStep
 	GitCheckout *GitCheckoutStep
+	GitWorktree *GitWorktreeStep
 	OutputKey   string
 	Validation  *OutputValidationSpec `json:"validate,omitempty"`
 }
@@ -437,6 +438,11 @@ func (s ToolStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			return failedRun(fmt.Errorf("tool git_checkout config is required"))
 		}
 		return s.GitCheckout.Run(ctx, req)
+	case "git_worktree":
+		if s.GitWorktree == nil {
+			return failedRun(fmt.Errorf("tool git_worktree config is required"))
+		}
+		return s.GitWorktree.Run(ctx, req)
 	default:
 		return failedRun(fmt.Errorf("unknown tool %q", s.Name))
 	}
@@ -472,6 +478,19 @@ type GitCheckoutStep struct {
 	StartPoint string
 }
 
+type GitWorktreeStep struct {
+	Path       string
+	Branch     string
+	StartPoint string
+	Create     bool
+	Detach     bool
+	Force      bool
+	List       bool
+	Porcelain  bool
+	Remove     string
+	Prune      bool
+}
+
 func (s GitFetchStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	argv, err := buildGitFetchCommand(s)
 	return runGitTool(ctx, req, argv, err)
@@ -489,6 +508,11 @@ func (s GitBranchStep) Run(ctx context.Context, req RunRequest) (*RunResult, err
 
 func (s GitCheckoutStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	argv, err := buildGitCheckoutCommand(s)
+	return runGitTool(ctx, req, argv, err)
+}
+
+func (s GitWorktreeStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	argv, err := buildGitWorktreeCommand(s)
 	return runGitTool(ctx, req, argv, err)
 }
 
@@ -562,6 +586,49 @@ func buildGitCheckoutCommand(s GitCheckoutStep) ([]string, error) {
 	args = append(args, branch)
 	if start := strings.TrimSpace(s.StartPoint); start != "" {
 		args = append(args, start)
+	}
+	return args, nil
+}
+
+func buildGitWorktreeCommand(s GitWorktreeStep) ([]string, error) {
+	args := []string{"git", "worktree"}
+	if s.Prune {
+		return append(args, "prune"), nil
+	}
+	if s.List {
+		args = append(args, "list")
+		if s.Porcelain {
+			args = append(args, "--porcelain")
+		}
+		return args, nil
+	}
+	if target := strings.TrimSpace(s.Remove); target != "" {
+		args = append(args, "remove")
+		if s.Force {
+			args = append(args, "--force")
+		}
+		return append(args, target), nil
+	}
+	path := strings.TrimSpace(s.Path)
+	if path == "" {
+		return nil, fmt.Errorf("git_worktree path is required")
+	}
+	args = append(args, "add")
+	if s.Force {
+		args = append(args, "--force")
+	}
+	if s.Detach {
+		args = append(args, "--detach")
+	}
+	branch := strings.TrimSpace(s.Branch)
+	if branch != "" && s.Create {
+		args = append(args, "-b", branch)
+	}
+	args = append(args, path)
+	if start := strings.TrimSpace(s.StartPoint); start != "" {
+		args = append(args, start)
+	} else if branch != "" && !s.Create {
+		args = append(args, branch)
 	}
 	return args, nil
 }

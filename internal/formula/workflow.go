@@ -161,7 +161,7 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 		if tool == nil {
 			tool = &ToolSpec{}
 		}
-		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), Sleep: sleepToolStep(tool.Sleep), GitFetch: gitFetchToolStep(tool.GitFetch), GitPush: gitPushToolStep(tool.GitPush), GitBranch: gitBranchToolStep(tool.GitBranch), GitCheckout: gitCheckoutToolStep(tool.GitCheckout), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), Sleep: sleepToolStep(tool.Sleep), GitFetch: gitFetchToolStep(tool.GitFetch), GitPush: gitPushToolStep(tool.GitPush), GitBranch: gitBranchToolStep(tool.GitBranch), GitCheckout: gitCheckoutToolStep(tool.GitCheckout), GitWorktree: gitWorktreeToolStep(tool.GitWorktree), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "write_files":
 		meta.Kind = steps.KindWriteFiles
 		writeFiles := step.WriteFiles
@@ -224,6 +224,13 @@ func gitCheckoutToolStep(spec *GitCheckoutSpec) *steps.GitCheckoutStep {
 		return nil
 	}
 	return &steps.GitCheckoutStep{Branch: spec.Branch, Create: spec.Create, StartPoint: spec.StartPoint}
+}
+
+func gitWorktreeToolStep(spec *GitWorktreeSpec) *steps.GitWorktreeStep {
+	if spec == nil {
+		return nil
+	}
+	return &steps.GitWorktreeStep{Path: spec.Path, Branch: spec.Branch, StartPoint: spec.StartPoint, Create: spec.Create, Detach: spec.Detach, Force: spec.Force, List: spec.List, Porcelain: spec.Porcelain, Remove: spec.Remove, Prune: spec.Prune}
 }
 
 func outputValidationSpec(step *Step) *steps.OutputValidationSpec {

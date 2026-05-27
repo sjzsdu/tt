@@ -369,6 +369,10 @@ func TestGitToolCommandBuilders(t *testing.T) {
 		{name: "branch list", got: mustGitArgs(buildGitBranchCommand(GitBranchStep{All: true})), want: "git branch --all"},
 		{name: "branch create", got: mustGitArgs(buildGitBranchCommand(GitBranchStep{Name: "feature", StartPoint: "origin/main"})), want: "git branch feature origin/main"},
 		{name: "checkout", got: mustGitArgs(buildGitCheckoutCommand(GitCheckoutStep{Branch: "feature", Create: true, StartPoint: "main"})), want: "git checkout -b feature main"},
+		{name: "worktree add new branch", got: mustGitArgs(buildGitWorktreeCommand(GitWorktreeStep{Path: "../repo-feature", Branch: "feature", Create: true, StartPoint: "main"})), want: "git worktree add -b feature ../repo-feature main"},
+		{name: "worktree add existing branch", got: mustGitArgs(buildGitWorktreeCommand(GitWorktreeStep{Path: "../repo-feature", Branch: "feature"})), want: "git worktree add ../repo-feature feature"},
+		{name: "worktree list porcelain", got: mustGitArgs(buildGitWorktreeCommand(GitWorktreeStep{List: true, Porcelain: true})), want: "git worktree list --porcelain"},
+		{name: "worktree remove force", got: mustGitArgs(buildGitWorktreeCommand(GitWorktreeStep{Remove: "../repo-feature", Force: true})), want: "git worktree remove --force ../repo-feature"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

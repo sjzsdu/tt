@@ -160,6 +160,7 @@ Use ToolStep for common computer actions. Current built-ins:
 - `git_push`: run `git push`.
 - `git_branch`: list/create/delete branches.
 - `git_checkout`: checkout or create branch.
+- `git_worktree`: create/list/remove git worktrees for isolated feature development.
 
 General shape:
 

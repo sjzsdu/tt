@@ -691,6 +691,7 @@ type ToolSpec struct {
 	GitPush     *GitPushSpec     `json:"git_push,omitempty" toml:"git_push,omitempty"`
 	GitBranch   *GitBranchSpec   `json:"git_branch,omitempty" toml:"git_branch,omitempty"`
 	GitCheckout *GitCheckoutSpec `json:"git_checkout,omitempty" toml:"git_checkout,omitempty"`
+	GitWorktree *GitWorktreeSpec `json:"git_worktree,omitempty" toml:"git_worktree,omitempty"`
 }
 
 // SleepSpec describes a deterministic wait duration.
@@ -727,6 +728,19 @@ type GitCheckoutSpec struct {
 	Branch     string `json:"branch" toml:"branch"`
 	Create     bool   `json:"create,omitempty" toml:"create,omitempty"`
 	StartPoint string `json:"start_point,omitempty" toml:"start_point,omitempty"`
+}
+
+type GitWorktreeSpec struct {
+	Path       string `json:"path,omitempty" toml:"path,omitempty"`
+	Branch     string `json:"branch,omitempty" toml:"branch,omitempty"`
+	StartPoint string `json:"start_point,omitempty" toml:"start_point,omitempty"`
+	Create     bool   `json:"create,omitempty" toml:"create,omitempty"`
+	Detach     bool   `json:"detach,omitempty" toml:"detach,omitempty"`
+	Force      bool   `json:"force,omitempty" toml:"force,omitempty"`
+	List       bool   `json:"list,omitempty" toml:"list,omitempty"`
+	Porcelain  bool   `json:"porcelain,omitempty" toml:"porcelain,omitempty"`
+	Remove     string `json:"remove,omitempty" toml:"remove,omitempty"`
+	Prune      bool   `json:"prune,omitempty" toml:"prune,omitempty"`
 }
 
 // WriteFilesSpec describes deterministic file creation from JSON context objects.
