@@ -108,6 +108,13 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		}
 		out.Nodes[nodeID] = res
 		if err != nil || res.Status == steps.StatusFailed {
+			if repairedRes, repairedErr, ok := e.tryRepairFailedScriptStep(ctx, nodeID, node.Step, res, err); ok {
+				res, err = repairedRes, repairedErr
+				out.Nodes[nodeID] = res
+				if err == nil && res != nil && res.Status != steps.StatusFailed {
+					goto handleStepResult
+				}
+			}
 			out.Status = steps.StatusFailed
 			if err != nil && ctx.Err() != nil {
 				if res.Error == nil {
@@ -126,6 +133,7 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 			}
 			return out, res.Error
 		}
+	handleStepResult:
 		if res.Status == steps.StatusWaiting {
 			out.Status = steps.StatusWaiting
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
@@ -182,6 +190,136 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
+}
+
+type scriptRepairPlan struct {
+	FixedCommand      []string `json:"fixed_command"`
+	Reason            string   `json:"reason"`
+	FormulaUpdateHint string   `json:"formula_update_hint"`
+}
+
+func (e *Executor) tryRepairFailedScriptStep(ctx context.Context, nodeID ir.NodeID, step steps.Step, failed *steps.RunResult, runErr error) (*steps.RunResult, error, bool) {
+	script, ok := scriptStepValue(step)
+	if !ok || e.Capabilities.Agents == nil || e.Capabilities.Scripts == nil {
+		return nil, nil, false
+	}
+	if len(script.Command) == 0 {
+		return nil, nil, false
+	}
+	e.emit(nodeID, "step.repair.started", map[string]any{"reason": "script_failed", "error": errorString(runErr, failed)})
+	agentOut, agentErr := e.Capabilities.Agents.RunAgent(ctx, steps.AgentRequest{
+		NodeID: string(nodeID) + ".repair",
+		Agent:  "coder",
+		Prompt: scriptRepairPrompt(script, failed, runErr),
+	})
+	if agentErr != nil {
+		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "agent", "error": agentErr.Error()})
+		return nil, nil, false
+	}
+	plan, err := decodeScriptRepairPlan(agentOut)
+	if err != nil {
+		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "decode", "error": err.Error()})
+		return nil, nil, false
+	}
+	if len(plan.FixedCommand) == 0 {
+		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "plan", "error": "fixed_command is empty"})
+		return nil, nil, false
+	}
+	repaired := script
+	repaired.Command = plan.FixedCommand
+	repairedRes, repairedErr := repaired.Run(ctx, e.stepRunRequest(nodeID, repaired))
+	if repairedRes == nil {
+		repairedRes = &steps.RunResult{}
+	}
+	if repairedErr == nil && repairedRes.Status != steps.StatusFailed {
+		e.recordFormulaRepair(nodeID, script.Command, plan)
+		e.emit(nodeID, "step.repair.completed", map[string]any{"reason": plan.Reason, "formula_update_hint": plan.FormulaUpdateHint})
+	} else {
+		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "rerun", "error": errorString(repairedErr, repairedRes)})
+	}
+	return repairedRes, repairedErr, true
+}
+
+func scriptStepValue(step steps.Step) (steps.ScriptStep, bool) {
+	switch s := step.(type) {
+	case steps.ScriptStep:
+		return s, true
+	case *steps.ScriptStep:
+		if s == nil {
+			return steps.ScriptStep{}, false
+		}
+		return *s, true
+	default:
+		return steps.ScriptStep{}, false
+	}
+}
+
+func scriptRepairPrompt(script steps.ScriptStep, failed *steps.RunResult, runErr error) string {
+	commandJSON, _ := json.Marshal(script.Command)
+	envJSON, _ := json.Marshal(script.Env)
+	return strings.TrimSpace(fmt.Sprintf(`A formula script step failed. Diagnose the script/command and return a corrected command to retry once.
+
+Return ONLY compact JSON with this shape:
+{"fixed_command":["..."],"reason":"what was wrong","formula_update_hint":"what should be changed in the formula file"}
+
+Rules:
+- Preserve the original step intent.
+- Prefer the smallest safe command fix.
+- Do not ask the user questions.
+- Do not include Markdown fences or prose outside JSON.
+- Formula step execution guard: do not merely acknowledge project rules or system constraints; perform this repair task and return the JSON now.
+
+Original command JSON:
+%s
+
+Original cwd: %s
+Original env JSON:
+%s
+
+Failure: %s
+Output preview:
+%s`, string(commandJSON), script.Cwd, string(envJSON), errorString(runErr, failed), truncateValidationOutputPreview(outputRaw(failed), 3000)))
+}
+
+func decodeScriptRepairPlan(out steps.Value) (scriptRepairPlan, error) {
+	var plan scriptRepairPlan
+	candidates, err := decodedOutputCandidates(out.Raw, &steps.OutputValidationSpec{Format: "json", Required: []string{"fixed_command", "reason", "formula_update_hint"}})
+	if err != nil {
+		return plan, err
+	}
+	for _, candidate := range candidates {
+		raw, _ := json.Marshal(candidate)
+		if err := json.Unmarshal(raw, &plan); err == nil && len(plan.FixedCommand) > 0 {
+			return plan, nil
+		}
+	}
+	return plan, fmt.Errorf("repair agent output did not include fixed_command")
+}
+
+func (e *Executor) recordFormulaRepair(nodeID ir.NodeID, original []string, plan scriptRepairPlan) {
+	if e.Context == nil {
+		return
+	}
+	payload := map[string]any{"step_id": string(nodeID), "original_command": original, "fixed_command": plan.FixedCommand, "reason": plan.Reason, "formula_update_hint": plan.FormulaUpdateHint, "user_notice": "A formula script was repaired at runtime. Please update the formula document with the fixed command."}
+	raw, _ := json.Marshal(payload)
+	_ = e.Context.Set("formula_repairs."+string(nodeID), steps.Value{Type: "json", Raw: raw})
+}
+
+func errorString(err error, res *steps.RunResult) string {
+	if err != nil {
+		return err.Error()
+	}
+	if res != nil && res.Error != nil {
+		return res.Error.Error()
+	}
+	return "script failed"
+}
+
+func outputRaw(res *steps.RunResult) []byte {
+	if res == nil {
+		return nil
+	}
+	return res.Output.Raw
 }
 
 func (e *Executor) stepRunRequest(nodeID ir.NodeID, step steps.Step) steps.RunRequest {

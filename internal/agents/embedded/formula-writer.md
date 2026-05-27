@@ -34,6 +34,7 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 - canonical 文件名是 `.tt/formulas/<name>.toml`。不要创建 `.formula.toml`。
 - step 输出默认保存到 local step id。新 formula 应直接用 step id 作为上下文 key。
 - runtime 自动注入全局 `env`：`env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`。
+- script step 失败且 runtime 有 agent capability 时，会触发一次 agent-assisted repair：agent 产出临时 `fixed_command`，runtime 重跑一次，并写入 `formula_repairs.<step-id>` 作为用户提示。这个能力只用于临时恢复体验，不能替代正确维护 formula。最终报告若包含可能失败的 script/tool step，应把对应 `formula_repairs.<step-id>` 加入 `input_context`，提醒用户把修复同步回 formula 文档。
 - description、script argv/env/cwd、tool config 字符串可使用 `{{var}}`、`{{env.git.branch}}`、`{{step.field}}`。
 - condition 使用 bare expression，不用模板：`condition = "classify.kind == bug"`，不要写 `{{classify.kind}}`。
 

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,29 @@ func (a *retryValidationAgent) RunAgent(_ context.Context, req steps.AgentReques
 		return steps.Value{Type: "json", Raw: raw}, nil
 	}
 	return steps.Value{Type: "json", Raw: json.RawMessage(`{"feature_summary":"ok","acceptance_criteria":["passes"],"initial_search_targets":["runtime"]}`)}, nil
+}
+
+type repairAgent struct {
+	prompts []string
+}
+
+func (a *repairAgent) RunAgent(_ context.Context, req steps.AgentRequest) (steps.Value, error) {
+	a.prompts = append(a.prompts, req.Prompt)
+	return steps.Value{Type: "json", Raw: json.RawMessage(`{"fixed_command":["fixed"],"reason":"original command was wrong","formula_update_hint":"replace bad with fixed"}`)}, nil
+}
+
+type repairScript struct {
+	commands [][]string
+}
+
+func (s *repairScript) RunScript(_ context.Context, req steps.ScriptRequest) (steps.Value, error) {
+	s.commands = append(s.commands, append([]string(nil), req.Command...))
+	if len(req.Command) == 1 && req.Command[0] == "fixed" {
+		raw, _ := json.Marshal(map[string]any{"ok": true})
+		return steps.Value{Type: "json", Raw: raw}, nil
+	}
+	raw, _ := json.Marshal(map[string]any{"stderr": "bad command"})
+	return steps.Value{Type: "json", Raw: raw}, fmt.Errorf("exit status 1")
 }
 
 func TestExecutorSeedsEnvironmentContext(t *testing.T) {
@@ -243,6 +267,35 @@ func TestExecutorRetriesAgentAfterOutputValidationFailure(t *testing.T) {
 	}
 	if len(agent.prompts) != 2 || !strings.Contains(agent.prompts[1], "Previous output validation failed") {
 		t.Fatalf("retry prompt did not include validation advice: %#v", agent.prompts)
+	}
+}
+
+func TestExecutorRepairsFailedScriptStepWithAgentAndRetries(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "script", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "script", Kind: steps.KindScript}}, Command: []string{"bad"}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &repairAgent{}
+	scripts := &repairScript{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent, Scripts: scripts})
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+	if len(scripts.commands) != 2 {
+		t.Fatalf("script calls = %d, want 2", len(scripts.commands))
+	}
+	if got := strings.Join(scripts.commands[1], " "); got != "fixed" {
+		t.Fatalf("retry command = %q, want fixed", got)
+	}
+	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "Formula step execution guard") {
+		t.Fatalf("repair prompt missing guard/instructions: %#v", agent.prompts)
+	}
+	if _, ok := exec.Context.Get("formula_repairs.script"); !ok {
+		t.Fatal("missing formula repair context")
 	}
 }
 

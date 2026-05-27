@@ -411,7 +411,7 @@ name = "coder"
 id = "final-report"
 title = "输出最终 PR 审查报告"
 depends_on = ["submit-review-comments", "draft-review-comments"]
-input_context = ["build-pr-context.stdout.ready", "build-pr-context.stdout.error", "build-pr-context.stdout.title", "build-pr-context.stdout.url", "build-pr-context.stdout.changed_files_count", "build-pr-context.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "draft-review-comments"]
+input_context = ["build-pr-context.stdout.ready", "build-pr-context.stdout.error", "build-pr-context.stdout.title", "build-pr-context.stdout.url", "build-pr-context.stdout.changed_files_count", "build-pr-context.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "formula_repairs.submit-review-comments", "draft-review-comments"]
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
 
@@ -425,6 +425,7 @@ description = """
 - 如果 prepare-review-summary.submit_review=false：所有问题标记为 draft-only。
 - 如果没有问题，仍然输出 no-issue 行。
 - 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败。
+- 如果 formula_repairs.submit-review-comments 可用，必须在报告中增加“运行时脚本自修复”提示，说明本次使用了临时 fixed_command，并建议更新 github-pr-review formula 文档。
 - 如果 build-pr-context.stdout.ready=false，直接报告 PR 元数据获取失败和 build-pr-context.stdout.error，不要继续编造 review 结果。
 """
 
