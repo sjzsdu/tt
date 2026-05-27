@@ -272,19 +272,68 @@ function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboardLoopBo
   };
 }
 
-function graphStepNodeHeight(step: FormulaDashboardStep) {
-  let height = 216;
-  if (step.execution === 'script' || step.type === 'script') height += 18;
-  if (step.loop?.body?.length) height += 26;
-  if (step.activities?.length) height += 14;
-  const copy = step.description || step.notes || '';
-  if (copy.length > 140) height += 18;
-  return Math.min(height, 280);
+function estimateLines(text: string, containerWidth: number, fontSizePx: number): number {
+  if (!text) return 1;
+  const avgCharWidth = fontSizePx * 0.6;
+  const charsPerLine = Math.max(Math.floor(containerWidth / avgCharWidth), 1);
+  return Math.max(1, Math.ceil(text.length / charsPerLine));
 }
 
-function graphLoopBodyNodeHeight(step: FormulaDashboardStep) {
-  const copy = step.description || step.notes || '';
-  return copy.length > 90 || !!step.input_ctx?.length ? 170 : 154;
+function graphStepNodeHeight(step: FormulaDashboardStep): number {
+  const paddingV = 32;
+  const gap = 10;
+  const contentWidth = 268;
+
+  const titleLines = Math.min(estimateLines(step.title || 't', contentWidth, 16), 2);
+  const titleH = Math.max(titleLines, 1) * 22;
+
+  const desc = step.description || step.notes || 'Structured execution step in the formula pipeline.';
+  const descLines = Math.min(estimateLines(desc, contentWidth, 13), 3);
+  const descH = Math.max(descLines, 1) * 19;
+
+  const coreH = 26 + titleH + descH + 24;
+  const coreGaps = 3 * gap;
+
+  let extrasH = 0;
+  let extraGaps = 0;
+
+  if (step.loop?.body?.length) {
+    extrasH += 28;
+    extraGaps++;
+  }
+  if (step.activities?.length) {
+    extrasH += 27;
+    extraGaps++;
+  }
+  if (step.execution === 'script' || step.type === 'script') {
+    extrasH += 6;
+  }
+
+  const metaText = `${step.agent || 'default agent'} · ${step.depends_on?.length || 0} deps`;
+  if (metaText.length > 44) {
+    extrasH += 18;
+  }
+
+  const total = paddingV + coreGaps + extraGaps * gap + coreH + extrasH;
+  return Math.max(total, 180);
+}
+
+function graphLoopBodyNodeHeight(step: FormulaDashboardStep): number {
+  const paddingV = 30;
+  const gap = 10;
+
+  let metaH = 24;
+  if (step.input_ctx?.length) metaH += 16;
+
+  const items = 3;
+  const coreGaps = (items - 1) * gap;
+  let coreH = 26 + 22 + metaH;
+
+  if (step.metadata?.iteration) {
+    coreH += 28 + gap;
+  }
+
+  return Math.max(paddingV + coreGaps + coreH, 150);
 }
 
 function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void) {
@@ -304,7 +353,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   const rowGap = 72;
   const loopBodyWidth = nodeWidth - 36;
   const loopBodyGap = 226;
-  const loopGroupTopGap = 44;
+  const loopGroupTopGap = 60;
   const loopGroupHeaderHeight = 156;
   const loopGroupBodyTopGap = 14;
   const loopGroupBottomPadding = 38;
