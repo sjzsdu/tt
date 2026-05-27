@@ -315,6 +315,7 @@ set_upstream = true
 - 有内置 tool 就不要写 script。
 - 增加新的常规操作时优先扩展 `tool.name`，不要新增 execution kind。
 - Tool 输出是 JSON，可给后续 agent 用 `input_context` 消费。
+- 普通 formula 不要写 `output_key`；step 的 `id` 默认就是输出 key。
 
 ### 3. Aggregate step：聚合/投影/删大字段
 

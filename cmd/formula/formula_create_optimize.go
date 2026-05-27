@@ -48,6 +48,7 @@ func runFormulaCreate(cmd *cobra.Command, args []string) error {
 	if toml == "" {
 		return fmt.Errorf("formula-writer returned empty formula")
 	}
+	toml = stripFormulaOutputKeyLines(toml)
 
 	if formulaCreateStdout {
 		fmt.Fprintln(cmd.OutOrStdout(), toml)
@@ -209,6 +210,7 @@ Requirements:
 - Prefer script steps for deterministic context collection or validation.
 - Prefer agent steps for reasoning, planning, implementation, review, and reporting.
 - Use safe argv-style script commands; avoid shell.
+- Do not add output_key. Step id is the output key by default, and normal authoring should not use output_key.
 - Use step ids consistently for data consumed downstream.
 - Add depends_on and input_context where data flows between steps.
 - If a condition or loop depends on agent output, make that step output ONLY compact JSON.
@@ -236,6 +238,7 @@ Requirements:
 - Prefer script steps for deterministic context collection or validation.
 - Prefer agent steps for reasoning, planning, implementation, review, and reporting.
 - Use safe argv-style script commands; avoid shell.
+- Do not add output_key unless the user explicitly asks for a legacy alias. Step id is the output key by default.
 - For agent config, use exactly one TOML style per step: either agent.name = "coder" OR [steps.agent] name = "coder", never both in the same [[steps]].
 - Prefer preserving the current file's style. If the current formula uses agent.name = "...", keep using dotted agent.name and do not add [steps.agent] tables.
 - Do not remove important variables or steps unless the suggestion asks for simplification.
@@ -264,6 +267,7 @@ Hard requirements:
 - Preserve formula = %q exactly.
 - Fix the validation error without changing the user's intent.
 - Do not mix dotted agent keys and agent tables in the same step. If a step has agent.name = "...", do not also add [steps.agent] for that step.
+- Do not add output_key unless the original formula already used it and preserving it is necessary.
 - Prefer dotted agent.name = "..." style for consistency with the current formula.
 - Ensure all TOML tables are valid and every [[steps]] table is closed before starting the next step.
 `, name, suggestion, validationErr, invalidTOML, name)
@@ -312,4 +316,19 @@ func extractFormulaTOML(resp string) string {
 		}
 	}
 	return strings.TrimSpace(resp)
+}
+
+func stripFormulaOutputKeyLines(content string) string {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "output_key") {
+			if before, after, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(before) == "output_key" && strings.TrimSpace(after) != "" {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }

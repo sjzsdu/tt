@@ -309,6 +309,7 @@ ToolStep rules:
 - Use tools before script when a built-in exists.
 - Tools are deterministic and auditable.
 - Tool outputs are JSON and can be consumed by later agent steps.
+- Do not add `output_key` for normal formulas. A step's `id` is already the output key.
 - Avoid adding a new execution kind for every operation. Prefer adding a new `tool.name`.
 
 ### 3. Aggregate step, for JSON projection and fan-in manifests
