@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 7
+version = 8
 type = "workflow"
 
 [vars]
@@ -19,59 +19,41 @@ execution = "script"
 description = "触发 flexcompute/flex 的 Flow360 CD workflow，并锁定本次 run id。"
 
   [steps.script]
-  command = ["python3", "-c", """
-import json, os, subprocess, time
-REPO = 'flexcompute/flex'
-WORKFLOW = '.github/workflows/frontend_flow360-ui-next-cd.yml'
-ENV_NAME = os.environ['TT_ENV_NAME'].strip()
-TAG = os.environ.get('TT_TAG', '').strip()
-FRESH = os.environ.get('TT_FRESH_DEPLOY', 'false').strip().lower()
-PASS_TAG = bool(TAG and TAG != '-')
-
-def run(cmd):
-    p = subprocess.run(cmd, text=True, capture_output=True)
-    return p.returncode, p.stdout.strip(), p.stderr.strip()
-
-def emit(**kw):
-    base = dict(repo=REPO, workflow_path=WORKFLOW, env_name=ENV_NAME, tag=TAG, pass_tag=PASS_TAG, fresh_deploy=FRESH == 'true', run_created=False, original_run_id='', active_run_id='', run_url='', dispatch_error='')
-    base.update(kw)
-    print(json.dumps(base, separators=(',', ':')))
-
-rc, out, _ = run(['gh', 'run', 'list', '-R', REPO, '--workflow', WORKFLOW, '--limit', '20', '--json', 'databaseId'])
-known = set()
-if rc == 0 and out:
-    try:
-        known = {str(x.get('databaseId') or '') for x in json.loads(out)}
-    except Exception:
-        pass
-
-cmd = ['gh', 'workflow', 'run', WORKFLOW, '-R', REPO, '-f', f'envName={ENV_NAME}', '-f', f'freshDeploy={FRESH}']
-if PASS_TAG:
-    cmd += ['-f', f'tag={TAG}']
-rc, out, err = run(cmd)
-if rc != 0:
-    emit(dispatch_error=err or out or 'gh workflow run failed')
-    raise SystemExit(1)
-
-for _ in range(12):
-    time.sleep(5)
-    rc, out, _ = run(['gh', 'run', 'list', '-R', REPO, '--workflow', WORKFLOW, '--limit', '20', '--json', 'databaseId,url,status,createdAt,event'])
-    if rc != 0 or not out:
-        continue
-    try:
-        runs = json.loads(out)
-    except Exception:
-        continue
-    pick = next((item for item in runs if str(item.get('databaseId') or '') not in known), runs[0] if runs else None)
-    if pick and pick.get('databaseId'):
-        rid = str(pick['databaseId'])
-        emit(run_created=True, original_run_id=rid, active_run_id=rid, run_url=pick.get('url', ''))
-        raise SystemExit(0)
-
-emit(dispatch_error='workflow dispatched but new run id was not visible within polling window')
-raise SystemExit(1)
+  command = ["bash", "-lc", """
+set -euo pipefail
+repo='flexcompute/flex'
+workflow='.github/workflows/frontend_flow360-ui-next-cd.yml'
+env_name="${TT_ENV_NAME:-}"
+tag="${TT_TAG:-}"
+fresh="${TT_FRESH_DEPLOY:-false}"
+pass_tag=false
+if [ -n "$tag" ] && [ "$tag" != "-" ]; then pass_tag=true; fi
+emit() {
+  jq -cn --arg repo "$repo" --arg workflow_path "$workflow" --arg env_name "$env_name" --arg tag "$tag" --arg fresh "$fresh" --arg original_run_id "${1:-}" --arg active_run_id "${1:-}" --arg run_url "${2:-}" --arg dispatch_error "${3:-}" --argjson run_created "${4:-false}" --argjson pass_tag "$pass_tag" '{repo:$repo,workflow_path:$workflow_path,env_name:$env_name,tag:$tag,pass_tag:$pass_tag,fresh_deploy:($fresh=="true"),run_created:$run_created,original_run_id:$original_run_id,active_run_id:$active_run_id,run_url:$run_url,dispatch_error:$dispatch_error}'
+}
+known="$(gh run list -R "$repo" --workflow "$workflow" --limit 20 --json databaseId 2>/dev/null | jq -r '.[].databaseId // empty' | sort -u || true)"
+cmd=(gh workflow run "$workflow" -R "$repo" -f "envName=$env_name" -f "freshDeploy=$fresh")
+if [ "$pass_tag" = true ]; then cmd+=(-f "tag=$tag"); fi
+if ! dispatch_out="$(${cmd[@]} 2>&1)"; then
+  emit '' '' "$dispatch_out" false
+  exit 1
+fi
+for _ in $(seq 1 12); do
+  sleep 5
+  runs="$(gh run list -R "$repo" --workflow "$workflow" --limit 20 --json databaseId,url,status,createdAt,event 2>/dev/null || true)"
+  [ -n "$runs" ] || continue
+  pick="$(jq -cn --argjson runs "$runs" --arg known "$known" '$known | split("\n") as $known_ids | ($runs | map(select(((.databaseId|tostring) as $id | $known_ids | index($id) | not))) | .[0]) // ($runs[0] // null)')"
+  rid="$(jq -r '.databaseId // empty' <<<"$pick")"
+  if [ -n "$rid" ]; then
+    url="$(jq -r '.url // ""' <<<"$pick")"
+    emit "$rid" "$url" '' true
+    exit 0
+  fi
+done
+emit '' '' 'workflow dispatched but new run id was not visible within polling window' false
+exit 1
 """]
-  format = "json"
+format = "json"
   timeout = "90s"
 
   [steps.script.env]
@@ -100,50 +82,31 @@ description = "循环检查 original_run_id 里的 multi-branch job；该 job co
   description = "读取 original_run_id 的 run/job 信息，筛选名称包含 multi 和 branch 的 job，并只抓取这些 job 的失败日志。"
 
     [steps.loop.body.script]
-    command = ["python3", "-c", """
-import json, os, subprocess
-REPO = 'flexcompute/flex'
-RID = os.environ.get('TT_ORIGINAL_RUN_ID', '').strip()
-
-def run(cmd):
-    p = subprocess.run(cmd, text=True, capture_output=True)
-    return p.returncode, p.stdout.strip(), p.stderr.strip()
-
-def emit(**kw):
-    base = dict(repo=REPO, original_run_id=RID, run_url='', status='', conclusion='', jobs=[], multi_branch_jobs=[], failed_job_logs=[], error='')
-    base.update(kw)
-    print(json.dumps(base, separators=(',', ':')))
-
-if not RID:
-    emit(error='missing original_run_id')
-    raise SystemExit(0)
-
-rc, out, err = run(['gh', 'run', 'view', RID, '-R', REPO, '--json', 'databaseId,url,status,conclusion,jobs'])
-if rc != 0:
-    emit(error=err or out or 'gh run view failed')
-    raise SystemExit(0)
-try:
-    data = json.loads(out)
-except Exception as exc:
-    emit(error=f'parse gh run view failed: {exc}')
-    raise SystemExit(0)
-
-jobs = data.get('jobs') or []
-multi_branch_jobs = [job for job in jobs if 'multi' in (job.get('name') or '').lower() and 'branch' in (job.get('name') or '').lower()]
-failed_logs = []
-for job in multi_branch_jobs:
-    if (job.get('conclusion') or '').lower() != 'failure':
-        continue
-    jid = str(job.get('databaseId') or '')
-    if not jid:
-        continue
-    rc, log, _ = run(['gh', 'run', 'view', RID, '-R', REPO, '--job', jid, '--log'])
-    if rc == 0 and log:
-        failed_logs.append({'job_id': jid, 'name': job.get('name', ''), 'log_excerpt': log[-20000:]})
-
-emit(run_url=data.get('url', ''), status=data.get('status', ''), conclusion=data.get('conclusion') or '', jobs=jobs, multi_branch_jobs=multi_branch_jobs, failed_job_logs=failed_logs)
+    command = ["bash", "-lc", """
+set -euo pipefail
+repo='flexcompute/flex'
+rid="${TT_ORIGINAL_RUN_ID:-}"
+emit_empty() {
+  jq -cn --arg repo "$repo" --arg original_run_id "$rid" --arg error "${1:-}" '{repo:$repo,original_run_id:$original_run_id,run_url:"",status:"",conclusion:"",jobs:[],multi_branch_jobs:[],failed_job_logs:[],error:$error}'
+}
+if [ -z "$rid" ]; then emit_empty 'missing original_run_id'; exit 0; fi
+if ! data="$(gh run view "$rid" -R "$repo" --json databaseId,url,status,conclusion,jobs 2>&1)"; then
+  emit_empty "$data"
+  exit 0
+fi
+multi="$(jq '[.jobs[]? | select((.name // "" | ascii_downcase | contains("multi")) and (.name // "" | ascii_downcase | contains("branch")))]' <<<"$data")"
+logs='[]'
+while IFS=$'	' read -r jid name conclusion; do
+  [ -n "$jid" ] || continue
+  conclusion_lc="$(printf '%s' "$conclusion" | tr '[:upper:]' '[:lower:]')"
+  [ "$conclusion_lc" = failure ] || continue
+  log="$(gh run view "$rid" -R "$repo" --job "$jid" --log 2>/dev/null | tail -c 20000 || true)"
+  item="$(jq -cn --arg job_id "$jid" --arg name "$name" --arg log_excerpt "$log" '{job_id:$job_id,name:$name,log_excerpt:$log_excerpt}')"
+  logs="$(jq -cn --argjson logs "$logs" --argjson item "$item" '$logs + [$item]')"
+done < <(jq -r '.[] | [(.databaseId // ""),(.name // ""),(.conclusion // "")] | @tsv' <<<"$multi")
+jq -cn --argjson data "$data" --argjson multi "$multi" --argjson logs "$logs" --arg repo "$repo" --arg original_run_id "$rid" '{repo:$repo,original_run_id:$original_run_id,run_url:($data.url // ""),status:($data.status // ""),conclusion:($data.conclusion // ""),jobs:($data.jobs // []),multi_branch_jobs:$multi,failed_job_logs:$logs,error:""}'
 """]
-    format = "json"
+format = "json"
     timeout = "60s"
 
     [steps.loop.body.script.env]
@@ -220,14 +183,15 @@ emit(run_url=data.get('url', ''), status=data.get('status', ''), conclusion=data
   description = "修复 tmp branch 后只 rerun failed jobs，继续监视同一个 original_run_id。"
 
     [steps.loop.body.script]
-    command = ["python3", "-c", """
-import json, os, subprocess
-REPO = 'flexcompute/flex'
-RID = os.environ.get('TT_ORIGINAL_RUN_ID', '').strip()
-p = subprocess.run(['gh', 'run', 'rerun', RID, '-R', REPO, '--failed'], text=True, capture_output=True)
-print(json.dumps({'requested': p.returncode == 0, 'original_run_id': RID, 'stdout': p.stdout.strip(), 'stderr': p.stderr.strip()}, separators=(',', ':')))
+    command = ["bash", "-lc", """
+set -u
+repo='flexcompute/flex'
+rid="${TT_ORIGINAL_RUN_ID:-}"
+out="$(gh run rerun "$rid" -R "$repo" --failed 2>&1)"
+rc=$?
+jq -cn --arg original_run_id "$rid" --arg output "$out" --argjson requested "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:$requested,original_run_id:$original_run_id,stdout:(if $requested then $output else "" end),stderr:(if $requested then "" else $output end)}'
 """]
-    format = "json"
+format = "json"
     timeout = "60s"
 
     [steps.loop.body.script.env]
@@ -245,8 +209,12 @@ print(json.dumps({'requested': p.returncode == 0, 'original_run_id': RID, 'stdou
   condition = "classify-run-state.action == wait"
 
     [steps.loop.body.script]
-    command = ["python3", "-c", "import json,time,sys; s=int(sys.argv[1]); time.sleep(s); print(json.dumps({'wait_seconds':s},separators=(',',':')))", "{{poll_interval_seconds}}"]
-    format = "json"
+    command = ["bash", "-lc", """
+s=${1:-30}
+sleep "$s"
+jq -cn --argjson wait_seconds "$s" '{wait_seconds:$wait_seconds}'
+""", "--", "{{poll_interval_seconds}}"]
+format = "json"
     timeout = "120s"
 
     [steps.loop.body.validate]
@@ -261,69 +229,49 @@ print(json.dumps({'requested': p.returncode == 0, 'original_run_id': RID, 'stdou
   description = "用确定性脚本汇总本轮结果，避免额外 agent 漂移。"
 
     [steps.loop.body.script]
-    command = ["python3", "-c", """
-import json, os
-
-def load(name, default=None):
-    raw = os.environ.get(name, '').strip()
-    if not raw:
-        return default if default is not None else {}
-    try:
-        return json.loads(raw)
-    except Exception:
-        return default if default is not None else {}
-
-cls = load('TT_CLASSIFY', {})
-repair = load('TT_REPAIR', {})
-rerun = load('TT_RERUN', {})
-dispatch = load('TT_DISPATCH', {})
-fetch = load('TT_FETCH', {})
-
-action = cls.get('action') or 'block'
-repair_attempted = bool(repair.get('attempted'))
-repair_resolved = bool(repair.get('resolved'))
-rerun_requested = bool(rerun.get('requested'))
-
-done = bool(cls.get('done'))
-final_state = cls.get('final_state') or 'running'
-blocker_type = 'none'
-summary = cls.get('reason') or ''
-
-if action == 'repair_conflict':
-    if repair_attempted and not repair_resolved:
-        done, final_state = True, 'blocked'
-        blocker_type = repair.get('blocker_type') or 'unknown'
-        summary = repair.get('blocker_summary') or summary or 'repair failed'
-    elif repair_resolved and rerun_requested:
-        done, final_state = False, 'running'
-        summary = 'conflict repaired and failed jobs rerun; continue monitoring original run'
-    else:
-        done, final_state = True, 'blocked'
-        blocker_type = 'unknown'
-        summary = summary or 'repair or rerun did not complete'
-elif action == 'wait':
-    done, final_state = False, 'running'
-elif action == 'block':
-    done, final_state = True, 'blocked'
-    blocker_type = 'dispatch' if dispatch.get('dispatch_error') else 'non_conflict_failure'
-
-out = {
-    'done': done,
-    'final_state': final_state,
-    'run_url': cls.get('run_url') or fetch.get('run_url') or dispatch.get('run_url') or '',
-    'original_run_id': dispatch.get('original_run_id') or fetch.get('original_run_id') or '',
-    'tmp_branch': cls.get('tmp_branch') or repair.get('tmp_branch') or '',
-    'conflicted_branches': cls.get('conflicted_branches') or [],
-    'repair_attempted': repair_attempted,
-    'repair_resolved': repair_resolved,
-    'rerun_requested': rerun_requested,
-    'validations_run': repair.get('validations_run') or [],
-    'blocker_type': blocker_type,
-    'summary': summary,
-}
-print(json.dumps(out, separators=(',', ':')))
+    command = ["bash", "-lc", """
+set -euo pipefail
+cls="${TT_CLASSIFY:-{}}"
+repair="${TT_REPAIR:-{}}"
+rerun="${TT_RERUN:-{}}"
+dispatch="${TT_DISPATCH:-{}}"
+fetch="${TT_FETCH:-{}}"
+jq -cn --argjson cls "$cls" --argjson repair "$repair" --argjson rerun "$rerun" --argjson dispatch "$dispatch" --argjson fetch "$fetch" '
+  def b(x): x == true;
+  ($cls.action // "block") as $action |
+  ($repair.attempted == true) as $repair_attempted |
+  ($repair.resolved == true) as $repair_resolved |
+  ($rerun.requested == true) as $rerun_requested |
+  ($cls.done == true) as $class_done |
+  ($cls.final_state // "running") as $class_state |
+  ($cls.reason // "") as $class_summary |
+  if $action == "repair_conflict" then
+    if $repair_attempted and ($repair_resolved | not) then
+      {done:true, final_state:"blocked", blocker_type:($repair.blocker_type // "unknown"), summary:($repair.blocker_summary // $class_summary // "repair failed")}
+    elif $repair_resolved and $rerun_requested then
+      {done:false, final_state:"running", blocker_type:"none", summary:"conflict repaired and failed jobs rerun; continue monitoring original run"}
+    else
+      {done:true, final_state:"blocked", blocker_type:"unknown", summary:($class_summary // "repair or rerun did not complete")}
+    end
+  elif $action == "wait" then
+    {done:false, final_state:"running", blocker_type:"none", summary:$class_summary}
+  elif $action == "block" then
+    {done:true, final_state:"blocked", blocker_type:(if ($dispatch.dispatch_error // "") != "" then "dispatch" else "non_conflict_failure" end), summary:$class_summary}
+  else
+    {done:$class_done, final_state:$class_state, blocker_type:"none", summary:$class_summary}
+  end
+  + {
+    run_url:($cls.run_url // $fetch.run_url // $dispatch.run_url // ""),
+    original_run_id:($dispatch.original_run_id // $fetch.original_run_id // ""),
+    tmp_branch:($cls.tmp_branch // $repair.tmp_branch // ""),
+    conflicted_branches:($cls.conflicted_branches // []),
+    repair_attempted:$repair_attempted,
+    repair_resolved:$repair_resolved,
+    rerun_requested:$rerun_requested,
+    validations_run:($repair.validations_run // [])
+  }'
 """]
-    format = "json"
+format = "json"
     timeout = "30s"
 
     [steps.loop.body.script.env]
