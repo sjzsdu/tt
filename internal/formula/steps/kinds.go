@@ -56,6 +56,7 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 	if s.DynamicForm {
 		prompt = appendDynamicHumanInputProtocol(prompt)
 	}
+	prompt = appendFormulaAgentExecutionGuard(prompt)
 	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{NodeID: req.NodeID, Agent: s.Agent, Model: s.Model, Workspace: renderContextTemplates(s.Cwd, req.Context), Prompt: prompt})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Error: &StepError{Message: "agent step failed", Cause: err}}, err
@@ -71,6 +72,20 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		}
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
+}
+
+func appendFormulaAgentExecutionGuard(prompt string) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(prompt))
+	if b.Len() > 0 {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Formula step execution guard\n\n")
+	b.WriteString("You are executing a formula workflow step now. Do not merely acknowledge project rules, repository instructions, memory policies, or system constraints.\n")
+	b.WriteString("Treat such rules as background constraints only. Perform the concrete step task above and return the requested step output immediately.\n")
+	b.WriteString("If the step requires JSON, return only that JSON. If dynamic human input is required, return only the tt-human-input block described above.\n")
+	b.WriteString("Do not say that you have received or will follow rules unless the step explicitly asks for that.\n")
+	return strings.TrimSpace(b.String())
 }
 
 func appendInputContext(prompt string, keys []string, ctx ContextView) string {

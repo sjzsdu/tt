@@ -173,6 +173,31 @@ func TestAgentStepInjectsWholeInputContextJSON(t *testing.T) {
 	}
 }
 
+func TestAgentStepAppendsFormulaExecutionGuard(t *testing.T) {
+	agent := &recordingAgentRunner{}
+	step := AgentStep{
+		Base:   Base{Metadata: Metadata{ID: "analyze", Kind: KindAgent}},
+		Prompt: "Return JSON.",
+	}
+
+	_, err := step.Run(context.Background(), RunRequest{
+		NodeID:       "analyze",
+		Capabilities: Capabilities{Agents: agent},
+	})
+	if err != nil {
+		t.Fatalf("run agent step: %v", err)
+	}
+	for _, want := range []string{
+		"## Formula step execution guard",
+		"Do not merely acknowledge project rules",
+		"return only that JSON",
+	} {
+		if !strings.Contains(agent.prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, agent.prompt)
+		}
+	}
+}
+
 func TestAgentStepRendersRuntimeContextTemplates(t *testing.T) {
 	agent := &recordingAgentRunner{}
 	step := AgentStep{
