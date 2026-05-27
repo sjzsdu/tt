@@ -1,6 +1,6 @@
 formula = "github-pr-review"
 description = "使用 gh 收集 PR 信息与 diff，完成代码审阅、生成评论建议，并在 typed runtime 显式人工确认后才真实提交评论，最后输出带表格汇总的最终报告。"
-version = 2
+version = 3
 type = "workflow"
 
 [vars]
@@ -13,187 +13,262 @@ submit_review = { description = "是否进入真实提交流程；true 表示先
 id = "fetch-pr-metadata"
 title = "使用 gh 获取 PR 基本信息"
 execution = "script"
+description = "使用 gh pr view 获取 PR 基本信息。repo_hint 为空时不传 --repo，使用当前仓库上下文。"
 
 [steps.script]
-command = ["gh", "pr", "view", "{{pr_ref}}", "--repo", "{{repo_hint}}", "--json", "number,title,body,author,baseRefName,headRefName,url,state,isDraft,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify"]
+command = ["python3", "-c", """
+import json, os, subprocess, sys
+pr = os.environ.get('TT_PR_REF', '').strip()
+repo = os.environ.get('TT_REPO_HINT', '').strip()
+fields = 'number,title,body,author,baseRefName,headRefName,url,state,isDraft,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify'
+cmd = ['gh', 'pr', 'view', pr, '--json', fields]
+if repo:
+    cmd += ['--repo', repo]
+p = subprocess.run(cmd, text=True, capture_output=True)
+if p.returncode != 0:
+    print(json.dumps({'error': p.stderr.strip() or p.stdout.strip() or 'gh pr view failed', 'pr_ref': pr, 'repo_hint': repo}, ensure_ascii=False, separators=(',', ':')))
+    raise SystemExit(1)
+try:
+    data = json.loads(p.stdout or '{}')
+except Exception as exc:
+    print(json.dumps({'error': f'parse gh output failed: {exc}', 'raw': p.stdout[-4000:], 'pr_ref': pr, 'repo_hint': repo}, ensure_ascii=False, separators=(',', ':')))
+    raise SystemExit(1)
+data['pr_ref'] = pr
+data['repo_hint'] = repo
+print(json.dumps(data, ensure_ascii=False, separators=(',', ':')))
+"""]
 format = "json"
 timeout = "30s"
+
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+
+[steps.validate]
+format = "json"
+required = ["number", "title", "url", "baseRefName", "headRefName", "pr_ref"]
 
 [[steps]]
 id = "fetch-pr-files"
 title = "使用 gh 获取 PR 改动文件清单"
 execution = "script"
 depends_on = ["fetch-pr-metadata"]
+description = "使用 gh pr view 获取 PR files。repo_hint 为空时不传 --repo。"
 
 [steps.script]
-command = ["gh", "pr", "view", "{{pr_ref}}", "--repo", "{{repo_hint}}", "--json", "files"]
+command = ["python3", "-c", """
+import json, os, subprocess
+pr = os.environ.get('TT_PR_REF', '').strip()
+repo = os.environ.get('TT_REPO_HINT', '').strip()
+cmd = ['gh', 'pr', 'view', pr, '--json', 'files']
+if repo:
+    cmd += ['--repo', repo]
+p = subprocess.run(cmd, text=True, capture_output=True)
+if p.returncode != 0:
+    print(json.dumps({'files': [], 'error': p.stderr.strip() or p.stdout.strip() or 'gh pr view files failed'}, ensure_ascii=False, separators=(',', ':')))
+    raise SystemExit(1)
+try:
+    data = json.loads(p.stdout or '{}')
+except Exception as exc:
+    print(json.dumps({'files': [], 'error': f'parse gh files failed: {exc}'}, ensure_ascii=False, separators=(',', ':')))
+    raise SystemExit(1)
+print(json.dumps(data, ensure_ascii=False, separators=(',', ':')))
+"""]
 format = "json"
 timeout = "30s"
+
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+
+[steps.validate]
+format = "json"
+required = ["files"]
 
 [[steps]]
 id = "fetch-pr-diff"
 title = "使用 gh 获取 PR diff"
 execution = "script"
 depends_on = ["fetch-pr-metadata"]
+description = "使用 gh pr diff 获取 patch，并包装成 JSON，避免下游直接处理裸文本。"
 
 [steps.script]
-command = ["gh", "pr", "diff", "{{pr_ref}}", "--repo", "{{repo_hint}}", "--patch"]
+command = ["python3", "-c", """
+import json, os, subprocess
+pr = os.environ.get('TT_PR_REF', '').strip()
+repo = os.environ.get('TT_REPO_HINT', '').strip()
+cmd = ['gh', 'pr', 'diff', pr, '--patch']
+if repo:
+    cmd += ['--repo', repo]
+p = subprocess.run(cmd, text=True, capture_output=True)
+out = {
+    'ok': p.returncode == 0,
+    'patch': p.stdout,
+    'patch_chars': len(p.stdout),
+    'stderr': p.stderr.strip(),
+}
+print(json.dumps(out, ensure_ascii=False, separators=(',', ':')))
+if p.returncode != 0:
+    raise SystemExit(1)
+"""]
+format = "json"
 timeout = "60s"
+
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+
+[steps.validate]
+format = "json"
+required = ["ok", "patch", "patch_chars"]
 
 [[steps]]
 id = "build-pr-context"
 title = "整理结构化 PR 上下文"
+execution = "script"
 depends_on = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
-input_context = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
-description = """
-基于 fetch-pr-metadata、fetch-pr-files、fetch-pr-diff 与 review_focus，整理本次审查所需的结构化上下文。
+description = "用确定性脚本整理 PR 上下文，避免 agent 做字段抽取。"
 
-输出 ONLY 紧凑 JSON，至少包含：
-{
-  "pr_ref": "...",
-  "repo_hint": "...",
-  "title": "...",
-  "author": "...",
-  "base_branch": "...",
-  "head_branch": "...",
-  "url": "...",
-  "state": "...",
-  "is_draft": false,
-  "review_decision": "...",
-  "changed_files_count": 0,
-  "changed_files": [
-    {"path":"...","additions":1,"deletions":2,"change_type":"..."}
-  ],
-  "pr_summary": "...",
-  "focus_areas": ["..."],
-  "diff_overview": "...",
-  "review_constraints": ["..."],
-  "submit_review": true
+[steps.script]
+command = ["python3", "-c", """
+import json, os
+meta = json.loads(os.environ.get('TT_META') or '{}')
+files_data = json.loads(os.environ.get('TT_FILES') or '{}')
+diff_data = json.loads(os.environ.get('TT_DIFF') or '{}')
+review_focus = os.environ.get('TT_REVIEW_FOCUS', '').strip()
+submit_review = os.environ.get('TT_SUBMIT_REVIEW', '').strip().lower() == 'true'
+files = []
+for item in files_data.get('files') or []:
+    files.append({
+        'path': item.get('path') or item.get('filename') or '',
+        'additions': item.get('additions') or 0,
+        'deletions': item.get('deletions') or 0,
+        'change_type': item.get('changeType') or item.get('status') or '',
+    })
+commits = meta.get('commits') or []
+summary_bits = []
+if meta.get('body'):
+    summary_bits.append(str(meta.get('body'))[:1200])
+if commits:
+    summary_bits.append('Commits: ' + '; '.join((c.get('messageHeadline') or c.get('message') or '') for c in commits[:10] if isinstance(c, dict)))
+out = {
+    'pr_ref': meta.get('pr_ref') or '',
+    'repo_hint': meta.get('repo_hint') or '',
+    'number': meta.get('number'),
+    'title': meta.get('title') or '',
+    'author': (meta.get('author') or {}).get('login') if isinstance(meta.get('author'), dict) else str(meta.get('author') or ''),
+    'base_branch': meta.get('baseRefName') or '',
+    'head_branch': meta.get('headRefName') or '',
+    'url': meta.get('url') or '',
+    'state': meta.get('state') or '',
+    'is_draft': bool(meta.get('isDraft')),
+    'review_decision': meta.get('reviewDecision') or '',
+    'changed_files_count': meta.get('changedFiles') or len(files),
+    'additions': meta.get('additions') or 0,
+    'deletions': meta.get('deletions') or 0,
+    'changed_files': files,
+    'pr_summary': '\n'.join(x for x in summary_bits if x).strip() or (meta.get('title') or ''),
+    'focus_areas': [x.strip() for x in review_focus.replace('，', ',').split(',') if x.strip()],
+    'diff_overview': f"{len(files)} files changed, +{meta.get('additions') or 0}/-{meta.get('deletions') or 0}, patch_chars={diff_data.get('patch_chars') or 0}",
+    'review_constraints': ['Do not invent behavior not supported by the PR metadata or diff.', 'Use line comments only when the diff supports file and line evidence.'],
+    'submit_review': submit_review,
 }
+print(json.dumps(out, ensure_ascii=False, separators=(',', ':')))
+"""]
+format = "json"
+timeout = "30s"
 
-要求：
-- submit_review 直接根据变量 submit_review 判断：当且仅当其值为字符串 "true" 时输出 true，否则输出 false
-- changed_files 需要从 fetch-pr-files 的 files 字段中提取并规范化
-- pr_summary 需要简洁概括 PR 目标
-- diff_overview 需要总结改动热点与模块边界
-- review_constraints 需要说明审阅时的证据边界，例如“不要编造未在 diff 中出现的行为”
-- 不要编造 gh 未提供的信息
-- 只输出 JSON
-"""
-agent.name = "coder"
+[steps.script.env]
+TT_META = "{{fetch-pr-metadata}}"
+TT_FILES = "{{fetch-pr-files}}"
+TT_DIFF = "{{fetch-pr-diff}}"
+TT_REVIEW_FOCUS = "{{review_focus}}"
+TT_SUBMIT_REVIEW = "{{submit_review}}"
+
+[steps.validate]
+format = "json"
+required = ["pr_ref", "title", "url", "changed_files", "focus_areas", "submit_review"]
 
 [[steps]]
 id = "analyze-review-findings"
 title = "分析改动并产出审阅问题清单"
-depends_on = ["build-pr-context"]
-input_context = ["build-pr-context", "fetch-pr-diff"]
+depends_on = ["build-pr-context", "fetch-pr-diff"]
+input_context = ["build-pr-context", "fetch-pr-diff.patch"]
 description = """
-基于 build-pr-context 与 fetch-pr-diff 对该 PR 做代码审阅。
+基于 build-pr-context 与 fetch-pr-diff.patch 对该 PR 做代码审阅。
 
-重点关注：
-- 正确性
-- 边界条件
-- 回归风险
-- 安全性
-- 性能
-- 可维护性
-- 与 review_focus 明确相关的方面
+重点关注：正确性、边界条件、回归风险、安全性、性能、可维护性，以及 review_focus 明确相关的方面。
 
-输出 ONLY 紧凑 JSON，格式必须可供后续步骤消费：
+输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
 {
   "has_findings": true,
   "why_clean": "",
-  "files_and_modules": [
-    {"path":"...","module":"...","summary":"..."}
-  ],
-  "behavior_changes": [
-    {"area":"...","change":"...","risk":"low|medium|high"}
-  ],
-  "impact_scope": [
-    {"scope":"...","details":"..."}
-  ],
-  "major_risks": [
-    {"title":"...","severity":"low|medium|high","details":"..."}
-  ],
-  "review_comments": [
-    {
-      "id":"finding-1",
-      "type":"line|conversation",
-      "path":"path/to/file",
-      "line":123,
-      "side":"RIGHT",
-      "severity":"low|medium|high",
-      "category":"correctness|security|performance|maintainability|compatibility|testing|other",
-      "title":"简短标题",
-      "body":"给作者的评论正文，清楚说明问题、原因、建议",
-      "risk_reason":"为什么这是风险",
-      "suggested_action":"建议如何修复"
-    }
-  ]
+  "files_and_modules": [{"path":"...","module":"...","summary":"..."}],
+  "behavior_changes": [{"area":"...","change":"...","risk":"low|medium|high"}],
+  "impact_scope": [{"scope":"...","details":"..."}],
+  "major_risks": [{"title":"...","severity":"low|medium|high","details":"..."}],
+  "review_comments": [{"id":"finding-1","type":"line|conversation","path":"path/to/file","line":123,"side":"RIGHT","severity":"low|medium|high","category":"correctness|security|performance|maintainability|compatibility|testing|other","title":"简短标题","body":"给作者的评论正文，清楚说明问题、原因、建议","risk_reason":"为什么这是风险","suggested_action":"建议如何修复"}]
 }
 
 规则：
-- 如果没有问题，has_findings=false，review_comments=[]，并填写 why_clean
-- 仅在确实能从 diff 支撑时给出 line 评论；否则使用 conversation
-- 不要编造未在输入中出现的文件、行号或行为
-- body 应可直接用于 GitHub review comment
-- 只输出 JSON
+- 如果没有问题，has_findings=false，review_comments=[]，并填写 why_clean。
+- 仅在确实能从 diff 支撑时给出 line 评论；否则使用 conversation。
+- 不要编造未在输入中出现的文件、行号或行为。
+- body 应可直接用于 GitHub review comment。
 """
-agent.name = "coder"
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["has_findings", "review_comments", "files_and_modules", "major_risks"]
 
 [[steps]]
 id = "prepare-review-summary"
 title = "整理待提交评论与总评摘要"
 depends_on = ["analyze-review-findings", "build-pr-context"]
-input_context = ["analyze-review-findings", "build-pr-context"]
+input_context = ["analyze-review-findings.review_comments", "analyze-review-findings.has_findings", "analyze-review-findings.why_clean", "analyze-review-findings.major_risks", "build-pr-context.submit_review", "build-pr-context.title", "build-pr-context.url"]
 description = """
-基于 review_findings 与 pr_context，整理提交计划。
+基于 review findings 与 PR context，整理提交计划。
 
-输出 ONLY 紧凑 JSON：
+输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
 {
   "submit_review": true,
   "has_findings": true,
   "summary_comment": "整体 review 摘要，可作为 PR conversation 或 review body",
-  "inline_comments": [
-    {"id":"finding-1","path":"...","line":123,"side":"RIGHT","body":"..."}
-  ],
-  "conversation_comments": [
-    {"id":"finding-2","body":"..."}
-  ],
-  "table_rows": [
-    {
-      "id":"finding-1",
-      "severity":"high",
-      "category":"correctness",
-      "location":"path/to/file:123",
-      "status":"pending-submit|draft-only|no-issue",
-      "summary":"一句话总结"
-    }
-  ]
+  "inline_comments": [{"id":"finding-1","path":"...","line":123,"side":"RIGHT","body":"..."}],
+  "conversation_comments": [{"id":"finding-2","body":"..."}],
+  "table_rows": [{"id":"finding-1","severity":"high","category":"correctness","location":"path/to/file:123","status":"pending-submit|draft-only|no-issue","summary":"一句话总结"}]
 }
 
 要求：
-- submit_review 直接沿用 pr_context.submit_review
-- 将可行的 line 评论与 conversation 评论分开
-- summary_comment 需总结整体结论、风险重点、建议动作
-- table_rows 将用于最终报告中的汇总表格
-- 如果没有问题，也要生成一行 no-issue 汇总
-- 只输出 JSON
+- submit_review 直接沿用 build-pr-context.submit_review。
+- 将可行的 line 评论与 conversation 评论分开。
+- summary_comment 需总结整体结论、风险重点、建议动作。
+- table_rows 将用于最终报告中的汇总表格。
+- 如果没有问题，也要生成一行 no-issue 汇总。
 """
-agent.name = "coder"
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["submit_review", "has_findings", "summary_comment", "inline_comments", "conversation_comments", "table_rows"]
 
 [[steps]]
 id = "confirm-submit-review"
 title = "人工确认是否提交 GitHub review"
 execution = "human_input"
 depends_on = ["prepare-review-summary"]
-input_context = ["prepare-review-summary", "build-pr-context"]
+input_context = ["prepare-review-summary.summary_comment", "prepare-review-summary.inline_comments", "prepare-review-summary.conversation_comments", "prepare-review-summary.table_rows", "build-pr-context.url"]
 condition = "build-pr-context.submit_review == true"
 description = "submit_review=true 时，必须由用户显式确认后才允许通过 gh 写入 GitHub。"
 
 [steps.form]
 title = "确认提交 GitHub Review"
-description = "请确认是否将 review_plan 中的 summary/comment 真实提交到 GitHub。默认建议先选择 no，确认内容无误后再重跑提交。"
+description = "请确认是否将 review plan 中的 summary/comment 真实提交到 GitHub。默认建议先选择 no，确认内容无误后再提交。"
 submit_label = "确认选择"
 
 [[steps.form.fields]]
@@ -215,179 +290,118 @@ id = "submit-review-comments"
 title = "通过 gh 真实提交 review comments"
 execution = "script"
 depends_on = ["prepare-review-summary", "confirm-submit-review"]
-input_context = ["prepare-review-summary", "build-pr-context", "confirm-submit-review"]
+input_context = ["prepare-review-summary.summary_comment", "prepare-review-summary.inline_comments", "prepare-review-summary.conversation_comments", "confirm-submit-review.confirm"]
 condition = "confirm-submit-review.confirm == yes"
 
 [steps.script]
 command = ["python3", "-c", """
 import json, subprocess, sys, tempfile, os
-
 pr_ref = sys.argv[1]
 repo_hint = sys.argv[2].strip()
 review_plan = json.loads(sys.argv[3])
-
 result = {
-    "submitted": False,
-    "review_action": "COMMENT",
-    "summary_comment": review_plan.get("summary_comment", ""),
-    "submitted_comments": [],
-    "failed_comments": [],
-    "inline_comments_requested": len(review_plan.get("inline_comments") or []),
-    "conversation_comments_requested": len(review_plan.get("conversation_comments") or [])
+    'submitted': False,
+    'review_action': 'COMMENT',
+    'summary_comment': review_plan.get('summary_comment', ''),
+    'submitted_comments': [],
+    'failed_comments': [],
+    'inline_comments_requested': len(review_plan.get('inline_comments') or []),
+    'conversation_comments_requested': len(review_plan.get('conversation_comments') or []),
 }
-
-repo_args = ["--repo", repo_hint] if repo_hint else []
-
-if not review_plan.get("has_findings", False):
-    result["submitted"] = False
-    result["reason"] = "No findings to submit"
-    print(json.dumps(result, ensure_ascii=False))
+repo_args = ['--repo', repo_hint] if repo_hint else []
+if not review_plan.get('has_findings', False):
+    result['reason'] = 'No findings to submit'
+    print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
     sys.exit(0)
-
-body = review_plan.get("summary_comment", "").strip() or "Automated PR review summary."
-
-with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
+body = review_plan.get('summary_comment', '').strip() or 'Automated PR review summary.'
+with tempfile.NamedTemporaryFile('w', delete=False, encoding='utf-8') as f:
     f.write(body)
     body_path = f.name
-
-cmd = ["gh", "pr", "review", pr_ref, "--comment", "--body-file", body_path] + repo_args
-res = subprocess.run(cmd, capture_output=True, text=True)
-if res.returncode == 0:
-    result["submitted"] = True
-else:
-    result["submitted"] = False
-    result["review_error"] = res.stderr.strip() or res.stdout.strip() or "gh pr review failed"
-
-for item in review_plan.get("conversation_comments") or []:
-    cbody = (item.get("body") or "").strip()
-    if not cbody:
-        continue
-    cmd = ["gh", "pr", "comment", pr_ref, "--body", cbody] + repo_args
-    cres = subprocess.run(cmd, capture_output=True, text=True)
-    if cres.returncode == 0:
-        result["submitted_comments"].append({
-            "id": item.get("id"),
-            "type": "conversation",
-            "body": cbody
-        })
-    else:
-        result["failed_comments"].append({
-            "id": item.get("id"),
-            "type": "conversation",
-            "body": cbody,
-            "error": cres.stderr.strip() or cres.stdout.strip() or "gh pr comment failed"
-        })
-
-for item in review_plan.get("inline_comments") or []:
-    cbody = (item.get("body") or "").strip()
-    path = item.get("path")
-    line = item.get("line")
-    side = item.get("side") or "RIGHT"
-    if not cbody or not path or line is None:
-        result["failed_comments"].append({
-            "id": item.get("id"),
-            "type": "line",
-            "path": path,
-            "line": line,
-            "error": "missing path/line/body"
-        })
-        continue
-    cmd = ["gh", "api"] + repo_args + ["--method", "POST", f"repos/:owner/:repo/pulls/{pr_ref}/comments", "-f", f"body={cbody}", "-f", f"path={path}", "-F", f"line={line}", "-f", f"side={side}"]
-    cres = subprocess.run(cmd, capture_output=True, text=True)
-    if cres.returncode == 0:
-        result["submitted_comments"].append({
-            "id": item.get("id"),
-            "type": "line",
-            "path": path,
-            "line": line,
-            "side": side
-        })
-    else:
-        result["failed_comments"].append({
-            "id": item.get("id"),
-            "type": "line",
-            "path": path,
-            "line": line,
-            "side": side,
-            "error": cres.stderr.strip() or cres.stdout.strip() or "gh api inline comment failed"
-        })
-
 try:
-    os.unlink(body_path)
-except Exception:
-    pass
+    cmd = ['gh', 'pr', 'review', pr_ref, '--comment', '--body-file', body_path] + repo_args
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0:
+        result['submitted'] = True
+    else:
+        result['review_error'] = res.stderr.strip() or res.stdout.strip() or 'gh pr review failed'
 
-print(json.dumps(result, ensure_ascii=False))
+    for item in review_plan.get('conversation_comments') or []:
+        cbody = (item.get('body') or '').strip()
+        if not cbody:
+            continue
+        cmd = ['gh', 'pr', 'comment', pr_ref, '--body', cbody] + repo_args
+        cres = subprocess.run(cmd, capture_output=True, text=True)
+        if cres.returncode == 0:
+            result['submitted_comments'].append({'id': item.get('id'), 'type': 'conversation', 'body': cbody})
+        else:
+            result['failed_comments'].append({'id': item.get('id'), 'type': 'conversation', 'body': cbody, 'error': cres.stderr.strip() or cres.stdout.strip() or 'gh pr comment failed'})
+
+    for item in review_plan.get('inline_comments') or []:
+        cbody = (item.get('body') or '').strip()
+        path = item.get('path')
+        line = item.get('line')
+        side = item.get('side') or 'RIGHT'
+        if not cbody or not path or line is None:
+            result['failed_comments'].append({'id': item.get('id'), 'type': 'line', 'path': path, 'line': line, 'error': 'missing path/line/body'})
+            continue
+        cmd = ['gh', 'api'] + repo_args + ['--method', 'POST', f'repos/:owner/:repo/pulls/{pr_ref}/comments', '-f', f'body={cbody}', '-f', f'path={path}', '-F', f'line={line}', '-f', f'side={side}']
+        cres = subprocess.run(cmd, capture_output=True, text=True)
+        if cres.returncode == 0:
+            result['submitted_comments'].append({'id': item.get('id'), 'type': 'line', 'path': path, 'line': line, 'side': side})
+        else:
+            result['failed_comments'].append({'id': item.get('id'), 'type': 'line', 'path': path, 'line': line, 'side': side, 'error': cres.stderr.strip() or cres.stdout.strip() or 'gh api inline comment failed'})
+finally:
+    try:
+        os.unlink(body_path)
+    except Exception:
+        pass
+print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
 """, "{{pr_ref}}", "{{repo_hint}}", "{{prepare-review-summary}}"]
 format = "json"
 timeout = "120s"
 continue_on_error = true
 
+[steps.validate]
+format = "json"
+required = ["submitted", "summary_comment", "submitted_comments", "failed_comments"]
+
 [[steps]]
 id = "draft-review-comments"
 title = "生成 review 草稿但不真实提交"
 depends_on = ["prepare-review-summary"]
-input_context = ["prepare-review-summary", "build-pr-context", "analyze-review-findings"]
+input_context = ["prepare-review-summary", "build-pr-context.url", "analyze-review-findings.why_clean"]
 condition = "build-pr-context.submit_review != true"
 description = """
-基于 review_plan、pr_context、review_findings 生成拟发送 review 草稿。
+基于 review_plan、PR URL 和 why_clean 生成拟发送 review 草稿。
 
-输出 Markdown，至少包含：
-- 总体结论
-- 建议提交的 summary comment
-- 拟发送的 inline comments 列表
-- 拟发送的 conversation comments 列表
-- 每个问题为什么值得关注
-- 如果没有问题，明确说明 why_clean
+输出 Markdown，至少包含：总体结论、建议提交的 summary comment、拟发送的 inline comments 列表、拟发送的 conversation comments 列表、每个问题为什么值得关注。如果没有问题，明确说明 why_clean。
 
-要求：
-- 不要假装已经真实提交
-- 内容应与 review_plan 一致
-- 文案应可直接复制到 GitHub
+要求：不要假装已经真实提交；内容应与 review_plan 一致；文案应可直接复制到 GitHub。
 """
-agent.name = "coder"
+
+[steps.agent]
+name = "coder"
 
 [[steps]]
 id = "final-report"
 title = "输出最终 PR 审查报告"
 depends_on = ["submit-review-comments", "draft-review-comments", "confirm-submit-review"]
-input_context = ["build-pr-context", "analyze-review-findings", "prepare-review-summary", "confirm-submit-review", "submit-review-comments", "draft-review-comments"]
+input_context = ["build-pr-context.title", "build-pr-context.url", "build-pr-context.changed_files_count", "build-pr-context.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "confirm-submit-review.confirm", "submit-review-comments.submitted", "submit-review-comments.submitted_comments", "submit-review-comments.failed_comments", "draft-review-comments"]
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
 
-必须包含以下部分：
-1. PR 概览
-2. 改动文件与模块
-3. 关键行为变化
-4. 影响范围
-5. 主要风险
-6. 评论提交结果
-7. 最终结论
+必须包含：PR 概览、改动文件与模块、关键行为变化、影响范围、主要风险、评论提交结果、最终结论。
 
-其中“评论提交结果”必须包含一个 Markdown 表格，列至少为：
-- ID
-- Severity
-- Category
-- Location
-- Status
-- Summary
+“评论提交结果”必须包含 Markdown 表格，列至少为：ID、Severity、Category、Location、Status、Summary。
 
 生成规则：
-- 表格基于 review_plan.table_rows
-- 如果 pr_context.submit_review == true：
-  - 已成功提交的问题标记为 submitted
-  - 提交失败的问题标记为 submit-failed
-  - 如果 review_confirmation.confirm != yes，标记为 confirmation-declined
-  - 未尝试提交的问题标记为 pending
-- 如果 pr_context.submit_review != true：
-  - 所有问题标记为 draft-only
-- 如果没有问题，仍然输出 no-issue 行
-- 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败
-- 总结中要给出总体风险判断与建议下一步动作
-
-约束：
-- 不要编造提交结果
-- 不要遗漏表格
-- 如果 review_submission 因脚本失败而部分失败，也要如实反映
+- 表格基于 prepare-review-summary.table_rows。
+- 如果 submit_review=true 且用户确认 yes：已成功提交的问题标记为 submitted，提交失败标记为 submit-failed，未尝试提交标记为 pending。
+- 如果用户未确认或 submit_review=false：所有问题标记为 draft-only 或 confirmation-declined。
+- 如果没有问题，仍然输出 no-issue 行。
+- 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败。
+- 不要编造提交结果，不要遗漏表格。
 """
-agent.name = "report"
+
+[steps.agent]
+name = "reporter"
