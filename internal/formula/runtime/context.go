@@ -62,11 +62,13 @@ func lookupValuePath(value steps.Value, path string) (steps.Value, bool) {
 	if err := json.Unmarshal(value.Raw, &data); err != nil {
 		return steps.Value{}, false
 	}
+	data = normalizeContextJSONText(data)
 	current := data
 	for _, part := range strings.Split(path, ".") {
 		if part == "" {
 			return steps.Value{}, false
 		}
+		current = normalizeContextJSONText(current)
 		object, ok := current.(map[string]any)
 		if !ok {
 			return steps.Value{}, false
@@ -81,4 +83,23 @@ func lookupValuePath(value steps.Value, path string) (steps.Value, bool) {
 		return steps.Value{}, false
 	}
 	return steps.Value{Type: "json", Raw: raw}, true
+}
+
+func normalizeContextJSONText(value any) any {
+	text, ok := value.(string)
+	if !ok {
+		return value
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return value
+	}
+	if !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
+		return value
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+		return value
+	}
+	return decoded
 }

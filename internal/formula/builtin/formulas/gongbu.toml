@@ -129,41 +129,128 @@ format = "json"
 timeout = "30s"
 
 [[steps]]
-id = "understand-feature"
-title = "理解 feature 并判断实施范围"
+id = "analyze-feature"
+title = "理解 feature 需求并形成代码调研线索"
 depends_on = ["inspect-repo"]
 input_context = ["inspect-repo"]
+form = true
 description = """
-基于 feature_request 和 inspect-repo.stdout，理解本次 feature 的目标、边界和交付口径。inspect-repo.stdout 中包含实际 branch_name、worktree_path、sparse_paths，请后续都以该 worktree_path 为实施目录。
+基于 feature_request 和 inspect-repo.stdout，先理解本次 feature 的目标、边界和交付口径，不要急于制定实现方案。
+inspect-repo.stdout 中包含实际 branch_name、worktree_path、sparse_paths，后续都以该 worktree_path 为实施目录。
 
-输出 ONLY compact JSON：
+如果当前信息不足以形成后续代码调研任务，可以动态澄清；只询问阻塞调研的必要信息，不要预设固定字段。
+
+当信息足够时，输出 ONLY compact JSON：
 {
   "feature_summary":"...",
   "business_goal":"...",
   "acceptance_criteria":["..."],
   "in_scope":["..."],
   "out_of_scope":["..."],
-  "risk_hint":["..."],
-  "likely_areas":["..."],
+  "assumptions":["..."],
+  "initial_search_targets":["..."],
   "needs_ui":true,
   "needs_docs":true,
   "needs_changelog":true
 }
+
+要求：
+- acceptance_criteria 必须可验证；
+- initial_search_targets 只放最有用的模块名、功能点、关键词、接口名、配置名或错误文案；
+- assumptions 记录仍然不确定但不阻塞调研的假设。
 """
 agent.name = "product-manager"
 
+[steps.validate]
+format = "json"
+required = ["feature_summary", "acceptance_criteria", "initial_search_targets"]
+
+[[steps]]
+id = "prepare-research-brief"
+title = "整合需求与执行环境，生成代码调研摘要"
+depends_on = ["analyze-feature"]
+input_context = ["inspect-repo", "analyze-feature"]
+description = """
+基于 analyze-feature 和 inspect-repo.stdout 生成后续 code-research 使用的统一摘要。
+
+输出 ONLY compact JSON：
+{
+  "research_task":"...",
+  "feature_summary":"...",
+  "worktree_path":"...",
+  "search_targets":["..."],
+  "acceptance_criteria":["..."],
+  "constraints":["..."],
+  "notes":["..."]
+}
+
+要求：
+- research_task 用 1-3 句写清楚要调研的现有实现、需求落点和期望；
+- search_targets 优先来自 analyze-feature.initial_search_targets，并结合 worktree/sparse 信息补充；
+- constraints 写清楚不要修改原始仓库目录，只在 worktree_path 中实施。
+"""
+agent.name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["research_task", "search_targets", "acceptance_criteria"]
+
+[[steps]]
+id = "code-research"
+title = "调研现有实现并定位 feature 落点"
+depends_on = ["prepare-research-brief"]
+input_context = ["prepare-research-brief"]
+description = """
+你是 code-research agent。基于 prepare-research-brief 调研当前代码库和 worktree_path，重点使用代码上下文、grep、符号命名、调用链、配置入口与测试结构来理解现有实现，然后把需求和现有实现结合起来。
+
+任务：
+1. 找出最相关的代码入口、模块、函数、配置、状态流或测试；
+2. 说明现有实现如何工作，需求应该落在哪里；
+3. 定位最小修改范围与可能受影响范围；
+4. 判断是否存在多种合理实现方案，以及每种方案的取舍；
+5. 给出验证点，避免盲改。
+
+输出 ONLY compact JSON：
+{
+  "existing_behavior":"...",
+  "evidence":["..."],
+  "code_scope":["..."],
+  "minimal_change_scope":["..."],
+  "risk_points":["..."],
+  "implementation_options":[
+    {"id":"option-a","summary":"...","pros":["..."],"cons":["..."],"recommended":true}
+  ],
+  "verification_focus":["..."]
+}
+
+约束：
+- code_scope / minimal_change_scope 优先输出文件、模块、符号或责任层；
+- 如果只有一个明显方案，implementation_options 只放一个 recommended=true 的方案；
+- 不要直接开始改代码，先给研究结论。
+"""
+agent.name = "code-research"
+
+[steps.validate]
+format = "json"
+required = ["existing_behavior", "evidence", "code_scope", "implementation_options"]
+
 [[steps]]
 id = "plan-feature"
-title = "制定原子化实施方案"
-depends_on = ["understand-feature"]
-input_context = ["inspect-repo", "understand-feature"]
+title = "制定最小可交付实施方案并判断是否需要用户选方案"
+depends_on = ["code-research"]
+input_context = ["inspect-repo", "analyze-feature", "prepare-research-brief", "code-research"]
 description = """
-基于 understand-feature 与 inspect-repo.stdout，输出可直接在 worktree_path 中执行的最小实施方案。
+基于需求理解和 code-research 的现有实现调研，输出可直接在 worktree_path 中执行的最小实施方案，并判断是否需要让用户选择实现方案。
 
 输出 ONLY compact JSON：
 {
   "implementation_goal":"...",
   "worktree_path":"...",
+  "selected_option_id":"option-a",
+  "needs_strategy_choice":false,
+  "strategy_choices":[
+    {"id":"option-a","label":"...","description":"...","recommended":true}
+  ],
   "workstreams":[{"id":"backend|frontend|docs|tests|changelog","goal":"...","needed":true,"notes":"..."}],
   "code_scope":["..."],
   "test_strategy":["..."],
@@ -173,16 +260,52 @@ description = """
   "minimal_done_definition":["..."]
 }
 
-要求：方案偏最小可交付，workstreams 只保留真正需要的部分。
+要求：
+- 方案偏最小可交付，workstreams 只保留真正需要的部分；
+- 如果 code-research 显示只有一个明显方案，needs_strategy_choice=false，并直接选择 recommended 方案；
+- 只有当存在多个合理方案且取舍会影响用户预期、风险、兼容性或工程成本时，needs_strategy_choice=true；
+- needs_strategy_choice=true 时，strategy_choices 必须包含 2-4 个可选方案，label 适合展示给用户。
 """
 agent.name = "planner"
+
+[steps.validate]
+format = "json"
+required = ["implementation_goal", "worktree_path", "needs_strategy_choice", "code_scope", "test_strategy"]
+
+[[steps]]
+id = "choose-strategy"
+title = "必要时让用户选择实现方案"
+depends_on = ["plan-feature"]
+input_context = ["analyze-feature", "code-research", "plan-feature"]
+condition = "plan-feature.needs_strategy_choice == true"
+form = true
+description = """
+plan-feature 判断存在多个合理实现方案，需要让用户选择。请基于 plan-feature.strategy_choices 动态生成最小表单，让用户选择一个方案；如果 plan-feature.needs_strategy_choice 不是 true，不应该执行本步骤。
+
+表单要求：
+- 只包含一个必填的方案选择字段，例如 strategy_id；
+- 选项来自 plan-feature.strategy_choices，保留 recommended 信息；
+- 可以增加一个可选备注字段 strategy_notes，但不要询问无关信息。
+
+用户选择完成后，输出 ONLY compact JSON：
+{
+  "selected_option_id":"...",
+  "strategy_notes":"...",
+  "reason":"..."
+}
+"""
+agent.name = "product-manager"
+
+[steps.validate]
+format = "json"
+required = ["selected_option_id"]
 
 [[steps]]
 id = "design-ui"
 title = "设计必要的 UI/交互变更"
-depends_on = ["plan-feature"]
-input_context = ["understand-feature", "plan-feature"]
-condition = "understand-feature.needs_ui == true"
+depends_on = ["plan-feature", "choose-strategy"]
+input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy"]
+condition = "analyze-feature.needs_ui == true"
 description = """
 如果本次 feature 涉及用户界面或交互，请给出足够指导实现的 UI/交互说明。
 
@@ -194,8 +317,8 @@ agent.name = "ui"
 [[steps]]
 id = "implement-feature"
 title = "在 worktree 中实现 feature"
-depends_on = ["plan-feature", "design-ui"]
-input_context = ["inspect-repo", "understand-feature", "plan-feature", "design-ui"]
+depends_on = ["plan-feature", "choose-strategy", "design-ui"]
+input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "design-ui"]
 description = """
 在 inspect-repo.stdout 里的 worktree_path 中完成 feature 实现。不要修改原始仓库目录。
 
@@ -238,7 +361,7 @@ continue_on_error = true
 id = "review-quality"
 title = "评估实现质量与测试覆盖"
 depends_on = ["implement-feature", "run-tests"]
-input_context = ["understand-feature", "plan-feature", "implement-feature", "run-tests"]
+input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests"]
 description = """
 基于实现结果和测试输出，评估本次 feature 是否达到可交付状态。不要编造测试结果。
 
@@ -251,8 +374,8 @@ agent.name = "tester"
 id = "write-docs"
 title = "补充文档"
 depends_on = ["review-quality"]
-input_context = ["inspect-repo", "understand-feature", "plan-feature", "implement-feature", "review-quality"]
-condition = "understand-feature.needs_docs == true"
+input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality"]
+condition = "analyze-feature.needs_docs == true"
 description = """
 在 worktree_path 中补充必要文档，只覆盖本次 feature 真正新增或变化的部分。
 
@@ -265,8 +388,8 @@ agent.name = "writer"
 id = "update-changelog"
 title = "更新 changelog"
 depends_on = ["review-quality"]
-input_context = ["inspect-repo", "understand-feature", "implement-feature", "review-quality", "write-docs"]
-condition = "understand-feature.needs_changelog == true && review-quality.changelog_needed == true"
+input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality", "write-docs"]
+condition = "analyze-feature.needs_changelog == true && review-quality.changelog_needed == true"
 description = """
 在 worktree_path 中为本次 feature 更新 changelog。只记录用户可感知或对集成方有意义的变化。
 
@@ -279,7 +402,7 @@ agent.name = "writer"
 id = "final-check"
 title = "做最终交付检查"
 depends_on = ["write-docs", "update-changelog", "review-quality"]
-input_context = ["inspect-repo", "understand-feature", "plan-feature", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
+input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
 description = """
 做最终交付检查，确认实现、测试、文档、changelog 是否形成闭环。
 
@@ -318,7 +441,7 @@ continue_on_error = true
 id = "final-report"
 title = "输出最终结论与报告"
 depends_on = ["commit-changes", "final-check"]
-input_context = ["inspect-repo", "understand-feature", "plan-feature", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
+input_context = ["inspect-repo", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
 description = """
 面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path，以及未完成事项。
 """

@@ -60,8 +60,10 @@ func lookupConditionValue(context *ContextStore, path string) (string, bool) {
 	if err := json.Unmarshal(value.Raw, &data); err != nil {
 		return "", false
 	}
+	data = normalizeContextJSONText(data)
 	current := data
 	for _, part := range parts[1:] {
+		current = normalizeContextJSONText(current)
 		object, ok := current.(map[string]any)
 		if !ok {
 			return "", false
