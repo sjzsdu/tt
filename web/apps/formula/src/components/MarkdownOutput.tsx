@@ -1,10 +1,12 @@
-import { Fragment, useMemo, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, Modal, Tag } from 'antd';
 import { marked, type TokensList } from 'marked';
+import mermaid from 'mermaid';
 
 type MarkdownPart =
   | { type: 'html'; html: string }
-  | { type: 'table'; headers: string[]; rows: string[][] };
+  | { type: 'table'; headers: string[]; rows: string[][] }
+  | { type: 'mermaid'; code: string };
 
 type OutputKind = 'json' | 'markdown' | 'text' | 'empty';
 
@@ -28,6 +30,12 @@ function splitMarkdownParts(markdown: string): MarkdownPart[] {
   };
 
   for (const token of tokens as any[]) {
+    const lang = String(token.lang || '').trim().toLowerCase();
+    if (token.type === 'code' && lang === 'mermaid') {
+      flush();
+      parts.push({ type: 'mermaid', code: String(token.text || token.raw || '') });
+      continue;
+    }
     if (token.type === 'table') {
       flush();
       parts.push({
@@ -42,6 +50,65 @@ function splitMarkdownParts(markdown: string): MarkdownPart[] {
 
   flush();
   return parts;
+}
+
+mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: 'loose',
+  theme: 'base',
+  themeVariables: {
+    darkMode: true,
+    background: 'transparent',
+    mainBkg: '#0f2238',
+    secondBkg: '#172b45',
+    tertiaryBkg: '#1e3553',
+    primaryColor: '#0f2238',
+    primaryBorderColor: '#67e8f9',
+    primaryTextColor: '#e0f2fe',
+    secondaryColor: '#172b45',
+    secondaryBorderColor: '#a78bfa',
+    secondaryTextColor: '#f5f3ff',
+    tertiaryColor: '#1e3553',
+    tertiaryBorderColor: '#34d399',
+    tertiaryTextColor: '#ecfdf5',
+    lineColor: '#93c5fd',
+    edgeLabelBackground: '#071322',
+    clusterBkg: '#081827',
+    clusterBorder: '#38bdf8',
+    defaultLinkColor: '#93c5fd',
+    titleColor: '#e0f2fe',
+    nodeTextColor: '#e0f2fe',
+    textColor: '#e5e7eb',
+    labelTextColor: '#e5e7eb',
+  },
+});
+
+function MermaidDiagram({ code }: { code: string }) {
+  const [svg, setSvg] = useState('');
+  const [error, setError] = useState('');
+  const idRef = useRef(`formula-mermaid-${Math.random().toString(36).slice(2)}`);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError('');
+    setSvg('');
+    mermaid.render(idRef.current, code)
+      .then(result => {
+        if (!cancelled) setSvg(result.svg);
+      })
+      .catch(err => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (error) {
+    return <pre className="code-block error-block">Mermaid render failed: {error}\n\n{code}</pre>;
+  }
+  if (!svg) {
+    return <div className="mermaid-diagram mermaid-loading">Rendering diagram…</div>;
+  }
+  return <div className="mermaid-diagram" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 function parseOutput(content: string): ParsedOutput {
@@ -148,6 +215,10 @@ export function MarkdownOutput({ content, className = '' }: { content: string; c
       {parts.map((part, index) => {
         if (part.type === 'html') {
           return <div key={index} className="markdown-html-block" dangerouslySetInnerHTML={{ __html: part.html }} />;
+        }
+
+        if (part.type === 'mermaid') {
+          return <MermaidDiagram key={index} code={part.code} />;
         }
 
         return (

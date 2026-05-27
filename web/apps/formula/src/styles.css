@@ -1983,6 +1983,65 @@ button, input, textarea { font: inherit; }
 
 .meta-list.compact { gap: 8px; }
 
+.mermaid-diagram {
+  margin: 14px 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top left, rgba(103, 232, 249, 0.08), transparent 28%),
+    rgba(4, 10, 20, 0.7);
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-diagram .node rect,
+.mermaid-diagram .node circle,
+.mermaid-diagram .node ellipse,
+.mermaid-diagram .node polygon,
+.mermaid-diagram .node path {
+  fill: #10243a !important;
+  stroke: #67e8f9 !important;
+  stroke-width: 1.5px !important;
+}
+
+.mermaid-diagram .nodeLabel,
+.mermaid-diagram .label,
+.mermaid-diagram .label text,
+.mermaid-diagram .edgeLabel,
+.mermaid-diagram text {
+  color: #e0f2fe !important;
+  fill: #e0f2fe !important;
+}
+
+.mermaid-diagram .edgeLabel,
+.mermaid-diagram .edgeLabel rect {
+  background: #071322 !important;
+  fill: #071322 !important;
+}
+
+.mermaid-diagram .edgePath .path,
+.mermaid-diagram .flowchart-link,
+.mermaid-diagram .messageLine0,
+.mermaid-diagram .messageLine1 {
+  stroke: #93c5fd !important;
+}
+
+.mermaid-diagram marker path {
+  fill: #93c5fd !important;
+  stroke: #93c5fd !important;
+}
+
+.mermaid-loading {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+
 @media (max-width: 1200px) {
   .stats-grid,
   .workspace-grid,
@@ -2050,11 +2109,12 @@ button, input, textarea { font: inherit; }
     padding-left: 14px;
   }
 
-  .formula-markdown-table th,
-  .formula-markdown-table td {
-    min-width: 140px;
-    padding: 10px 12px;
-  }
+.formula-markdown-table th,
+.formula-markdown-table td {
+  min-width: 140px;
+  padding: 10px 12px;
+}
+
 }
 
 .step-activity-group {
