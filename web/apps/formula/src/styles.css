@@ -1666,6 +1666,58 @@ button, input, textarea { font: inherit; }
   padding: 14px 16px;
 }
 
+.loop-activity-collapse {
+  margin: 0 16px 16px;
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.1);
+  border-radius: 16px;
+  background: rgba(4, 10, 20, 0.42);
+}
+
+.loop-activity-collapse .ant-collapse-item {
+  border-bottom-color: rgba(125, 211, 252, 0.08);
+}
+
+.loop-activity-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 12px 14px !important;
+}
+
+.loop-activity-collapse .ant-collapse-content {
+  border-top-color: rgba(125, 211, 252, 0.08);
+  background: rgba(2, 6, 14, 0.32);
+}
+
+.loop-activity-collapse .ant-collapse-content-box {
+  padding: 0 !important;
+}
+
+.loop-activity-list {
+  padding: 12px;
+}
+
+.loop-activity-collapse-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.loop-activity-collapse-label strong {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.loop-activity-collapse-label span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .step-section-hint,
 .step-section-footnote {
   margin: 0;

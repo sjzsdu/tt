@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Collapse,
   Descriptions,
   Drawer,
   Empty,
@@ -594,7 +595,49 @@ function StepInspector({ step, snapshot, open, onClose, onRetry }: { step: Formu
   const activities = step.activities || [];
   const loopBody = step.loop?.body || [];
   const loopActivityGroups = step.loop ? groupLoopActivities(activities) : [];
+  const latestLoopIteration = step.loop ? loopActivityIteration(latestLoopActivity(step)) : '';
+  const defaultOpenLoopActivityKey = latestLoopIteration || loopActivityGroups.at(-1)?.iteration || 'step';
   const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
+
+  const renderActivityRow = (activity: FormulaStepActivity) => (
+    <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
+      <div className="step-activity-status-dot" />
+      <div className="step-activity-content">
+        <div className="step-activity-head">
+          <strong>{activity.title || activityShortId(activity.step_id)}</strong>
+          <Tag color={statusTone[activity.status] || 'default'}>{statusLabel(activity.status)}</Tag>
+        </div>
+        <div className="step-activity-meta">{activity.at} · {activity.step_id}{activity.duration_ms ? ` · ${formatDuration(activity.duration_ms)}` : ''}</div>
+        {activity.detail && <p>{activity.detail}</p>}
+        {activity.output && !sameOutput(activity.output, step.output) && <OutputSurface content={activity.output} className="step-activity-output" />}
+        {activity.output && sameOutput(activity.output, step.output) && <div className="step-activity-output-note">Output matches final step output.</div>}
+        {activity.error && <pre className="code-block error-block">{activity.error}</pre>}
+      </div>
+    </div>
+  );
+
+  const loopActivityItems = loopActivityGroups.map(group => {
+    const key = group.iteration || 'step';
+    const statusCounts = group.activities.reduce<Record<string, number>>((acc, activity) => {
+      acc[activity.status] = (acc[activity.status] || 0) + 1;
+      return acc;
+    }, {});
+    const statusSummary = Object.entries(statusCounts)
+      .map(([status, count]) => `${count} ${statusLabel(status)}`)
+      .join(' · ');
+    const running = group.activities.some(activity => activity.status === 'running' || activity.status === 'waiting_input');
+    return {
+      key,
+      label: (
+        <div className="loop-activity-collapse-label">
+          <strong>{group.iteration ? `Iteration ${group.iteration}` : 'Step activity'}</strong>
+          <span>{statusSummary || `${group.activities.length} event${group.activities.length === 1 ? '' : 's'}`}</span>
+          {key === defaultOpenLoopActivityKey && <Tag color={running ? 'processing' : 'blue'}>{running ? 'current' : 'latest'}</Tag>}
+        </div>
+      ),
+      children: <div className="step-activity-list loop-activity-list">{group.activities.map(renderActivityRow)}</div>,
+    };
+  });
 
   return (
     <Drawer open={open} onClose={onClose} width="96vw" title="Step Inspector" className="step-inspector" destroyOnClose>
@@ -762,29 +805,17 @@ function StepInspector({ step, snapshot, open, onClose, onRetry }: { step: Formu
               <p className="step-section-hint">
                 {step.loop ? 'Internal loop body activity grouped by iteration. These are not separate top-level steps.' : 'Status events for this step. The final output is shown once in the Output section above.'}
               </p>
-              <div className="step-activity-list">
-                {(step.loop && loopActivityGroups.length ? loopActivityGroups : [{ iteration: '', activities }]).map(group => (
-                  <div key={group.iteration || 'step'} className="step-activity-group">
-                    {group.iteration && <div className="step-activity-group-title">Iteration {group.iteration}</div>}
-                    {group.activities.map(activity => (
-                  <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
-                    <div className="step-activity-status-dot" />
-                    <div className="step-activity-content">
-                      <div className="step-activity-head">
-                        <strong>{activity.title || activityShortId(activity.step_id)}</strong>
-                        <Tag color={statusTone[activity.status] || 'default'}>{statusLabel(activity.status)}</Tag>
-                      </div>
-                      <div className="step-activity-meta">{activity.at} · {activity.step_id}{activity.duration_ms ? ` · ${formatDuration(activity.duration_ms)}` : ''}</div>
-                      {activity.detail && <p>{activity.detail}</p>}
-                      {activity.output && !sameOutput(activity.output, step.output) && <OutputSurface content={activity.output} className="step-activity-output" />}
-                      {activity.output && sameOutput(activity.output, step.output) && <div className="step-activity-output-note">Output matches final step output.</div>}
-                      {activity.error && <pre className="code-block error-block">{activity.error}</pre>}
-                    </div>
-                  </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
+              {step.loop && loopActivityItems.length ? (
+                <Collapse
+                  className="loop-activity-collapse"
+                  defaultActiveKey={[defaultOpenLoopActivityKey]}
+                  items={loopActivityItems}
+                />
+              ) : (
+                <div className="step-activity-list">
+                  {activities.map(renderActivityRow)}
+                </div>
+              )}
               {hiddenDuplicateOutputs > 0 && <div className="step-section-footnote">Hidden duplicate output in {hiddenDuplicateOutputs} timeline event{hiddenDuplicateOutputs === 1 ? '' : 's'}.</div>}
             </section>
           )}
