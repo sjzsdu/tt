@@ -3,10 +3,28 @@ import mermaid from 'mermaid';
 
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'default',
+  theme: 'base',
   securityLevel: 'loose',
   logLevel: 'error',
   flowchart: { useMaxWidth: true, htmlLabels: false, curve: 'basis' },
+  themeVariables: {
+    background: '#ffffff',
+    primaryColor: '#ffffff',
+    primaryBorderColor: '#cbd5e1',
+    primaryTextColor: '#0f172a',
+    secondaryColor: '#f8fafc',
+    secondaryBorderColor: '#cbd5e1',
+    secondaryTextColor: '#0f172a',
+    tertiaryColor: '#eef4ff',
+    tertiaryBorderColor: '#cbd5e1',
+    tertiaryTextColor: '#0f172a',
+    lineColor: '#94a3b8',
+    textColor: '#0f172a',
+    mainBkg: '#ffffff',
+    nodeBorder: '#cbd5e1',
+    clusterBkg: '#f8fafc',
+    clusterBorder: '#e2e8f0',
+  },
   themeCSS: `
     .node rect, .node circle, .node ellipse, .node polygon, .node path {
       fill: #fff;
@@ -29,9 +47,30 @@ mermaid.initialize({
       stroke: #e2e8f0;
       stroke-width: 1px;
     }
-    .label {
+    .label,
+    .label text,
+    .label span,
+    .nodeLabel,
+    .nodeLabel p,
+    .nodeLabel span,
+    .edgeLabel,
+    .edgeLabel text,
+    .sectionTitle,
+    .actor,
+    .messageText,
+    .loopText,
+    .noteText,
+    .taskText,
+    .taskTextOutsideRight,
+    .taskTextOutsideLeft,
+    .mindmap-node .label,
+    .mindmap-node .label text,
+    .mindmap-node .label span,
+    svg text,
+    svg tspan {
+      fill: #0f172a !important;
+      color: #0f172a !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #0f172a;
       font-size: 13px;
     }
   `,
