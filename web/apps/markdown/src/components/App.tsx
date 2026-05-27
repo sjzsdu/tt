@@ -16,6 +16,11 @@ function currentRoute(): Route {
   return { mode: 'list', file: '' };
 }
 
+interface ScrollSnapshot {
+  top: number;
+  ratio: number;
+}
+
 export function App() {
   const [route, setRoute] = useState<Route>(currentRoute());
   const [list, setList] = useState<ListResponse | null>(null);
@@ -30,14 +35,33 @@ export function App() {
   const [fileQuery, setFileQueryState] = useState(() => localStorage.getItem('md-file-query') || '');
   const [saving, setSaving] = useState(false);
   const contentPaneRef = useRef<HTMLElement | null>(null);
-  const scrollPositionsRef = useRef<Record<string, number>>({});
+  const scrollPositionsRef = useRef<Record<string, ScrollSnapshot>>({});
   const activeScrollKeyRef = useRef('');
 
   const rememberCurrentScroll = () => {
     const key = activeScrollKeyRef.current;
     const pane = contentPaneRef.current;
     if (!key || !pane) return;
-    scrollPositionsRef.current[key] = pane.scrollTop;
+    const maxScrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+    scrollPositionsRef.current[key] = {
+      top: pane.scrollTop,
+      ratio: maxScrollTop > 0 ? pane.scrollTop / maxScrollTop : 0,
+    };
+  };
+
+  const restoreScrollPosition = (key: string) => {
+    const pane = contentPaneRef.current;
+    const snapshot = scrollPositionsRef.current[key];
+    if (!pane || !snapshot || window.location.hash) return;
+    requestAnimationFrame(() => {
+      if (activeScrollKeyRef.current !== key) return;
+      const currentPane = contentPaneRef.current;
+      if (!currentPane) return;
+      const maxScrollTop = Math.max(0, currentPane.scrollHeight - currentPane.clientHeight);
+      const ratioTop = snapshot.ratio * maxScrollTop;
+      const targetTop = Math.min(maxScrollTop, Math.max(0, Math.round(Math.min(snapshot.top, ratioTop))));
+      currentPane.scrollTo({ top: targetTop, behavior: 'instant' });
+    });
   };
 
   const save = async () => {
@@ -124,20 +148,14 @@ export function App() {
   }, [route.file, route.mode]);
 
   useEffect(() => {
-    if (route.mode !== 'view' || !doc) {
+    if (!doc || route.mode === 'list') {
       activeScrollKeyRef.current = '';
       return;
     }
     const key = doc.filePath;
     activeScrollKeyRef.current = key;
-    const pane = contentPaneRef.current;
-    if (!pane || window.location.hash) return;
-    const top = scrollPositionsRef.current[key] ?? 0;
-    requestAnimationFrame(() => {
-      if (activeScrollKeyRef.current !== key) return;
-      pane.scrollTo({ top, behavior: 'instant' });
-    });
-  }, [route.mode, doc?.filePath, doc?.contentText]);
+    restoreScrollPosition(key);
+  }, [route.mode, doc?.filePath]);
 
   const handleContentScroll = () => {
     rememberCurrentScroll();
