@@ -210,6 +210,41 @@ func TestExecutorPrefersJSONObjectForRequiredFieldsFromAgentString(t *testing.T)
 	}
 }
 
+func TestExecutorFindsValidJSONObjectAmongMultipleAgentJSONSnippets(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "manifest", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "manifest", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"topic_name", "series_title", "audience", "reading_order"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	text, _ := json.Marshal("Example:\n```json\n{\"topic_name\":\"draft\"}\n```\nFinal:\n" +
+		`{"topic_name":"webgpu","series_title":"WebGPU 入门","audience":"开发者","reading_order":[{"filename":"01.md","title":"Intro","summary":"包含 {braces} 的摘要"}]}`)
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: string(text)}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
+func TestExecutorFindsValidJSONArrayAmongProseAndOtherSnippets(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}}, Validation: &steps.OutputValidationSpec{Format: "json", MinItems: 1, ItemRequired: []string{"filename", "title"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	text, _ := json.Marshal("I will return an array. Note: {not json}\n" +
+		`[{"filename":"01-intro.md","title":"Intro"}]` +
+		"\nDone.")
+
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: string(text)}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
 func TestExecutorReturnsWaitingForHumanInput(t *testing.T) {
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "ask", Step: steps.HumanInputStep{Base: steps.Base{Metadata: steps.Metadata{ID: "ask", Kind: steps.KindHumanInput}}, Reason: "need input"}})

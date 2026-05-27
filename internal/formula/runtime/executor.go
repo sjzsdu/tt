@@ -268,71 +268,97 @@ func jsonTextCandidates(text string) []string {
 
 func jsonTextCandidatesForSpec(text string, spec *steps.OutputValidationSpec) []string {
 	candidates := []string{text}
-	if fenced, ok := extractFencedJSON(text); ok {
-		candidates = append(candidates, fenced)
-	}
+	candidates = append(candidates, extractFencedJSONBlocks(text)...)
 	if spec != nil && len(spec.Required) > 0 {
-		if extracted, ok := extractFirstJSONContainerOfType(text, '{', '}'); ok {
-			candidates = append(candidates, extracted)
-		}
+		candidates = append(candidates, extractBalancedJSONContainers(text, '{', '}')...)
 	}
 	if spec != nil && (spec.MinItems > 0 || len(spec.ItemRequired) > 0) {
-		if extracted, ok := extractFirstJSONContainerOfType(text, '[', ']'); ok {
-			candidates = append(candidates, extracted)
-		}
+		candidates = append(candidates, extractBalancedJSONContainers(text, '[', ']')...)
 	}
-	if extracted, ok := extractFirstJSONContainer(text); ok {
-		candidates = append(candidates, extracted)
-	}
+	candidates = append(candidates, extractBalancedJSONContainers(text, '{', '}')...)
+	candidates = append(candidates, extractBalancedJSONContainers(text, '[', ']')...)
 	return candidates
 }
 
-func extractFirstJSONContainerOfType(text string, open, close byte) (string, bool) {
-	start := strings.IndexByte(text, open)
-	if start < 0 {
+func extractFencedJSON(text string) (string, bool) {
+	blocks := extractFencedJSONBlocks(text)
+	if len(blocks) == 0 {
 		return "", false
 	}
-	end := strings.LastIndexByte(text, close)
-	if end <= start {
-		return "", false
-	}
-	return strings.TrimSpace(text[start : end+1]), true
+	return blocks[0], true
 }
 
-func extractFencedJSON(text string) (string, bool) {
-	start := strings.Index(text, "```")
-	if start < 0 {
-		return "", false
+func extractFencedJSONBlocks(text string) []string {
+	var blocks []string
+	for {
+		start := strings.Index(text, "```")
+		if start < 0 {
+			return blocks
+		}
+		rest := text[start+3:]
+		if newline := strings.Index(rest, "\n"); newline >= 0 {
+			rest = rest[newline+1:]
+		}
+		end := strings.Index(rest, "```")
+		if end < 0 {
+			return blocks
+		}
+		blocks = append(blocks, strings.TrimSpace(rest[:end]))
+		text = rest[end+3:]
 	}
-	rest := text[start+3:]
-	if newline := strings.Index(rest, "\n"); newline >= 0 {
-		rest = rest[newline+1:]
-	}
-	end := strings.Index(rest, "```")
-	if end < 0 {
-		return "", false
-	}
-	return strings.TrimSpace(rest[:end]), true
 }
 
 func extractFirstJSONContainer(text string) (string, bool) {
-	arrayStart := strings.Index(text, "[")
-	objectStart := strings.Index(text, "{")
-	start := -1
-	close := byte(0)
-	switch {
-	case arrayStart >= 0 && (objectStart < 0 || arrayStart < objectStart):
-		start, close = arrayStart, ']'
-	case objectStart >= 0:
-		start, close = objectStart, '}'
-	default:
+	containers := append(extractBalancedJSONContainers(text, '{', '}'), extractBalancedJSONContainers(text, '[', ']')...)
+	if len(containers) == 0 {
 		return "", false
 	}
-	end := strings.LastIndexByte(text, close)
-	if end <= start {
-		return "", false
+	return containers[0], true
+}
+
+func extractBalancedJSONContainers(text string, open, close byte) []string {
+	var out []string
+	for i := 0; i < len(text); i++ {
+		if text[i] != open {
+			continue
+		}
+		if end, ok := findBalancedJSONContainerEnd(text, i, open, close); ok {
+			out = append(out, strings.TrimSpace(text[i:end+1]))
+		}
 	}
-	return strings.TrimSpace(text[start : end+1]), true
+	return out
+}
+
+func findBalancedJSONContainerEnd(text string, start int, open, close byte) (int, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case ch == '\\':
+				escaped = true
+			case ch == '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func outputValidationForStep(step steps.Step) *steps.OutputValidationSpec {
