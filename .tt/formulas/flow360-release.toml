@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 6
+version = 7
 type = "workflow"
 
 [vars]
@@ -79,6 +79,10 @@ raise SystemExit(1)
   TT_TAG = "{{tag}}"
   TT_FRESH_DEPLOY = "{{fresh_deploy}}"
 
+[steps.validate]
+format = "json"
+required = ["repo", "workflow_path", "env_name", "run_created"]
+
 [[steps]]
 id = "monitor-and-rerun"
 title = "监控 run、修冲突并 rerun"
@@ -145,16 +149,20 @@ emit(run_url=data.get('url', ''), status=data.get('status', ''), conclusion=data
     [steps.loop.body.script.env]
     TT_ORIGINAL_RUN_ID = "{{dispatch-run.original_run_id}}"
 
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["repo", "original_run_id", "multi_branch_jobs", "failed_job_logs", "error"]
+
   [[steps.loop.body]]
   id = "classify-run-state"
   title = "判断 run 状态"
   depends_on = ["fetch-run-info"]
-  input_context = ["dispatch-run", "fetch-run-info"]
+  input_context = ["dispatch-run.run_created", "dispatch-run.original_run_id", "dispatch-run.run_url", "dispatch-run.dispatch_error", "fetch-run-info.status", "fetch-run-info.conclusion", "fetch-run-info.run_url", "fetch-run-info.error", "fetch-run-info.multi_branch_jobs", "fetch-run-info.failed_job_logs"]
   description = """
-只根据 fetch-run-info.multi_branch_jobs 判断本轮动作，不要用整个 workflow run 的 conclusion 决定跳出 loop。
+只根据输入上下文中的 multi_branch_jobs 和 failed_job_logs 判断本轮动作，不要用整个 workflow run 的 conclusion 决定成功跳出 loop。
 
 规则：
-- dispatch-run.run_created=false 或 fetch-run-info.error 非空 -> done=true, action=block, final_state=blocked。
+- dispatch-run.run_created=false 或 dispatch-run.dispatch_error 非空或 fetch-run-info.error 非空 -> done=true, action=block, final_state=blocked。
 - multi_branch_jobs 为空 -> done=false, action=wait, final_state=running，reason 说明 multi-branch job 尚未出现。
 - 任意 multi-branch job status 不是 completed -> done=false, action=wait, final_state=running。
 - 所有 multi-branch job completed 且 conclusion=success -> done=true, action=none, final_state=succeeded。这是唯一正常跳出 loop 的成功条件。
@@ -162,7 +170,7 @@ emit(run_url=data.get('url', ''), status=data.get('status', ''), conclusion=data
 - 任意 multi-branch job completed 且 conclusion=failure，但不是可识别的 Flow360 multi-branch merge conflict -> done=true, action=block, final_state=blocked。
 - 其他 non-success conclusion，如 cancelled/skipped/timed_out -> done=true, action=block, final_state=blocked。
 
-输出 ONLY compact JSON：
+输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
 {"done":false,"final_state":"running|succeeded|blocked","action":"wait|repair_conflict|block|none","run_url":"","tmp_branch":"","remaining_queue":[],"conflicted_branches":[],"reason":""}
 """
 
@@ -178,21 +186,21 @@ emit(run_url=data.get('url', ''), status=data.get('status', ''), conclusion=data
   title = "修复 multi-branch merge conflict"
   depends_on = ["classify-run-state"]
   condition = "classify-run-state.action == repair_conflict"
-  input_context = ["env", "dispatch-run", "fetch-run-info", "classify-run-state"]
+  input_context = ["classify-run-state.tmp_branch", "classify-run-state.remaining_queue", "classify-run-state.conflicted_branches", "fetch-run-info.failed_job_logs"]
   description = """
-根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。
+根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。你可以读写当前 git workspace 中的代码，但不要新建 workflow run，不要 rerun，本步骤只负责修复并 push tmp branch。
 
 必须执行：
-1. git fetch origin。
-2. 从 origin/<tmp_branch> 建立/重建本地工作分支。
-3. rebase origin/<tmp_branch>。
-4. 按 remaining_queue 顺序 merge origin/<branch>。
-5. 解决冲突并 commit。
-6. 运行必要轻量验证。
-7. push 回 tmp_branch，必须使用 `git push --no-verify origin HEAD:<tmp_branch>`。
+1. 读取目标目录就近 README.md 和项目规则，但只作为约束，不要输出规则确认。
+2. git fetch origin。
+3. 从 origin/<tmp_branch> 建立/重建本地工作分支。
+4. rebase origin/<tmp_branch>。
+5. 按 remaining_queue 顺序 merge origin/<branch>。
+6. 解决冲突并 commit。
+7. 运行必要轻量验证。
+8. push 回 tmp_branch，必须使用 `git push --no-verify origin HEAD:<tmp_branch>`。
 
-禁止新建 workflow run，禁止 rerun，本步骤只负责修复并 push tmp branch。
-输出 ONLY compact JSON：
+输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
 {"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"push_completed":true,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":""}
 """
 
@@ -225,6 +233,10 @@ print(json.dumps({'requested': p.returncode == 0, 'original_run_id': RID, 'stdou
     [steps.loop.body.script.env]
     TT_ORIGINAL_RUN_ID = "{{dispatch-run.original_run_id}}"
 
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["requested", "original_run_id"]
+
   [[steps.loop.body]]
   id = "wait-next-poll"
   title = "等待下一轮轮询"
@@ -236,6 +248,10 @@ print(json.dumps({'requested': p.returncode == 0, 'original_run_id': RID, 'stdou
     command = ["python3", "-c", "import json,time,sys; s=int(sys.argv[1]); time.sleep(s); print(json.dumps({'wait_seconds':s},separators=(',',':')))", "{{poll_interval_seconds}}"]
     format = "json"
     timeout = "120s"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["wait_seconds"]
 
   [[steps.loop.body]]
   id = "release-progress"
@@ -317,13 +333,22 @@ print(json.dumps(out, separators=(',', ':')))
     TT_REPAIR = "{{repair-conflict}}"
     TT_RERUN = "{{rerun-failed-jobs}}"
 
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["done", "final_state", "blocker_type", "summary"]
+
 [[steps]]
 id = "final-report"
 title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
-input_context = ["dispatch-run", "release-progress", "fetch-run-info", "classify-run-state", "repair-conflict", "rerun-failed-jobs"]
+input_context = ["dispatch-run.env_name", "dispatch-run.tag", "dispatch-run.fresh_deploy", "dispatch-run.workflow_path", "dispatch-run.original_run_id", "dispatch-run.run_url", "dispatch-run.dispatch_error", "release-progress.final_state", "release-progress.run_url", "release-progress.tmp_branch", "release-progress.conflicted_branches", "release-progress.repair_attempted", "release-progress.repair_resolved", "release-progress.rerun_requested", "release-progress.validations_run", "release-progress.blocker_type", "release-progress.summary"]
 description = """
-输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 状态、最终状态、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。强调本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch。
+输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、冲突分支、rerun failed jobs 结果、验证项和 blocker。
+
+强调：
+- 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
+- 本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch；
+- 不要臆造未出现在 input_context 中的分支、日志或验证结果。
 """
 
 [steps.agent]
