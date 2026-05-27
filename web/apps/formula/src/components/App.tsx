@@ -31,7 +31,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { api, normalizeSnapshot } from '../api';
-import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
+import { ReactFlow, Background, BaseEdge, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react';
 import { MarkdownOutput, OutputModal, OutputSurface } from './MarkdownOutput';
 import type {
   DashboardView,
@@ -217,6 +217,42 @@ function LoopGroupNode({ data }: NodeProps<Node<LoopGroupNodeData>>) {
 }
 
 const nodeTypes = { step: StepFlowNode, loopGroup: LoopGroupNode };
+
+type FanoutEdgeData = { offset?: number };
+
+function FanoutEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps<Edge<FanoutEdgeData>>) {
+  const offset = Number(data?.offset || 0);
+  const isVertical = Math.abs(targetX - sourceX) < 48;
+  const path = isVertical
+    ? `M ${sourceX} ${sourceY} C ${sourceX + offset} ${sourceY + 90}, ${targetX + offset} ${targetY - 90}, ${targetX} ${targetY}`
+    : (() => {
+      const dx = Math.max(72, Math.abs(targetX - sourceX) * 0.44);
+      return `M ${sourceX} ${sourceY} C ${sourceX + dx} ${sourceY + offset}, ${targetX - dx} ${targetY + offset}, ${targetX} ${targetY}`;
+    })();
+  return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />;
+}
+
+const edgeTypes = { fanout: FanoutEdge };
+
+function spreadFanoutEdges(edges: Edge[]) {
+  const bySource = new Map<string, Edge[]>();
+  for (const edge of edges) {
+    const key = `${edge.source}:${edge.sourceHandle || ''}`;
+    if (!bySource.has(key)) bySource.set(key, []);
+    bySource.get(key)!.push(edge);
+  }
+  for (const sourceEdges of bySource.values()) {
+    if (sourceEdges.length <= 1) continue;
+    sourceEdges.sort((a, b) => `${a.target}:${a.id}`.localeCompare(`${b.target}:${b.id}`));
+    const center = (sourceEdges.length - 1) / 2;
+    const gap = sourceEdges.length > 4 ? 18 : 26;
+    sourceEdges.forEach((edge, index) => {
+      edge.type = 'fanout';
+      edge.data = { ...(edge.data || {}), offset: (index - center) * gap };
+    });
+  }
+  return edges;
+}
 
 function edgeVisualClass(sourceStatus?: string, targetStatus?: string, extra = '') {
   const state = targetStatus === 'running'
@@ -474,6 +510,8 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     }
   }
 
+  spreadFanoutEdges(edges);
+
   const hasLoopBodyNodes = snapshot.steps.some(step => !!step.loop?.body?.length);
   const width = Math.max(720, nextX + paddingX - colGap + (hasLoopBodyNodes ? nodeWidth : 0));
   const height = Math.max(420, paddingBottom + maxY);
@@ -520,6 +558,7 @@ function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot
           nodes={layout.nodes}
           edges={layout.edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           fitView
           fitViewOptions={{ padding: 0.18 }}
           minZoom={0.35}
