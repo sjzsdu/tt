@@ -46,7 +46,7 @@ repo = os.path.basename(root.rstrip(os.sep))
 prefix = run(['git', 'rev-parse', '--show-prefix'], check=False).strip().strip('/')
 slug = slugify(feature_request)
 branch = branch_override or ('feature/' + slug)
-worktree_path = path_override or os.path.abspath(os.path.join(root, '..', repo + '-' + slug))
+worktree_path = os.path.abspath(path_override) if path_override else os.path.abspath(os.path.join(root, '..', repo + '-' + slug))
 if sparse_override:
     sparse_paths = [p.strip().strip('/') for p in re.split(r'[,;]', sparse_override) if p.strip()]
 elif prefix:
