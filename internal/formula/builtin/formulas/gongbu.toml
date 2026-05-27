@@ -140,7 +140,8 @@ inspect-repo.stdout 中包含实际 branch_name、worktree_path、sparse_paths�
 
 如果当前信息不足以形成后续代码调研任务，可以动态澄清；只询问阻塞调研的必要信息，不要预设固定字段。
 
-当信息足够时，输出 ONLY compact JSON：
+当信息足够时，必须输出 ONLY 一个 compact JSON object。不要 Markdown，不要代码块，不要解释文字，不要在 JSON 前后添加任何句子。
+JSON object 必须包含 feature_summary、acceptance_criteria、initial_search_targets 三个字段：
 {
   "feature_summary":"...",
   "business_goal":"...",
@@ -155,6 +156,8 @@ inspect-repo.stdout 中包含实际 branch_name、worktree_path、sparse_paths�
 }
 
 要求：
+- 最终回答的第一个字符必须是 `{`，最后一个字符必须是 `}`；
+- 不要输出“以下是 JSON”“分析如下”等自然语言；
 - acceptance_criteria 必须可验证；
 - initial_search_targets 只放最有用的模块名、功能点、关键词、接口名、配置名或错误文案；
 - assumptions 记录仍然不确定但不阻塞调研的假设。

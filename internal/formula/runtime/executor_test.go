@@ -25,6 +25,21 @@ func (a fixedOutputAgent) RunAgent(context.Context, steps.AgentRequest) (steps.V
 	return steps.Value{Type: "json", Raw: json.RawMessage(a.raw)}, nil
 }
 
+type retryValidationAgent struct {
+	calls   int
+	prompts []string
+}
+
+func (a *retryValidationAgent) RunAgent(_ context.Context, req steps.AgentRequest) (steps.Value, error) {
+	a.calls++
+	a.prompts = append(a.prompts, req.Prompt)
+	if a.calls == 1 {
+		raw, _ := json.Marshal("这里是一段解释，不是 JSON")
+		return steps.Value{Type: "json", Raw: raw}, nil
+	}
+	return steps.Value{Type: "json", Raw: json.RawMessage(`{"feature_summary":"ok","acceptance_criteria":["passes"],"initial_search_targets":["runtime"]}`)}, nil
+}
+
 func TestExecutorSeedsEnvironmentContext(t *testing.T) {
 	tmp := t.TempDir()
 	wf := &ir.Workflow{ID: "demo", Graph: ir.NewGraph()}
@@ -207,6 +222,27 @@ func TestExecutorPrefersJSONObjectForRequiredFieldsFromAgentString(t *testing.T)
 	}
 	if result.Status != steps.StatusCompleted {
 		t.Fatalf("status = %s, want completed", result.Status)
+	}
+}
+
+func TestExecutorRetriesAgentAfterOutputValidationFailure(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "analyze", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "analyze", Kind: steps.KindAgent}}, Prompt: "analyze", Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"feature_summary", "acceptance_criteria", "initial_search_targets"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &retryValidationAgent{}
+
+	result, err := NewExecutor(wf, steps.Capabilities{Agents: agent}).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+	if agent.calls != 2 {
+		t.Fatalf("agent calls = %d, want 2", agent.calls)
+	}
+	if len(agent.prompts) != 2 || !strings.Contains(agent.prompts[1], "Previous output validation failed") {
+		t.Fatalf("retry prompt did not include validation advice: %#v", agent.prompts)
 	}
 }
 

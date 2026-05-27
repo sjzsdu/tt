@@ -101,9 +101,8 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 		started := time.Now()
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: "running", StartedAt: started, UpdatedAt: started})
 		e.emit(nodeID, "step.started", nil)
-		res, err := exec.Run(ctx, steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: node.Step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities, Emit: func(childNodeID string, eventType string, payload any) {
-			e.emit(ir.NodeID(childNodeID), eventType, payload)
-		}})
+		stepToRun := node.Step
+		res, err := exec.Run(ctx, e.stepRunRequest(nodeID, stepToRun))
 		if res == nil {
 			res = &steps.RunResult{}
 		}
@@ -134,10 +133,43 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
 			return out, nil
 		}
-		if err := validateStepOutput(node.Step, res.Output); err != nil {
+		if validationErr := validateStepOutput(node.Step, res.Output); validationErr != nil {
+			if retryStep, ok := retryableAgentStepWithValidationAdvice(node.Step, validationErr, res.Output); ok {
+				e.emit(nodeID, "step.retry", map[string]any{"reason": "output_validation_failed", "error": validationErr.Error()})
+				retryExec := retryStep.(steps.Executable)
+				res, err = retryExec.Run(ctx, e.stepRunRequest(nodeID, retryStep))
+				if res == nil {
+					res = &steps.RunResult{}
+				}
+				out.Nodes[nodeID] = res
+				if err != nil || res.Status == steps.StatusFailed {
+					out.Status = steps.StatusFailed
+					e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
+					e.emit(nodeID, "step.failed", res)
+					_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+					if err != nil {
+						return out, err
+					}
+					return out, res.Error
+				}
+				if res.Status == steps.StatusWaiting {
+					out.Status = steps.StatusWaiting
+					e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
+					e.emit(nodeID, "step.waiting", res.Await)
+					_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
+					return out, nil
+				}
+				validationErr = validateStepOutput(node.Step, res.Output)
+			}
+			if validationErr == nil {
+				e.rememberStepOutput(node.Step, res)
+				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
+				e.emit(nodeID, "step.completed", res)
+				continue
+			}
 			out.Status = steps.StatusFailed
 			res.Status = steps.StatusFailed
-			res.Error = &steps.StepError{Message: "step output validation failed", Cause: err}
+			res.Error = &steps.StepError{Message: "step output validation failed", Cause: validationErr}
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 			e.emit(nodeID, "step.failed", res)
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
@@ -150,6 +182,47 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
+}
+
+func (e *Executor) stepRunRequest(nodeID ir.NodeID, step steps.Step) steps.RunRequest {
+	return steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities, Emit: func(childNodeID string, eventType string, payload any) {
+		e.emit(ir.NodeID(childNodeID), eventType, payload)
+	}}
+}
+
+func retryableAgentStepWithValidationAdvice(step steps.Step, validationErr error, output steps.Value) (steps.Step, bool) {
+	advice := validationRetryAdvice(validationErr, output)
+	switch s := step.(type) {
+	case steps.AgentStep:
+		s.Prompt = strings.TrimSpace(s.Prompt) + advice
+		return s, true
+	case *steps.AgentStep:
+		cp := *s
+		cp.Prompt = strings.TrimSpace(cp.Prompt) + advice
+		return &cp, true
+	default:
+		return nil, false
+	}
+}
+
+func validationRetryAdvice(validationErr error, output steps.Value) string {
+	return "\n\n## Previous output validation failed\n" +
+		"Your previous answer did not match this step's required output schema. Retry the task now.\n" +
+		"Return ONLY the required final output, with no explanation, no Markdown fences, and no extra prose.\n\n" +
+		"Validation error: " + validationErr.Error() + "\n\n" +
+		"Previous output preview:\n" + truncateValidationOutputPreview(output.Raw, 2000)
+}
+
+func truncateValidationOutputPreview(raw []byte, limit int) string {
+	text := strings.TrimSpace(string(raw))
+	var decoded string
+	if err := json.Unmarshal(raw, &decoded); err == nil {
+		text = strings.TrimSpace(decoded)
+	}
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "\n...(truncated)"
 }
 
 func validateStepOutput(step steps.Step, out steps.Value) error {
