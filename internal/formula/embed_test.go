@@ -252,6 +252,93 @@ title = "Loop"
 	t.Fatalf("expanded loop body missing embedded.show: %+v", expanded[0].Loop.Body)
 }
 
+func TestEmbedRewritesInternalContextRefsInTemplatesAndInputContext(t *testing.T) {
+	dir := t.TempDir()
+	writeFormula := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, name+".toml")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	writeFormula("child", `formula = "child"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "fetch"
+title = "Fetch"
+execution = "script"
+
+[steps.script]
+command = ["echo", "ok"]
+format = "json"
+
+[[steps]]
+id = "use"
+title = "Use"
+execution = "script"
+depends_on = ["fetch"]
+condition = "fetch.stdout.ok == true"
+input_context = ["fetch.stdout"]
+
+[steps.script]
+command = ["echo", "{{fetch.stdout}}"]
+format = "json"
+
+[steps.script.env]
+CHILD_FETCH = "{{fetch.stdout}}"
+`)
+
+	writeFormula("parent", `formula = "parent"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "embedded"
+title = "Embedded child"
+embed = "child"
+`)
+
+	parser := NewParser(dir)
+	resolved, err := parser.LoadByName("parent")
+	if err != nil {
+		t.Fatalf("LoadByName(parent) error = %v", err)
+	}
+	resolved, err = parser.Resolve(resolved)
+	if err != nil {
+		t.Fatalf("Resolve(parent) error = %v", err)
+	}
+	expanded, err := ApplyEmbedsWithVars(resolved.Steps, parser, nil, []string{"parent"})
+	if err != nil {
+		t.Fatalf("ApplyEmbedsWithVars error = %v", err)
+	}
+
+	var use *Step
+	for _, step := range expanded {
+		if step.ID == "embedded.use" {
+			use = step
+			break
+		}
+	}
+	if use == nil {
+		t.Fatalf("expanded steps missing embedded.use: %+v", expanded)
+	}
+	if got, want := use.Condition, "embedded.fetch.stdout.ok == true"; got != want {
+		t.Fatalf("condition = %q, want %q", got, want)
+	}
+	if len(use.InputCtx) != 1 || use.InputCtx[0] != "embedded.fetch.stdout" {
+		t.Fatalf("input_context = %+v, want embedded.fetch.stdout", use.InputCtx)
+	}
+	if got, want := use.Script.Command[1], "{{embedded.fetch.stdout}}"; got != want {
+		t.Fatalf("command template = %q, want %q", got, want)
+	}
+	if got, want := use.Script.Env["CHILD_FETCH"], "{{embedded.fetch.stdout}}"; got != want {
+		t.Fatalf("env template = %q, want %q", got, want)
+	}
+}
+
 func hasBlockDep(workflow *ir.Workflow, stepID, dependsOnID string) bool {
 	for _, dep := range workflow.Graph.Edges {
 		if string(dep.To) == stepID && string(dep.From) == dependsOnID && dep.Type == "blocks" {
