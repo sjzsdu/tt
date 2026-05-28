@@ -17,6 +17,14 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
   const defaultOpenLoopActivityKey = latestLoopIteration || loopActivityGroups.at(-1)?.iteration || 'step';
   const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
 
+  const collapsibleSectionLabel = (icon: string, title: string, extra?: string) => (
+    <div className="step-modal-section-header collapsible-section-label">
+      <span className="step-modal-section-icon">{icon}</span>
+      <h4>{title}</h4>
+      {extra && <span className="collapsible-section-extra">{extra}</span>}
+    </div>
+  );
+
   const renderActivityRow = (activity: FormulaStepActivity) => (
     <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
       <div className="step-activity-status-dot" />
@@ -136,12 +144,12 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           )}
 
           {step.loop && (
-            <section className="step-modal-section loop-plan-section">
-              <div className="step-modal-section-header">
-                <span className="step-modal-section-icon">🔁</span>
-                <h4>Loop plan</h4>
-              </div>
-              <div className="loop-plan-body">
+            <Collapse
+              className="step-modal-collapse loop-plan-section"
+              items={[{
+                key: 'loop-plan',
+                label: collapsibleSectionLabel('🔁', 'Loop plan', `${loopBody.length} body step${loopBody.length === 1 ? '' : 's'}`),
+                children: <div className="loop-plan-body">
                 <div className="loop-plan-summary">
                   <strong>{step.loop.summary || 'Runtime loop'}</strong>
                   <span>{loopBody.length} planned body step{loopBody.length === 1 ? '' : 's'}</span>
@@ -178,40 +186,45 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
                     ))}
                   </div>
                 )}
-              </div>
-            </section>
+                </div>,
+              }]}
+            />
           )}
 
-          <section className="step-modal-section step-input-section">
-            <div className="step-modal-section-header">
-              <span className="step-modal-section-icon">📥</span>
-              <h4>Input</h4>
-            </div>
-            {inputValues.length > 0 ? (
-              <div className="step-input-list">
-                {inputValues.map(input => (
-                  <div className="step-input-card" key={input.key}>
-                    <div className="step-input-head">
-                      <strong>{input.key}</strong>
-                      <Tag>{input.source}</Tag>
-                    </div>
-                    <OutputSurface content={input.value} className="step-input-output" />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No resolved input data yet" />
-            )}
-          </section>
+          <Collapse
+            className="step-modal-collapse step-input-section"
+            items={[{
+              key: 'input',
+              label: collapsibleSectionLabel('📥', 'Input', inputValues.length ? `${inputValues.length} item${inputValues.length === 1 ? '' : 's'}` : 'empty'),
+              children: inputValues.length > 0 ? (
+                <Collapse
+                  className="step-input-collapse"
+                  items={inputValues.map(input => ({
+                    key: input.key,
+                    label: (
+                      <div className="step-input-head input-collapse-label">
+                        <strong>{input.key}</strong>
+                        <Tag>{input.source}</Tag>
+                      </div>
+                    ),
+                    children: <OutputSurface content={input.value} className="step-input-output" />,
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No resolved input data yet" />
+              ),
+            }]}
+          />
 
           {step.output && (
-            <section className="step-modal-section">
-              <div className="step-modal-section-header">
-                <span className="step-modal-section-icon">📄</span>
-                <h4>Output</h4>
-              </div>
-              <OutputSurface content={step.output} className="step-output-shell" />
-            </section>
+            <Collapse
+              className="step-modal-collapse"
+              items={[{
+                key: 'output',
+                label: collapsibleSectionLabel('📄', 'Output'),
+                children: <OutputSurface content={step.output} className="step-output-shell" />,
+              }]}
+            />
           )}
 
           {activities.length > 0 && (

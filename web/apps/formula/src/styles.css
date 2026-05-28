@@ -1510,6 +1510,10 @@ button, input, textarea { font: inherit; }
   min-width: 0;
 }
 
+.inspector-body .step-modal-collapse {
+  min-width: 0;
+}
+
 .inspector-body .step-output-shell {
   display: block;
   padding: 16px;
@@ -1517,6 +1521,91 @@ button, input, textarea { font: inherit; }
 
 .step-input-section {
   border-color: rgba(52, 211, 153, 0.16);
+}
+
+.step-modal-collapse {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255,255,255,0.015);
+}
+
+.step-modal-collapse .ant-collapse-item {
+  border-bottom: none;
+}
+
+.step-modal-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 0 !important;
+  background: rgba(125, 211, 252, 0.04);
+}
+
+.step-modal-collapse .ant-collapse-expand-icon {
+  align-self: stretch;
+  display: flex !important;
+  align-items: center;
+  padding-inline-start: 14px !important;
+  color: var(--muted);
+}
+
+.step-modal-collapse .ant-collapse-header-text {
+  min-width: 0;
+}
+
+.step-modal-collapse .ant-collapse-content {
+  border-top: 1px solid var(--line);
+  background: transparent;
+}
+
+.step-modal-collapse .ant-collapse-content-box {
+  padding: 14px 16px !important;
+}
+
+.step-modal-collapse .step-output-shell {
+  margin: 0;
+}
+
+.step-modal-collapse .loop-plan-body {
+  padding: 0;
+}
+
+.collapsible-section-label {
+  min-width: 0;
+  padding-left: 0;
+  border-bottom: none;
+  background: transparent;
+}
+
+.collapsible-section-extra {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.step-input-collapse {
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.1);
+  border-radius: 14px;
+  background: rgba(4, 10, 20, 0.42);
+}
+
+.step-input-collapse .ant-collapse-header {
+  align-items: center !important;
+}
+
+.step-input-collapse .ant-collapse-content {
+  background: rgba(2, 6, 14, 0.32);
+}
+
+.step-input-collapse .ant-collapse-content-box {
+  padding: 12px !important;
+}
+
+.input-collapse-label {
+  width: 100%;
 }
 
 .step-input-list {
