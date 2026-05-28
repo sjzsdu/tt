@@ -21,9 +21,13 @@ type Document struct {
 	Source      SourcePos
 }
 type WorkspaceSpec struct {
-	Kind    string
-	Path    string
-	Cleanup *bool
+	Kind           string
+	Path           string
+	Cleanup        *bool
+	Branch         string
+	Base           string
+	BranchSlugFrom string
+	BranchPrefix   string
 }
 type VarDecl struct {
 	Description string

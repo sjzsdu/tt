@@ -71,7 +71,7 @@ func workspacePolicyFromDocument(doc *ast.Document) *ir.WorkspacePolicy {
 	if spec.Cleanup != nil {
 		cleanup = *spec.Cleanup
 	}
-	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(spec.Path), Cleanup: cleanup}
+	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(spec.Path), Cleanup: cleanup, Branch: strings.TrimSpace(spec.Branch), Base: strings.TrimSpace(spec.Base), BranchSlugFrom: strings.TrimSpace(spec.BranchSlugFrom), BranchPrefix: strings.TrimSpace(spec.BranchPrefix)}
 }
 
 func validateAcyclic(graph ir.Graph) ([]ir.NodeID, error) {

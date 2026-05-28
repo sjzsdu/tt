@@ -32,9 +32,13 @@ type varFile struct {
 }
 
 type workspaceFile struct {
-	Kind    string `json:"kind" toml:"kind"`
-	Path    string `json:"path" toml:"path"`
-	Cleanup *bool  `json:"cleanup" toml:"cleanup"`
+	Kind           string `json:"kind" toml:"kind"`
+	Path           string `json:"path" toml:"path"`
+	Cleanup        *bool  `json:"cleanup" toml:"cleanup"`
+	Branch         string `json:"branch" toml:"branch"`
+	Base           string `json:"base" toml:"base"`
+	BranchSlugFrom string `json:"branch_slug_from" toml:"branch_slug_from"`
+	BranchPrefix   string `json:"branch_prefix" toml:"branch_prefix"`
 }
 
 func LoadFile(path string) (*ast.Document, error) {
@@ -74,7 +78,7 @@ func normalize(raw documentFile) (*ast.Document, error) {
 		doc.Vars[name] = ast.VarDecl{Description: v.Description, Default: v.Default, Required: v.Required, Enum: v.Enum, Pattern: v.Pattern, Type: v.Type}
 	}
 	if raw.Workspace != nil {
-		doc.Workspace = &ast.WorkspaceSpec{Kind: strings.TrimSpace(raw.Workspace.Kind), Path: strings.TrimSpace(raw.Workspace.Path), Cleanup: raw.Workspace.Cleanup}
+		doc.Workspace = &ast.WorkspaceSpec{Kind: strings.TrimSpace(raw.Workspace.Kind), Path: strings.TrimSpace(raw.Workspace.Path), Cleanup: raw.Workspace.Cleanup, Branch: strings.TrimSpace(raw.Workspace.Branch), Base: strings.TrimSpace(raw.Workspace.Base), BranchSlugFrom: strings.TrimSpace(raw.Workspace.BranchSlugFrom), BranchPrefix: strings.TrimSpace(raw.Workspace.BranchPrefix)}
 	}
 	doc.Worktree = raw.Worktree
 	if doc.Workspace == nil && doc.Worktree {

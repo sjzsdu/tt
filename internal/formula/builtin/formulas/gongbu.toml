@@ -2,7 +2,7 @@ formula = "gongbu"
 description = "在自动隔离 worktree 中完成代码类 feature：理解需求、调研代码、制定方案、实现、验证并按需提交；workspace policy 负责 worktree 与 sparse checkout。"
 version = 1
 type = "workflow"
-workspace = { kind = "worktree", cleanup = false }
+workspace = { kind = "worktree", cleanup = false, branch = "{{branch_name}}", base = "{{base_branch}}", branch_slug_from = "feature_request", branch_prefix = "feature" }
 
 [vars]
 feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述", required = true }
@@ -10,74 +10,8 @@ branch_name = { description = "可选覆盖：特性分支名；默认从 featur
 base_branch = { description = "可选覆盖：起始分支/commit；默认 origin/main，不存在则自动 fallback 到 HEAD" }
 
 [[steps]]
-id = "prepare-branch"
-title = "准备开发分支"
-execution = "script"
-description = "在 runtime 已创建的隔离 worktree 中 checkout 或创建目标开发分支。"
-
-[steps.script]
-command = [
-  "python3",
-  "-c",
-  """
-import json, os, re, subprocess, sys
-feature_request, branch_override, base_override = sys.argv[1:4]
-def empty_if_template(v):
-    v = (v or '').strip()
-    return '' if v.startswith('{{') and v.endswith('}}') else v
-feature_request = empty_if_template(feature_request)
-branch_override = empty_if_template(branch_override)
-base_branch = empty_if_template(base_override) or 'origin/main'
-def run(args, check=True):
-    p = subprocess.run(args, text=True, capture_output=True)
-    if check and p.returncode != 0:
-        raise SystemExit((p.stderr or p.stdout or ('command failed: ' + ' '.join(args))).strip())
-    return p.stdout.strip()
-def slugify(text):
-    text = text.lower()
-    text = re.sub(r'[^a-z0-9]+', '-', text)
-    text = re.sub(r'-+', '-', text).strip('-')
-    return (text or 'feature')[:48].strip('-') or 'feature'
-branch = branch_override or ('feature/' + slugify(feature_request))
-if subprocess.run(['git', 'rev-parse', '--verify', base_branch + '^{commit}'], text=True, capture_output=True).returncode != 0:
-    base_branch = 'HEAD'
-current_branch = run(['git', 'branch', '--show-current'], check=False)
-branch_exists = subprocess.run(['git', 'rev-parse', '--verify', branch], text=True, capture_output=True).returncode == 0
-if current_branch != branch:
-    if branch_exists:
-        run(['git', 'checkout', branch])
-    else:
-        run(['git', 'checkout', '-b', branch, base_branch])
-root = run(['git', 'rev-parse', '--show-toplevel'])
-sparse_paths = [p.strip().strip('/') for p in run(['git', 'sparse-checkout', 'list'], check=False).splitlines() if p.strip()]
-print(json.dumps({
-    'feature_request': feature_request,
-    'base_branch': base_branch,
-    'branch_name': branch,
-    'worktree_path': root,
-    'workspace_cwd': os.environ.get('TT_WORKSPACE_CWD', root),
-    'invocation_cwd': os.environ.get('TT_INVOCATION_CWD', ''),
-    'formula_run_dir': os.environ.get('TT_FORMULA_RUN_DIR', ''),
-    'sparse_paths': sparse_paths,
-    'sparse_enabled': bool(sparse_paths),
-    'checked_out': current_branch != branch,
-}, ensure_ascii=False))
-""",
-  "{{feature_request}}",
-  "{{branch_name}}",
-  "{{base_branch}}",
-]
-format = "json"
-timeout = "2m"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
-
-[[steps]]
 id = "inspect-repo"
 title = "收集仓库与 worktree 状态"
-depends_on = ["prepare-branch"]
 execution = "script"
 
 [steps.script]
@@ -90,11 +24,15 @@ def run(args):
     p = subprocess.run(args, text=True, capture_output=True)
     return {'command': args, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}
 root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+sparse = run(['git', 'sparse-checkout', 'list'])
 print(json.dumps({
     'worktree_path': root,
+    'branch_name': subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip(),
     'workspace_cwd': os.environ.get('TT_WORKSPACE_CWD', root),
     'invocation_cwd': os.environ.get('TT_INVOCATION_CWD', ''),
     'formula_run_dir': os.environ.get('TT_FORMULA_RUN_DIR', ''),
+    'sparse_paths': [line.strip().strip('/') for line in sparse['stdout'].splitlines() if line.strip()],
+    'sparse_enabled': sparse['exit_code'] == 0 and bool(sparse['stdout'].strip()),
     'status': run(['git', 'status', '--short', '--branch']),
     'tracked_files': run(['git', 'ls-files']),
 }, ensure_ascii=False))
@@ -111,10 +49,10 @@ required = ["stdout"]
 id = "analyze-feature"
 title = "理解 feature 需求并形成代码调研线索"
 depends_on = ["inspect-repo"]
-input_context = ["prepare-branch.stdout", "inspect-repo.stdout"]
+input_context = ["inspect-repo.stdout"]
 form = true
 description = """
-基于 feature_request、prepare-branch.stdout 和 inspect-repo.stdout，理解本次 feature 的目标、边界和交付口径。当前执行目录已经是隔离 worktree，后续实施只在该 worktree 中进行。
+基于 feature_request 和 inspect-repo.stdout，理解本次 feature 的目标、边界和交付口径。当前执行目录已经是隔离 worktree，后续实施只在该 worktree 中进行。
 
 如果信息不足以形成后续代码调研任务，可以动态澄清；只询问阻塞调研的必要信息。
 
@@ -142,7 +80,7 @@ required = ["feature_summary", "acceptance_criteria", "initial_search_targets"]
 id = "prepare-research-brief"
 title = "生成代码调研摘要"
 depends_on = ["analyze-feature"]
-input_context = ["prepare-branch.stdout", "inspect-repo.stdout", "analyze-feature"]
+input_context = ["inspect-repo.stdout", "analyze-feature"]
 description = """
 基于需求理解和仓库状态生成后续 code-research 使用的统一摘要。
 
@@ -347,7 +285,7 @@ agent.name = "writer"
 id = "final-check"
 title = "做最终交付检查"
 depends_on = ["write-docs", "update-changelog", "review-quality"]
-input_context = ["prepare-branch.stdout", "inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
 description = """
 做最终交付检查，确认实现、测试、文档、changelog 是否形成闭环。
 
@@ -391,7 +329,7 @@ required = ["stdout"]
 id = "final-report"
 title = "输出最终结论与报告"
 depends_on = ["commit-changes", "final-check"]
-input_context = ["prepare-branch.stdout", "inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
 description = """
 面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path、worktree 是否保留，以及未完成事项。
 

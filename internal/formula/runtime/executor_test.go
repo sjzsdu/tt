@@ -539,11 +539,12 @@ func TestExecutorWorkspaceWorktreeCanBeRetained(t *testing.T) {
 	runGitCmd(t, repo, "commit", "-m", "initial")
 
 	g := ir.NewGraph()
-	g.AddNode(&ir.Node{ID: "report", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "report", Kind: steps.KindScript}}, Command: []string{"python3", "-c", `import json, os
-print(json.dumps({"cwd": os.getcwd(), "exists": os.path.exists("file.txt")}, sort_keys=True))`}}})
-	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: g, Workspace: &ir.WorkspacePolicy{Kind: "worktree", Cleanup: false}}
+	g.AddNode(&ir.Node{ID: "report", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "report", Kind: steps.KindScript}}, Command: []string{"python3", "-c", `import json, os, subprocess
+print(json.dumps({"cwd": os.getcwd(), "branch": subprocess.check_output(["git", "branch", "--show-current"], text=True).strip(), "exists": os.path.exists("file.txt")}, sort_keys=True))`}}})
+	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: g, Workspace: &ir.WorkspacePolicy{Kind: "worktree", Cleanup: false, Branch: "{{branch_name}}", BranchSlugFrom: "feature_request", BranchPrefix: "feature", Base: "{{base_branch}}"}}
 	exec := NewExecutor(wf, steps.Capabilities{Scripts: ScriptCapability{DenyUnsafe: true}})
 	exec.SeedEnvironment(repo)
+	exec.SeedVars(map[string]string{"feature_request": "Add Demo Feature", "base_branch": "HEAD"})
 	exec.SeedRunID("keep-me")
 	result, err := exec.Run(context.Background())
 	if err != nil {
@@ -558,6 +559,17 @@ print(json.dumps({"cwd": os.getcwd(), "exists": os.path.exists("file.txt")}, sor
 	}
 	if _, err := os.Stat(wantWorkspace); err != nil {
 		t.Fatalf("workspace path should be retained: %v", err)
+	}
+	var out scriptCapabilityOutput
+	if err := json.Unmarshal(result.Nodes["report"].Output.Raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct{ Branch string }
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.Stdout)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Branch != "feature/add-demo-feature" {
+		t.Fatalf("branch = %q, want feature/add-demo-feature", payload.Branch)
 	}
 	runGitCmd(t, repo, "worktree", "remove", "--force", wantWorkspace)
 }

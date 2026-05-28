@@ -72,6 +72,9 @@ func (e *Executor) prepareWorkspace(ctx context.Context) (*workspaceSession, err
 	if err := session.ensure(ctx); err != nil {
 		return nil, err
 	}
+	if err := e.prepareWorkspaceBranch(ctx, session, policy); err != nil {
+		return nil, err
+	}
 	e.SeedWorkspaceEnvironment(path, invocationWD, e.formulaRunDir)
 	return session, nil
 }
@@ -236,6 +239,109 @@ func (s *workspaceSession) applySparseCheckout(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (e *Executor) prepareWorkspaceBranch(ctx context.Context, session *workspaceSession, policy *ir.WorkspacePolicy) error {
+	if session == nil || policy == nil || strings.TrimSpace(session.path) == "" {
+		return nil
+	}
+	branch := e.resolveWorkspaceBranch(policy)
+	if branch == "" {
+		return nil
+	}
+	base := e.renderWorkspacePolicyText(policy.Base)
+	if isUnresolvedTemplate(base) || strings.TrimSpace(base) == "" {
+		base = "origin/main"
+	}
+	if _, err := runGit(ctx, "git", "-C", session.path, "rev-parse", "--verify", base+"^{commit}"); err != nil {
+		base = "HEAD"
+	}
+	current, _ := runGit(ctx, "git", "-C", session.path, "branch", "--show-current")
+	if strings.TrimSpace(current) == branch {
+		return nil
+	}
+	if _, err := runGit(ctx, "git", "-C", session.path, "rev-parse", "--verify", branch); err == nil {
+		_, err = runGit(ctx, "git", "-C", session.path, "checkout", branch)
+		return err
+	}
+	_, err := runGit(ctx, "git", "-C", session.path, "checkout", "-b", branch, base)
+	return err
+}
+
+func (e *Executor) resolveWorkspaceBranch(policy *ir.WorkspacePolicy) string {
+	if policy == nil {
+		return ""
+	}
+	branch := e.renderWorkspacePolicyText(policy.Branch)
+	if !isUnresolvedTemplate(branch) && strings.TrimSpace(branch) != "" {
+		return sanitizeGitBranch(branch)
+	}
+	seed := strings.TrimSpace(policy.BranchSlugFrom)
+	if seed == "" {
+		return ""
+	}
+	value := e.renderWorkspacePolicyText("{{" + seed + "}}")
+	if isUnresolvedTemplate(value) || strings.TrimSpace(value) == "" {
+		return ""
+	}
+	prefix := strings.Trim(strings.TrimSpace(policy.BranchPrefix), "/")
+	if prefix == "" {
+		prefix = "feature"
+	}
+	return sanitizeGitBranch(prefix + "/" + slugifyWorkspaceBranch(value))
+}
+
+func (e *Executor) renderWorkspacePolicyText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || e == nil || e.Context == nil {
+		return text
+	}
+	return workspaceTemplatePattern.ReplaceAllStringFunc(text, func(match string) string {
+		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
+		if name == "" {
+			return ""
+		}
+		value, ok := e.Context.Get(name)
+		if !ok {
+			return match
+		}
+		return strings.TrimSpace(valueForWorkspaceTemplate(value.Raw))
+	})
+}
+
+var workspaceTemplatePattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*\}\}`)
+
+func valueForWorkspaceTemplate(raw []byte) string {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+func isUnresolvedTemplate(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.Contains(value, "{{") || strings.Contains(value, "}}")
+}
+
+func slugifyWorkspaceBranch(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = workspacePathSanitizer.ReplaceAllString(value, "-")
+	value = strings.Trim(value, "-._/")
+	if len(value) > 48 {
+		value = strings.Trim(value[:48], "-._/")
+	}
+	if value == "" {
+		return "feature"
+	}
+	return value
+}
+
+func sanitizeGitBranch(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "/")
+	value = strings.ReplaceAll(value, " ", "-")
+	return value
 }
 
 func (s *workspaceSession) isRegisteredWorktree(ctx context.Context) bool {
