@@ -1,5 +1,5 @@
 formula = "gongbu"
-description = "以自动隔离 worktree 为默认执行环境，基于 feature_request 推导分支名；当在仓库子目录执行时，由 runtime 自动应用 sparse checkout。"
+description = "在自动隔离 worktree 中完成代码类 feature：理解需求、调研代码、制定方案、实现、验证并按需提交；workspace policy 负责 worktree 与 sparse checkout。"
 version = 1
 type = "workflow"
 workspace = { kind = "worktree", cleanup = false }
@@ -10,10 +10,10 @@ branch_name = { description = "可选覆盖：特性分支名；默认从 featur
 base_branch = { description = "可选覆盖：起始分支/commit；默认 origin/main，不存在则自动 fallback 到 HEAD" }
 
 [[steps]]
-id = "create-worktree"
-title = "准备隔离开发分支"
+id = "prepare-branch"
+title = "准备开发分支"
 execution = "script"
-cwd = "{{env.cwd}}"
+description = "在 runtime 已创建的隔离 worktree 中 checkout 或创建目标开发分支。"
 
 [steps.script]
 command = [
@@ -28,8 +28,8 @@ def empty_if_template(v):
 feature_request = empty_if_template(feature_request)
 branch_override = empty_if_template(branch_override)
 base_branch = empty_if_template(base_override) or 'origin/main'
-def run(args, cwd=None, check=True):
-    p = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
+def run(args, check=True):
+    p = subprocess.run(args, text=True, capture_output=True)
     if check and p.returncode != 0:
         raise SystemExit((p.stderr or p.stdout or ('command failed: ' + ' '.join(args))).strip())
     return p.stdout.strip()
@@ -38,14 +38,8 @@ def slugify(text):
     text = re.sub(r'[^a-z0-9]+', '-', text)
     text = re.sub(r'-+', '-', text).strip('-')
     return (text or 'feature')[:48].strip('-') or 'feature'
-cwd = os.getcwd()
-root = run(['git', 'rev-parse', '--show-toplevel'])
-repo = os.path.basename(root.rstrip(os.sep))
-prefix = run(['git', 'rev-parse', '--show-prefix'], check=False).strip().strip('/')
-slug = slugify(feature_request)
-branch = branch_override or ('feature/' + slug)
-probe = subprocess.run(['git', 'rev-parse', '--verify', base_branch + '^{commit}'], text=True, capture_output=True)
-if probe.returncode != 0:
+branch = branch_override or ('feature/' + slugify(feature_request))
+if subprocess.run(['git', 'rev-parse', '--verify', base_branch + '^{commit}'], text=True, capture_output=True).returncode != 0:
     base_branch = 'HEAD'
 current_branch = run(['git', 'branch', '--show-current'], check=False)
 branch_exists = subprocess.run(['git', 'rev-parse', '--verify', branch], text=True, capture_output=True).returncode == 0
@@ -54,21 +48,20 @@ if current_branch != branch:
         run(['git', 'checkout', branch])
     else:
         run(['git', 'checkout', '-b', branch, base_branch])
+root = run(['git', 'rev-parse', '--show-toplevel'])
 sparse_paths = [p.strip().strip('/') for p in run(['git', 'sparse-checkout', 'list'], check=False).splitlines() if p.strip()]
-ctx = {
+print(json.dumps({
     'feature_request': feature_request,
     'base_branch': base_branch,
     'branch_name': branch,
-    'worktree_path': cwd,
-    'git_root': root,
-    'repo': repo,
-    'invocation_cwd': cwd,
-    'current_relative_dir': prefix,
+    'worktree_path': root,
+    'workspace_cwd': os.environ.get('TT_WORKSPACE_CWD', root),
+    'invocation_cwd': os.environ.get('TT_INVOCATION_CWD', ''),
+    'formula_run_dir': os.environ.get('TT_FORMULA_RUN_DIR', ''),
     'sparse_paths': sparse_paths,
     'sparse_enabled': bool(sparse_paths),
     'checked_out': current_branch != branch,
-}
-print(json.dumps(ctx, ensure_ascii=False))
+}, ensure_ascii=False))
 """,
   "{{feature_request}}",
   "{{branch_name}}",
@@ -83,10 +76,9 @@ required = ["stdout"]
 
 [[steps]]
 id = "inspect-repo"
-title = "收集 worktree 与执行环境信息"
-depends_on = ["create-worktree"]
+title = "收集仓库与 worktree 状态"
+depends_on = ["prepare-branch"]
 execution = "script"
-cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.script]
 command = [
@@ -94,58 +86,39 @@ command = [
   "-c",
   """
 import json, os, subprocess
-root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-worktree_path = root
-branch_name = os.environ.get('TT_BRANCH_NAME', '').strip()
-base_branch = os.environ.get('TT_BASE_BRANCH', '').strip()
-feature_request = os.environ.get('TT_FEATURE_REQUEST', '').strip()
-def run(args, cwd=None):
-    p = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
+def run(args):
+    p = subprocess.run(args, text=True, capture_output=True)
     return {'command': args, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}
-sparse = run(['git', 'sparse-checkout', 'list'], cwd=root)
-sparse_paths = [line.strip().strip('/') for line in sparse['stdout'].splitlines() if line.strip()]
-ctx = {
-    'feature_request': feature_request,
-    'base_branch': base_branch,
-    'branch_name': branch_name,
-    'worktree_path': worktree_path,
-    'git_root': root,
-    'repo': os.path.basename(root.rstrip(os.sep)),
-    'invocation_cwd': os.getcwd(),
-    'current_relative_dir': '',
-    'sparse_paths': sparse_paths,
-    'sparse_enabled': bool(sparse_paths),
-}
-ctx['status'] = run(['git', 'status', '--short', '--branch'], cwd=root)
-ctx['top_level_files'] = run(['git', 'ls-files'], cwd=root)
-print(json.dumps(ctx, ensure_ascii=False))
+root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+print(json.dumps({
+    'worktree_path': root,
+    'workspace_cwd': os.environ.get('TT_WORKSPACE_CWD', root),
+    'invocation_cwd': os.environ.get('TT_INVOCATION_CWD', ''),
+    'formula_run_dir': os.environ.get('TT_FORMULA_RUN_DIR', ''),
+    'status': run(['git', 'status', '--short', '--branch']),
+    'tracked_files': run(['git', 'ls-files']),
+}, ensure_ascii=False))
 """,
 ]
 format = "json"
 timeout = "30s"
 
-[steps.script.env]
-TT_BRANCH_NAME = "{{create-worktree.stdout.branch_name}}"
-TT_BASE_BRANCH = "{{create-worktree.stdout.base_branch}}"
-TT_FEATURE_REQUEST = "{{feature_request}}"
-
 [steps.validate]
 format = "json"
 required = ["stdout"]
+
 [[steps]]
 id = "analyze-feature"
 title = "理解 feature 需求并形成代码调研线索"
 depends_on = ["inspect-repo"]
-input_context = ["inspect-repo.stdout"]
+input_context = ["prepare-branch.stdout", "inspect-repo.stdout"]
 form = true
 description = """
-基于 feature_request 和 inspect-repo.stdout，先理解本次 feature 的目标、边界和交付口径，不要急于制定实现方案。
-inspect-repo.stdout 中包含实际 branch_name、worktree_path、sparse_paths，后续都以该 worktree_path 为实施目录。
+基于 feature_request、prepare-branch.stdout 和 inspect-repo.stdout，理解本次 feature 的目标、边界和交付口径。当前执行目录已经是隔离 worktree，后续实施只在该 worktree 中进行。
 
-如果当前信息不足以形成后续代码调研任务，可以动态澄清；只询问阻塞调研的必要信息，不要预设固定字段。
+如果信息不足以形成后续代码调研任务，可以动态澄清；只询问阻塞调研的必要信息。
 
-当信息足够时，必须输出 ONLY 一个 compact JSON object。不要 Markdown，不要代码块，不要解释文字，不要在 JSON 前后添加任何句子。
-JSON object 必须包含 feature_summary、acceptance_criteria、initial_search_targets 三个字段：
+输出 ONLY compact JSON：
 {
   "feature_summary":"...",
   "business_goal":"...",
@@ -158,16 +131,8 @@ JSON object 必须包含 feature_summary、acceptance_criteria、initial_search_
   "needs_docs":true,
   "needs_changelog":true
 }
-
-要求：
-- 最终回答的第一个字符必须是 `{`，最后一个字符必须是 `}`；
-- 不要输出“以下是 JSON”“分析如下”等自然语言；
-- acceptance_criteria 必须可验证；
-- initial_search_targets 只放最有用的模块名、功能点、关键词、接口名、配置名或错误文案；
-- assumptions 记录仍然不确定但不阻塞调研的假设。
 """
 agent.name = "product-manager"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -175,30 +140,23 @@ required = ["feature_summary", "acceptance_criteria", "initial_search_targets"]
 
 [[steps]]
 id = "prepare-research-brief"
-title = "整合需求与执行环境，生成代码调研摘要"
+title = "生成代码调研摘要"
 depends_on = ["analyze-feature"]
-input_context = ["inspect-repo.stdout", "analyze-feature"]
+input_context = ["prepare-branch.stdout", "inspect-repo.stdout", "analyze-feature"]
 description = """
-基于 analyze-feature 和 inspect-repo.stdout 生成后续 code-research 使用的统一摘要。
+基于需求理解和仓库状态生成后续 code-research 使用的统一摘要。
 
 输出 ONLY compact JSON：
 {
   "research_task":"...",
   "feature_summary":"...",
-  "worktree_path":"...",
   "search_targets":["..."],
   "acceptance_criteria":["..."],
   "constraints":["..."],
   "notes":["..."]
 }
-
-要求：
-- research_task 用 1-3 句写清楚要调研的现有实现、需求落点和期望；
-- search_targets 优先来自 analyze-feature.initial_search_targets，并结合 worktree/sparse 信息补充；
-- constraints 写清楚不要修改原始仓库目录，只在 worktree_path 中实施。
 """
 agent.name = "coder"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -210,14 +168,7 @@ title = "调研现有实现并定位 feature 落点"
 depends_on = ["prepare-research-brief"]
 input_context = ["prepare-research-brief"]
 description = """
-你是 code-research agent。基于 prepare-research-brief 调研当前代码库和 worktree_path，重点使用代码上下文、grep、符号命名、调用链、配置入口与测试结构来理解现有实现，然后把需求和现有实现结合起来。
-
-任务：
-1. 找出最相关的代码入口、模块、函数、配置、状态流或测试；
-2. 说明现有实现如何工作，需求应该落在哪里；
-3. 定位最小修改范围与可能受影响范围；
-4. 判断是否存在多种合理实现方案，以及每种方案的取舍；
-5. 给出验证点，避免盲改。
+你是 code-research agent。调研当前隔离 worktree 中的代码库，重点使用代码上下文、grep、符号命名、调用链、配置入口与测试结构来理解现有实现。
 
 输出 ONLY compact JSON：
 {
@@ -226,19 +177,11 @@ description = """
   "code_scope":["..."],
   "minimal_change_scope":["..."],
   "risk_points":["..."],
-  "implementation_options":[
-    {"id":"option-a","summary":"...","pros":["..."],"cons":["..."],"recommended":true}
-  ],
+  "implementation_options":[{"id":"option-a","summary":"...","pros":["..."],"cons":["..."],"recommended":true}],
   "verification_focus":["..."]
 }
-
-约束：
-- code_scope / minimal_change_scope 优先输出文件、模块、符号或责任层；
-- 如果只有一个明显方案，implementation_options 只放一个 recommended=true 的方案；
-- 不要直接开始改代码，先给研究结论。
 """
 agent.name = "code-research"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -246,21 +189,18 @@ required = ["existing_behavior", "evidence", "code_scope", "implementation_optio
 
 [[steps]]
 id = "plan-feature"
-title = "制定最小可交付实施方案并判断是否需要用户选方案"
+title = "制定最小可交付实施方案"
 depends_on = ["code-research"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "prepare-research-brief", "code-research"]
+input_context = ["analyze-feature", "prepare-research-brief", "code-research"]
 description = """
-基于需求理解和 code-research 的现有实现调研，输出可直接在 worktree_path 中执行的最小实施方案，并判断是否需要让用户选择实现方案。
+基于需求理解和 code-research，输出可直接执行的最小实施方案，并判断是否需要让用户选择实现方案。
 
 输出 ONLY compact JSON：
 {
   "implementation_goal":"...",
-  "worktree_path":"...",
   "selected_option_id":"option-a",
   "needs_strategy_choice":false,
-  "strategy_choices":[
-    {"id":"option-a","label":"...","description":"...","recommended":true}
-  ],
+  "strategy_choices":[{"id":"option-a","label":"...","description":"...","recommended":true}],
   "workstreams":[{"id":"backend|frontend|docs|tests|changelog","goal":"...","needed":true,"notes":"..."}],
   "code_scope":["..."],
   "test_strategy":["..."],
@@ -269,19 +209,12 @@ description = """
   "sequence":["implement","test","docs","changelog"],
   "minimal_done_definition":["..."]
 }
-
-要求：
-- 方案偏最小可交付，workstreams 只保留真正需要的部分；
-- 如果 code-research 显示只有一个明显方案，needs_strategy_choice=false，并直接选择 recommended 方案；
-- 只有当存在多个合理方案且取舍会影响用户预期、风险、兼容性或工程成本时，needs_strategy_choice=true；
-- needs_strategy_choice=true 时，strategy_choices 必须包含 2-4 个可选方案，label 适合展示给用户。
 """
 agent.name = "planner"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
-required = ["implementation_goal", "worktree_path", "needs_strategy_choice", "code_scope", "test_strategy"]
+required = ["implementation_goal", "needs_strategy_choice", "code_scope", "test_strategy"]
 
 [[steps]]
 id = "choose-strategy"
@@ -291,22 +224,12 @@ input_context = ["analyze-feature", "code-research", "plan-feature"]
 condition = "plan-feature.needs_strategy_choice == true"
 form = true
 description = """
-plan-feature 判断存在多个合理实现方案，需要让用户选择。请基于 plan-feature.strategy_choices 动态生成最小表单，让用户选择一个方案；如果 plan-feature.needs_strategy_choice 不是 true，不应该执行本步骤。
+plan-feature 判断存在多个合理实现方案，需要让用户选择。请基于 plan-feature.strategy_choices 动态生成最小表单。
 
-表单要求：
-- 只包含一个必填的方案选择字段，例如 strategy_id；
-- 选项来自 plan-feature.strategy_choices，保留 recommended 信息；
-- 可以增加一个可选备注字段 strategy_notes，但不要询问无关信息。
-
-用户选择完成后，输出 ONLY compact JSON：
-{
-  "selected_option_id":"...",
-  "strategy_notes":"...",
-  "reason":"..."
-}
+输出 ONLY compact JSON：
+{"selected_option_id":"...","strategy_notes":"...","reason":"..."}
 """
 agent.name = "product-manager"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.validate]
 format = "json"
@@ -325,32 +248,30 @@ description = """
 {"ui_needed":true,"screens":["..."],"interaction_changes":["..."],"copy_suggestions":["..."],"edge_states":["..."]}
 """
 agent.name = "ui"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "implement-feature"
-title = "在 worktree 中实现 feature"
+title = "实现 feature"
 depends_on = ["plan-feature", "choose-strategy", "design-ui"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "design-ui"]
+input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy", "design-ui"]
 description = """
-在 inspect-repo.stdout 里的 worktree_path 中完成 feature 实现。不要修改原始仓库目录。
+在当前隔离 worktree 中完成 feature 实现。不要修改原始仓库目录。
 
 要求：
 1. 只围绕 code_scope 修改代码；
 2. 不顺手大改无关模块；
 3. 保持实现与 acceptance_criteria 对齐；
 4. 若某项无法完成，要明确说明阻塞点；
-5. 如果是 sparse worktree 且缺少必要目录，可按需调整 sparse-checkout 或说明需要的目录。
+5. 如果 sparse worktree 缺少必要目录，可按需调整 sparse-checkout 或说明需要的目录。
 
 输出 ONLY compact JSON：
 {"implemented":true,"files_changed":["..."],"summary":"...","blocked_items":["..."],"notes":["..."]}
 """
 agent.name = "full-stack"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "run-tests"
-title = "在 worktree 中执行测试与基础验证"
+title = "执行测试与基础验证"
 depends_on = ["implement-feature"]
 execution = "script"
 
@@ -360,10 +281,20 @@ command = [
   "-c",
   """
 import json, os, subprocess
-root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-ctx = json.load(open(os.path.join(root, '.tt', 'gongbu-runtime.json'), encoding='utf-8'))
-p = subprocess.run(['go', 'test', './...'], cwd=ctx['worktree_path'], text=True, capture_output=True)
-print(json.dumps({'worktree_path': ctx['worktree_path'], 'command': ['go','test','./...'], 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}, ensure_ascii=False))
+commands = [(['go', 'test', './...'], 'go'), (['npm', 'test'], 'npm')]
+selected = None
+for cmd, marker in commands:
+    if marker == 'go' and os.path.exists('go.mod'):
+        selected = cmd
+        break
+    if marker == 'npm' and os.path.exists('package.json'):
+        selected = cmd
+        break
+if selected is None:
+    print(json.dumps({'attempted': False, 'command': [], 'exit_code': 0, 'stdout': '', 'stderr': 'no go.mod or package.json found; skipped automatic validation'}, ensure_ascii=False))
+    raise SystemExit(0)
+p = subprocess.run(selected, text=True, capture_output=True)
+print(json.dumps({'attempted': True, 'command': selected, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}, ensure_ascii=False))
 raise SystemExit(0)
 """,
 ]
@@ -383,43 +314,40 @@ description = """
 {"ready":true,"acceptance_status":"met|partial|failed","gaps":["..."],"followup_fixes":["..."],"doc_updates_needed":["..."],"changelog_needed":true}
 """
 agent.name = "tester"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "write-docs"
 title = "补充文档"
 depends_on = ["review-quality"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality"]
+input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality"]
 condition = "analyze-feature.needs_docs == true"
 description = """
-在 worktree_path 中补充必要文档，只覆盖本次 feature 真正新增或变化的部分。
+在当前隔离 worktree 中补充必要文档，只覆盖本次 feature 真正新增或变化的部分。
 
 输出 ONLY compact JSON：
 {"updated":true,"doc_files":["..."],"summary":"..."}
 """
 agent.name = "writer"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "update-changelog"
 title = "更新 changelog"
 depends_on = ["review-quality"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality", "write-docs"]
+input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "review-quality", "write-docs"]
 condition = "analyze-feature.needs_changelog == true && review-quality.changelog_needed == true"
 description = """
-在 worktree_path 中为本次 feature 更新 changelog。只记录用户可感知或对集成方有意义的变化。
+在当前隔离 worktree 中为本次 feature 更新 changelog。只记录用户可感知或对集成方有意义的变化。
 
 输出 ONLY compact JSON：
 {"updated":true,"changelog_files":["..."],"entry_summary":"..."}
 """
 agent.name = "writer"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "final-check"
 title = "做最终交付检查"
 depends_on = ["write-docs", "update-changelog", "review-quality"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
+input_context = ["prepare-branch.stdout", "inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
 description = """
 做最终交付检查，确认实现、测试、文档、changelog 是否形成闭环。
 
@@ -427,28 +355,26 @@ description = """
 {"ready_to_commit":true,"final_gaps":["..."],"release_notes":"...","summary":"..."}
 """
 agent.name = "tester"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [[steps]]
 id = "commit-changes"
-title = "提交 worktree 中的代码"
+title = "提交代码"
 depends_on = ["final-check"]
 condition = "final-check.ready_to_commit == true"
 execution = "script"
-cwd = "{{create-worktree.stdout.worktree_path}}"
-description = "在隔离 worktree 中提交代码，提交后保留分支，不删除 worktree；清理由 runtime policy 处理。"
+description = "在当前隔离 worktree 中提交代码；workspace policy cleanup=false，因此提交后保留 worktree 与分支。"
 
 [steps.script]
 command = [
   "python3",
   "-c",
   """
-import json, os, subprocess
-worktree_path = os.getcwd()
+import json, subprocess
+worktree_path = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
 current_branch = subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()
 msg = 'feat: ' + (current_branch.split('/')[-1] if current_branch else 'gongbu')
-subprocess.run(['git', 'add', '-A'], cwd=worktree_path, check=False)
-p = subprocess.run(['git', 'commit', '-m', msg], cwd=worktree_path, text=True, capture_output=True)
+subprocess.run(['git', 'add', '-A'], check=False)
+p = subprocess.run(['git', 'commit', '-m', msg], text=True, capture_output=True)
 print(json.dumps({'worktree_path': worktree_path, 'branch_name': current_branch, 'commit_message': msg, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}, ensure_ascii=False))
 raise SystemExit(0)
 """,
@@ -462,47 +388,13 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
-id = "cleanup-worktree"
-title = "保留开发 worktree"
-depends_on = ["commit-changes", "final-check"]
-execution = "script"
-description = "开发类 workflow 默认保留隔离 worktree，方便用户继续查看、测试或手动调整；如需清理，可后续手动 git worktree remove。"
-
-[steps.script]
-command = [
-  "python3",
-  "-c",
-  """
-import json, os, subprocess
-wt = os.environ.get('TT_WORKTREE_PATH', '').strip()
-if not wt:
-    print(json.dumps({'attempted': False, 'removed': False, 'retained': False, 'worktree_path': '', 'stderr': 'missing worktree_path'}, ensure_ascii=False))
-    raise SystemExit(0)
-root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-listed = subprocess.run(['git', 'worktree', 'list', '--porcelain'], cwd=root, text=True, capture_output=True)
-registered = any(line == 'worktree ' + wt for line in listed.stdout.splitlines())
-print(json.dumps({'attempted': False, 'removed': False, 'retained': True, 'registered': registered, 'worktree_path': wt, 'note': 'workspace cleanup is disabled for gongbu so the development worktree is retained'}, ensure_ascii=False))
-raise SystemExit(0)
-""",
-]
-format = "json"
-timeout = "60s"
-continue_on_error = true
-
-[steps.script.env]
-TT_WORKTREE_PATH = "{{create-worktree.stdout.worktree_path}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
-[[steps]]
 id = "final-report"
 title = "输出最终结论与报告"
-depends_on = ["commit-changes", "final-check", "cleanup-worktree"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes", "cleanup-worktree.stdout"]
+depends_on = ["commit-changes", "final-check"]
+input_context = ["prepare-branch.stdout", "inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
 description = """
 面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path、worktree 是否保留，以及未完成事项。
 
-注意：worktree 的创建和 sparse checkout 由 workflow 的 workspace policy 处理；本流程默认保留开发 worktree，不要声称已经清理删除。
+注意：worktree 的创建、默认 cwd、sparse checkout 和 .tt 目录保护由 workflow workspace policy 处理；本流程 cleanup=false，默认保留开发 worktree，不要声称已经清理删除。
 """
 agent.name = "reporter"
