@@ -9,7 +9,7 @@ tags = ["github", "pr", "rebase", "worktree", "conflict"]
 pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
 base_branch = { description = "目标 base 分支，默认 main；为空时使用 PR 自身 baseRefName", default = "main" }
 repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
-worktree_root = { description = "隔离 worktree 根目录，默认 .tt/worktrees/github-pr-rebase-main", default = ".tt/worktrees/github-pr-rebase-main" }
+worktree_root = { description = "隔离 worktree 根目录，默认 .tt/worktrees/github-pr-rebase-main；相对路径按执行命令时的目录解析", default = ".tt/worktrees/github-pr-rebase-main" }
 validation_command = { description = "可选验证命令，例如 npm test 或 go test ./...；为空则跳过", default = "" }
 push = { description = "rebase 成功后是否 push --force-with-lease 回 PR 分支；默认 true，可传 push=false 仅保留本地分支", default = "true", enum = ["true", "false"] }
 
@@ -51,7 +51,7 @@ id = "prepare-rebase-worktree"
 title = "创建隔离 worktree 并 checkout PR 分支"
 execution = "script"
 depends_on = ["fetch-pr-metadata"]
-description = "在 .tt/worktrees 下创建隔离 worktree，使用 gh pr checkout 拉取 PR 分支，不污染当前工作区。"
+description = "在执行命令目录的 .tt/worktrees 下创建隔离 worktree，使用 gh pr checkout 拉取 PR 分支，不污染当前工作区。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -73,6 +73,7 @@ if [ -z "$number" ] || [ -z "$head" ] || [ -z "$base" ]; then
   jq -cn --arg error "missing PR number/head/base" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,worktree_path:"",base_branch:"",head_branch:""}'
   exit 0
 fi
+invocation_dir="$(pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -z "$repo_root" ]; then
   jq -cn '{ok:false,error:"current directory is not inside a git repository",worktree_path:"",base_branch:"",head_branch:""}'
@@ -81,7 +82,7 @@ fi
 cd "$repo_root"
 safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
 worktree_root="$root_input"
-case "$worktree_root" in /*) ;; *) worktree_root="$repo_root/$worktree_root" ;; esac
+case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
 worktree_path="$worktree_root/pr-${number}-${safe_head}"
 local_branch="tt/pr-${number}-rebase-${base}"
 mkdir -p "$worktree_root"
@@ -111,6 +112,8 @@ head_sha="$(git rev-parse HEAD)"
 base_sha="$(git rev-parse "origin/$base" 2>/dev/null || true)"
 jq -cn \
   --arg worktree_path "$worktree_path" \
+  --arg worktree_root "$worktree_root" \
+  --arg invocation_dir "$invocation_dir" \
   --arg repo_root "$repo_root" \
   --arg base_branch "$base" \
   --arg head_branch "$head" \
@@ -119,7 +122,7 @@ jq -cn \
   --arg head_sha "$head_sha" \
   --arg base_sha "$base_sha" \
   --arg checkout_output "$checkout_out" \
-  '{ok:true,error:"",worktree_path:$worktree_path,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:$checkout_output}'
+  '{ok:true,error:"",worktree_path:$worktree_path,worktree_root:$worktree_root,invocation_dir:$invocation_dir,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:$checkout_output}'
 """]
 format = "json"
 timeout = "120s"
