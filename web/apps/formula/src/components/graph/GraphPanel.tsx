@@ -31,7 +31,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
     const parent = data.parentStep || step;
     return (
       <button type="button" className={`graph-node flow-graph-node loop-body-node ${step.status}`} onClick={() => data.onSelect(parent)}>
-        <Handle type="target" position={Position.Top} className="flow-handle" />
+        <Handle type="target" position={Position.Left} className="flow-handle" />
         <div className="graph-node-topline">
           <div className="graph-node-id">body · {graphShortId(step.id)}</div>
           <span className={`graph-node-state ${step.status}`}>{statusLabel(step.status)}</span>
@@ -42,13 +42,13 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
           {step.output_key && <span>out · {step.output_key}</span>}
           {!!step.input_ctx?.length && <span>in · {step.input_ctx.join(', ')}</span>}
         </div>
-        <Handle type="source" position={Position.Bottom} className="flow-handle" />
+        <Handle type="source" position={Position.Right} className="flow-handle" />
       </button>
     );
   }
   return (
     <button type="button" className={`graph-node flow-graph-node ${isLoop ? 'compound-loop' : ''} ${step.status}`} onClick={() => data.onSelect(step)}>
-      <Handle type="target" position={Position.Top} className="flow-handle" />
+      <Handle type="target" position={Position.Left} className="flow-handle" />
       <div className="graph-node-topline">
         <div className="graph-node-id">{isLoop ? '↻ loop' : graphShortId(step.id)}</div>
         <span className={`graph-node-state ${step.status}`}>{step.status}</span>
@@ -80,7 +80,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
           {data.expanded ? 'Collapse loop' : 'Expand loop'}
         </span>
       )}
-      <Handle type="source" position={Position.Bottom} className="flow-handle" />
+      <Handle type="source" position={Position.Right} className="flow-handle" />
     </button>
   );
 }
@@ -264,118 +264,90 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     else inEdges.set(edge.to, [edge.from]);
   }
 
-  // Group by depth (layer)
+  // Compute DAG ranks from actual dependency edges, not from backend-provided depth.
+  const rankMemo = new Map<string, number>();
+  const computeRank = (id: string, visiting = new Set<string>()): number => {
+    if (rankMemo.has(id)) return rankMemo.get(id)!;
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    const parents = (inEdges.get(id) || []).filter(parentID => stepMap.has(parentID));
+    const rank = parents.length
+      ? Math.max(...parents.map(parentID => computeRank(parentID, visiting) + 1))
+      : 0;
+    visiting.delete(id);
+    rankMemo.set(id, rank);
+    return rank;
+  };
+
   const layers = new Map<number, string[]>();
   for (const step of snapshot.steps) {
-    const depth = step.depth || 0;
-    const existing = layers.get(depth);
+    const rank = computeRank(step.id);
+    const existing = layers.get(rank);
     if (existing) existing.push(step.id);
-    else layers.set(depth, [step.id]);
+    else layers.set(rank, [step.id]);
   }
-  const sortedDepths = Array.from(layers.keys()).sort((a, b) => a - b);
-  for (const depth of sortedDepths) {
-    layers.get(depth)!.sort((a, b) => {
+  const sortedRanks = Array.from(layers.keys()).sort((a, b) => a - b);
+
+  for (const rank of sortedRanks) {
+    layers.get(rank)!.sort((a, b) => {
       const sa = stepMap.get(a);
       const sb = stepMap.get(b);
       return (sa?.index ?? 0) - (sb?.index ?? 0);
     });
   }
 
-  const layerY = new Map<number, number>();
-  let nextLayerY = TREE_PAD_Y;
-  for (const depth of sortedDepths) {
-    const layer = layers.get(depth) || [];
-    let maxLayerH = TREE_NODE_H;
-    for (const nodeID of layer) {
-      const step = stepMap.get(nodeID);
-      const h = stepHeight.get(nodeID) ?? TREE_NODE_H;
-      let occupiedH = h;
-      if (step?.loop?.body?.length && expandedLoopIDs.has(step.id)) {
-        const maxBodyH = Math.max(...step.loop.body.map((body, index) => graphLoopBodyNodeHeight(loopBodyStep(step, body, index))));
-        occupiedH += 40 + maxBodyH + 40;
-      }
-      maxLayerH = Math.max(maxLayerH, occupiedH);
+  const layerIndex = (rank: number) => {
+    const index = new Map<string, number>();
+    for (const [i, id] of (layers.get(rank) || []).entries()) index.set(id, i);
+    return index;
+  };
+  const averageNeighborIndex = (ids: string[], index: Map<string, number>, fallback: number) => {
+    const values = ids.map(id => index.get(id)).filter((value): value is number => value !== undefined);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : fallback;
+  };
+
+  // Barycenter sweeps reduce crossings for fan-in/fan-out edges.
+  for (let pass = 0; pass < 4; pass++) {
+    for (let ri = 1; ri < sortedRanks.length; ri++) {
+      const rank = sortedRanks[ri];
+      const prevIndex = layerIndex(sortedRanks[ri - 1]);
+      layers.get(rank)!.sort((a, b) => {
+        const ai = averageNeighborIndex(inEdges.get(a) || [], prevIndex, stepMap.get(a)?.index ?? 0);
+        const bi = averageNeighborIndex(inEdges.get(b) || [], prevIndex, stepMap.get(b)?.index ?? 0);
+        return ai - bi || (stepMap.get(a)?.index ?? 0) - (stepMap.get(b)?.index ?? 0);
+      });
     }
-    layerY.set(depth, nextLayerY);
-    nextLayerY += maxLayerH + TREE_V_GAP;
+    for (let ri = sortedRanks.length - 2; ri >= 0; ri--) {
+      const rank = sortedRanks[ri];
+      const nextIndex = layerIndex(sortedRanks[ri + 1]);
+      layers.get(rank)!.sort((a, b) => {
+        const ai = averageNeighborIndex(outEdges.get(a) || [], nextIndex, stepMap.get(a)?.index ?? 0);
+        const bi = averageNeighborIndex(outEdges.get(b) || [], nextIndex, stepMap.get(b)?.index ?? 0);
+        return ai - bi || (stepMap.get(a)?.index ?? 0) - (stepMap.get(b)?.index ?? 0);
+      });
+    }
   }
 
-  // Assign x positions: each node's x is the average of its parents' x positions
-  // First pass: compute positions layer by layer
+  const occupiedHeight = (step: FormulaDashboardStep) => {
+    const h = stepHeight.get(step.id) ?? TREE_NODE_H;
+    if (step.loop?.body?.length && expandedLoopIDs.has(step.id)) {
+      const maxBodyH = Math.max(...step.loop.body.map((body, index) => graphLoopBodyNodeHeight(loopBodyStep(step, body, index))));
+      return h + 40 + maxBodyH + 40;
+    }
+    return h;
+  };
+
   const nodeX = new Map<string, number>();
   const nodeY = new Map<string, number>();
-
-  // Root layer (no parents): evenly spaced
-  const rootLayer = layers.get(sortedDepths[0] ?? 0) || [];
-  const rootWidth = rootLayer.length * TREE_NODE_W + (rootLayer.length - 1) * TREE_H_GAP;
-  let startX = -rootWidth / 2;
-  for (let i = 0; i < rootLayer.length; i++) {
-    nodeX.set(rootLayer[i], startX + TREE_NODE_W / 2 + i * (TREE_NODE_W + TREE_H_GAP));
-    nodeY.set(rootLayer[i], layerY.get(sortedDepths[0] ?? 0) ?? TREE_PAD_Y);
-  }
-
-  // Subsequent layers: position based on parents
-  for (let di = 1; di < sortedDepths.length; di++) {
-    const depth = sortedDepths[di];
-    const layer = layers.get(depth) || [];
-    const prevDepth = sortedDepths[di - 1];
-    const prevLayer = layers.get(prevDepth) || [];
-
-    // For each node in this layer, compute ideal x from parents
-    const nodeIdealX = new Map<string, number>();
-    const fanInNodes = new Set<string>();
-
+  for (const rank of sortedRanks) {
+    const layer = layers.get(rank) || [];
+    let y = TREE_PAD_Y;
     for (const nodeID of layer) {
-      const parents = (inEdges.get(nodeID) || []).filter(p => nodeX.has(p));
-      if (parents.length === 0) {
-        // No parents in earlier layers: position after all previous layer nodes
-        const prevMaxX = prevLayer.length > 0
-          ? Math.max(...prevLayer.map(id => nodeX.get(id) || 0))
-          : 0;
-        nodeIdealX.set(nodeID, prevMaxX + TREE_NODE_W + TREE_H_GAP);
-      } else if (parents.length === 1) {
-        nodeIdealX.set(nodeID, nodeX.get(parents[0])!);
-      } else {
-        // Fan-in: center between parents
-        const xs = parents.map(p => nodeX.get(p)!);
-        const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-        nodeIdealX.set(nodeID, avg);
-        fanInNodes.add(nodeID);
-      }
-    }
-
-    // Sort nodes by ideal x for stable ordering
-    const sorted = [...layer].sort((a, b) => (nodeIdealX.get(a) || 0) - (nodeIdealX.get(b) || 0));
-
-    // Resolve overlaps: if two nodes are too close, push them apart
-    const minSpacing = TREE_NODE_W + TREE_H_GAP;
-    for (let i = 1; i < sorted.length; i++) {
-      const prev = sorted[i - 1];
-      const curr = sorted[i];
-      const prevX = nodeX.get(prev) ?? nodeIdealX.get(prev) ?? 0;
-      let currX = nodeX.get(curr) ?? nodeIdealX.get(curr) ?? 0;
-      if (currX - prevX < minSpacing) {
-        currX = prevX + minSpacing;
-        nodeIdealX.set(curr, currX);
-      }
-      nodeX.set(curr, currX);
-    }
-
-    // First node in layer
-    if (sorted.length > 0) {
-      const first = sorted[0];
-      if (!nodeX.has(first)) {
-        nodeX.set(first, nodeIdealX.get(first) ?? 0);
-      }
-    }
-
-    // Assign y
-    const y = layerY.get(depth) ?? TREE_PAD_Y + (di) * (TREE_NODE_H + TREE_V_GAP);
-    for (const nodeID of layer) {
+      const step = stepMap.get(nodeID);
+      if (!step) continue;
+      nodeX.set(nodeID, TREE_PAD_X + TREE_NODE_W / 2 + rank * (TREE_NODE_W + TREE_H_GAP * 3));
       nodeY.set(nodeID, y);
-      if (!nodeX.has(nodeID)) {
-        nodeX.set(nodeID, nodeIdealX.get(nodeID) ?? 0);
-      }
+      y += occupiedHeight(step) + TREE_V_GAP;
     }
   }
 
