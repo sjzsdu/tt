@@ -125,7 +125,7 @@ depends_on = ["article-plan"]
 - title 必须使用 article.title。
 - summary 用 1-2 句话概括本文。
 - content 是完整 Markdown 正文，第一行使用 `# {{article.title}}`。
-- content 中的二级标题 `##` 必须简明扼要，通常控制在 10 个汉字以内；不要写成长句或带多个逗号的解释型标题。
+- content 中的一级标题 `#` 和二级标题 `##` 都必须简明扼要，通常控制在 20 个字符以内；不要写成长句或带多个逗号的解释型标题，避免导航栏拥挤。
 - content 至少 500 字，必须有实质内容，不要只有提纲。
 - 按需包含 Mermaid 图表，优先参考 article.mermaid_hint。
 - 按需包含 Markdown 表格，优先参考 article.table_hint。
