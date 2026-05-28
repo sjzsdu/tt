@@ -1984,6 +1984,8 @@ button, input, textarea { font: inherit; }
 .meta-list.compact { gap: 8px; }
 
 .mermaid-diagram {
+  display: block;
+  width: 100%;
   margin: 14px 0;
   padding: 16px;
   overflow: auto;
@@ -1995,8 +1997,10 @@ button, input, textarea { font: inherit; }
 }
 
 .mermaid-diagram svg {
-  max-width: 100%;
-  height: auto;
+  display: block;
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
 }
 
 .mermaid-diagram .node rect,
