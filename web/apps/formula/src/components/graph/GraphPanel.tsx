@@ -2,19 +2,47 @@ import { useMemo } from 'react';
 import { Empty } from 'antd';
 import { ExpandOutlined, PartitionOutlined } from '@ant-design/icons';
 import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
-import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
+import type { FormulaDashboardLoopBody, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { activityShortId, graphShortId, statusLabel } from '../../utils/status';
-import { loopActivitySummary } from '../../utils/steps';
+import { latestLoopActivity, loopActivityBodyID, loopActivityIteration, loopActivitySummary } from '../../utils/steps';
 
 type StepNodeData = {
   step: FormulaDashboardStep;
+  kind?: 'step' | 'loop-body';
+  parentStep?: FormulaDashboardStep;
+  body?: FormulaDashboardLoopBody;
   onSelect: (step: FormulaDashboardStep) => void;
+};
+
+type LoopGroupNodeData = {
+  step: FormulaDashboardStep;
+  bodyCount: number;
 };
 
 function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
   const step = data.step;
+  const isLoopBody = data.kind === 'loop-body';
   const latest = step.activities?.at(-1);
   const loopSummary = loopActivitySummary(step);
+  if (isLoopBody) {
+    const parent = data.parentStep || step;
+    return (
+      <button type="button" className={`graph-node flow-graph-node loop-body-node ${step.status}`} onClick={() => data.onSelect(parent)}>
+        <Handle type="target" position={Position.Top} className="flow-handle" />
+        <div className="graph-node-topline">
+          <div className="graph-node-id">body · {graphShortId(step.id)}</div>
+          <span className={`graph-node-state ${step.status}`}>{statusLabel(step.status)}</span>
+        </div>
+        <strong>{step.title}</strong>
+        {step.metadata?.iteration && <div className="loop-iteration-pill">iteration {step.metadata.iteration}</div>}
+        <div className="graph-node-meta">
+          {step.output_key && <span>out · {step.output_key}</span>}
+          {!!step.input_ctx?.length && <span>in · {step.input_ctx.join(', ')}</span>}
+        </div>
+        <Handle type="source" position={Position.Bottom} className="flow-handle" />
+      </button>
+    );
+  }
   return (
     <button type="button" className={`graph-node flow-graph-node ${step.status}`} onClick={() => data.onSelect(step)}>
       <Handle type="target" position={Position.Top} className="flow-handle" />
@@ -35,7 +63,23 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
   );
 }
 
-const nodeTypes = { step: StepFlowNode };
+function LoopGroupNode({ data }: NodeProps<Node<LoopGroupNodeData>>) {
+  const step = data.step;
+  const summary = loopActivitySummary(step) || 'loop body';
+  const latest = latestLoopActivity(step);
+  const iteration = loopActivityIteration(latest);
+  const bodyID = loopActivityBodyID(latest);
+  return (
+    <div className={`loop-group-node ${step.status}`}>
+      <div className="loop-group-title">↻ Loop subgraph</div>
+      <strong>{step.title}</strong>
+      <span>{summary} · {data.bodyCount} step{data.bodyCount === 1 ? '' : 's'}</span>
+      {latest && <em>active: iter {iteration || '?'} · {bodyID || activityShortId(latest.step_id)} · {statusLabel(latest.status)}</em>}
+    </div>
+  );
+}
+
+const nodeTypes = { step: StepFlowNode, loopGroup: LoopGroupNode };
 
 function edgeVisualClass(sourceStatus?: string, targetStatus?: string, extra = '') {
   const state = targetStatus === 'running'
@@ -58,12 +102,48 @@ function edgeMarkerColor(status?: string) {
   return 'rgba(148, 163, 184, 0.82)';
 }
 
+function loopBodyGraphID(parentID: string, bodyID: string) {
+  return `${parentID}__${bodyID}`;
+}
+
+function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody, index: number): FormulaDashboardStep {
+  const bodyActivity = [...(parent.activities || [])]
+    .reverse()
+    .find(activity => loopActivityBodyID(activity) === body.id);
+  return {
+    id: loopBodyGraphID(parent.id, body.id),
+    title: body.title || body.id,
+    description: body.description,
+    type: 'loop-body',
+    agent: body.agent || parent.agent,
+    model: body.model || parent.model,
+    status: bodyActivity?.status || 'pending',
+    output: bodyActivity?.output,
+    error: bodyActivity?.error,
+    duration_ms: bodyActivity?.duration_ms,
+    output_key: body.output_key,
+    input_ctx: body.input_ctx,
+    condition: body.condition,
+    depends_on: body.depends_on,
+    metadata: {
+      parent_step: parent.id,
+      body_id: body.id,
+      iteration: loopActivityIteration(bodyActivity),
+    },
+    activities: bodyActivity ? [bodyActivity] : [],
+    depth: (parent.depth || 0) + 1,
+    index,
+  };
+}
+
 // ─── Layered DAG Layout ──────────────────────────────────────────────────────
 
 const TREE_NODE_W = 300;
 const TREE_NODE_H = 200;
-const TREE_V_GAP = 120;
-const TREE_H_GAP = 96;
+const TREE_V_GAP = 80;
+const TREE_H_GAP = 50;
+const TREE_LOOP_INDENT = 36;
+const TREE_LOOP_H_GAP = 16;
 const TREE_PAD_X = 40;
 const TREE_PAD_Y = 60;
 const TREE_PAD_BOTTOM = 40;
@@ -112,6 +192,24 @@ function graphStepNodeHeight(step: FormulaDashboardStep): number {
 
   const total = paddingV + coreGaps + extraGaps * gap + coreH + extrasH;
   return Math.max(total, 180);
+}
+
+function graphLoopBodyNodeHeight(step: FormulaDashboardStep): number {
+  const paddingV = 30;
+  const gap = 10;
+
+  let metaH = 24;
+  if (step.input_ctx?.length) metaH += 16;
+
+  const items = 3;
+  const coreGaps = (items - 1) * gap;
+  let coreH = 26 + 22 + metaH;
+
+  if (step.metadata?.iteration) {
+    coreH += 28 + gap;
+  }
+
+  return Math.max(paddingV + coreGaps + coreH, 150);
 }
 
 function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void) {
@@ -164,10 +262,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     nodeY.set(rootLayer[i], TREE_PAD_Y);
   }
 
-  const layerY = new Map<number, number>();
-  if (sortedDepths.length > 0) layerY.set(sortedDepths[0], TREE_PAD_Y);
-
-  // Subsequent layers: position based on parents and previous layer height.
+  // Subsequent layers: position based on parents
   for (let di = 1; di < sortedDepths.length; di++) {
     const depth = sortedDepths[di];
     const layer = layers.get(depth) || [];
@@ -222,10 +317,8 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
       }
     }
 
-    const previousY = layerY.get(prevDepth) ?? TREE_PAD_Y;
-    const previousMaxHeight = Math.max(...prevLayer.map(id => stepHeight.get(id) ?? TREE_NODE_H), TREE_NODE_H);
-    const y = previousY + previousMaxHeight + TREE_V_GAP;
-    layerY.set(depth, y);
+    // Assign y
+    const y = TREE_PAD_Y + (di) * (TREE_NODE_H + TREE_V_GAP);
     for (const nodeID of layer) {
       nodeY.set(nodeID, y);
       if (!nodeX.has(nodeID)) {
@@ -235,7 +328,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   }
 
   // Build nodes and edges
-  const nodes: Node<StepNodeData>[] = [];
+  const nodes: Node<StepNodeData | LoopGroupNodeData>[] = [];
   const edges: Edge[] = [];
   const stepStatusMap = new Map(snapshot.steps.map(step => [step.id, step.status]));
   const statusFor = (id: string) => stepStatusMap.get(id) || 'pending';
@@ -250,13 +343,86 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     nodes.push({
       id: step.id,
       type: 'step',
-      data: { step, onSelect },
+      data: { step, kind: 'step', onSelect },
       position: { x: x - TREE_NODE_W / 2, y },
       style: { width: TREE_NODE_W, height: h },
     });
 
     maxX = Math.max(maxX, x + TREE_NODE_W / 2);
     maxY = Math.max(maxY, y + h);
+
+    // Loop body
+    if (step.loop?.body?.length) {
+      const bodySteps = step.loop.body.map((body, i) => loopBodyStep(step, body, i));
+      const bodyHeights = bodySteps.map(graphLoopBodyNodeHeight);
+      const bodyGap = TREE_LOOP_H_GAP;
+
+      const totalBodyW = bodySteps.length * TREE_NODE_W + (bodySteps.length - 1) * bodyGap;
+      let bodyX = x - totalBodyW / 2 + TREE_LOOP_INDENT;
+      const bodyY = y + h + 40;
+
+      for (let i = 0; i < bodySteps.length; i++) {
+        const bodyStep = bodySteps[i];
+        const bodyNodeID = loopBodyGraphID(step.id, step.loop.body[i].id);
+        const bodyH = bodyHeights[i];
+
+        nodes.push({
+          id: bodyNodeID,
+          type: 'step',
+          data: { step: bodyStep, kind: 'loop-body', parentStep: step, body: step.loop.body[i], onSelect },
+          position: { x: bodyX - TREE_NODE_W / 2, y: bodyY },
+          style: { width: TREE_NODE_W, height: bodyH },
+        });
+
+        maxX = Math.max(maxX, bodyX + TREE_NODE_W / 2);
+        maxY = Math.max(maxY, bodyY + bodyH);
+
+        bodyX += TREE_NODE_W + bodyGap;
+      }
+
+      // Loop group container
+      if (bodySteps.length > 0) {
+        const firstBodyY = bodyY;
+        const lastBodyY = bodyY + bodyHeights[bodyHeights.length - 1];
+        const groupHeight = lastBodyY - firstBodyY + 40;
+        nodes.push({
+          id: `${step.id}__loop_group`,
+          type: 'loopGroup',
+          data: { step, bodyCount: bodySteps.length },
+          position: { x: x - totalBodyW / 2 + TREE_LOOP_INDENT - 18, y: firstBodyY - 28 },
+          style: { width: totalBodyW + 36, height: groupHeight },
+          selectable: false,
+          draggable: false,
+          zIndex: -1,
+        });
+      }
+
+      // Loop body edges
+      for (let i = 0; i < step.loop.body.length; i++) {
+        const body = step.loop.body[i];
+        const target = loopBodyGraphID(step.id, body.id);
+        const bodyIDs = new Set(step.loop.body.map(b => b.id));
+        const deps = body.depends_on?.filter(d => bodyIDs.has(d)) || [];
+        const sources = deps.length
+          ? deps.map(d => loopBodyGraphID(step.id, d))
+          : i === 0
+            ? [step.id]
+            : [loopBodyGraphID(step.id, step.loop.body[i - 1].id)];
+        for (const source of sources) {
+          const targetStatus = statusFor(target);
+          const sourceStatus = statusFor(source);
+          edges.push({
+            id: `${source}-${target}`,
+            source,
+            target,
+            type: 'smoothstep',
+            animated: targetStatus === 'running',
+            markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) },
+            className: edgeVisualClass(sourceStatus, targetStatus, 'loop-body-edge'),
+          });
+        }
+      }
+    }
   }
 
   // Main edges
@@ -302,11 +468,11 @@ export function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardS
       <div className="graph-header">
         <div>
           <h3>Execution graph</h3>
-          <p>Top-level execution DAG. Loop bodies stay summarized on their parent node and are available in the Inspector.</p>
+          <p>Top-level steps plus loop body nodes. Click any node to inspect output, errors, and iteration activity.</p>
           <div className="graph-header-metrics">
             <span>{layout.nodes.length} nodes</span>
             <span>{layout.edges.length} edges</span>
-            {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} summarized</span>}
+            {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} expanded</span>}
           </div>
         </div>
         <div className="graph-header-side">
