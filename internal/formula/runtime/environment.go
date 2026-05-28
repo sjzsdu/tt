@@ -15,9 +15,12 @@ import (
 const EnvironmentContextKey = "env"
 
 type EnvironmentContext struct {
-	CWD string         `json:"cwd"`
-	OS  EnvironmentOS  `json:"os"`
-	Git EnvironmentGit `json:"git"`
+	CWD           string         `json:"cwd"`
+	InvocationCWD string         `json:"invocation_cwd,omitempty"`
+	WorkspaceCWD  string         `json:"workspace_cwd,omitempty"`
+	FormulaRunDir string         `json:"formula_run_dir,omitempty"`
+	OS            EnvironmentOS  `json:"os"`
+	Git           EnvironmentGit `json:"git"`
 }
 
 type EnvironmentOS struct {
@@ -56,13 +59,32 @@ func EnvironmentValue(workspace string) steps.Value {
 }
 
 func (e *Executor) SeedEnvironment(workspace string) {
+	e.seedEnvironment(workspace, "", "")
+}
+
+func (e *Executor) SeedWorkspaceEnvironment(workspace, invocationCWD, formulaRunDir string) {
+	e.seedEnvironment(workspace, invocationCWD, formulaRunDir)
+}
+
+func (e *Executor) seedEnvironment(workspace, invocationCWD, formulaRunDir string) {
 	if e == nil {
 		return
 	}
 	if e.Context == nil {
 		e.Context = NewContextStore()
 	}
-	_ = e.Context.Set(EnvironmentContextKey, EnvironmentValue(workspace))
+	env := BuildEnvironmentContext(workspace)
+	if invocationCWD != "" {
+		env.InvocationCWD = invocationCWD
+	}
+	if formulaRunDir != "" {
+		env.FormulaRunDir = formulaRunDir
+	}
+	if env.InvocationCWD != "" && env.CWD != env.InvocationCWD {
+		env.WorkspaceCWD = env.CWD
+	}
+	raw, _ := json.Marshal(env)
+	_ = e.Context.Set(EnvironmentContextKey, steps.Value{Type: "json", Raw: raw})
 }
 
 func (e *Executor) SeedVars(vars map[string]string) {

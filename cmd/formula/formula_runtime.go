@@ -203,6 +203,9 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 	exec.SeedVars(opt.Vars)
 	exec.SeedRunID(opt.RunID)
 	if opt.RunStore != nil {
+		exec.SeedFormulaRunDir(opt.RunStore.Dir)
+	}
+	if opt.RunStore != nil {
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)
 	}
 	return exec, nil

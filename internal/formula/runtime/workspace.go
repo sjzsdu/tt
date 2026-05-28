@@ -31,6 +31,13 @@ func (e *Executor) SeedRunID(runID string) {
 	e.runID = strings.TrimSpace(runID)
 }
 
+func (e *Executor) SeedFormulaRunDir(dir string) {
+	if e == nil {
+		return
+	}
+	e.formulaRunDir = strings.TrimSpace(dir)
+}
+
 func (e *Executor) prepareWorkspace(ctx context.Context) (*workspaceSession, error) {
 	policy := workspacePolicy(e.Workflow)
 	if policy == nil {
@@ -65,7 +72,7 @@ func (e *Executor) prepareWorkspace(ctx context.Context) (*workspaceSession, err
 	if err := session.ensure(ctx); err != nil {
 		return nil, err
 	}
-	e.SeedEnvironment(path)
+	e.SeedWorkspaceEnvironment(path, invocationWD, e.formulaRunDir)
 	return session, nil
 }
 

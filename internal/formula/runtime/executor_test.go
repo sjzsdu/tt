@@ -459,11 +459,13 @@ func TestExecutorAutoCreatesAndCleansWorkspaceWorktree(t *testing.T) {
 
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "report", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "report", Kind: steps.KindScript}}, Command: []string{"python3", "-c", `import json, os
-print(json.dumps({"cwd": os.getcwd(), "tracked": os.path.exists("src/module/tracked.txt"), "docs": os.path.exists("docs/extra.txt"), "top": os.path.exists("top.txt")}, sort_keys=True))`}}})
+print(json.dumps({"cwd": os.getcwd(), "tt_invocation_cwd": os.environ.get("TT_INVOCATION_CWD", ""), "tt_workspace_cwd": os.environ.get("TT_WORKSPACE_CWD", ""), "tt_formula_run_dir": os.environ.get("TT_FORMULA_RUN_DIR", ""), "tracked": os.path.exists("src/module/tracked.txt"), "docs": os.path.exists("docs/extra.txt"), "top": os.path.exists("top.txt")}, sort_keys=True))`}}})
 	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: g, Workspace: &ir.WorkspacePolicy{Kind: "worktree", Cleanup: true}}
 	exec := NewExecutor(wf, steps.Capabilities{Scripts: ScriptCapability{DenyUnsafe: true}})
-	exec.SeedEnvironment(filepath.Join(repo, "src", "module"))
+	invocationCWD := filepath.Join(repo, "src", "module")
+	exec.SeedEnvironment(invocationCWD)
 	exec.SeedRunID("run-123")
+	exec.SeedFormulaRunDir(filepath.Join(invocationCWD, ".tt", "runs", "formula", "demo-run"))
 	result, err := exec.Run(context.Background())
 	if err != nil {
 		t.Fatalf("run error: %v\nresult: %+v\nreport: %+v", err, result, result.Nodes["report"])
@@ -487,16 +489,28 @@ print(json.dumps({"cwd": os.getcwd(), "tracked": os.path.exists("src/module/trac
 		return path
 	}
 	var payload struct {
-		CWD     string `json:"cwd"`
-		Tracked bool   `json:"tracked"`
-		Docs    bool   `json:"docs"`
-		Top     bool   `json:"top"`
+		CWD             string `json:"cwd"`
+		TTInvocationCWD string `json:"tt_invocation_cwd"`
+		TTWorkspaceCWD  string `json:"tt_workspace_cwd"`
+		TTFormulaRunDir string `json:"tt_formula_run_dir"`
+		Tracked         bool   `json:"tracked"`
+		Docs            bool   `json:"docs"`
+		Top             bool   `json:"top"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.Stdout)), &payload); err != nil {
 		t.Fatal(err)
 	}
 	if canon(payload.CWD) != canon(wantWorkspace) {
 		t.Fatalf("workspace cwd = %q, want %q", payload.CWD, wantWorkspace)
+	}
+	if canon(payload.TTInvocationCWD) != canon(invocationCWD) {
+		t.Fatalf("TT_INVOCATION_CWD = %q, want %q", payload.TTInvocationCWD, invocationCWD)
+	}
+	if canon(payload.TTWorkspaceCWD) != canon(wantWorkspace) {
+		t.Fatalf("TT_WORKSPACE_CWD = %q, want %q", payload.TTWorkspaceCWD, wantWorkspace)
+	}
+	if payload.TTFormulaRunDir == "" {
+		t.Fatal("TT_FORMULA_RUN_DIR missing")
 	}
 	if !payload.Tracked {
 		t.Fatal("tracked file missing in worktree")

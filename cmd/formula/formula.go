@@ -172,6 +172,9 @@ func formulaDefaultRunDir(loaded ttconfig.Loaded) string {
 }
 
 func formulaWorkingDir() string {
+	if preserved := strings.TrimSpace(os.Getenv("TT_INVOCATION_CWD")); preserved != "" {
+		return preserved
+	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return "."

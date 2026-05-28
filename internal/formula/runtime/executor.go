@@ -13,12 +13,13 @@ import (
 )
 
 type Executor struct {
-	Workflow     *ir.Workflow
-	Context      *ContextStore
-	Capabilities steps.Capabilities
-	Events       EventSink
-	Store        StateStore
-	runID        string
+	Workflow      *ir.Workflow
+	Context       *ContextStore
+	Capabilities  steps.Capabilities
+	Events        EventSink
+	Store         StateStore
+	runID         string
+	formulaRunDir string
 }
 
 type EventSink interface{ Emit(Event) }

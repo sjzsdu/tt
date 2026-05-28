@@ -222,7 +222,7 @@ func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error)
 		err := &StepError{Message: "script capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderStepCwd(s.Cwd, req.Context), Env: renderContextTemplateMap(s.Env, req.Context)})
+	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderStepCwd(s.Cwd, req.Context), Env: renderScriptEnv(s.Env, req.Context)})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "script step failed", Cause: err}}, err
 	}
@@ -242,6 +242,35 @@ func renderStepCwd(cwd string, ctx ContextView) string {
 		return ""
 	}
 	return strings.TrimSpace(valueForPrompt(value))
+}
+
+func renderScriptEnv(values map[string]string, ctx ContextView) map[string]string {
+	out := defaultRuntimeEnv(ctx)
+	for key, value := range renderContextTemplateMap(values, ctx) {
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func defaultRuntimeEnv(ctx ContextView) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	out := map[string]string{}
+	add := func(envName, path string) {
+		if value, ok := ctx.Get(path); ok {
+			if text := strings.TrimSpace(valueForPrompt(value)); text != "" {
+				out[envName] = text
+			}
+		}
+	}
+	add("TT_INVOCATION_CWD", "env.invocation_cwd")
+	add("TT_WORKSPACE_CWD", "env.workspace_cwd")
+	add("TT_FORMULA_RUN_DIR", "env.formula_run_dir")
+	return out
 }
 
 func renderContextTemplateSlice(values []string, ctx ContextView) []string {

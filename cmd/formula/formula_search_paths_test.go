@@ -81,6 +81,27 @@ func TestFormulaDefaultRunDirUsesCurrentWorkingDirByDefault(t *testing.T) {
 	}
 }
 
+func TestFormulaDefaultRunDirHonorsInvocationCWDEnv(t *testing.T) {
+	wd := t.TempDir()
+	invocation := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if err := os.Chdir(wd); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TT_INVOCATION_CWD", invocation)
+	loaded := ttconfig.Loaded{Sources: ttconfig.Sources{ProjectPath: filepath.Join(t.TempDir(), ".tt", "config.json")}}
+
+	got := formulaDefaultRunDir(loaded)
+	want := filepath.Join(invocation, ".tt", "runs", "formula")
+	if got != want {
+		t.Fatalf("formulaDefaultRunDir = %q, want %q", got, want)
+	}
+}
+
 func TestFormulaDefaultRunDirHonorsExplicitConfig(t *testing.T) {
 	wd := t.TempDir()
 	projectRoot := t.TempDir()
