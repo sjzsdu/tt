@@ -236,6 +236,17 @@ function graphLoopBodyNodeHeight(step: FormulaDashboardStep): number {
 
 function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void, expandedLoopIDs: Set<string>, onToggleExpand: (stepID: string) => void) {
   const stepMap = new Map(snapshot.steps.map(s => [s.id, s]));
+  const graphEdges = [...snapshot.edges];
+  const graphEdgeIDs = new Set(graphEdges.map(edge => `${edge.from}\u0000${edge.to}`));
+  for (const step of snapshot.steps) {
+    for (const dep of step.depends_on || []) {
+      if (!stepMap.has(dep)) continue;
+      const edgeID = `${dep}\u0000${step.id}`;
+      if (graphEdgeIDs.has(edgeID)) continue;
+      graphEdgeIDs.add(edgeID);
+      graphEdges.push({ from: dep, to: step.id, type: 'depends_on' });
+    }
+  }
   const stepHeight = new Map<string, number>();
   for (const step of snapshot.steps) {
     stepHeight.set(step.id, graphStepNodeHeight(step));
@@ -243,7 +254,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
 
   const outEdges = new Map<string, string[]>();
   const inEdges = new Map<string, string[]>();
-  for (const edge of snapshot.edges) {
+  for (const edge of graphEdges) {
     const existing = outEdges.get(edge.from);
     if (existing) existing.push(edge.to);
     else outEdges.set(edge.from, [edge.to]);
@@ -270,18 +281,37 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     });
   }
 
+  const layerY = new Map<number, number>();
+  let nextLayerY = TREE_PAD_Y;
+  for (const depth of sortedDepths) {
+    const layer = layers.get(depth) || [];
+    let maxLayerH = TREE_NODE_H;
+    for (const nodeID of layer) {
+      const step = stepMap.get(nodeID);
+      const h = stepHeight.get(nodeID) ?? TREE_NODE_H;
+      let occupiedH = h;
+      if (step?.loop?.body?.length && expandedLoopIDs.has(step.id)) {
+        const maxBodyH = Math.max(...step.loop.body.map((body, index) => graphLoopBodyNodeHeight(loopBodyStep(step, body, index))));
+        occupiedH += 40 + maxBodyH + 40;
+      }
+      maxLayerH = Math.max(maxLayerH, occupiedH);
+    }
+    layerY.set(depth, nextLayerY);
+    nextLayerY += maxLayerH + TREE_V_GAP;
+  }
+
   // Assign x positions: each node's x is the average of its parents' x positions
   // First pass: compute positions layer by layer
   const nodeX = new Map<string, number>();
   const nodeY = new Map<string, number>();
 
   // Root layer (no parents): evenly spaced
-  const rootLayer = sortedDepths[0] || [];
+  const rootLayer = layers.get(sortedDepths[0] ?? 0) || [];
   const rootWidth = rootLayer.length * TREE_NODE_W + (rootLayer.length - 1) * TREE_H_GAP;
   let startX = -rootWidth / 2;
   for (let i = 0; i < rootLayer.length; i++) {
     nodeX.set(rootLayer[i], startX + TREE_NODE_W / 2 + i * (TREE_NODE_W + TREE_H_GAP));
-    nodeY.set(rootLayer[i], TREE_PAD_Y);
+    nodeY.set(rootLayer[i], layerY.get(sortedDepths[0] ?? 0) ?? TREE_PAD_Y);
   }
 
   // Subsequent layers: position based on parents
@@ -340,7 +370,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     }
 
     // Assign y
-    const y = TREE_PAD_Y + (di) * (TREE_NODE_H + TREE_V_GAP);
+    const y = layerY.get(depth) ?? TREE_PAD_Y + (di) * (TREE_NODE_H + TREE_V_GAP);
     for (const nodeID of layer) {
       nodeY.set(nodeID, y);
       if (!nodeX.has(nodeID)) {
@@ -376,6 +406,9 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     // Loop body
     if (step.loop?.body?.length && expandedLoopIDs.has(step.id)) {
       const bodySteps = step.loop.body.map((body, i) => loopBodyStep(step, body, i));
+      for (const bodyStep of bodySteps) {
+        stepStatusMap.set(bodyStep.id, bodyStep.status);
+      }
       const bodyHeights = bodySteps.map(graphLoopBodyNodeHeight);
       const bodyGap = TREE_LOOP_H_GAP;
 
@@ -448,7 +481,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   }
 
   // Main edges
-  for (const edge of snapshot.edges) {
+  for (const edge of graphEdges) {
     if (!nodeX.has(edge.from) || !nodeX.has(edge.to)) continue;
     const targetStatus = statusFor(edge.to);
     const sourceStatus = statusFor(edge.from);
