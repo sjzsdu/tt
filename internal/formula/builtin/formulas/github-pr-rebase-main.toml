@@ -47,10 +47,85 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "check-current-pr-worktree"
+title = "检查是否已有 worktree 在 PR 分支"
+execution = "script"
+depends_on = ["fetch-pr-metadata"]
+description = "如果当前仓库已有任意 worktree checkout 到该 PR 的 head 分支，则本流程直接短路结束，避免重复创建 worktree/rebase/push。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+meta="${TT_PR_META:-{}}"
+ok="$(jq -r '.ok // false' <<<"$meta")"
+if [ "$ok" != true ]; then
+  jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,already_on_pr_branch:false,error:$error,metadata:$meta,current_branch:"",head_branch:"",worktree_path:""}'
+  exit 0
+fi
+head="$(jq -r '.headRefName // empty' <<<"$meta")"
+if [ -z "$head" ]; then
+  jq -cn --arg error "missing PR head branch" '{ok:false,already_on_pr_branch:false,error:$error,current_branch:"",head_branch:"",worktree_path:""}'
+  exit 0
+fi
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  jq -cn --arg head_branch "$head" '{ok:true,already_on_pr_branch:false,error:"current directory is not inside a git repository",current_branch:"",head_branch:$head_branch,worktree_path:""}'
+  exit 0
+fi
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+match_path=""
+match_head=""
+current_path=""
+current_head=""
+while IFS= read -r line; do
+  case "$line" in
+    worktree' '*) current_path="${line#worktree }" ;;
+    HEAD' '*) current_head="${line#HEAD }" ;;
+    branch' 'refs/heads/*)
+      branch="${line#branch refs/heads/}"
+      if [ "$branch" = "$head" ]; then
+        match_path="$current_path"
+        match_head="$current_head"
+      fi
+      ;;
+    "")
+      if [ -n "$match_path" ]; then break; fi
+      current_path=""
+      current_head=""
+      ;;
+  esac
+done < <(git -C "$repo_root" worktree list --porcelain)
+if [ -n "$match_path" ]; then
+  jq -cn \
+    --arg current_branch "$head" \
+    --arg head_branch "$head" \
+    --arg worktree_path "$match_path" \
+    --arg head_sha "$match_head" \
+    '{ok:true,already_on_pr_branch:true,error:"",reason:"an existing worktree is already on the PR head branch",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path,head_sha:$head_sha}'
+  exit 0
+fi
+current_branch="$(git branch --show-current 2>/dev/null || true)"
+jq -cn \
+  --arg current_branch "$current_branch" \
+  --arg head_branch "$head" \
+  --arg worktree_path "$repo_root" \
+  '{ok:true,already_on_pr_branch:false,error:"",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path}'
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+TT_PR_META = "{{fetch-pr-metadata.stdout}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "prepare-rebase-worktree"
 title = "创建隔离 worktree 并 checkout PR 分支"
 execution = "script"
-depends_on = ["fetch-pr-metadata"]
+depends_on = ["fetch-pr-metadata", "check-current-pr-worktree"]
+condition = "check-current-pr-worktree.stdout.already_on_pr_branch != true"
 description = "在执行命令目录的 .tt/worktrees 下创建隔离 worktree，使用 gh pr checkout 拉取 PR 分支，不污染当前工作区。"
 
 [steps.script]
@@ -256,7 +331,8 @@ required = ["stdout"]
 id = "summarize-rebase-state"
 title = "汇总 rebase 状态"
 execution = "script"
-depends_on = ["attempt-rebase", "continue-rebase"]
+depends_on = ["check-current-pr-worktree", "attempt-rebase", "continue-rebase"]
+condition = "check-current-pr-worktree.stdout.already_on_pr_branch != true"
 description = "统一判断 rebase 是否完成、是否仍被冲突阻塞。"
 
 [steps.script]
@@ -383,6 +459,7 @@ id = "cleanup-worktree"
 title = "清理临时 rebase worktree"
 execution = "script"
 depends_on = ["prepare-rebase-worktree", "push-rebased-branch"]
+condition = "prepare-rebase-worktree.stdout.ok == true"
 description = "rebase/push 流程结束后移除隔离 worktree，避免 .tt/worktrees 持续膨胀；只移除 worktree，不删除分支。"
 
 [steps.script]
@@ -422,12 +499,13 @@ required = ["stdout"]
 [[steps]]
 id = "final-report"
 title = "输出 PR rebase 结果报告"
-depends_on = ["fetch-pr-metadata", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch", "cleanup-worktree"]
-input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.stdout", "push-rebased-branch.stdout", "cleanup-worktree.stdout"]
+depends_on = ["fetch-pr-metadata", "check-current-pr-worktree", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch", "cleanup-worktree"]
+input_context = ["fetch-pr-metadata.stdout", "check-current-pr-worktree.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.stdout", "push-rebased-branch.stdout", "cleanup-worktree.stdout"]
 description = """
 输出中文最终报告，结论先行。
 
 必须说明：
+0. 如果 check-current-pr-worktree.stdout.already_on_pr_branch == true，说明当前仓库已有某个 worktree 已经 checkout 到该 PR head 分支，并给出 check-current-pr-worktree.stdout.worktree_path；本流程已按要求直接结束；此时不得声称执行了 rebase、validation、push 或 cleanup；
 1. PR 编号、标题、URL、head/base 分支；
 2. 使用的隔离 worktree 路径；
 3. rebase 是否成功，是否发生冲突；
