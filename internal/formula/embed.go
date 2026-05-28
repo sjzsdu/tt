@@ -34,6 +34,15 @@ func applyEmbedsRecursive(steps []*Step, parser *Parser, parentVars map[string]s
 				}
 				clone.Children = children
 			}
+			if step.Loop != nil && len(step.Loop.Body) > 0 {
+				loop := *step.Loop
+				body, err := applyEmbedsRecursive(step.Loop.Body, parser, parentVars, stack, depth+1)
+				if err != nil {
+					return nil, err
+				}
+				loop.Body = body
+				clone.Loop = &loop
+			}
 			result = append(result, clone)
 			continue
 		}
