@@ -192,6 +192,7 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 	if err != nil {
 		return nil, fmt.Errorf("embed %q on step %q: filtering steps by condition: %w", name, step.ID, err)
 	}
+	filteredSteps = substituteStepTemplateVars(filteredSteps, childVars)
 
 	boundary := cloneStep(step)
 	boundary.Expand = ""
@@ -259,6 +260,84 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 	result = append(result, boundary)
 	result = append(result, namespaced...)
 	return result, nil
+}
+
+func substituteStepTemplateVars(steps []*Step, vars map[string]string) []*Step {
+	if len(steps) == 0 || len(vars) == 0 {
+		return steps
+	}
+	result := make([]*Step, 0, len(steps))
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		clone := cloneStep(step)
+		clone.Title = Substitute(clone.Title, vars)
+		clone.Description = Substitute(clone.Description, vars)
+		clone.Condition = Substitute(clone.Condition, vars)
+		clone.Timeout = Substitute(clone.Timeout, vars)
+		clone.OutputKey = Substitute(clone.OutputKey, vars)
+		clone.InputCtx = substituteStringSliceVars(clone.InputCtx, vars)
+		clone.DependsOn = substituteStringSliceVars(clone.DependsOn, vars)
+		clone.Needs = substituteStringSliceVars(clone.Needs, vars)
+		clone.Labels = substituteStringSliceVars(clone.Labels, vars)
+		clone.Metadata = substituteStringMapVars(clone.Metadata, vars)
+		if clone.Agent != nil {
+			agent := *clone.Agent
+			agent.Name = Substitute(agent.Name, vars)
+			agent.Model = Substitute(agent.Model, vars)
+			agent.Cwd = Substitute(agent.Cwd, vars)
+			clone.Agent = &agent
+		}
+		if clone.Script != nil {
+			script := *clone.Script
+			script.Command = substituteStringSliceVars(script.Command, vars)
+			script.Cwd = Substitute(script.Cwd, vars)
+			script.Env = substituteStringMapVars(script.Env, vars)
+			clone.Script = &script
+		}
+		if clone.Tool != nil {
+			tool := *clone.Tool
+			tool.Name = Substitute(tool.Name, vars)
+			clone.Tool = &tool
+		}
+		if len(clone.Children) > 0 {
+			clone.Children = substituteStepTemplateVars(clone.Children, vars)
+		}
+		if clone.Loop != nil && len(clone.Loop.Body) > 0 {
+			loop := *clone.Loop
+			loop.ForEach = Substitute(loop.ForEach, vars)
+			loop.Var = Substitute(loop.Var, vars)
+			loop.Until = Substitute(loop.Until, vars)
+			loop.Range = Substitute(loop.Range, vars)
+			loop.Body = substituteStepTemplateVars(loop.Body, vars)
+			clone.Loop = &loop
+		}
+		result = append(result, clone)
+	}
+	return result
+}
+
+func substituteStringSliceVars(values []string, vars map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = Substitute(value, vars)
+	}
+	return out
+}
+
+func substituteStringMapVars(values map[string]string, vars map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = Substitute(value, vars)
+	}
+	return out
 }
 
 func namespaceEmbeddedSteps(steps []*Step, prefix, sourceFormula, embeddedBy string) []*Step {
