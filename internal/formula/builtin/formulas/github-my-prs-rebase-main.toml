@@ -1,0 +1,121 @@
+formula = "github-my-prs-rebase-main"
+description = "获取当前 GitHub 仓库中当前用户仍 open 的所有 PR，并并发复用 github-pr-rebase-main 将每个 PR 分支 rebase 到 main。"
+version = 1
+type = "workflow"
+category = "github"
+tags = ["github", "pr", "rebase", "batch", "parallel"]
+
+[vars]
+repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+author = { description = "PR 作者筛选，默认 @me 表示当前 gh 登录用户", default = "@me" }
+base_branch = { description = "目标 base 分支，默认 main", default = "main" }
+worktree_root = { description = "隔离 worktree 根目录，默认 .tt/worktrees/github-pr-rebase-main；相对路径按执行命令时的目录解析", default = ".tt/worktrees/github-pr-rebase-main" }
+validation_command = { description = "可选验证命令，会传给每个单 PR rebase 流程；为空则跳过", default = "" }
+push = { description = "每个 PR rebase 成功后是否 push --force-with-lease 回 PR 分支；默认 true", default = "true", enum = ["true", "false"] }
+
+[[steps]]
+id = "fetch-open-prs"
+title = "获取当前用户 open PR 列表"
+execution = "script"
+description = "使用 gh pr list 获取当前仓库中 author 匹配且 state=open 的 PR。"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess, sys, traceback
+
+def emit(obj):
+    print(json.dumps(obj, ensure_ascii=False, separators=(',', ':')))
+
+repo = os.environ.get('TT_REPO_HINT', '').strip()
+author = os.environ.get('TT_AUTHOR', '').strip() or '@me'
+base = os.environ.get('TT_BASE_BRANCH', '').strip() or 'main'
+fields = 'number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
+cmd = ['gh', 'pr', 'list', '--state', 'open', '--author', author, '--json', fields, '--limit', '200']
+if repo:
+    cmd += ['--repo', repo]
+try:
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    if p.returncode != 0:
+        emit({'ok': False, 'error': (p.stderr or p.stdout or 'gh pr list failed').strip(), 'command': cmd, 'repo_hint': repo, 'author': author, 'base_branch': base, 'items': [], 'total': 0})
+        raise SystemExit(0)
+    raw = json.loads(p.stdout or '[]')
+    items = []
+    for pr in raw:
+        number = pr.get('number')
+        if number is None:
+            continue
+        items.append({
+            'number': number,
+            'pr_ref': str(number),
+            'title': pr.get('title') or '',
+            'url': pr.get('url') or '',
+            'state': pr.get('state') or 'OPEN',
+            'isDraft': bool(pr.get('isDraft')),
+            'baseRefName': pr.get('baseRefName') or '',
+            'target_base_branch': base,
+            'headRefName': pr.get('headRefName') or '',
+            'headRefOid': pr.get('headRefOid') or '',
+        })
+    emit({'ok': True, 'error': '', 'command': cmd, 'repo_hint': repo, 'author': author, 'base_branch': base, 'total': len(items), 'items': items})
+except SystemExit:
+    raise
+except Exception as exc:
+    emit({'ok': False, 'error': f'fetch open PRs failed: {exc}', 'traceback': traceback.format_exc()[-2000:], 'command': cmd, 'repo_hint': repo, 'author': author, 'base_branch': base, 'items': [], 'total': 0})
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_REPO_HINT = "{{repo_hint}}"
+TT_AUTHOR = "{{author}}"
+TT_BASE_BRANCH = "{{base_branch}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "rebase-each-pr"
+title = "并发 rebase 每个 open PR"
+depends_on = ["fetch-open-prs"]
+condition = "fetch-open-prs.stdout.total != 0"
+
+  [steps.loop]
+  for_each = "fetch-open-prs.stdout.items"
+  var = "pr"
+  parallel = true
+  max_concurrency = 3
+
+  [[steps.loop.body]]
+  id = "run-pr-rebase"
+  title = "Rebase PR #{{pr.number}}"
+  embed = "github-pr-rebase-main"
+
+  [steps.loop.body.embed_vars]
+  pr_ref = "{{pr.pr_ref}}"
+  repo_hint = "{{repo_hint}}"
+  base_branch = "{{base_branch}}"
+  worktree_root = "{{worktree_root}}"
+  validation_command = "{{validation_command}}"
+  push = "{{push}}"
+
+[[steps]]
+id = "final-report"
+title = "输出批量 PR rebase 报告"
+depends_on = ["fetch-open-prs", "rebase-each-pr"]
+input_context = ["fetch-open-prs.stdout", "rebase-each-pr"]
+description = """
+输出中文最终报告，结论先行。
+
+必须说明：
+1. 本次筛选条件：author、state=open、repo_hint、目标 base_branch；
+2. 找到的 PR 总数，并列出 PR 编号、标题、URL、head/base；
+3. 是否并发执行了 rebase，以及并发上限为 3；
+4. 对每个 PR，总结 github-pr-rebase-main 子流程的结果：成功 / blocked / 失败 / 未执行；
+5. 说明 validation_command 和 push 是按同一配置传给每个子流程；
+6. 若没有 open PR，明确说明没有执行任何 rebase；
+7. 不要编造子流程输出中没有出现的测试、push 或冲突结果。
+"""
+
+[steps.agent]
+name = "reporter"
