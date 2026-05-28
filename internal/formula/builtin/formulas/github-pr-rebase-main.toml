@@ -87,7 +87,10 @@ worktree_path="$worktree_root/pr-${number}-${safe_head}"
 local_branch="tt/pr-${number}-rebase-${base}"
 mkdir -p "$worktree_root"
 if [ -d "$worktree_path/.git" ] || [ -f "$worktree_path/.git" ]; then
-  git worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
+  if ! cleanup_out="$(git worktree remove --force "$worktree_path" 2>&1)"; then
+    jq -cn --arg error "failed to remove existing worktree: $cleanup_out" --arg worktree_path "$worktree_path" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:"",head_branch:""}'
+    exit 0
+  fi
 fi
 git branch -D "$local_branch" >/dev/null 2>&1 || true
 git fetch origin "$base" --prune >/dev/null 2>&1
