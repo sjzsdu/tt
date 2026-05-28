@@ -1,5 +1,5 @@
 formula = "github-pr-rebase-main"
-description = "将 GitHub PR 分支在隔离 worktree 中 rebase 到最新 base/main；遇到冲突时由 agent 修复，再用确定性脚本 continue、验证并 push --force-with-lease。"
+description = "将 GitHub PR 分支在隔离 worktree 中 rebase 到最新 base/main；遇到冲突时由 agent 修复，再用确定性脚本 continue。默认只保留本地 rebase 后的分支，不 push；需要时可设置 push=true。"
 version = 1
 type = "workflow"
 category = "github"
@@ -11,7 +11,7 @@ base_branch = { description = "目标 base 分支，默认 main；为空时使�
 repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
 worktree_root = { description = "隔离 worktree 根目录，默认 .tt/worktrees/github-pr-rebase-main", default = ".tt/worktrees/github-pr-rebase-main" }
 validation_command = { description = "可选验证命令，例如 npm test 或 go test ./...；为空则跳过", default = "" }
-push = { description = "rebase 成功后是否 push 回 PR 分支", default = "true", enum = ["true", "false"] }
+push = { description = "rebase 成功后是否 push --force-with-lease 回 PR 分支；默认 false，仅保留本地分支", default = "false", enum = ["true", "false"] }
 
 [[steps]]
 id = "fetch-pr-metadata"
@@ -320,12 +320,12 @@ title = "push rebase 后的 PR 分支"
 execution = "script"
 depends_on = ["summarize-rebase-state", "run-validation"]
 condition = "summarize-rebase-state.stdout.rebase_done == true"
-description = "验证通过或未请求验证时，按 push 变量决定是否 git push --force-with-lease 回 PR 分支。"
+description = "验证通过或未请求验证时，按 push 变量决定是否 git push --force-with-lease 回 PR 分支；默认 push=false，仅保留本地分支。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-push_flag='${TT_PUSH:-true}'
+push_flag='${TT_PUSH:-false}'
 wt='${TT_WORKTREE_PATH:-}'
 head_branch='${TT_HEAD_BRANCH:-}'
 validation='${TT_VALIDATION:-}'
@@ -425,7 +425,7 @@ description = """
 3. rebase 是否成功，是否发生冲突；
 4. 若发生冲突，列出冲突文件、修复动作与剩余 blocker；
 5. validation_command 是否执行及结果；
-6. 是否 push，push 目标 remote/branch，若未 push 说明原因；
+6. 是否 push，push=false 时说明本地分支已保留；push=true 时说明目标 remote/branch，若未 push 说明原因；
 7. worktree 是否已清理，如果清理失败给出路径和原因；
 8. 给出下一步建议，例如刷新 PR、等待 CI、或人工处理 blocker。
 
