@@ -1,0 +1,53 @@
+package formula
+
+import (
+	"strings"
+
+	"github.com/sjzsdu/tt/internal/formula/ir"
+)
+
+// WorkspaceSpec declares a formula-level execution workspace policy.
+type WorkspaceSpec struct {
+	Kind    string `json:"kind,omitempty" toml:"kind,omitempty"`
+	Path    string `json:"path,omitempty" toml:"path,omitempty"`
+	Cleanup *bool  `json:"cleanup,omitempty" toml:"cleanup,omitempty"`
+}
+
+func normalizeFormulaWorkspace(f *Formula) {
+	if f == nil {
+		return
+	}
+	if f.Workspace == nil && f.Worktree {
+		f.Workspace = &WorkspaceSpec{Kind: "worktree"}
+	}
+	if f.Workspace == nil {
+		return
+	}
+	f.Workspace.Kind = strings.TrimSpace(f.Workspace.Kind)
+	if f.Workspace.Kind == "" {
+		f.Workspace.Kind = "worktree"
+	}
+	f.Workspace.Path = strings.TrimSpace(f.Workspace.Path)
+}
+
+func formulaWorkspacePolicy(f *Formula) *ir.WorkspacePolicy {
+	if f == nil {
+		return nil
+	}
+	spec := f.Workspace
+	if spec == nil && f.Worktree {
+		spec = &WorkspaceSpec{Kind: "worktree"}
+	}
+	if spec == nil {
+		return nil
+	}
+	kind := strings.TrimSpace(spec.Kind)
+	if kind == "" {
+		kind = "worktree"
+	}
+	cleanup := true
+	if spec.Cleanup != nil {
+		cleanup = *spec.Cleanup
+	}
+	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(spec.Path), Cleanup: cleanup}
+}

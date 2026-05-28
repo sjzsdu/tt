@@ -118,6 +118,12 @@ type Formula struct {
 	// Pour controls whether steps are materialized as individual child items.
 	Pour bool `json:"pour,omitempty" toml:"pour,omitempty"`
 
+	// Worktree is a shorthand for Workspace.Kind == "worktree".
+	Worktree bool `json:"worktree,omitempty" toml:"worktree,omitempty"`
+
+	// Workspace configures the formula execution workspace policy.
+	Workspace *WorkspaceSpec `json:"workspace,omitempty" toml:"workspace,omitempty"`
+
 	// Source tracks where this formula was loaded from (set by parser).
 	Source string `json:"-" toml:"-"`
 }
@@ -960,6 +966,13 @@ func (f *Formula) Validate() error {
 
 	if f.Type != "" && !f.Type.IsValid() {
 		errs = append(errs, fmt.Sprintf("type: invalid value %q (must be workflow, expansion, or aspect)", f.Type))
+	}
+
+	if f.Workspace != nil {
+		kind := strings.ToLower(strings.TrimSpace(f.Workspace.Kind))
+		if kind != "" && kind != "worktree" {
+			errs = append(errs, fmt.Sprintf("workspace.kind: invalid value %q (must be worktree)", f.Workspace.Kind))
+		}
 	}
 
 	// Validate variables

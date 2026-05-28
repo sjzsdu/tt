@@ -10,6 +10,7 @@ type Workflow struct {
 	Name        string
 	Description string
 	Vars        map[string]VarSchema
+	Workspace   *WorkspacePolicy
 	Graph       Graph
 }
 

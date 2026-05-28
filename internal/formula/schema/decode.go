@@ -18,6 +18,8 @@ type documentFile struct {
 	Contract    string             `json:"contract" toml:"contract"`
 	Vars        map[string]varFile `json:"vars" toml:"vars"`
 	Steps       []map[string]any   `json:"steps" toml:"steps"`
+	Workspace   *workspaceFile     `json:"workspace" toml:"workspace"`
+	Worktree    bool               `json:"worktree" toml:"worktree"`
 }
 
 type varFile struct {
@@ -27,6 +29,12 @@ type varFile struct {
 	Enum        []string `json:"enum" toml:"enum"`
 	Pattern     string   `json:"pattern" toml:"pattern"`
 	Type        string   `json:"type" toml:"type"`
+}
+
+type workspaceFile struct {
+	Kind    string `json:"kind" toml:"kind"`
+	Path    string `json:"path" toml:"path"`
+	Cleanup *bool  `json:"cleanup" toml:"cleanup"`
 }
 
 func LoadFile(path string) (*ast.Document, error) {
@@ -64,6 +72,16 @@ func normalize(raw documentFile) (*ast.Document, error) {
 	doc := &ast.Document{Name: raw.Formula, Title: raw.Title, Description: raw.Description, Version: raw.Version, Contract: raw.Contract, Vars: map[string]ast.VarDecl{}}
 	for name, v := range raw.Vars {
 		doc.Vars[name] = ast.VarDecl{Description: v.Description, Default: v.Default, Required: v.Required, Enum: v.Enum, Pattern: v.Pattern, Type: v.Type}
+	}
+	if raw.Workspace != nil {
+		doc.Workspace = &ast.WorkspaceSpec{Kind: strings.TrimSpace(raw.Workspace.Kind), Path: strings.TrimSpace(raw.Workspace.Path), Cleanup: raw.Workspace.Cleanup}
+	}
+	doc.Worktree = raw.Worktree
+	if doc.Workspace == nil && doc.Worktree {
+		doc.Workspace = &ast.WorkspaceSpec{Kind: "worktree"}
+	}
+	if doc.Workspace != nil && strings.TrimSpace(doc.Workspace.Kind) == "" {
+		doc.Workspace.Kind = "worktree"
 	}
 	for i, rawStep := range raw.Steps {
 		decl, err := normalizeStep(i, rawStep)

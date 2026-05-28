@@ -22,3 +22,21 @@ kind = "human_input"
 		t.Fatalf("kind = %s", got)
 	}
 }
+
+func TestCompileWorkflowPropagatesWorkspacePolicy(t *testing.T) {
+	wf, err := CompileWorkflow("demo.toml", []byte(`formula = "demo"
+workspace = { kind = "worktree", cleanup = false, path = ".tt/worktrees/demo" }
+[[steps]]
+id = "ask"
+kind = "human_input"
+`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wf.Workspace == nil {
+		t.Fatal("workspace policy missing")
+	}
+	if wf.Workspace.Kind != "worktree" || wf.Workspace.Path != ".tt/worktrees/demo" || wf.Workspace.Cleanup {
+		t.Fatalf("workspace policy = %+v", wf.Workspace)
+	}
+}

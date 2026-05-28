@@ -205,6 +205,7 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 		Workspace:    projectRoot,
 		Vars:         runStore.Meta.Vars,
 		AllowScripts: !formulaNoScript,
+		RunID:        runStore.Meta.RunID,
 	})
 	if err != nil {
 		return err

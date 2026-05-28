@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -426,5 +427,133 @@ func TestExecutorSkipsStepWhenRuntimeConditionIsFalse(t *testing.T) {
 	}
 	if agent.calls != 0 {
 		t.Fatalf("agent calls = %d, want skipped target not executed", agent.calls)
+	}
+}
+
+func TestExecutorAutoCreatesAndCleansWorkspaceWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "src", "module"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, root, "init", "repo")
+	runGitCmd(t, repo, "config", "user.email", "test@example.com")
+	runGitCmd(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "src", "module", "tracked.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "top.txt"), []byte("root"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "docs", "extra.txt"), []byte("docs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, repo, "add", ".")
+	runGitCmd(t, repo, "commit", "-m", "initial")
+
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "report", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "report", Kind: steps.KindScript}}, Command: []string{"python3", "-c", `import json, os
+print(json.dumps({"cwd": os.getcwd(), "tracked": os.path.exists("src/module/tracked.txt"), "docs": os.path.exists("docs/extra.txt"), "top": os.path.exists("top.txt")}, sort_keys=True))`}}})
+	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: g, Workspace: &ir.WorkspacePolicy{Kind: "worktree", Cleanup: true}}
+	exec := NewExecutor(wf, steps.Capabilities{Scripts: ScriptCapability{DenyUnsafe: true}})
+	exec.SeedEnvironment(filepath.Join(repo, "src", "module"))
+	exec.SeedRunID("run-123")
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run error: %v\nresult: %+v\nreport: %+v", err, result, result.Nodes["report"])
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	raw := result.Nodes["report"].Output.Raw
+	var out scriptCapabilityOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	wantWorkspace, err := filepath.Abs(filepath.Join(repo, "src", "module", ".tt", "worktrees", "run-123"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canon := func(path string) string {
+		if strings.HasPrefix(path, "/var/") && !strings.HasPrefix(path, "/private/") {
+			return "/private" + path
+		}
+		return path
+	}
+	var payload struct {
+		CWD     string `json:"cwd"`
+		Tracked bool   `json:"tracked"`
+		Docs    bool   `json:"docs"`
+		Top     bool   `json:"top"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.Stdout)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if canon(payload.CWD) != canon(wantWorkspace) {
+		t.Fatalf("workspace cwd = %q, want %q", payload.CWD, wantWorkspace)
+	}
+	if !payload.Tracked {
+		t.Fatal("tracked file missing in worktree")
+	}
+	if payload.Docs {
+		t.Fatal("docs file should be sparse-excluded")
+	}
+	if _, err := os.Stat(wantWorkspace); !os.IsNotExist(err) {
+		t.Fatalf("workspace path still exists after cleanup: %v", err)
+	}
+}
+
+func TestExecutorWorkspaceWorktreeCanBeRetained(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	runGitCmd(t, root, "init", "repo")
+	runGitCmd(t, repo, "config", "user.email", "test@example.com")
+	runGitCmd(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, repo, "add", ".")
+	runGitCmd(t, repo, "commit", "-m", "initial")
+
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "report", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "report", Kind: steps.KindScript}}, Command: []string{"python3", "-c", `import json, os
+print(json.dumps({"cwd": os.getcwd(), "exists": os.path.exists("file.txt")}, sort_keys=True))`}}})
+	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: g, Workspace: &ir.WorkspacePolicy{Kind: "worktree", Cleanup: false}}
+	exec := NewExecutor(wf, steps.Capabilities{Scripts: ScriptCapability{DenyUnsafe: true}})
+	exec.SeedEnvironment(repo)
+	exec.SeedRunID("keep-me")
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run error: %v", err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	wantWorkspace, err := filepath.Abs(filepath.Join(repo, ".tt", "worktrees", "keep-me"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wantWorkspace); err != nil {
+		t.Fatalf("workspace path should be retained: %v", err)
+	}
+	runGitCmd(t, repo, "worktree", "remove", "--force", wantWorkspace)
+}
+
+func runGitCmd(t *testing.T, cwd string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = cwd
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, strings.TrimSpace(string(out)))
 	}
 }

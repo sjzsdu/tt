@@ -179,6 +179,7 @@ type formulaRuntimeRunOptions struct {
 	Vars         map[string]string
 	DryRun       bool
 	AllowScripts bool
+	RunID        string
 }
 
 func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Executor, error) {
@@ -200,6 +201,7 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 	exec.SeedEnvironment(opt.Workspace)
 	exec.SeedWorkflowVars(workflow)
 	exec.SeedVars(opt.Vars)
+	exec.SeedRunID(opt.RunID)
 	if opt.RunStore != nil {
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)
 	}
@@ -240,6 +242,12 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		Vars:         opt.Vars,
 		DryRun:       opt.DryRun,
 		AllowScripts: opt.AllowScripts,
+		RunID: func() string {
+			if opt.RunStore != nil {
+				return opt.RunStore.Meta.RunID
+			}
+			return ""
+		}(),
 	})
 	if err != nil {
 		return err

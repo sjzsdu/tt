@@ -57,7 +57,7 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		prompt = appendDynamicHumanInputProtocol(prompt)
 	}
 	prompt = appendFormulaAgentExecutionGuard(prompt)
-	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{NodeID: req.NodeID, Agent: s.Agent, Model: s.Model, Workspace: renderContextTemplates(s.Cwd, req.Context), Prompt: prompt})
+	out, err := req.Capabilities.Agents.RunAgent(ctx, AgentRequest{NodeID: req.NodeID, Agent: s.Agent, Model: s.Model, Workspace: renderStepCwd(s.Cwd, req.Context), Prompt: prompt})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Error: &StepError{Message: "agent step failed", Cause: err}}, err
 	}
@@ -222,11 +222,26 @@ func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error)
 		err := &StepError{Message: "script capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderContextTemplates(s.Cwd, req.Context), Env: renderContextTemplateMap(s.Env, req.Context)})
+	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderStepCwd(s.Cwd, req.Context), Env: renderContextTemplateMap(s.Env, req.Context)})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "script step failed", Cause: err}}, err
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
+}
+
+func renderStepCwd(cwd string, ctx ContextView) string {
+	rendered := strings.TrimSpace(renderContextTemplates(cwd, ctx))
+	if rendered != "" {
+		return rendered
+	}
+	if ctx == nil {
+		return ""
+	}
+	value, ok := ctx.Get("env.cwd")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(valueForPrompt(value))
 }
 
 func renderContextTemplateSlice(values []string, ctx ContextView) []string {

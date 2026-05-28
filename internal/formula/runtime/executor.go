@@ -18,6 +18,7 @@ type Executor struct {
 	Capabilities steps.Capabilities
 	Events       EventSink
 	Store        StateStore
+	runID        string
 }
 
 type EventSink interface{ Emit(Event) }
@@ -43,14 +44,14 @@ func NewExecutor(workflow *ir.Workflow, capabilities steps.Capabilities) *Execut
 	return exec
 }
 
-func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
+func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	if e.Workflow == nil {
 		return nil, fmt.Errorf("workflow is required")
 	}
 	if e.Store == nil {
 		e.Store = NewMemoryStateStore()
 	}
-	if err := e.Store.StartWorkflow(e.Workflow.ID); err != nil {
+	if err = e.Store.StartWorkflow(e.Workflow.ID); err != nil {
 		return nil, err
 	}
 	e.emit("", "workflow.started", nil)
@@ -58,7 +59,30 @@ func (e *Executor) Run(ctx context.Context) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &RunResult{WorkflowID: e.Workflow.ID, Status: steps.StatusCompleted, Nodes: map[ir.NodeID]*steps.RunResult{}}
+	out = &RunResult{WorkflowID: e.Workflow.ID, Status: steps.StatusCompleted, Nodes: map[ir.NodeID]*steps.RunResult{}}
+	var workspace *workspaceSession
+	defer func() {
+		if workspace == nil || out == nil || out.Status == steps.StatusWaiting {
+			return
+		}
+		if cleanupErr := e.finalizeWorkspace(workspace); cleanupErr != nil {
+			if out.Status == steps.StatusCompleted {
+				out.Status = steps.StatusFailed
+				_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			}
+			if err == nil {
+				err = cleanupErr
+			} else {
+				err = fmt.Errorf("%w; workspace cleanup failed: %v", err, cleanupErr)
+			}
+		}
+	}()
+	workspace, err = e.prepareWorkspace(ctx)
+	if err != nil {
+		out.Status = steps.StatusFailed
+		_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+		return out, err
+	}
 	for _, nodeID := range order {
 		if err := ctx.Err(); err != nil {
 			out.Status = steps.StatusFailed

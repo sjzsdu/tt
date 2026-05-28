@@ -16,9 +16,15 @@ type Document struct {
 	Contract    string
 	Vars        map[string]VarDecl
 	Steps       []StepDecl
+	Workspace   *WorkspaceSpec
+	Worktree    bool
 	Source      SourcePos
 }
-
+type WorkspaceSpec struct {
+	Kind    string
+	Path    string
+	Cleanup *bool
+}
 type VarDecl struct {
 	Description string
 	Default     *string

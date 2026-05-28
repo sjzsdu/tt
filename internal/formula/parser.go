@@ -92,6 +92,7 @@ func (p *Parser) Parse(data []byte) (*Formula, error) {
 	if formula.Type == "" {
 		formula.Type = TypeWorkflow
 	}
+	normalizeFormulaWorkspace(&formula)
 
 	return &formula, nil
 }
@@ -108,6 +109,7 @@ func (p *Parser) ParseTOML(data []byte) (*Formula, error) {
 	if formula.Type == "" {
 		formula.Type = TypeWorkflow
 	}
+	normalizeFormulaWorkspace(&formula)
 
 	return &formula, nil
 }
@@ -140,6 +142,8 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 		Source:      formula.Source,
 		Phase:       formula.Phase,
 		Pour:        formula.Pour,
+		Worktree:    formula.Worktree,
+		Workspace:   formula.Workspace,
 		Vars:        make(map[string]*VarDef),
 		Steps:       nil,
 		Template:    nil,
@@ -166,6 +170,9 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 		if !merged.Pour {
 			merged.Pour = parent.Pour
 		}
+		if merged.Workspace == nil {
+			merged.Workspace = parent.Workspace
+		}
 
 		for name, varDef := range parent.Vars {
 			if _, exists := merged.Vars[name]; !exists {
@@ -185,6 +192,10 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 	merged.Steps = mergeSteps(merged.Steps, formula.Steps)
 	merged.Template = mergeSteps(merged.Template, formula.Template)
 	merged.Compose = mergeComposeRules(merged.Compose, formula.Compose)
+
+	if merged.Workspace == nil && merged.Worktree {
+		merged.Workspace = &WorkspaceSpec{Kind: "worktree"}
+	}
 
 	if formula.Description != "" {
 		merged.Description = formula.Description

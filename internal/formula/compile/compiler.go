@@ -2,6 +2,7 @@ package compile
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ast"
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -21,7 +22,7 @@ func (c *Compiler) Compile(doc *ast.Document) (*ir.Workflow, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("formula document is required")
 	}
-	wf := &ir.Workflow{ID: ir.WorkflowID(doc.Name), Name: doc.Name, Description: doc.Description, Vars: map[string]ir.VarSchema{}, Graph: ir.NewGraph()}
+	wf := &ir.Workflow{ID: ir.WorkflowID(doc.Name), Name: doc.Name, Description: doc.Description, Vars: map[string]ir.VarSchema{}, Workspace: workspacePolicyFromDocument(doc), Graph: ir.NewGraph()}
 	for name, v := range doc.Vars {
 		wf.Vars[name] = ir.VarSchema{Type: v.Type, Required: v.Required, Default: v.Default}
 	}
@@ -49,6 +50,28 @@ func (c *Compiler) Compile(doc *ast.Document) (*ir.Workflow, error) {
 		return nil, err
 	}
 	return wf, nil
+}
+
+func workspacePolicyFromDocument(doc *ast.Document) *ir.WorkspacePolicy {
+	if doc == nil {
+		return nil
+	}
+	spec := doc.Workspace
+	if spec == nil && doc.Worktree {
+		spec = &ast.WorkspaceSpec{Kind: "worktree"}
+	}
+	if spec == nil {
+		return nil
+	}
+	kind := strings.TrimSpace(spec.Kind)
+	if kind == "" {
+		kind = "worktree"
+	}
+	cleanup := true
+	if spec.Cleanup != nil {
+		cleanup = *spec.Cleanup
+	}
+	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(spec.Path), Cleanup: cleanup}
 }
 
 func validateAcyclic(graph ir.Graph) ([]ir.NodeID, error) {

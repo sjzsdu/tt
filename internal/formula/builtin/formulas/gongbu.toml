@@ -1,19 +1,19 @@
 formula = "gongbu"
-description = "以隔离 worktree 为默认执行环境，基于一个 feature_request 自动推导分支名、worktree 目录，并在非仓库根目录执行时默认进行 sparse checkout。"
+description = "以自动隔离 worktree 为默认执行环境，基于 feature_request 推导分支名；当在仓库子目录执行时，由 runtime 自动应用 sparse checkout。"
 version = 1
 type = "workflow"
+workspace = { kind = "worktree", cleanup = false }
 
 [vars]
 feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述", required = true }
 branch_name = { description = "可选覆盖：特性分支名；默认从 feature_request 推导为 feature/<slug>" }
-worktree_path = { description = "可选覆盖：worktree 目录；默认推导为 ../<repo>-<slug>" }
 base_branch = { description = "可选覆盖：起始分支/commit；默认 origin/main，不存在则自动 fallback 到 HEAD" }
-sparse_paths = { description = "可选覆盖：逗号或分号分隔的 sparse checkout 目录；默认在非仓库根目录运行时使用当前相对目录，在根目录运行时不启用 sparse" }
 
 [[steps]]
 id = "create-worktree"
-title = "推导并创建隔离开发 worktree"
+title = "准备隔离开发分支"
 execution = "script"
+cwd = "{{env.cwd}}"
 
 [steps.script]
 command = [
@@ -21,15 +21,13 @@ command = [
   "-c",
   """
 import json, os, re, subprocess, sys
-feature_request, branch_override, path_override, base_override, sparse_override = sys.argv[1:6]
+feature_request, branch_override, base_override = sys.argv[1:4]
 def empty_if_template(v):
     v = (v or '').strip()
     return '' if v.startswith('{{') and v.endswith('}}') else v
 feature_request = empty_if_template(feature_request)
 branch_override = empty_if_template(branch_override)
-path_override = empty_if_template(path_override)
 base_branch = empty_if_template(base_override) or 'origin/main'
-sparse_override = empty_if_template(sparse_override)
 def run(args, cwd=None, check=True):
     p = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
     if check and p.returncode != 0:
@@ -46,54 +44,35 @@ repo = os.path.basename(root.rstrip(os.sep))
 prefix = run(['git', 'rev-parse', '--show-prefix'], check=False).strip().strip('/')
 slug = slugify(feature_request)
 branch = branch_override or ('feature/' + slug)
-worktree_path = os.path.abspath(path_override) if path_override else os.path.abspath(os.path.join(root, '..', repo + '-' + slug))
-if sparse_override:
-    sparse_paths = [p.strip().strip('/') for p in re.split(r'[,;]', sparse_override) if p.strip()]
-elif prefix:
-    sparse_paths = [prefix]
-else:
-    sparse_paths = []
 probe = subprocess.run(['git', 'rev-parse', '--verify', base_branch + '^{commit}'], text=True, capture_output=True)
 if probe.returncode != 0:
     base_branch = 'HEAD'
+current_branch = run(['git', 'branch', '--show-current'], check=False)
 branch_exists = subprocess.run(['git', 'rev-parse', '--verify', branch], text=True, capture_output=True).returncode == 0
-cmd = ['git', 'worktree', 'add']
-if sparse_paths:
-    cmd.append('--no-checkout')
-if branch_exists:
-    cmd += [worktree_path, branch]
-else:
-    cmd += ['-b', branch, worktree_path, base_branch]
-created = False
-if not os.path.exists(worktree_path):
-    run(cmd)
-    created = True
-if sparse_paths:
-    run(['git', '-C', worktree_path, 'sparse-checkout', 'set', '--cone'] + sparse_paths)
-    run(['git', '-C', worktree_path, 'checkout'])
+if current_branch != branch:
+    if branch_exists:
+        run(['git', 'checkout', branch])
+    else:
+        run(['git', 'checkout', '-b', branch, base_branch])
+sparse_paths = [p.strip().strip('/') for p in run(['git', 'sparse-checkout', 'list'], check=False).splitlines() if p.strip()]
 ctx = {
     'feature_request': feature_request,
     'base_branch': base_branch,
     'branch_name': branch,
-    'worktree_path': worktree_path,
+    'worktree_path': cwd,
     'git_root': root,
     'repo': repo,
     'invocation_cwd': cwd,
     'current_relative_dir': prefix,
     'sparse_paths': sparse_paths,
     'sparse_enabled': bool(sparse_paths),
-    'created': created,
+    'checked_out': current_branch != branch,
 }
-os.makedirs(os.path.join(root, '.tt'), exist_ok=True)
-with open(os.path.join(root, '.tt', 'gongbu-runtime.json'), 'w', encoding='utf-8') as f:
-    json.dump(ctx, f, ensure_ascii=False, indent=2)
 print(json.dumps(ctx, ensure_ascii=False))
 """,
   "{{feature_request}}",
   "{{branch_name}}",
-  "{{worktree_path}}",
   "{{base_branch}}",
-  "{{sparse_paths}}",
 ]
 format = "json"
 timeout = "2m"
@@ -107,6 +86,7 @@ id = "inspect-repo"
 title = "收集 worktree 与执行环境信息"
 depends_on = ["create-worktree"]
 execution = "script"
+cwd = "{{create-worktree.stdout.worktree_path}}"
 
 [steps.script]
 command = [
@@ -115,19 +95,43 @@ command = [
   """
 import json, os, subprocess
 root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-ctx_path = os.path.join(root, '.tt', 'gongbu-runtime.json')
-ctx = json.load(open(ctx_path, encoding='utf-8'))
+worktree_path = root
+branch_name = os.environ.get('TT_BRANCH_NAME', '').strip()
+base_branch = os.environ.get('TT_BASE_BRANCH', '').strip()
+feature_request = os.environ.get('TT_FEATURE_REQUEST', '').strip()
 def run(args, cwd=None):
     p = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
     return {'command': args, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}
-ctx['status'] = run(['git', 'status', '--short', '--branch'], cwd=ctx['worktree_path'])
-ctx['top_level_files'] = run(['git', 'ls-files'], cwd=ctx['worktree_path'])
+sparse = run(['git', 'sparse-checkout', 'list'], cwd=root)
+sparse_paths = [line.strip().strip('/') for line in sparse['stdout'].splitlines() if line.strip()]
+ctx = {
+    'feature_request': feature_request,
+    'base_branch': base_branch,
+    'branch_name': branch_name,
+    'worktree_path': worktree_path,
+    'git_root': root,
+    'repo': os.path.basename(root.rstrip(os.sep)),
+    'invocation_cwd': os.getcwd(),
+    'current_relative_dir': '',
+    'sparse_paths': sparse_paths,
+    'sparse_enabled': bool(sparse_paths),
+}
+ctx['status'] = run(['git', 'status', '--short', '--branch'], cwd=root)
+ctx['top_level_files'] = run(['git', 'ls-files'], cwd=root)
 print(json.dumps(ctx, ensure_ascii=False))
 """,
 ]
 format = "json"
 timeout = "30s"
 
+[steps.script.env]
+TT_BRANCH_NAME = "{{create-worktree.stdout.branch_name}}"
+TT_BASE_BRANCH = "{{create-worktree.stdout.base_branch}}"
+TT_FEATURE_REQUEST = "{{feature_request}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
 [[steps]]
 id = "analyze-feature"
 title = "理解 feature 需求并形成代码调研线索"
@@ -431,6 +435,8 @@ title = "提交 worktree 中的代码"
 depends_on = ["final-check"]
 condition = "final-check.ready_to_commit == true"
 execution = "script"
+cwd = "{{create-worktree.stdout.worktree_path}}"
+description = "在隔离 worktree 中提交代码，提交后保留分支，不删除 worktree；清理由 runtime policy 处理。"
 
 [steps.script]
 command = [
@@ -438,49 +444,12 @@ command = [
   "-c",
   """
 import json, os, subprocess
-root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-ctx = json.load(open(os.path.join(root, '.tt', 'gongbu-runtime.json'), encoding='utf-8'))
-subprocess.run(['git', 'add', '-A'], cwd=ctx['worktree_path'], check=False)
-msg = 'feat: ' + ctx['branch_name'].split('/')[-1]
-p = subprocess.run(['git', 'commit', '-m', msg], cwd=ctx['worktree_path'], text=True, capture_output=True)
-print(json.dumps({'worktree_path': ctx['worktree_path'], 'branch_name': ctx['branch_name'], 'commit_message': msg, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}, ensure_ascii=False))
-raise SystemExit(0)
-""",
-]
-format = "json"
-timeout = "60s"
-continue_on_error = true
-
-[[steps]]
-id = "cleanup-worktree"
-title = "清理开发 worktree"
-depends_on = ["commit-changes", "final-check"]
-execution = "script"
-description = "功能开发流程结束后移除隔离 worktree，避免本地 worktree 目录持续膨胀；只移除 worktree，不删除已提交的分支。"
-
-[steps.script]
-command = [
-  "python3",
-  "-c",
-  """
-import json, os, subprocess
-root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-ctx_path = os.path.join(root, '.tt', 'gongbu-runtime.json')
-if not os.path.exists(ctx_path):
-    print(json.dumps({'attempted': False, 'removed': False, 'worktree_path': '', 'stderr': 'missing gongbu-runtime.json'}, ensure_ascii=False))
-    raise SystemExit(0)
-ctx = json.load(open(ctx_path, encoding='utf-8'))
-wt = ctx.get('worktree_path') or ''
-if not wt:
-    print(json.dumps({'attempted': False, 'removed': False, 'worktree_path': '', 'stderr': 'missing worktree_path'}, ensure_ascii=False))
-    raise SystemExit(0)
-if not os.path.exists(wt):
-    subprocess.run(['git', 'worktree', 'prune'], cwd=root, check=False, capture_output=True, text=True)
-    print(json.dumps({'attempted': True, 'removed': True, 'already_absent': True, 'worktree_path': wt, 'stdout': '', 'stderr': ''}, ensure_ascii=False))
-    raise SystemExit(0)
-p = subprocess.run(['git', 'worktree', 'remove', '--force', '--force', wt], cwd=root, text=True, capture_output=True)
-subprocess.run(['git', 'worktree', 'prune'], cwd=root, check=False, capture_output=True, text=True)
-print(json.dumps({'attempted': True, 'removed': p.returncode == 0, 'already_absent': False, 'worktree_path': wt, 'stdout': p.stdout if p.returncode == 0 else '', 'stderr': '' if p.returncode == 0 else (p.stderr or p.stdout)}, ensure_ascii=False))
+worktree_path = os.getcwd()
+current_branch = subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()
+msg = 'feat: ' + (current_branch.split('/')[-1] if current_branch else 'gongbu')
+subprocess.run(['git', 'add', '-A'], cwd=worktree_path, check=False)
+p = subprocess.run(['git', 'commit', '-m', msg], cwd=worktree_path, text=True, capture_output=True)
+print(json.dumps({'worktree_path': worktree_path, 'branch_name': current_branch, 'commit_message': msg, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}, ensure_ascii=False))
 raise SystemExit(0)
 """,
 ]
@@ -493,11 +462,47 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "cleanup-worktree"
+title = "保留开发 worktree"
+depends_on = ["commit-changes", "final-check"]
+execution = "script"
+description = "开发类 workflow 默认保留隔离 worktree，方便用户继续查看、测试或手动调整；如需清理，可后续手动 git worktree remove。"
+
+[steps.script]
+command = [
+  "python3",
+  "-c",
+  """
+import json, os, subprocess
+wt = os.environ.get('TT_WORKTREE_PATH', '').strip()
+if not wt:
+    print(json.dumps({'attempted': False, 'removed': False, 'retained': False, 'worktree_path': '', 'stderr': 'missing worktree_path'}, ensure_ascii=False))
+    raise SystemExit(0)
+root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+listed = subprocess.run(['git', 'worktree', 'list', '--porcelain'], cwd=root, text=True, capture_output=True)
+registered = any(line == 'worktree ' + wt for line in listed.stdout.splitlines())
+print(json.dumps({'attempted': False, 'removed': False, 'retained': True, 'registered': registered, 'worktree_path': wt, 'note': 'workspace cleanup is disabled for gongbu so the development worktree is retained'}, ensure_ascii=False))
+raise SystemExit(0)
+""",
+]
+format = "json"
+timeout = "60s"
+continue_on_error = true
+
+[steps.script.env]
+TT_WORKTREE_PATH = "{{create-worktree.stdout.worktree_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+[[steps]]
 id = "final-report"
 title = "输出最终结论与报告"
 depends_on = ["commit-changes", "final-check", "cleanup-worktree"]
 input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes", "cleanup-worktree.stdout"]
 description = """
-面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path、worktree 是否已经清理，以及未完成事项。
+面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path、worktree 是否保留，以及未完成事项。
+
+注意：worktree 的创建和 sparse checkout 由 workflow 的 workspace policy 处理；本流程默认保留开发 worktree，不要声称已经清理删除。
 """
 agent.name = "reporter"

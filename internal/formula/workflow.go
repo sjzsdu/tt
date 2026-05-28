@@ -83,7 +83,7 @@ func WorkflowFromFormula(f *Formula) *ir.Workflow {
 	if f == nil {
 		return nil
 	}
-	wf := &ir.Workflow{ID: ir.WorkflowID(f.Formula), Name: f.Formula, Description: f.Description, Vars: make(map[string]ir.VarSchema, len(f.Vars)), Graph: ir.NewGraph()}
+	wf := &ir.Workflow{ID: ir.WorkflowID(f.Formula), Name: f.Formula, Description: f.Description, Vars: make(map[string]ir.VarSchema, len(f.Vars)), Workspace: formulaWorkspacePolicy(f), Graph: ir.NewGraph()}
 	for name, def := range f.Vars {
 		if def == nil {
 			continue
