@@ -371,10 +371,51 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "cleanup-worktree"
+title = "清理临时 rebase worktree"
+execution = "script"
+depends_on = ["prepare-rebase-worktree", "push-rebased-branch"]
+description = "rebase/push 流程结束后移除隔离 worktree，避免 .tt/worktrees 持续膨胀；只移除 worktree，不删除分支。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+wt='${TT_WORKTREE_PATH:-}'
+repo_root='${TT_REPO_ROOT:-}'
+if [ -z "$wt" ]; then
+  jq -cn '{attempted:false,removed:false,worktree_path:"",stdout:"",stderr:"missing worktree_path"}'
+  exit 0
+fi
+if [ -z "$repo_root" ] || [ ! -d "$repo_root/.git" ]; then
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
+if [ ! -e "$wt" ]; then
+  git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
+  jq -cn --arg worktree_path "$wt" '{attempted:true,removed:true,already_absent:true,worktree_path:$worktree_path,stdout:"",stderr:""}'
+  exit 0
+fi
+out="$(git -C "$repo_root" worktree remove --force --force "$wt" 2>&1)"
+rc=$?
+git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
+jq -cn --arg worktree_path "$wt" --arg output "$out" --argjson removed "$([ "$rc" -eq 0 ] && echo true || echo false)" '{attempted:true,removed:$removed,already_absent:false,worktree_path:$worktree_path,stdout:(if $removed then $output else "" end),stderr:(if $removed then "" else $output end)}'
+"""]
+format = "json"
+timeout = "60s"
+continue_on_error = true
+
+[steps.script.env]
+TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+TT_REPO_ROOT = "{{prepare-rebase-worktree.stdout.repo_root}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "final-report"
 title = "输出 PR rebase 结果报告"
-depends_on = ["fetch-pr-metadata", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch"]
-input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.stdout", "push-rebased-branch.stdout"]
+depends_on = ["fetch-pr-metadata", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch", "cleanup-worktree"]
+input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.stdout", "push-rebased-branch.stdout", "cleanup-worktree.stdout"]
 description = """
 输出中文最终报告，结论先行。
 
@@ -385,7 +426,8 @@ description = """
 4. 若发生冲突，列出冲突文件、修复动作与剩余 blocker；
 5. validation_command 是否执行及结果；
 6. 是否 push，push 目标 remote/branch，若未 push 说明原因；
-7. 给出下一步建议，例如刷新 PR、等待 CI、或人工处理 blocker。
+7. worktree 是否已清理，如果清理失败给出路径和原因；
+8. 给出下一步建议，例如刷新 PR、等待 CI、或人工处理 blocker。
 
 不要编造未出现在 input_context 中的测试或 push 结果。
 """

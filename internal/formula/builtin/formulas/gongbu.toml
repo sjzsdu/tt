@@ -452,12 +452,52 @@ timeout = "60s"
 continue_on_error = true
 
 [[steps]]
+id = "cleanup-worktree"
+title = "清理开发 worktree"
+depends_on = ["commit-changes", "final-check"]
+execution = "script"
+description = "功能开发流程结束后移除隔离 worktree，避免本地 worktree 目录持续膨胀；只移除 worktree，不删除已提交的分支。"
+
+[steps.script]
+command = [
+  "python3",
+  "-c",
+  """
+import json, os, subprocess
+root = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+ctx_path = os.path.join(root, '.tt', 'gongbu-runtime.json')
+if not os.path.exists(ctx_path):
+    print(json.dumps({'attempted': False, 'removed': False, 'worktree_path': '', 'stderr': 'missing gongbu-runtime.json'}, ensure_ascii=False))
+    raise SystemExit(0)
+ctx = json.load(open(ctx_path, encoding='utf-8'))
+wt = ctx.get('worktree_path') or ''
+if not wt:
+    print(json.dumps({'attempted': False, 'removed': False, 'worktree_path': '', 'stderr': 'missing worktree_path'}, ensure_ascii=False))
+    raise SystemExit(0)
+if not os.path.exists(wt):
+    subprocess.run(['git', 'worktree', 'prune'], cwd=root, check=False, capture_output=True, text=True)
+    print(json.dumps({'attempted': True, 'removed': True, 'already_absent': True, 'worktree_path': wt, 'stdout': '', 'stderr': ''}, ensure_ascii=False))
+    raise SystemExit(0)
+p = subprocess.run(['git', 'worktree', 'remove', '--force', '--force', wt], cwd=root, text=True, capture_output=True)
+subprocess.run(['git', 'worktree', 'prune'], cwd=root, check=False, capture_output=True, text=True)
+print(json.dumps({'attempted': True, 'removed': p.returncode == 0, 'already_absent': False, 'worktree_path': wt, 'stdout': p.stdout if p.returncode == 0 else '', 'stderr': '' if p.returncode == 0 else (p.stderr or p.stdout)}, ensure_ascii=False))
+raise SystemExit(0)
+""",
+]
+format = "json"
+timeout = "60s"
+continue_on_error = true
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "final-report"
 title = "输出最终结论与报告"
-depends_on = ["commit-changes", "final-check"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
+depends_on = ["commit-changes", "final-check", "cleanup-worktree"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes", "cleanup-worktree.stdout"]
 description = """
-面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path，以及未完成事项。
+面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name 和 worktree_path、worktree 是否已经清理，以及未完成事项。
 """
 agent.name = "reporter"
-agent.cwd = "{{create-worktree.stdout.worktree_path}}"
