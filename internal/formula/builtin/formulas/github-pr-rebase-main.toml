@@ -1,0 +1,394 @@
+formula = "github-pr-rebase-main"
+description = "将 GitHub PR 分支在隔离 worktree 中 rebase 到最新 base/main；遇到冲突时由 agent 修复，再用确定性脚本 continue、验证并 push --force-with-lease。"
+version = 1
+type = "workflow"
+category = "github"
+tags = ["github", "pr", "rebase", "worktree", "conflict"]
+
+[vars]
+pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
+base_branch = { description = "目标 base 分支，默认 main；为空时使用 PR 自身 baseRefName", default = "main" }
+repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+worktree_root = { description = "隔离 worktree 根目录，默认 .tt/worktrees/github-pr-rebase-main", default = ".tt/worktrees/github-pr-rebase-main" }
+validation_command = { description = "可选验证命令，例如 npm test 或 go test ./...；为空则跳过", default = "" }
+push = { description = "rebase 成功后是否 push 回 PR 分支", default = "true", enum = ["true", "false"] }
+
+[[steps]]
+id = "fetch-pr-metadata"
+title = "获取 PR 元数据"
+execution = "script"
+description = "使用 gh pr view 获取 PR 分支、base、URL 等信息。repo_hint 为空时使用当前仓库上下文。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+pr="${TT_PR_REF:-}"
+repo="${TT_REPO_HINT:-}"
+fields='number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
+cmd=(gh pr view "$pr" --json "$fields")
+if [ -n "$repo" ]; then cmd+=(--repo "$repo"); fi
+out="$(${cmd[@]} 2>&1)"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$out" '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error}'
+  exit 0
+fi
+jq -c --arg pr_ref "$pr" --arg repo_hint "$repo" '. + {ok:true,pr_ref:$pr_ref,repo_hint:$repo_hint,error:""}' <<<"$out"
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "prepare-rebase-worktree"
+title = "创建隔离 worktree 并 checkout PR 分支"
+execution = "script"
+depends_on = ["fetch-pr-metadata"]
+description = "在 .tt/worktrees 下创建隔离 worktree，使用 gh pr checkout 拉取 PR 分支，不污染当前工作区。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+meta='${TT_PR_META:-{}}'
+repo_hint='${TT_REPO_HINT:-}'
+base_override='${TT_BASE_BRANCH:-}'
+root_input='${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}'
+ok="$(jq -r '.ok // false' <<<"$meta")"
+if [ "$ok" != true ]; then
+  jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,worktree_path:"",base_branch:"",head_branch:""}'
+  exit 0
+fi
+number="$(jq -r '.number // empty' <<<"$meta")"
+head="$(jq -r '.headRefName // empty' <<<"$meta")"
+base="$(jq -r '.baseRefName // empty' <<<"$meta")"
+if [ -n "$base_override" ] && [ "$base_override" != "-" ]; then base="$base_override"; fi
+if [ -z "$number" ] || [ -z "$head" ] || [ -z "$base" ]; then
+  jq -cn --arg error "missing PR number/head/base" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,worktree_path:"",base_branch:"",head_branch:""}'
+  exit 0
+fi
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$repo_root" ]; then
+  jq -cn '{ok:false,error:"current directory is not inside a git repository",worktree_path:"",base_branch:"",head_branch:""}'
+  exit 0
+fi
+cd "$repo_root"
+safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
+worktree_root="$root_input"
+case "$worktree_root" in /*) ;; *) worktree_root="$repo_root/$worktree_root" ;; esac
+worktree_path="$worktree_root/pr-${number}-${safe_head}"
+local_branch="tt/pr-${number}-rebase-${base}"
+mkdir -p "$worktree_root"
+if [ -d "$worktree_path/.git" ] || [ -f "$worktree_path/.git" ]; then
+  git worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
+fi
+git branch -D "$local_branch" >/dev/null 2>&1 || true
+git fetch origin "$base" --prune >/dev/null 2>&1
+if ! git worktree add -B "$local_branch" "$worktree_path" HEAD >/tmp/tt-pr-rebase-worktree.log 2>&1; then
+  err="$(cat /tmp/tt-pr-rebase-worktree.log)"
+  jq -cn --arg error "$err" --arg worktree_path "$worktree_path" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:"",head_branch:""}'
+  exit 0
+fi
+cd "$worktree_path"
+cmd=(gh pr checkout "$number" --force)
+if [ -n "$repo_hint" ]; then cmd+=(--repo "$repo_hint"); fi
+checkout_out="$(${cmd[@]} 2>&1)"
+checkout_rc=$?
+if [ "$checkout_rc" -ne 0 ]; then
+  jq -cn --arg error "$checkout_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch}'
+  exit 0
+fi
+git fetch origin "$base" --prune >/dev/null 2>&1
+current_branch="$(git branch --show-current)"
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+head_sha="$(git rev-parse HEAD)"
+base_sha="$(git rev-parse "origin/$base" 2>/dev/null || true)"
+jq -cn \
+  --arg worktree_path "$worktree_path" \
+  --arg repo_root "$repo_root" \
+  --arg base_branch "$base" \
+  --arg head_branch "$head" \
+  --arg current_branch "$current_branch" \
+  --arg upstream "$upstream" \
+  --arg head_sha "$head_sha" \
+  --arg base_sha "$base_sha" \
+  --arg checkout_output "$checkout_out" \
+  '{ok:true,error:"",worktree_path:$worktree_path,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:$checkout_output}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_PR_META = "{{fetch-pr-metadata.stdout}}"
+TT_REPO_HINT = "{{repo_hint}}"
+TT_BASE_BRANCH = "{{base_branch}}"
+TT_WORKTREE_ROOT = "{{worktree_root}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "attempt-rebase"
+title = "尝试 rebase 到最新 base"
+execution = "script"
+depends_on = ["prepare-rebase-worktree"]
+condition = "prepare-rebase-worktree.stdout.ok == true"
+description = "在隔离 worktree 中执行 git rebase origin/<base>；若冲突则输出冲突文件并等待 agent 修复。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+wt='${TT_WORKTREE_PATH:-}'
+base='${TT_BASE_BRANCH:-main}'
+if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+  jq -cn --arg error "worktree path missing" '{attempted:false,success:false,conflict:false,error:$error,conflict_files:[]}'
+  exit 0
+fi
+cd "$wt"
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  jq -cn '{attempted:false,success:false,conflict:false,error:"worktree has uncommitted changes before rebase",conflict_files:[]}'
+  exit 0
+fi
+git fetch origin "$base" --prune >/dev/null 2>&1
+out="$(git rebase "origin/$base" 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,conflict:false,error:"",stdout:$output,head:$head,conflict_files:[]}'
+  exit 0
+fi
+files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
+in_rebase=false
+[ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ] && in_rebase=true
+jq -cn --arg output "$out" --argjson conflict_files "$files" --argjson in_rebase "$in_rebase" '{attempted:true,success:false,conflict:($conflict_files|length>0),in_rebase:$in_rebase,error:$output,stdout:$output,conflict_files:$conflict_files}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+TT_BASE_BRANCH = "{{prepare-rebase-worktree.stdout.base_branch}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "resolve-conflicts"
+title = "冲突时修复 rebase conflicts"
+depends_on = ["attempt-rebase"]
+condition = "attempt-rebase.stdout.conflict == true"
+input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout"]
+cwd = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+description = """
+在隔离 worktree 中修复 rebase 冲突。你必须实际读取冲突文件、解决冲突并 git add 相关文件，但不要 push，不要 rebase --continue，由后续脚本完成。
+
+要求：
+1. 先运行 git status --short 和 git diff --name-only --diff-filter=U 确认冲突文件。
+2. 逐个冲突文件解决 conflict markers，保留 PR 语义并兼容最新 base。
+3. 运行必要的轻量检查，如 grep 确认没有 <<<<<<<、=======、>>>>>>> 标记。
+4. 执行 git add <resolved files>。
+5. 不要创建额外 commit，不要 push。
+
+输出 ONLY compact JSON：
+{"resolved":true,"files_resolved":["..."],"validation_actions":["..."],"remaining_conflicts":[],"blocker":""}
+"""
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["resolved", "files_resolved", "remaining_conflicts"]
+
+[[steps]]
+id = "continue-rebase"
+title = "继续 rebase 并确认无冲突"
+execution = "script"
+depends_on = ["resolve-conflicts"]
+condition = "resolve-conflicts.resolved == true"
+description = "冲突文件由 agent 解决并 add 后，用确定性脚本执行 git rebase --continue。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+wt='${TT_WORKTREE_PATH:-}'
+cd "$wt" 2>/dev/null || { jq -cn '{attempted:false,success:false,error:"worktree path missing",conflict_files:[]}'; exit 0; }
+remaining="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
+if [ "$(jq 'length' <<<"$remaining")" != "0" ]; then
+  jq -cn --argjson conflict_files "$remaining" '{attempted:false,success:false,error:"unresolved conflict files remain",conflict_files:$conflict_files}'
+  exit 0
+fi
+out="$(GIT_EDITOR=true git rebase --continue 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,error:"",stdout:$output,head:$head,conflict_files:[]}'
+  exit 0
+fi
+files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
+jq -cn --arg output "$out" --argjson conflict_files "$files" '{attempted:true,success:false,error:$output,stdout:$output,conflict_files:$conflict_files}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "summarize-rebase-state"
+title = "汇总 rebase 状态"
+execution = "script"
+depends_on = ["attempt-rebase", "continue-rebase"]
+description = "统一判断 rebase 是否完成、是否仍被冲突阻塞。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -euo pipefail
+jq -cn \
+  --arg attempt "${TT_ATTEMPT:-}" \
+  --arg cont "${TT_CONTINUE:-}" '
+  def obj($s): if ($s|length)==0 then {} else (($s|fromjson?) // {}) end;
+  obj($attempt) as $a |
+  obj($cont) as $c |
+  (($a.success == true) or ($c.success == true)) as $done |
+  {
+    rebase_done:$done,
+    conflict_seen:($a.conflict == true),
+    blocked:(($done|not) and (($a.conflict == true) or (($a.error // "") != "") or (($c.error // "") != ""))),
+    blocker:(if $done then "" elif ($c.error // "") != "" then $c.error elif ($a.error // "") != "" then $a.error else "rebase did not complete" end),
+    head:($c.head // $a.head // ""),
+    conflict_files:($c.conflict_files // $a.conflict_files // [])
+  }'
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+TT_ATTEMPT = "{{attempt-rebase.stdout}}"
+TT_CONTINUE = "{{continue-rebase.stdout}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "run-validation"
+title = "运行可选验证命令"
+execution = "script"
+depends_on = ["summarize-rebase-state"]
+condition = "summarize-rebase-state.stdout.rebase_done == true"
+description = "如果 validation_command 非空，则在 worktree 中执行该命令。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+wt='${TT_WORKTREE_PATH:-}'
+cmd='${TT_VALIDATION_COMMAND:-}'
+if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
+  jq -cn '{requested:false,success:true,command:"",stdout:"",stderr:""}'
+  exit 0
+fi
+cd "$wt" 2>/dev/null || { jq -cn --arg command "$cmd" '{requested:true,success:false,command:$command,stdout:"",stderr:"worktree path missing"}'; exit 0; }
+out="$(bash -lc "$cmd" 2>&1)"
+rc=$?
+jq -cn --arg command "$cmd" --arg output "$out" --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:true,success:$success,command:$command,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end)}'
+"""]
+format = "json"
+timeout = "20m"
+
+[steps.script.env]
+TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+TT_VALIDATION_COMMAND = "{{validation_command}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "push-rebased-branch"
+title = "push rebase 后的 PR 分支"
+execution = "script"
+depends_on = ["summarize-rebase-state", "run-validation"]
+condition = "summarize-rebase-state.stdout.rebase_done == true"
+description = "验证通过或未请求验证时，按 push 变量决定是否 git push --force-with-lease 回 PR 分支。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+push_flag='${TT_PUSH:-true}'
+wt='${TT_WORKTREE_PATH:-}'
+head_branch='${TT_HEAD_BRANCH:-}'
+validation='${TT_VALIDATION:-}'
+validation_success="$(jq -r 'if length==0 then true else (.success // false) end' <<<"$validation")"
+if [ "$push_flag" != true ]; then
+  jq -cn '{requested:false,pushed:false,skipped_reason:"push=false",stdout:"",stderr:""}'
+  exit 0
+fi
+if [ "$validation_success" != true ]; then
+  jq -cn --arg stderr "validation failed; push skipped" '{requested:true,pushed:false,skipped_reason:"validation_failed",stdout:"",stderr:$stderr}'
+  exit 0
+fi
+cd "$wt" 2>/dev/null || { jq -cn '{requested:true,pushed:false,skipped_reason:"",stdout:"",stderr:"worktree path missing"}'; exit 0; }
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+remote="origin"
+remote_branch="$head_branch"
+if [ -n "$upstream" ] && printf '%s' "$upstream" | grep -q '/'; then
+  remote="${upstream%%/*}"
+  remote_branch="${upstream#*/}"
+fi
+[ -n "$remote_branch" ] || remote_branch="$(git branch --show-current)"
+out="$(git push --force-with-lease "$remote" "HEAD:$remote_branch" 2>&1)"
+rc=$?
+jq -cn \
+  --arg remote "$remote" \
+  --arg remote_branch "$remote_branch" \
+  --arg output "$out" \
+  --arg head "$(git rev-parse HEAD)" \
+  --argjson pushed "$([ "$rc" -eq 0 ] && echo true || echo false)" \
+  '{requested:true,pushed:$pushed,remote:$remote,remote_branch:$remote_branch,head:$head,stdout:(if $pushed then $output else "" end),stderr:(if $pushed then "" else $output end),skipped_reason:""}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_PUSH = "{{push}}"
+TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+TT_HEAD_BRANCH = "{{prepare-rebase-worktree.stdout.head_branch}}"
+TT_VALIDATION = "{{run-validation.stdout}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "final-report"
+title = "输出 PR rebase 结果报告"
+depends_on = ["fetch-pr-metadata", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch"]
+input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.stdout", "push-rebased-branch.stdout"]
+description = """
+输出中文最终报告，结论先行。
+
+必须说明：
+1. PR 编号、标题、URL、head/base 分支；
+2. 使用的隔离 worktree 路径；
+3. rebase 是否成功，是否发生冲突；
+4. 若发生冲突，列出冲突文件、修复动作与剩余 blocker；
+5. validation_command 是否执行及结果；
+6. 是否 push，push 目标 remote/branch，若未 push 说明原因；
+7. 给出下一步建议，例如刷新 PR、等待 CI、或人工处理 blocker。
+
+不要编造未出现在 input_context 中的测试或 push 结果。
+"""
+
+[steps.agent]
+name = "reporter"
