@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Empty } from 'antd';
 import { ExpandOutlined, PartitionOutlined } from '@ant-design/icons';
 import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
@@ -12,6 +12,8 @@ type StepNodeData = {
   parentStep?: FormulaDashboardStep;
   body?: FormulaDashboardLoopBody;
   onSelect: (step: FormulaDashboardStep) => void;
+  onToggleExpand?: (stepID: string) => void;
+  expanded?: boolean;
 };
 
 type LoopGroupNodeData = {
@@ -22,6 +24,7 @@ type LoopGroupNodeData = {
 function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
   const step = data.step;
   const isLoopBody = data.kind === 'loop-body';
+  const isLoop = !!step.loop?.body?.length;
   const latest = step.activities?.at(-1);
   const loopSummary = loopActivitySummary(step);
   if (isLoopBody) {
@@ -44,10 +47,10 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
     );
   }
   return (
-    <button type="button" className={`graph-node flow-graph-node ${step.status}`} onClick={() => data.onSelect(step)}>
+    <button type="button" className={`graph-node flow-graph-node ${isLoop ? 'compound-loop' : ''} ${step.status}`} onClick={() => data.onSelect(step)}>
       <Handle type="target" position={Position.Top} className="flow-handle" />
       <div className="graph-node-topline">
-        <div className="graph-node-id">{graphShortId(step.id)}</div>
+        <div className="graph-node-id">{isLoop ? '↻ loop' : graphShortId(step.id)}</div>
         <span className={`graph-node-state ${step.status}`}>{step.status}</span>
       </div>
       <strong>{step.title}</strong>
@@ -58,6 +61,25 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
         <span><PartitionOutlined /> {step.agent || 'default agent'}</span>
         {!!step.depends_on?.length && <span><ExpandOutlined /> {step.depends_on.length} deps</span>}
       </div>
+      {isLoop && data.onToggleExpand && (
+        <span
+          role="button"
+          tabIndex={0}
+          className="graph-node-action"
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onToggleExpand?.(step.id);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            event.stopPropagation();
+            data.onToggleExpand?.(step.id);
+          }}
+        >
+          {data.expanded ? 'Collapse loop' : 'Expand loop'}
+        </span>
+      )}
       <Handle type="source" position={Position.Bottom} className="flow-handle" />
     </button>
   );
@@ -212,7 +234,7 @@ function graphLoopBodyNodeHeight(step: FormulaDashboardStep): number {
   return Math.max(paddingV + coreGaps + coreH, 150);
 }
 
-function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void) {
+function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step: FormulaDashboardStep) => void, expandedLoopIDs: Set<string>, onToggleExpand: (stepID: string) => void) {
   const stepMap = new Map(snapshot.steps.map(s => [s.id, s]));
   const stepHeight = new Map<string, number>();
   for (const step of snapshot.steps) {
@@ -343,7 +365,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     nodes.push({
       id: step.id,
       type: 'step',
-      data: { step, kind: 'step', onSelect },
+      data: { step, kind: 'step', onSelect, onToggleExpand, expanded: expandedLoopIDs.has(step.id) },
       position: { x: x - TREE_NODE_W / 2, y },
       style: { width: TREE_NODE_W, height: h },
     });
@@ -352,7 +374,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
     maxY = Math.max(maxY, y + h);
 
     // Loop body
-    if (step.loop?.body?.length) {
+    if (step.loop?.body?.length && expandedLoopIDs.has(step.id)) {
       const bodySteps = step.loop.body.map((body, i) => loopBodyStep(step, body, i));
       const bodyHeights = bodySteps.map(graphLoopBodyNodeHeight);
       const bodyGap = TREE_LOOP_H_GAP;
@@ -455,9 +477,19 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
 }
 
 export function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void }) {
-  const layout = useMemo(() => computeGraphLayout(snapshot, onSelect), [snapshot, onSelect]);
+  const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set());
+  const toggleLoop = useCallback((stepID: string) => {
+    setExpandedLoopIDs(current => {
+      const next = new Set(current);
+      if (next.has(stepID)) next.delete(stepID);
+      else next.add(stepID);
+      return next;
+    });
+  }, []);
+  const layout = useMemo(() => computeGraphLayout(snapshot, onSelect, expandedLoopIDs, toggleLoop), [snapshot, onSelect, expandedLoopIDs, toggleLoop]);
   const running = snapshot.steps.find(step => step.status === 'running');
   const loopSteps = snapshot.steps.filter(step => !!step.loop?.body?.length).length;
+  const expandedLoopCount = expandedLoopIDs.size;
 
   if (!snapshot.steps.length) {
     return <Empty description="No executable steps" />;
@@ -468,11 +500,11 @@ export function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardS
       <div className="graph-header">
         <div>
           <h3>Execution graph</h3>
-          <p>Top-level steps plus loop body nodes. Click any node to inspect output, errors, and iteration activity.</p>
+          <p>Overview-first workflow map. Loops stay collapsed until you expand them, with details available in the inspector.</p>
           <div className="graph-header-metrics">
             <span>{layout.nodes.length} nodes</span>
             <span>{layout.edges.length} edges</span>
-            {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} expanded</span>}
+            {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} · {expandedLoopCount} expanded</span>}
           </div>
         </div>
         <div className="graph-header-side">
