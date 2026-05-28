@@ -31,7 +31,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
     const parent = data.parentStep || step;
     return (
       <button type="button" className={`graph-node flow-graph-node loop-body-node ${step.status}`} onClick={() => data.onSelect(parent)}>
-        <Handle type="target" position={Position.Left} className="flow-handle" />
+        <Handle type="target" position={Position.Top} className="flow-handle" />
         <div className="graph-node-topline">
           <div className="graph-node-id">body · {graphShortId(step.id)}</div>
           <span className={`graph-node-state ${step.status}`}>{statusLabel(step.status)}</span>
@@ -42,7 +42,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
           {step.output_key && <span>out · {step.output_key}</span>}
           {!!step.input_ctx?.length && <span>in · {step.input_ctx.join(', ')}</span>}
         </div>
-        <Handle type="source" position={Position.Right} className="flow-handle" />
+        <Handle type="source" position={Position.Bottom} className="flow-handle" />
       </button>
     );
   }
@@ -331,8 +331,9 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   const occupiedHeight = (step: FormulaDashboardStep) => {
     const h = stepHeight.get(step.id) ?? TREE_NODE_H;
     if (step.loop?.body?.length && expandedLoopIDs.has(step.id)) {
-      const maxBodyH = Math.max(...step.loop.body.map((body, index) => graphLoopBodyNodeHeight(loopBodyStep(step, body, index))));
-      return h + 40 + maxBodyH + 40;
+      const bodyHeights = step.loop.body.map((body, index) => graphLoopBodyNodeHeight(loopBodyStep(step, body, index)));
+      const estimatedBodyH = bodyHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, bodyHeights.length - 1) * 86;
+      return h + 56 + estimatedBodyH + 56;
     }
     return h;
   };
@@ -381,43 +382,94 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
       for (const bodyStep of bodySteps) {
         stepStatusMap.set(bodyStep.id, bodyStep.status);
       }
-      const bodyHeights = bodySteps.map(graphLoopBodyNodeHeight);
-      const bodyGap = TREE_LOOP_H_GAP;
+      const bodyIDs = new Set(step.loop.body.map(body => body.id));
+      const bodyEdges: Array<{ from: string; to: string; synthetic?: boolean }> = [];
+      for (let i = 0; i < step.loop.body.length; i++) {
+        const body = step.loop.body[i];
+        const deps = body.depends_on?.filter(dep => bodyIDs.has(dep)) || [];
+        if (deps.length) {
+          for (const dep of deps) bodyEdges.push({ from: dep, to: body.id });
+        } else if (i > 0) {
+          bodyEdges.push({ from: step.loop.body[i - 1].id, to: body.id, synthetic: true });
+        }
+      }
+      const bodyParents = new Map<string, string[]>();
+      for (const edge of bodyEdges) {
+        bodyParents.set(edge.to, [...(bodyParents.get(edge.to) || []), edge.from]);
+      }
+      const bodyRankMemo = new Map<string, number>();
+      const computeBodyRank = (bodyID: string, visiting = new Set<string>()): number => {
+        if (bodyRankMemo.has(bodyID)) return bodyRankMemo.get(bodyID)!;
+        if (visiting.has(bodyID)) return 0;
+        visiting.add(bodyID);
+        const parents = bodyParents.get(bodyID) || [];
+        const rank = parents.length ? Math.max(...parents.map(parentID => computeBodyRank(parentID, visiting) + 1)) : 0;
+        visiting.delete(bodyID);
+        bodyRankMemo.set(bodyID, rank);
+        return rank;
+      };
+      const bodyLayers = new Map<number, number[]>();
+      for (let i = 0; i < step.loop.body.length; i++) {
+        const rank = computeBodyRank(step.loop.body[i].id);
+        bodyLayers.set(rank, [...(bodyLayers.get(rank) || []), i]);
+      }
+      const bodyRanks = Array.from(bodyLayers.keys()).sort((a, b) => a - b);
+      for (const rank of bodyRanks) {
+        bodyLayers.get(rank)!.sort((a, b) => {
+          const bodyA = step.loop!.body![a];
+          const bodyB = step.loop!.body![b];
+          return (bodyParents.get(bodyA.id)?.length || 0) - (bodyParents.get(bodyB.id)?.length || 0) || a - b;
+        });
+      }
 
-      const totalBodyW = bodySteps.length * TREE_NODE_W + (bodySteps.length - 1) * bodyGap;
-      let bodyX = x - totalBodyW / 2 + TREE_LOOP_INDENT;
-      const bodyY = y + h + 40;
+      const bodyHeights = bodySteps.map(graphLoopBodyNodeHeight);
+      const rankGapY = 86;
+      const nodeGapX = TREE_LOOP_H_GAP;
+      const maxRankWidth = Math.max(...bodyRanks.map(rank => (bodyLayers.get(rank)?.length || 0) * TREE_NODE_W + Math.max(0, (bodyLayers.get(rank)?.length || 0) - 1) * nodeGapX));
+      const totalBodyW = Math.max(TREE_NODE_W, maxRankWidth);
+      const bodyTopY = y + h + 56;
+      const bodyPosition = new Map<string, { x: number; y: number }>();
+      let rankY = bodyTopY;
+      for (const rank of bodyRanks) {
+        const indexes = bodyLayers.get(rank) || [];
+        const rankW = indexes.length * TREE_NODE_W + Math.max(0, indexes.length - 1) * nodeGapX;
+        let bodyX = x - rankW / 2 + TREE_NODE_W / 2;
+        const rankH = Math.max(...indexes.map(index => bodyHeights[index]));
+        for (const index of indexes) {
+          const body = step.loop.body[index];
+          bodyPosition.set(body.id, { x: bodyX, y: rankY });
+          bodyX += TREE_NODE_W + nodeGapX;
+        }
+        rankY += rankH + rankGapY;
+      }
 
       for (let i = 0; i < bodySteps.length; i++) {
         const bodyStep = bodySteps[i];
         const bodyNodeID = loopBodyGraphID(step.id, step.loop.body[i].id);
+        const pos = bodyPosition.get(step.loop.body[i].id) || { x, y: bodyTopY };
         const bodyH = bodyHeights[i];
 
         nodes.push({
           id: bodyNodeID,
           type: 'step',
           data: { step: bodyStep, kind: 'loop-body', parentStep: step, body: step.loop.body[i], onSelect },
-          position: { x: bodyX - TREE_NODE_W / 2, y: bodyY },
+          position: { x: pos.x - TREE_NODE_W / 2, y: pos.y },
           style: { width: TREE_NODE_W, height: bodyH },
         });
 
-        maxX = Math.max(maxX, bodyX + TREE_NODE_W / 2);
-        maxY = Math.max(maxY, bodyY + bodyH);
-
-        bodyX += TREE_NODE_W + bodyGap;
+        maxX = Math.max(maxX, pos.x + TREE_NODE_W / 2);
+        maxY = Math.max(maxY, pos.y + bodyH);
       }
 
       // Loop group container
       if (bodySteps.length > 0) {
-        const firstBodyY = bodyY;
-        const lastBodyY = bodyY + bodyHeights[bodyHeights.length - 1];
-        const groupHeight = lastBodyY - firstBodyY + 40;
+        const bodyBottom = Math.max(...step.loop.body.map((body, index) => (bodyPosition.get(body.id)?.y || bodyTopY) + bodyHeights[index]));
         nodes.push({
           id: `${step.id}__loop_group`,
           type: 'loopGroup',
           data: { step, bodyCount: bodySteps.length },
-          position: { x: x - totalBodyW / 2 + TREE_LOOP_INDENT - 18, y: firstBodyY - 28 },
-          style: { width: totalBodyW + 36, height: groupHeight },
+          position: { x: x - totalBodyW / 2 - 18, y: bodyTopY - 28 },
+          style: { width: totalBodyW + 36, height: bodyBottom - bodyTopY + 56 },
           selectable: false,
           draggable: false,
           zIndex: -1,
@@ -425,29 +477,32 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
       }
 
       // Loop body edges
-      for (let i = 0; i < step.loop.body.length; i++) {
-        const body = step.loop.body[i];
-        const target = loopBodyGraphID(step.id, body.id);
-        const bodyIDs = new Set(step.loop.body.map(b => b.id));
-        const deps = body.depends_on?.filter(d => bodyIDs.has(d)) || [];
-        const sources = deps.length
-          ? deps.map(d => loopBodyGraphID(step.id, d))
-          : i === 0
-            ? [step.id]
-            : [loopBodyGraphID(step.id, step.loop.body[i - 1].id)];
-        for (const source of sources) {
-          const targetStatus = statusFor(target);
-          const sourceStatus = statusFor(source);
-          edges.push({
-            id: `${source}-${target}`,
-            source,
-            target,
-            type: 'smoothstep',
-            animated: targetStatus === 'running',
-            markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) },
-            className: edgeVisualClass(sourceStatus, targetStatus, 'loop-body-edge'),
-          });
-        }
+      const firstBodyID = step.loop.body[0]?.id;
+      if (firstBodyID) {
+        edges.push({
+          id: `${step.id}-${loopBodyGraphID(step.id, firstBodyID)}`,
+          source: step.id,
+          target: loopBodyGraphID(step.id, firstBodyID),
+          type: 'smoothstep',
+          animated: statusFor(loopBodyGraphID(step.id, firstBodyID)) === 'running',
+          markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(statusFor(loopBodyGraphID(step.id, firstBodyID))) },
+          className: edgeVisualClass(statusFor(step.id), statusFor(loopBodyGraphID(step.id, firstBodyID)), 'loop-body-edge'),
+        });
+      }
+      for (const edge of bodyEdges) {
+        const source = loopBodyGraphID(step.id, edge.from);
+        const target = loopBodyGraphID(step.id, edge.to);
+        const targetStatus = statusFor(target);
+        const sourceStatus = statusFor(source);
+        edges.push({
+          id: `${source}-${target}`,
+          source,
+          target,
+          type: 'smoothstep',
+          animated: targetStatus === 'running',
+          markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor(targetStatus) },
+          className: edgeVisualClass(sourceStatus, targetStatus, `loop-body-edge ${edge.synthetic ? 'synthetic' : 'dependency'}`),
+        });
       }
     }
   }
@@ -473,7 +528,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
 
   return {
     widths: { nodeWidth: TREE_NODE_W, nodeHeight: TREE_NODE_H, colGap: TREE_H_GAP, paddingX: TREE_PAD_X },
-    depths: sortedDepths,
+    depths: sortedRanks,
     nodes,
     edges,
     width,
