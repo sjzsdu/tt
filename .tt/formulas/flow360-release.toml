@@ -355,9 +355,41 @@ description = """
 
 强调：
 - 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
+- 若最终状态不是 succeeded，后续 assert-release-success 会让本次 formula 以 failed 结束；
 - 本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch；
 - 不要臆造未出现在 input_context 中的分支、日志或验证结果。
 """
 
 [steps.agent]
 name = "reporter"
+
+[[steps]]
+id = "assert-release-success"
+title = "校验发布业务成功"
+execution = "script"
+depends_on = ["final-report"]
+description = "将业务最终状态映射为 workflow 成败：只有 release-progress.final_state=succeeded 才算发布成功，否则让 formula 失败，避免执行 completed 被误解为发布 success。"
+
+  [steps.script]
+  command = ["bash", "-lc", """
+set -u
+progress='${TT_RELEASE_PROGRESS:-}'
+state="$(jq -nr --arg progress "$progress" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?) // {}) end; obj($progress).final_state // "blocked"')"
+summary="$(jq -nr --arg progress "$progress" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?) // {}) end; obj($progress).summary // "release did not reach succeeded state"')"
+blocker="$(jq -nr --arg progress "$progress" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?) // {}) end; obj($progress).blocker_type // "unknown"')"
+if [ "$state" = "succeeded" ]; then
+  jq -cn --arg final_state "$state" --arg summary "$summary" '{ok:true,final_state:$final_state,summary:$summary}'
+  exit 0
+fi
+jq -cn --arg final_state "$state" --arg blocker_type "$blocker" --arg summary "$summary" '{ok:false,final_state:$final_state,blocker_type:$blocker_type,summary:$summary,error:"release business outcome is not succeeded"}'
+exit 1
+"""]
+format = "json"
+  timeout = "30s"
+
+  [steps.script.env]
+  TT_RELEASE_PROGRESS = "{{release-progress.stdout}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
