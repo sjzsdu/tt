@@ -56,10 +56,10 @@ description = "在 .tt/worktrees 下创建隔离 worktree，使用 gh pr checkou
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-meta='${TT_PR_META:-{}}'
-repo_hint='${TT_REPO_HINT:-}'
-base_override='${TT_BASE_BRANCH:-}'
-root_input='${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}'
+meta="${TT_PR_META:-{}}"
+repo_hint="${TT_REPO_HINT:-}"
+base_override="${TT_BASE_BRANCH:-}"
+root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}"
 ok="$(jq -r '.ok // false' <<<"$meta")"
 if [ "$ok" != true ]; then
   jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,worktree_path:"",base_branch:"",head_branch:""}'
@@ -145,8 +145,8 @@ description = "在隔离 worktree 中执行 git rebase origin/<base>；若冲突
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-wt='${TT_WORKTREE_PATH:-}'
-base='${TT_BASE_BRANCH:-main}'
+wt="${TT_WORKTREE_PATH:-}"
+base="${TT_BASE_BRANCH:-main}"
 if [ -z "$wt" ] || [ ! -d "$wt" ]; then
   jq -cn --arg error "worktree path missing" '{attempted:false,success:false,conflict:false,error:$error,conflict_files:[]}'
   exit 0
@@ -165,7 +165,9 @@ if [ "$rc" -eq 0 ]; then
 fi
 files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
 in_rebase=false
-[ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ] && in_rebase=true
+if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then
+  in_rebase=true
+fi
 jq -cn --arg output "$out" --argjson conflict_files "$files" --argjson in_rebase "$in_rebase" '{attempted:true,success:false,conflict:($conflict_files|length>0),in_rebase:$in_rebase,error:$output,stdout:$output,conflict_files:$conflict_files}'
 """]
 format = "json"
@@ -218,7 +220,7 @@ description = "冲突文件由 agent 解决并 add 后，用确定性脚本执�
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-wt='${TT_WORKTREE_PATH:-}'
+wt="${TT_WORKTREE_PATH:-}"
 cd "$wt" 2>/dev/null || { jq -cn '{attempted:false,success:false,error:"worktree path missing",conflict_files:[]}'; exit 0; }
 remaining="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
 if [ "$(jq 'length' <<<"$remaining")" != "0" ]; then
@@ -292,8 +294,8 @@ description = "如果 validation_command 非空，则在 worktree 中执行该�
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-wt='${TT_WORKTREE_PATH:-}'
-cmd='${TT_VALIDATION_COMMAND:-}'
+wt="${TT_WORKTREE_PATH:-}"
+cmd="${TT_VALIDATION_COMMAND:-}"
 if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
   jq -cn '{requested:false,success:true,command:"",stdout:"",stderr:""}'
   exit 0
@@ -325,10 +327,10 @@ description = "验证通过或未请求验证时，按 push 变量决定是否 g
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-push_flag='${TT_PUSH:-true}'
-wt='${TT_WORKTREE_PATH:-}'
-head_branch='${TT_HEAD_BRANCH:-}'
-validation='${TT_VALIDATION:-}'
+push_flag="${TT_PUSH:-true}"
+wt="${TT_WORKTREE_PATH:-}"
+head_branch="${TT_HEAD_BRANCH:-}"
+validation="${TT_VALIDATION:-}"
 validation_success="$(jq -r 'if length==0 then true else (.success // false) end' <<<"$validation")"
 if [ "$push_flag" != true ]; then
   jq -cn '{requested:false,pushed:false,skipped_reason:"push=false",stdout:"",stderr:""}'
@@ -380,8 +382,8 @@ description = "rebase/push 流程结束后移除隔离 worktree，避免 .tt/wor
 [steps.script]
 command = ["bash", "-lc", """
 set -u
-wt='${TT_WORKTREE_PATH:-}'
-repo_root='${TT_REPO_ROOT:-}'
+wt="${TT_WORKTREE_PATH:-}"
+repo_root="${TT_REPO_ROOT:-}"
 if [ -z "$wt" ]; then
   jq -cn '{attempted:false,removed:false,worktree_path:"",stdout:"",stderr:"missing worktree_path"}'
   exit 0
