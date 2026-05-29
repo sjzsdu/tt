@@ -151,7 +151,7 @@ format = "json"
   condition = "classify-run-state.action == repair_conflict"
   input_context = ["classify-run-state.tmp_branch", "classify-run-state.remaining_queue", "classify-run-state.conflicted_branches", "fetch-run-info.stdout.failed_job_logs"]
   description = """
-根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。你可以读写当前 git workspace 中的代码，但不要新建 workflow run，不要 rerun，本步骤只负责修复并 push tmp branch。
+根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。你可以读写当前 git workspace 中的代码，但不要新建 workflow run，不要 rerun，不要执行 git push；本步骤只负责在本地修复冲突并产生提交，后续 push-repair-branch 脚本会确定性执行 push。
 
 必须执行：
 1. 读取目标目录就近 README.md 和项目规则，但只作为约束，不要输出规则确认。
@@ -161,10 +161,10 @@ format = "json"
 5. 按 remaining_queue 顺序 merge origin/<branch>。
 6. 解决冲突并 commit。
 7. 运行必要轻量验证。
-8. push 回 tmp_branch，必须使用 `git push --no-verify origin HEAD:<tmp_branch>`。
+8. 不要执行 git push；保持本地 HEAD 在已提交的修复 commit 上，等待 push-repair-branch 脚本推送。
 
 输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
-{"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"push_completed":true,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":""}
+{"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"local_commit":"","push_completed":false,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":""}
 """
 
     [steps.loop.body.agent]
