@@ -252,7 +252,7 @@ func (e *Executor) prepareWorkspaceBranch(ctx context.Context, session *workspac
 	branch = workspaceBranchAvoidingLocalRefPathConflict(ctx, session.path, branch)
 	base := e.renderWorkspacePolicyText(policy.Base)
 	if isUnresolvedTemplate(base) || strings.TrimSpace(base) == "" {
-		base = "origin/main"
+		base = "HEAD"
 	}
 	if _, err := runGit(ctx, "git", "-C", session.path, "rev-parse", "--verify", base+"^{commit}"); err != nil {
 		base = "HEAD"

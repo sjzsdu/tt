@@ -7,7 +7,7 @@ workspace = { kind = "worktree", cleanup = false, branch = "{{branch_name}}", ba
 [vars]
 feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述", required = true }
 branch_name = { description = "可选覆盖：特性分支名；默认从 feature_request 推导为 feature/<slug>" }
-base_branch = { description = "可选覆盖：起始分支/commit；默认 origin/main，不存在则自动 fallback 到 HEAD" }
+base_branch = { description = "可选覆盖：起始分支/commit；默认从运行 formula 时当前分支的 HEAD 开始" }
 
 [[steps]]
 id = "inspect-repo"
