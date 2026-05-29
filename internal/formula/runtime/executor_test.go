@@ -574,6 +574,52 @@ print(json.dumps({"cwd": os.getcwd(), "branch": subprocess.check_output(["git", 
 	runGitCmd(t, repo, "worktree", "remove", "--force", wantWorkspace)
 }
 
+func TestExecutorWorkspaceBranchAvoidsExistingPrefixRef(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	runGitCmd(t, root, "init", "repo")
+	runGitCmd(t, repo, "config", "user.email", "test@example.com")
+	runGitCmd(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCmd(t, repo, "add", ".")
+	runGitCmd(t, repo, "commit", "-m", "initial")
+	runGitCmd(t, repo, "branch", "feature")
+
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "report", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "report", Kind: steps.KindScript}}, Command: []string{"python3", "-c", `import json, subprocess
+print(json.dumps({"branch": subprocess.check_output(["git", "branch", "--show-current"], text=True).strip()}, sort_keys=True))`}}})
+	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: g, Workspace: &ir.WorkspacePolicy{Kind: "worktree", Cleanup: false, Branch: "{{branch_name}}", BranchSlugFrom: "feature_request", BranchPrefix: "feature", Base: "{{base_branch}}"}}
+	exec := NewExecutor(wf, steps.Capabilities{Scripts: ScriptCapability{DenyUnsafe: true}})
+	exec.SeedEnvironment(repo)
+	exec.SeedVars(map[string]string{"feature_request": "Add Demo Feature", "base_branch": "HEAD"})
+	exec.SeedRunID("prefix-conflict")
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run error: %v", err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	var out scriptCapabilityOutput
+	if err := json.Unmarshal(result.Nodes["report"].Output.Raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct{ Branch string }
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.Stdout)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Branch != "feature-add-demo-feature" {
+		t.Fatalf("branch = %q, want feature-add-demo-feature", payload.Branch)
+	}
+	wantWorkspace := filepath.Join(repo, ".tt", "worktrees", "prefix-conflict")
+	runGitCmd(t, repo, "worktree", "remove", "--force", wantWorkspace)
+}
+
 func runGitCmd(t *testing.T, cwd string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)

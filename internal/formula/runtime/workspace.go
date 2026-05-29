@@ -249,6 +249,7 @@ func (e *Executor) prepareWorkspaceBranch(ctx context.Context, session *workspac
 	if branch == "" {
 		return nil
 	}
+	branch = workspaceBranchAvoidingLocalRefPathConflict(ctx, session.path, branch)
 	base := e.renderWorkspacePolicyText(policy.Base)
 	if isUnresolvedTemplate(base) || strings.TrimSpace(base) == "" {
 		base = "origin/main"
@@ -266,6 +267,21 @@ func (e *Executor) prepareWorkspaceBranch(ctx context.Context, session *workspac
 	}
 	_, err := runGit(ctx, "git", "-C", session.path, "checkout", "-b", branch, base)
 	return err
+}
+
+func workspaceBranchAvoidingLocalRefPathConflict(ctx context.Context, repoPath, branch string) string {
+	branch = strings.Trim(strings.TrimSpace(branch), "/")
+	if branch == "" || !strings.Contains(branch, "/") {
+		return branch
+	}
+	parts := strings.Split(branch, "/")
+	for i := 1; i < len(parts); i++ {
+		prefix := strings.Join(parts[:i], "/")
+		if _, err := runGit(ctx, "git", "-C", repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+prefix); err == nil {
+			return sanitizeGitBranch(strings.ReplaceAll(branch, "/", "-"))
+		}
+	}
+	return branch
 }
 
 func (e *Executor) resolveWorkspaceBranch(policy *ir.WorkspacePolicy) string {
