@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	AgentOptimizerID      = "agent-optimizer"
 	TranslateMasterID     = "translate-master"
 	CoderID               = "coder"
 	ReporterID            = "reporter"
@@ -86,6 +87,10 @@ func DocsAnalyst() pcwrap.EmbeddedAgent {
 	return mustGet(DocsAnalystID)
 }
 
+func AgentOptimizer() pcwrap.EmbeddedAgent {
+	return mustGet(AgentOptimizerID)
+}
+
 func Core() []pcwrap.EmbeddedAgent {
 	return mustGetMany(CoderID, FullStackID, PlannerID, ProductManagerID, TesterID, UIID)
 }
@@ -117,6 +122,38 @@ func Get(id string) (pcwrap.EmbeddedAgent, error) {
 		}
 	}
 	return pcwrap.EmbeddedAgent{}, fmt.Errorf("embedded agent %q not found", id)
+}
+
+func FilePathForID(id string) (string, error) {
+	id = canonicalAgentID(strings.TrimSpace(id))
+	if id == "" {
+		return "", fmt.Errorf("agent id is required")
+	}
+	searchRoot := strings.TrimSpace(os.Getenv("TT_AGENT_DIR"))
+	if searchRoot == "" {
+		searchRoot = ".tt/agents"
+	}
+	entries, err := os.ReadDir(searchRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("agent %q is embedded or has no local markdown file", id)
+		}
+		return "", fmt.Errorf("read embedded agents from %s failed: %w", searchRoot, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		path := filepath.Join(searchRoot, entry.Name())
+		agent, err := LoadFromFile(path)
+		if err != nil {
+			return "", err
+		}
+		if agent.ID == id {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("agent %q is embedded or has no local markdown file", id)
 }
 
 func List() ([]pcwrap.EmbeddedAgent, error) {
@@ -176,7 +213,7 @@ func loadFilesystemAgents() ([]pcwrap.EmbeddedAgent, error) {
 			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
 				continue
 			}
-			agent, err := loadMarkdownAgentFile(filepath.Join(root, entry.Name()))
+			agent, err := LoadFromFile(filepath.Join(root, entry.Name()))
 			if err != nil {
 				return nil, err
 			}
@@ -234,7 +271,7 @@ func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
 	}, nil
 }
 
-func loadMarkdownAgentFile(path string) (pcwrap.EmbeddedAgent, error) {
+func LoadFromFile(path string) (pcwrap.EmbeddedAgent, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("read embedded agent %s failed: %w", path, err)

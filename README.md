@@ -63,7 +63,7 @@ Available commands:
 
 | Command | Description |
 | --- | --- |
-| `agent` | Run the embedded Picoclaw agent runtime. |
+| `agent` | Run the embedded Picoclaw agent runtime and optimize embedded agents for a target repository. |
 | `cmd2skill` | Convert CLI commands into skill files. |
 | `repo2skill` | Convert repositories into agent-oriented library skills. |
 | `config` | Inspect and initialize `tt` configuration. |
@@ -164,6 +164,34 @@ Flags:
 - `--model string`: model override.
 - `--picoclaw-home string`: override `PICOCLAW_HOME` for this run.
 - `--picoclaw-config string`: override `PICOCLAW_CONFIG` for this run.
+- `-d, --debug`: enable debug logging.
+
+#### `tt agent optimize`
+
+Analyze a local or remote repository and optimize an existing embedded-agent Markdown file for that repository. The target can be a library, application, CLI, service, or full-stack product codebase. By default the source agent file is updated in place. Use `--copy` to create a new optimized agent next to the source agent instead.
+
+First version limitation: repository input only. Website ingestion is not implemented yet.
+
+```bash
+tt agent optimize --target ./repo --agent .tt/agents/custom.md
+tt agent optimize --target github.com/gin-gonic/gin --agent .tt/agents/custom.md --copy
+tt agent optimize --target ./repo --agent coder --copy
+```
+
+Flags:
+
+- `--target string`: target repository path or cloneable URL.
+- `--agent string`: base agent id or local `.md` embedded-agent file. File-backed agents are updated in place by default.
+- `--copy`: create a new optimized agent next to the source agent instead of updating it in place. Required when optimizing built-in agents such as `coder`.
+- `-o, --output string`: advanced override to write output to an explicit file or existing directory.
+- `-f, --force`: overwrite an existing copied or explicit output file.
+- `--session string`: session key for optimization, default `cli:agent-optimize`.
+- `--model string`: model override.
+- `--max-files int`: maximum relevant files to collect, default `200`.
+- `--max-file-size int`: maximum bytes per collected file, default `262144`.
+- `--max-prompt-chars int`: maximum optimized prompt size, default `12000`, used to prevent repeated distillation from bloating an agent.
+- `--timeout duration`: timeout for repository preparation and optimization, default `2m`.
+- `--keep-temp`: keep temporary cloned repositories for debugging.
 - `-d, --debug`: enable debug logging.
 
 #### `tt agent info`

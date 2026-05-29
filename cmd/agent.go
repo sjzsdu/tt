@@ -33,7 +33,8 @@ configuration, models, sessions, and skills without invoking the picoclaw binary
 tt agent "explain the current directory"
 tt agent --list
 tt agent --session cli:tt --model gpt-5.4 -m "review this idea"
-tt agent --picoclaw-home ~/.picoclaw-dev -m "list available skills"`,
+tt agent --picoclaw-home ~/.picoclaw-dev -m "list available skills"
+tt agent optimize --target ./repo --agent coder --output .tt/agents`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runAgent(cmd, args)
 	},
