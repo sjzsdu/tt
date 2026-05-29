@@ -21,12 +21,24 @@ func waitForFormulaDashboardExit(d *formulaDashboardServer) {
 }
 
 func formulaAgentWorkspace(cwd string) string {
-	return formulaDashboardWorkspace(cwd)
+	return strings.TrimSpace(cwd)
 }
 
 func formulaDashboardWorkspace(cwd string) string {
-	if cwd == "" {
+	return formulaAgentWorkspace(cwd)
+}
+
+func formulaCodeWorkspace(workspace string) string {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
 		return ""
 	}
-	return filepath.Join(cwd, ".tt")
+	clean := filepath.Clean(workspace)
+	if filepath.Base(clean) == ".tt" {
+		parent := filepath.Dir(clean)
+		if parent != "." && parent != clean {
+			return parent
+		}
+	}
+	return clean
 }

@@ -181,7 +181,7 @@ func (s *formulaDashboardServer) handleFinalReportChatMessage(w http.ResponseWri
 		Agent:     finalReportChatAgent,
 		Session:   chat.SessionID,
 		Message:   s.buildFinalReportChatPrompt(prompt),
-		Workspace: s.snapshot().WorkspaceDir,
+		Workspace: s.finalReportChatWorkspace(),
 		Quiet:     true,
 	})
 	if err != nil {
@@ -300,7 +300,7 @@ func (s *formulaDashboardServer) finalReportDirectProcessor() (formulaDashboardD
 	if err != nil {
 		return nil, fmt.Errorf("list embedded agents failed: %w", err)
 	}
-	runner, err := runtime.Runtime.NewDirectRunner(pcwrap.RunOptions{Workspace: s.snapshot().WorkspaceDir, Quiet: true, EmbeddedAgents: embeddedAgents})
+	runner, err := runtime.Runtime.NewDirectRunner(pcwrap.RunOptions{Workspace: s.finalReportChatWorkspace(), Quiet: true, EmbeddedAgents: embeddedAgents})
 	if err != nil {
 		return nil, runtime.UnavailableError(err)
 	}
@@ -313,7 +313,7 @@ func (s *formulaDashboardServer) buildFinalReportChatPrompt(message string) stri
 	var b strings.Builder
 	b.WriteString("You are continuing work after a formula run completed. The user's goal is to close the remaining gap between the produced result and their expectation.\n")
 	b.WriteString("Do not treat this as a passive Q&A unless the user only asks a question. If the user asks for changes, inspect and modify the repository, run focused validation, and report what changed.\n")
-	if workspace := strings.TrimSpace(snapshot.WorkspaceDir); workspace != "" {
+	if workspace := s.finalReportChatWorkspace(); workspace != "" {
 		b.WriteString("All repository operations MUST happen in this workspace: ")
 		b.WriteString(workspace)
 		b.WriteString("\n")
@@ -338,6 +338,13 @@ func (s *formulaDashboardServer) buildFinalReportChatPrompt(message string) stri
 	b.WriteString("User request:\n")
 	b.WriteString(message)
 	return b.String()
+}
+
+func (s *formulaDashboardServer) finalReportChatWorkspace() string {
+	if s == nil {
+		return ""
+	}
+	return formulaCodeWorkspace(s.snapshot().WorkspaceDir)
 }
 
 func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http.Request) {

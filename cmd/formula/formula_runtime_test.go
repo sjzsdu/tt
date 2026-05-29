@@ -260,6 +260,7 @@ func TestResumeDependencyExclusionsRerunsLoopAncestorOfFailedStep(t *testing.T) 
 func TestFinalReportChatMessageHandler(t *testing.T) {
 	dashboard := newFormulaDashboardServer(nil)
 	dashboard.state.RunID = "run-123"
+	dashboard.state.WorkspaceDir = "/repo/project/.tt"
 	dashboard.state.FinalOutput = "report body"
 	fake := &fakeDashboardDirectProcessor{}
 	dashboard.directProcessor = fake
@@ -275,6 +276,9 @@ func TestFinalReportChatMessageHandler(t *testing.T) {
 	}
 	if fake.opt.Agent != finalReportChatAgent || fake.opt.Session != "run-123:final-report-chat" {
 		t.Fatalf("opt = %+v", fake.opt)
+	}
+	if fake.opt.Workspace != "/repo/project" {
+		t.Fatalf("workspace = %q, want project root", fake.opt.Workspace)
 	}
 	if !strings.Contains(fake.opt.Message, "report body") || !strings.Contains(fake.opt.Message, "Please revise it") {
 		t.Fatalf("message = %q", fake.opt.Message)

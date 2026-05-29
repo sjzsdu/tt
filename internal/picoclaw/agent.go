@@ -113,10 +113,9 @@ func cloneConfig(cfg *pcconfig.Config) *pcconfig.Config {
 	return &cp
 }
 
-// configureProjectWorkspace points picoclaw agents at the requested workspace
-// while still allowing tools to access the surrounding project when needed.
-// Formula runs use <project>/.tt as the agent workspace, but must retain read
-// and write access to the project root for real code changes.
+// configureProjectWorkspace points picoclaw agents at the requested workspace.
+// Formula runs should use the actual project root or prepared worktree here;
+// .tt is only formula state storage and is not a sufficient code workspace.
 func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) {
 	if cfg == nil || workspace == "" {
 		return
