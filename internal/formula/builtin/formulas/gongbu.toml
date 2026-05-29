@@ -49,10 +49,12 @@ required = ["stdout"]
 id = "analyze-feature"
 title = "理解 feature 需求并形成代码调研线索"
 depends_on = ["inspect-repo"]
-input_context = ["inspect-repo.stdout"]
+input_context = ["feature_request", "inspect-repo.stdout"]
 form = true
 description = """
-基于 feature_request 和 inspect-repo.stdout，理解本次 feature 的目标、边界和交付口径。当前执行目录已经是安全的开发工作区，后续实施在当前目录进行。
+基于 input_context.feature_request 和 inspect-repo.stdout，理解本次 feature 的目标、边界和交付口径。当前执行目录已经是安全的开发工作区，后续实施在当前目录进行。
+
+feature_request 是用户启动 gongbu 时提供的需求原文；如果该值存在，不要再要求用户重复提供 feature_request。
 
 如果信息不足以形成后续代码调研任务，可以动态澄清；只询问阻塞调研的必要信息。
 
