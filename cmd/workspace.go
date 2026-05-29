@@ -25,11 +25,17 @@ func useTTAgentStorage(home, configPath string) (workspace, resolvedHome, resolv
 	}
 	resolvedHome, resolvedConfig = resolvePicoclawPaths(home, configPath)
 	sessionsDir := filepath.Join(workspace, "sessions")
-	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
-		return "", "", "", nil, fmt.Errorf("create picoclaw sessions dir: %w", err)
+	memoryDir := filepath.Join(workspace, "memory")
+	stateDir := filepath.Join(workspace, "state")
+	for label, dir := range map[string]string{"sessions": sessionsDir, "memory": memoryDir, "state": stateDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", "", "", nil, fmt.Errorf("create picoclaw %s dir: %w", label, err)
+		}
 	}
 	restore, err = setEnvMap(map[string]string{
 		"PICOCLAW_SESSIONS_DIR": sessionsDir,
+		"PICOCLAW_MEMORY_DIR":   memoryDir,
+		"PICOCLAW_STATE_DIR":    stateDir,
 	})
 	if err != nil {
 		return "", "", "", nil, err

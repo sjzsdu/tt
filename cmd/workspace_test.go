@@ -25,6 +25,8 @@ func TestUseTTAgentStorageKeepsPicoclawHomeAndConfig(t *testing.T) {
 	prevHome, hadHome := os.LookupEnv("PICOCLAW_HOME")
 	prevConfig, hadConfig := os.LookupEnv("PICOCLAW_CONFIG")
 	prevSessions, hadSessions := os.LookupEnv("PICOCLAW_SESSIONS_DIR")
+	prevMemory, hadMemory := os.LookupEnv("PICOCLAW_MEMORY_DIR")
+	prevState, hadState := os.LookupEnv("PICOCLAW_STATE_DIR")
 	defer func() {
 		if hadHome {
 			_ = os.Setenv("PICOCLAW_HOME", prevHome)
@@ -40,6 +42,16 @@ func TestUseTTAgentStorageKeepsPicoclawHomeAndConfig(t *testing.T) {
 			_ = os.Setenv("PICOCLAW_SESSIONS_DIR", prevSessions)
 		} else {
 			_ = os.Unsetenv("PICOCLAW_SESSIONS_DIR")
+		}
+		if hadMemory {
+			_ = os.Setenv("PICOCLAW_MEMORY_DIR", prevMemory)
+		} else {
+			_ = os.Unsetenv("PICOCLAW_MEMORY_DIR")
+		}
+		if hadState {
+			_ = os.Setenv("PICOCLAW_STATE_DIR", prevState)
+		} else {
+			_ = os.Unsetenv("PICOCLAW_STATE_DIR")
 		}
 	}()
 
@@ -86,6 +98,19 @@ func TestUseTTAgentStorageKeepsPicoclawHomeAndConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(wantSessions); err != nil {
 		t.Fatalf("sessions dir missing: %v", err)
+	}
+	for envName, dirName := range map[string]string{"PICOCLAW_MEMORY_DIR": "memory", "PICOCLAW_STATE_DIR": "state"} {
+		wantDir := filepath.Join(projectDir, ".tt", dirName)
+		if got, want := filepath.Clean(os.Getenv(envName)), filepath.Clean(wantDir); got != want {
+			resolvedGot, gotErr := filepath.EvalSymlinks(got)
+			resolvedWant, wantErr := filepath.EvalSymlinks(want)
+			if gotErr != nil || wantErr != nil || resolvedGot != resolvedWant {
+				t.Fatalf("%s = %q, want %q", envName, os.Getenv(envName), wantDir)
+			}
+		}
+		if _, err := os.Stat(wantDir); err != nil {
+			t.Fatalf("%s dir missing: %v", dirName, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".tt", "picoclaw")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected .tt/picoclaw dir state, err = %v", err)
