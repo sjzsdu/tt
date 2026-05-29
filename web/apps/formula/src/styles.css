@@ -1544,8 +1544,20 @@ button, input, textarea { font: inherit; }
   align-self: stretch;
   display: flex !important;
   align-items: center;
+  justify-content: center;
   padding-inline-start: 14px !important;
+  padding-block: 0 !important;
+  line-height: 1;
   color: var(--muted);
+}
+
+.step-modal-collapse .ant-collapse-expand-icon > .ant-collapse-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 !important;
+  line-height: 1;
+  transform-origin: center;
 }
 
 .step-modal-collapse .ant-collapse-header-text {
@@ -1594,6 +1606,23 @@ button, input, textarea { font: inherit; }
 
 .step-input-collapse .ant-collapse-header {
   align-items: center !important;
+}
+
+.step-input-collapse .ant-collapse-expand-icon {
+  align-self: stretch;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding-block: 0 !important;
+}
+
+.step-input-collapse .ant-collapse-expand-icon > .ant-collapse-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 !important;
+  line-height: 1;
+  transform-origin: center;
 }
 
 .step-input-collapse .ant-collapse-content {
