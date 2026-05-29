@@ -331,6 +331,6 @@ title = "输出最终结论与报告"
 depends_on = ["commit-changes", "final-check"]
 input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
 description = """
-面向用户输出最终中文报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name、工作区路径以及未完成事项。
+面向用户输出最终报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name、工作区路径以及未完成事项。
 """
 agent.name = "reporter"
