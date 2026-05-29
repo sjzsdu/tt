@@ -175,12 +175,143 @@ format = "json"
     required = ["attempted", "resolved", "tmp_branch", "push_completed", "blocker_type"]
 
   [[steps.loop.body]]
-  id = "push-repair-branch"
-  title = "确认并 push 修复后的 tmp branch"
+  id = "validate-repair-build"
+  title = "验证修复后的前端构建"
   execution = "script"
   depends_on = ["repair-conflict"]
   condition = "repair-conflict.resolved == true"
-  description = "agent 修复冲突后，用确定性脚本再次执行 git push --no-verify origin HEAD:<tmp_branch>，避免只本地提交未推送。"
+  description = "冲突修复并本地提交后，确定性执行 npm run build；失败不直接中断 formula，而是输出结构化日志交给后续 agent 修复。"
+
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -u
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+if [ ! -f package.json ]; then
+  jq -cn --arg repo_root "$repo_root" '{attempted:false,success:true,skipped:true,reason:"package.json missing",command:["npm","run","build"],exit_code:0,stdout:"",stderr:"",repo_root:$repo_root}'
+  exit 0
+fi
+out="$(npm run build 2>&1)"
+rc=$?
+jq -cn \
+  --arg output "$out" \
+  --arg repo_root "$repo_root" \
+  --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" \
+  --argjson exit_code "$rc" \
+  '{attempted:true,success:$success,skipped:false,reason:"",command:["npm","run","build"],exit_code:$exit_code,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end),repo_root:$repo_root}'
+exit 0
+"""]
+format = "json"
+    timeout = "20m"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["stdout"]
+
+  [[steps.loop.body]]
+  id = "fix-repair-build"
+  title = "修复构建错误"
+  depends_on = ["validate-repair-build"]
+  condition = "validate-repair-build.stdout.success != true"
+  input_context = ["classify-run-state.tmp_branch", "repair-conflict", "validate-repair-build.stdout.exit_code", "validate-repair-build.stdout.stderr", "validate-repair-build.stdout.repo_root"]
+  description = """
+冲突修复后 npm run build 失败。请在当前 git workspace 中根据 validate-repair-build 的 stderr 修复低级构建错误。
+
+必须执行：
+1. 只修复 build 暴露的问题，不要扩大范围重构。
+2. 修复后运行 npm run build。
+3. 如果修复产生代码变更，提交到当前本地分支。
+4. 不要执行 git push，不要 rerun GitHub Actions；后续脚本会负责 push 和 rerun。
+
+输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
+{"attempted":true,"fixed":true,"validations_run":["npm run build"],"touched_files":[],"local_commit":"","blocker_type":"none|validation_failed|git_state|unknown","blocker_summary":""}
+"""
+
+    [steps.loop.body.agent]
+    name = "coder"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["attempted", "fixed", "blocker_type"]
+
+  [[steps.loop.body]]
+  id = "validate-repair-build-final"
+  title = "复验修复后的前端构建"
+  execution = "script"
+  depends_on = ["fix-repair-build"]
+  condition = "fix-repair-build.fixed == true"
+  description = "build 修复 agent 完成后，再次确定性执行 npm run build，作为 push 前最终 gate。"
+
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -u
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+if [ ! -f package.json ]; then
+  jq -cn --arg repo_root "$repo_root" '{attempted:false,success:true,skipped:true,reason:"package.json missing",command:["npm","run","build"],exit_code:0,stdout:"",stderr:"",repo_root:$repo_root}'
+  exit 0
+fi
+out="$(npm run build 2>&1)"
+rc=$?
+jq -cn \
+  --arg output "$out" \
+  --arg repo_root "$repo_root" \
+  --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" \
+  --argjson exit_code "$rc" \
+  '{attempted:true,success:$success,skipped:false,reason:"",command:["npm","run","build"],exit_code:$exit_code,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end),repo_root:$repo_root}'
+exit 0
+"""]
+format = "json"
+    timeout = "20m"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["stdout"]
+
+  [[steps.loop.body]]
+  id = "repair-ready-to-push"
+  title = "汇总修复是否可 push"
+  execution = "script"
+  depends_on = ["validate-repair-build", "fix-repair-build", "validate-repair-build-final"]
+  condition = "repair-conflict.resolved == true"
+  description = "汇总 build 首次验证和修复后复验结果，为 push-repair-branch 提供单一确定性 gate。"
+
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -euo pipefail
+jq -cn \
+  --arg build "${TT_BUILD:-}" \
+  --arg fix "${TT_BUILD_FIX:-}" \
+  --arg final "${TT_BUILD_FINAL:-}" '
+  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
+  obj($build) as $build |
+  obj($fix) as $fix |
+  obj($final) as $final |
+  ($build.success == true) as $initial_ok |
+  ($fix.fixed == true) as $fix_ok |
+  ($final.success == true) as $final_ok |
+  ($initial_ok or ($fix_ok and $final_ok)) as $ready |
+  {ready_to_push:$ready, build_initial_success:$initial_ok, build_fix_attempted:($fix.attempted == true), build_fix_fixed:$fix_ok, build_final_success:$final_ok, blocker_type:(if $ready then "none" elif ($fix.attempted == true and ($fix_ok | not)) then ($fix.blocker_type // "validation_failed") else "build_failed" end), summary:(if $ready then "repair build validation passed" elif ($fix.attempted == true and ($fix_ok | not)) then ($fix.blocker_summary // "build fix did not complete") else ($build.stderr // $final.stderr // "npm run build failed") end)}'
+"""]
+format = "json"
+    timeout = "30s"
+
+    [steps.loop.body.script.env]
+    TT_BUILD = "{{validate-repair-build.stdout}}"
+    TT_BUILD_FIX = "{{fix-repair-build}}"
+    TT_BUILD_FINAL = "{{validate-repair-build-final.stdout}}"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["stdout"]
+
+  [[steps.loop.body]]
+  id = "push-repair-branch"
+  title = "确认并 push 修复后的 tmp branch"
+  execution = "script"
+  depends_on = ["repair-ready-to-push"]
+  condition = "repair-ready-to-push.stdout.ready_to_push == true"
+  description = "agent 修复冲突且 npm run build 通过后，用确定性脚本再次执行 git push --no-verify origin HEAD:<tmp_branch>，避免只本地提交未推送。"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
@@ -270,7 +401,7 @@ format = "json"
   id = "release-progress"
   title = "更新发布进度"
   execution = "script"
-  depends_on = ["classify-run-state", "repair-conflict", "push-repair-branch", "rerun-failed-jobs", "wait-next-poll"]
+  depends_on = ["classify-run-state", "repair-conflict", "repair-ready-to-push", "push-repair-branch", "rerun-failed-jobs", "wait-next-poll"]
   description = "用确定性脚本汇总本轮结果，避免额外 agent 漂移。"
 
     [steps.loop.body.script]
@@ -279,6 +410,7 @@ set -euo pipefail
 jq -cn \
   --arg cls "${TT_CLASSIFY:-}" \
   --arg repair "${TT_REPAIR:-}" \
+  --arg ready "${TT_READY:-}" \
   --arg push "${TT_PUSH:-}" \
   --arg rerun "${TT_RERUN:-}" \
   --arg dispatch "${TT_DISPATCH:-}" \
@@ -286,6 +418,7 @@ jq -cn \
   def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
   obj($cls) as $cls |
   obj($repair) as $repair |
+  obj($ready) as $ready |
   obj($push) as $push |
   obj($rerun) as $rerun |
   obj($dispatch) as $dispatch |
@@ -294,6 +427,7 @@ jq -cn \
   ($cls.action // "block") as $action |
   ($repair.attempted == true) as $repair_attempted |
   ($repair.resolved == true) as $repair_resolved |
+  ($ready.ready_to_push == true) as $ready_to_push |
   ($push.attempted == true) as $push_attempted |
   ($push.pushed == true) as $push_completed |
   ($rerun.requested == true) as $rerun_requested |
@@ -304,7 +438,9 @@ jq -cn \
     if $repair_attempted and ($repair_resolved | not) then
       {done:true, final_state:"blocked", blocker_type:($repair.blocker_type // "unknown"), summary:($repair.blocker_summary // $class_summary // "repair failed")}
     elif $repair_resolved and $rerun_requested then
-      {done:false, final_state:"running", blocker_type:"none", summary:"conflict repaired, pushed to origin, and failed jobs rerun; continue monitoring original run"}
+      {done:false, final_state:"running", blocker_type:"none", summary:"conflict repaired, npm run build passed, pushed to origin, and failed jobs rerun; continue monitoring original run"}
+    elif $repair_resolved and ($ready_to_push | not) then
+      {done:true, final_state:"blocked", blocker_type:($ready.blocker_type // "build_failed"), summary:($ready.summary // "repair resolved locally but npm run build did not pass")}
     elif $repair_resolved and ($push_completed | not) then
       {done:true, final_state:"blocked", blocker_type:"push_failed", summary:($push.stderr // "repair resolved locally but push to origin did not complete")}
     else
@@ -324,10 +460,15 @@ jq -cn \
     conflicted_branches:($cls.conflicted_branches // []),
     repair_attempted:$repair_attempted,
     repair_resolved:$repair_resolved,
+    build_ready_to_push:$ready_to_push,
+    build_initial_success:($ready.build_initial_success == true),
+    build_fix_attempted:($ready.build_fix_attempted == true),
+    build_fix_fixed:($ready.build_fix_fixed == true),
+    build_final_success:($ready.build_final_success == true),
     push_attempted:$push_attempted,
     push_completed:$push_completed,
     rerun_requested:$rerun_requested,
-    validations_run:($repair.validations_run // [])
+    validations_run:(($repair.validations_run // []) + (if $repair_resolved then ["npm run build"] else [] end))
   }'
 """]
 format = "json"
@@ -338,6 +479,7 @@ format = "json"
     TT_FETCH = "{{fetch-run-info.stdout}}"
     TT_CLASSIFY = "{{classify-run-state}}"
     TT_REPAIR = "{{repair-conflict}}"
+    TT_READY = "{{repair-ready-to-push.stdout}}"
     TT_PUSH = "{{push-repair-branch.stdout}}"
     TT_RERUN = "{{rerun-failed-jobs.stdout}}"
 
@@ -349,9 +491,9 @@ format = "json"
 id = "final-report"
 title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
-input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
+input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.build_ready_to_push", "release-progress.stdout.build_initial_success", "release-progress.stdout.build_fix_attempted", "release-progress.stdout.build_fix_fixed", "release-progress.stdout.build_final_success", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
 description = """
-输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、是否已 push 到 origin、冲突分支、rerun failed jobs 结果、验证项和 blocker。
+输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、npm run build 是否通过、是否触发 build 修复、是否已 push 到 origin、冲突分支、rerun failed jobs 结果、验证项和 blocker。
 
 强调：
 - 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
