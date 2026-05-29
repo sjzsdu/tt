@@ -250,6 +250,7 @@ func (e *Executor) prepareWorkspaceBranch(ctx context.Context, session *workspac
 		return nil
 	}
 	branch = workspaceBranchAvoidingLocalRefPathConflict(ctx, session.path, branch)
+	branch = e.workspaceBranchAvoidingCheckedOutWorktree(ctx, session, branch)
 	base := e.renderWorkspacePolicyText(policy.Base)
 	if isUnresolvedTemplate(base) || strings.TrimSpace(base) == "" {
 		base = "HEAD"
@@ -282,6 +283,55 @@ func workspaceBranchAvoidingLocalRefPathConflict(ctx context.Context, repoPath, 
 		}
 	}
 	return branch
+}
+
+func (e *Executor) workspaceBranchAvoidingCheckedOutWorktree(ctx context.Context, session *workspaceSession, branch string) string {
+	branch = strings.Trim(strings.TrimSpace(branch), "/")
+	if session == nil || branch == "" || !workspaceBranchCheckedOutElsewhere(ctx, session, branch) {
+		return branch
+	}
+	suffix := sanitizeWorkspaceComponent(e.runID)
+	if suffix == "" {
+		suffix = "worktree"
+	}
+	parts := strings.Split(suffix, "-")
+	if len(parts) > 0 {
+		suffix = parts[len(parts)-1]
+	}
+	if len(suffix) > 12 {
+		suffix = suffix[:12]
+	}
+	candidate := sanitizeGitBranch(branch + "-" + suffix)
+	for i := 2; workspaceBranchCheckedOutElsewhere(ctx, session, candidate); i++ {
+		candidate = sanitizeGitBranch(fmt.Sprintf("%s-%s-%d", branch, suffix, i))
+	}
+	return candidate
+}
+
+func workspaceBranchCheckedOutElsewhere(ctx context.Context, session *workspaceSession, branch string) bool {
+	if session == nil || strings.TrimSpace(session.repoRoot) == "" || strings.TrimSpace(branch) == "" {
+		return false
+	}
+	out, err := runGit(ctx, "git", "-C", session.repoRoot, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false
+	}
+	currentPath := ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "worktree ") {
+			currentPath = filepath.Clean(strings.TrimSpace(strings.TrimPrefix(line, "worktree ")))
+			continue
+		}
+		if strings.HasPrefix(line, "branch ") {
+			checkedOut := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+			checkedOut = strings.TrimPrefix(checkedOut, "refs/heads/")
+			if checkedOut == branch && filepath.Clean(currentPath) != filepath.Clean(session.path) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (e *Executor) resolveWorkspaceBranch(policy *ir.WorkspacePolicy) string {
