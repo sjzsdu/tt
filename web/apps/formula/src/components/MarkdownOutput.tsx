@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, Modal, Tag } from 'antd';
+import { Alert, Button, Empty, Input, Modal, Tag } from 'antd';
+import type { FinalReportChat } from '../types';
 import { marked, type TokensList } from 'marked';
 import mermaid from 'mermaid';
 
@@ -121,7 +122,6 @@ function parseOutput(content: string): ParsedOutput {
       const parsed = normalizeJsonValue(JSON.parse(jsonCandidate));
       return { kind: 'json', value: parsed, source: JSON.stringify(parsed, null, 2) };
     } catch {
-      // fall through to markdown/text detection
     }
   }
 
@@ -399,6 +399,100 @@ export function OutputModal({
       <div className="final-output-shell">
         <div className="final-output-kicker">Rendered report</div>
         <OutputSurface content={content} />
+      </div>
+    </Modal>
+  );
+}
+
+export function FinalReportModal({
+  open,
+  title,
+  content,
+  className,
+  chat,
+  chatBusy,
+	chatError,
+	onClose,
+	onStartChat,
+	onSendMessage,
+	onPromoteLatest,
+}: {
+  open: boolean;
+  title: string;
+  content: string;
+  className?: string;
+  chat?: FinalReportChat;
+  chatBusy?: boolean;
+  chatError?: string;
+	onClose: () => void;
+	onStartChat: () => void;
+	onSendMessage: (message: string) => Promise<void> | void;
+	onPromoteLatest: () => Promise<void> | void;
+}) {
+  const [draft, setDraft] = useState('');
+  const messages = chat?.messages || [];
+  const reportAvailable = !!content?.trim();
+	const canPromote = messages.some(item => item.role === 'assistant' && item.content?.trim());
+
+  useEffect(() => {
+    if (!open) setDraft('');
+  }, [open]);
+
+  const submit = async () => {
+    const next = draft.trim();
+    if (!next || chatBusy || !reportAvailable) return;
+    setDraft('');
+    await onSendMessage(next);
+  };
+
+  return (
+    <Modal open={open} onCancel={onClose} footer={null} width="92vw" title={title} className={className}>
+      <div className="final-report-modal-layout">
+        <section className="final-report-pane">
+          <div className="final-output-kicker">Final report</div>
+          <OutputSurface content={content} />
+        </section>
+        <aside className="final-report-chat-pane">
+          <div className="final-report-chat-header">
+            <div>
+              <div className="final-output-kicker">Chat with coder</div>
+              <strong>Ask coder to revise, extend, or validate this final report.</strong>
+              <p>Uses a separate session from the formula run.</p>
+            </div>
+			{chat?.session_id ? <Tag>{chat.session_id}</Tag> : null}
+		  </div>
+		  {canPromote ? (
+			<div className="final-report-chat-promote">
+			  <Button onClick={onPromoteLatest} disabled={chatBusy}>Use latest assistant reply as final report</Button>
+			</div>
+		  ) : null}
+		  {chatError ? <Alert type="error" showIcon message={chatError} style={{ marginBottom: 12 }} /> : null}
+          {!reportAvailable ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chat is unavailable because no final report was produced." />
+          ) : messages.length === 0 ? (
+            <div className="final-report-chat-empty">
+              <p>Replies use the report as context.</p>
+              <Button onClick={onStartChat} loading={chatBusy}>Start chat</Button>
+            </div>
+          ) : (
+            <div className="final-report-chat-messages">
+              {messages.map((item, index) => (
+                <div key={`${item.at || index}-${index}`} className={`final-report-chat-message ${item.role}`}>
+                  <div className="final-report-chat-role">{item.role}</div>
+                  <div className="final-report-chat-content"><AutoOutput content={item.content} /></div>
+                </div>
+              ))}
+              {chatBusy ? <div className="final-report-chat-thinking">Coder is thinking…</div> : null}
+            </div>
+          )}
+          <div className="final-report-chat-composer">
+            <Input.TextArea value={draft} onChange={e => setDraft(e.target.value)} rows={4} placeholder="Ask coder to improve or modify this report..." disabled={!reportAvailable || chatBusy} />
+            <div className="final-report-chat-actions">
+              {!messages.length ? <Button onClick={onStartChat} disabled={!reportAvailable || chatBusy}>Start chat</Button> : null}
+              <Button type="primary" onClick={submit} loading={chatBusy} disabled={!draft.trim() || !reportAvailable}>Send</Button>
+            </div>
+          </div>
+        </aside>
       </div>
     </Modal>
   );

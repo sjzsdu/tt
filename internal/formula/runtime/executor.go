@@ -84,6 +84,9 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
 		return out, err
 	}
+	if workspace != nil && strings.TrimSpace(workspace.path) != "" {
+		e.emit("", "workflow.workspace.ready", map[string]string{"path": workspace.path, "invocation_cwd": workspace.invocationWD})
+	}
 	for _, nodeID := range order {
 		if err := ctx.Err(); err != nil {
 			out.Status = steps.StatusFailed

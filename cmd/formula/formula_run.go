@@ -104,6 +104,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if runStore != nil || showWeb {
 		dashboard = newFormulaDashboardServer(workflow)
 		dashboard.state.WorkspaceDir = formulaDashboardWorkspace(projectRoot)
+		dashboard.directProcessor = runner
 		if runStore != nil {
 			if err := runStore.SaveWorkflow(workflow); err != nil {
 				return err

@@ -2,6 +2,7 @@ package formulacmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sjzsdu/tt/internal/formulaui"
@@ -30,11 +31,34 @@ func (s *formulaDashboardServer) markWorkflowRunning() {
 	s.broadcast()
 }
 
+func (s *formulaDashboardServer) markWorkflowWorkspaceReady(workspace string) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return
+	}
+	s.mu.Lock()
+	s.state.WorkspaceDir = workspace
+	if s.state.FinalReportChat != nil {
+		s.state.FinalReportChat.Error = ""
+	}
+	s.appendLogLocked(fmt.Sprintf("Workspace ready: %s", workspace))
+	s.mu.Unlock()
+	s.broadcast()
+}
+
 func (s *formulaDashboardServer) markWorkflowCompleted(finalOutput string) {
 	s.mu.Lock()
 	s.state.Status = "completed"
 	s.state.Error = ""
 	s.state.FinalOutput = finalOutput
+	if strings.TrimSpace(finalOutput) == "" {
+		s.state.FinalReportChat = nil
+	} else if s.state.FinalReportChat != nil {
+		s.state.FinalReportChat.Error = ""
+		if s.state.FinalReportChat.Status == "" {
+			s.state.FinalReportChat.Status = "idle"
+		}
+	}
 	s.appendLogLocked("Workflow completed")
 	s.mu.Unlock()
 	s.broadcast()

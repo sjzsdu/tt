@@ -16,17 +16,33 @@ const (
 )
 
 type Snapshot struct {
-	RecipeName   string     `json:"recipe_name"`
-	Description  string     `json:"description,omitempty"`
-	Phase        string     `json:"phase,omitempty"`
-	Status       string     `json:"status"`
-	FinalOutput  string     `json:"final_output,omitempty"`
-	Error        string     `json:"error,omitempty"`
-	Steps        []Step     `json:"steps"`
-	Edges        []Edge     `json:"edges,omitempty"`
-	Logs         []LogEntry `json:"logs,omitempty"`
-	WorkspaceDir string     `json:"workspace_dir,omitempty"`
-	RunID        string     `json:"run_id,omitempty"`
+	RecipeName      string           `json:"recipe_name"`
+	Description     string           `json:"description,omitempty"`
+	Phase           string           `json:"phase,omitempty"`
+	Status          string           `json:"status"`
+	FinalOutput     string           `json:"final_output,omitempty"`
+	FinalReportChat *FinalReportChat `json:"final_report_chat,omitempty"`
+	Error           string           `json:"error,omitempty"`
+	Steps           []Step           `json:"steps"`
+	Edges           []Edge           `json:"edges,omitempty"`
+	Logs            []LogEntry       `json:"logs,omitempty"`
+	WorkspaceDir    string           `json:"workspace_dir,omitempty"`
+	RunID           string           `json:"run_id,omitempty"`
+}
+
+type FinalReportChat struct {
+	SessionID string                   `json:"session_id,omitempty"`
+	Agent     string                   `json:"agent,omitempty"`
+	Status    string                   `json:"status,omitempty"`
+	Error     string                   `json:"error,omitempty"`
+	Messages  []FinalReportChatMessage `json:"messages,omitempty"`
+}
+
+type FinalReportChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	At      string `json:"at,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type Step struct {
@@ -174,6 +190,11 @@ func CloneSnapshot(s Snapshot) Snapshot {
 	}
 	cp.Edges = append([]Edge(nil), s.Edges...)
 	cp.Logs = append([]LogEntry(nil), s.Logs...)
+	if s.FinalReportChat != nil {
+		chat := *s.FinalReportChat
+		chat.Messages = append([]FinalReportChatMessage(nil), s.FinalReportChat.Messages...)
+		cp.FinalReportChat = &chat
+	}
 	return cp
 }
 

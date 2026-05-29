@@ -2,10 +2,11 @@ package formulacmd
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
-	"github.com/sjzsdu/tt/internal/formulaui"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formularun"
+	"github.com/sjzsdu/tt/internal/formulaui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -119,9 +121,14 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 	if workspace == "" {
 		workspace = r.workspace
 	}
+	session := agentSessionForNode(r.session, req.NodeID)
+	if workspace != "" {
+		prompt = prependFormulaWorkspaceGuard(prompt, workspace)
+		session = agentSessionForWorkspace(session, workspace, r.workspace)
+	}
 	opt := pcwrap.RunOptions{
 		Message:   prompt,
-		Session:   agentSessionForNode(r.session, req.NodeID),
+		Session:   session,
 		Agent:     agent,
 		Model:     model,
 		Workspace: workspace,
@@ -143,6 +150,43 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 		return steps.Value{}, err
 	}
 	return steps.Value{Type: "json", Raw: data}, nil
+}
+
+func prependFormulaWorkspaceGuard(prompt, workspace string) string {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return prompt
+	}
+	guard := "## Formula workspace guard\n\n" +
+		"All repository inspection, shell commands, file edits, tests, and git operations for this step MUST be performed inside this formula workspace:\n\n" +
+		workspace + "\n\n" +
+		"Do not modify the invocation/original checkout unless the step explicitly asks for cross-workspace changes. If a tool has a working-directory or workspace option, set it to the path above. Before changing files, verify that the target path is under this workspace.\n"
+	return strings.TrimSpace(guard) + "\n\n" + strings.TrimSpace(prompt)
+}
+
+func agentSessionForWorkspace(session, workspace, defaultWorkspace string) string {
+	if strings.TrimSpace(session) == "" || strings.TrimSpace(workspace) == "" || sameFormulaWorkspace(workspace, defaultWorkspace) {
+		return session
+	}
+	sum := sha1.Sum([]byte(filepath.Clean(workspace)))
+	return strings.TrimRight(session, ".-") + ".ws-" + fmt.Sprintf("%x", sum[:4])
+}
+
+func sameFormulaWorkspace(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return a == b
+	}
+	absA, errA := filepath.Abs(a)
+	if errA == nil {
+		a = absA
+	}
+	absB, errB := filepath.Abs(b)
+	if errB == nil {
+		b = absB
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func agentSessionForNode(baseSession, nodeID string) string {
@@ -406,10 +450,20 @@ func (s formulaRuntimeDashboardEventSink) emitWorkflowEvent(event formularuntime
 	switch event.Type {
 	case "workflow.started":
 		s.dashboard.markWorkflowRunning()
+	case "workflow.workspace.ready":
+		s.dashboard.markWorkflowWorkspaceReady(runtimeWorkspacePath(event.Payload))
 	case "workflow.completed":
 		result, _ := event.Payload.(*formularuntime.RunResult)
 		s.dashboard.markWorkflowCompleted(finalOutputFromRunResult(s.workflow, result))
 	}
+}
+
+func runtimeWorkspacePath(payload any) string {
+	values, ok := payload.(map[string]string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(values["path"])
 }
 
 func finalOutputFromRunResult(workflow *ir.Workflow, result *formularuntime.RunResult) string {

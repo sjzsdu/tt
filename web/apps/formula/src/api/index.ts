@@ -18,6 +18,10 @@ function normalizeStep(step: FormulaDashboardStep): FormulaDashboardStep {
 export function normalizeSnapshot(snapshot: FormulaDashboardSnapshot): FormulaDashboardSnapshot {
   return {
     ...snapshot,
+    final_report_chat: snapshot.final_report_chat ? {
+      ...snapshot.final_report_chat,
+      messages: Array.isArray(snapshot.final_report_chat.messages) ? snapshot.final_report_chat.messages : [],
+    } : undefined,
     steps: Array.isArray(snapshot.steps) ? snapshot.steps.map(normalizeStep) : [],
     edges: Array.isArray(snapshot.edges) ? snapshot.edges : [],
     logs: Array.isArray(snapshot.logs) ? snapshot.logs : [],
@@ -44,6 +48,28 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ step_id: stepID, advice: advice || '' }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
+  async ensureFinalReportChat(): Promise<void> {
+    const r = await fetch('/api/final-report-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
+  async sendFinalReportChatMessage(message: string): Promise<void> {
+    const r = await fetch('/api/final-report-chat/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
+  async promoteFinalReportChatResponse(): Promise<void> {
+    const r = await fetch('/api/final-report-chat/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
     if (!r.ok) throw new Error(await r.text());
   },

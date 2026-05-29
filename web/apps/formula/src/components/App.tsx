@@ -8,7 +8,7 @@ import { currentView, persistDashboardView } from '../store/dashboardView';
 import { attentionCopy, attentionStep } from '../utils/steps';
 import { statusIcon, statusLabel, statusTone } from '../utils/status';
 import { GraphPanel } from './graph/GraphPanel';
-import { OutputModal } from './MarkdownOutput';
+import { FinalReportModal } from './MarkdownOutput';
 import { HumanInputModal } from './modals/HumanInputModal';
 import { RetryStepModal } from './modals/RetryStepModal';
 import { StepCard } from './steps/StepCard';
@@ -20,6 +20,8 @@ export function App() {
   const [selectedStep, setSelectedStep] = useState<FormulaDashboardStep | null>(null);
   const [retryStep, setRetryStep] = useState<FormulaDashboardStep | null>(null);
   const [finalOutputOpen, setFinalOutputOpen] = useState(false);
+  const [finalReportChatBusy, setFinalReportChatBusy] = useState(false);
+  const [finalReportChatError, setFinalReportChatError] = useState('');
 
   const handleLoadError = useCallback((err: unknown) => {
     message.error(`Failed to load formula dashboard: ${String(err)}`);
@@ -71,6 +73,53 @@ export function App() {
     if (!runID) return;
     await navigator.clipboard.writeText(runID);
     message.success('Run ID copied');
+  };
+
+  const ensureFinalReportChat = async () => {
+    setFinalReportChatError('');
+    setFinalReportChatBusy(true);
+    try {
+      await api.ensureFinalReportChat();
+    } catch (err) {
+      const next = err instanceof Error ? err.message : String(err);
+      setFinalReportChatError(next);
+      message.error(`Final report chat failed: ${next}`);
+      throw err;
+    } finally {
+      setFinalReportChatBusy(false);
+    }
+  };
+
+  const sendFinalReportChatMessage = async (content: string) => {
+    setFinalReportChatError('');
+    setFinalReportChatBusy(true);
+    try {
+      if (!snapshot?.final_report_chat?.session_id) {
+        await api.ensureFinalReportChat();
+      }
+      await api.sendFinalReportChatMessage(content);
+    } catch (err) {
+      const next = err instanceof Error ? err.message : String(err);
+      setFinalReportChatError(next);
+      message.error(`Final report chat failed: ${next}`);
+    } finally {
+      setFinalReportChatBusy(false);
+    }
+  };
+
+  const promoteFinalReportChatResponse = async () => {
+    setFinalReportChatError('');
+    setFinalReportChatBusy(true);
+    try {
+      await api.promoteFinalReportChatResponse();
+      message.success('Final report updated from latest chat response');
+    } catch (err) {
+      const next = err instanceof Error ? err.message : String(err);
+      setFinalReportChatError(next);
+      message.error(`Final report update failed: ${next}`);
+    } finally {
+      setFinalReportChatBusy(false);
+    }
   };
 
   if (error && !snapshot) {
@@ -180,13 +229,19 @@ export function App() {
       <RetryStepModal step={retryStep} open={!!retryStep} onCancel={() => setRetryStep(null)} onSubmit={submitRetryStep} />
       <HumanInputModal step={waitingInputStep} onSubmit={submitHumanInput} />
       {snapshot.final_output ? (
-        <OutputModal
+        <FinalReportModal
           open={finalOutputOpen}
           onClose={() => setFinalOutputOpen(false)}
           title="Final output"
           content={snapshot.final_output}
           className="final-output-modal"
-        />
+          chat={snapshot.final_report_chat}
+          chatBusy={finalReportChatBusy || snapshot.final_report_chat?.status === 'running'}
+          chatError={finalReportChatError || snapshot.final_report_chat?.error || ''}
+		  onStartChat={ensureFinalReportChat}
+		  onSendMessage={sendFinalReportChatMessage}
+		  onPromoteLatest={promoteFinalReportChatResponse}
+		/>
       ) : null}
     </main>
   );

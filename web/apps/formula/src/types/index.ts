@@ -104,12 +104,28 @@ export type FormulaDashboardLogEntry = {
   text: string;
 };
 
+export type FinalReportChatMessage = {
+  role: 'user' | 'assistant' | string;
+  content: string;
+  at?: string;
+  error?: string;
+};
+
+export type FinalReportChat = {
+  session_id?: string;
+  agent?: string;
+  status?: string;
+  error?: string;
+  messages?: FinalReportChatMessage[];
+};
+
 export type FormulaDashboardSnapshot = {
   recipe_name: string;
   description?: string;
   phase?: string;
   status: string;
   final_output?: string;
+  final_report_chat?: FinalReportChat;
   error?: string;
   steps: FormulaDashboardStep[];
   edges: FormulaDashboardEdge[];

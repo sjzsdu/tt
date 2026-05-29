@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sjzsdu/tt/internal/formulaui"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,21 +13,28 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formularun"
+	"github.com/sjzsdu/tt/internal/formulaui"
+	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
 )
 
 type formulaDashboardServer struct {
-	mu       sync.Mutex
-	server   *http.Server
-	port     int
-	started  time.Time
-	recipe   string
-	state    formulaui.Snapshot
-	store    *formularun.Store
-	readonly bool
-	clients  map[*websocket.Conn]struct{}
-	shutdown chan struct{}
+	mu              sync.Mutex
+	server          *http.Server
+	port            int
+	started         time.Time
+	recipe          string
+	state           formulaui.Snapshot
+	store           *formularun.Store
+	readonly        bool
+	clients         map[*websocket.Conn]struct{}
+	shutdown        chan struct{}
+	directProcessor formulaDashboardDirectProcessor
+}
+
+type formulaDashboardDirectProcessor interface {
+	ProcessDirectContext(ctx context.Context, opt pcwrap.RunOptions) (string, error)
 }
 
 func newFormulaDashboardServerFromSnapshot(snapshot formulaui.Snapshot) *formulaDashboardServer {
@@ -90,6 +96,9 @@ func (s *formulaDashboardServer) start(port int) error {
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/human-input", s.handleHumanInput)
 	mux.HandleFunc("/api/retry-step", s.handleRetryStep)
+	mux.HandleFunc("/api/final-report-chat", s.handleFinalReportChat)
+	mux.HandleFunc("/api/final-report-chat/message", s.handleFinalReportChatMessage)
+	mux.HandleFunc("/api/final-report-chat/promote", s.handleFinalReportChatPromote)
 	mux.HandleFunc("/ws", s.handleWS)
 
 	maxPort := port + 20

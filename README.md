@@ -7,6 +7,7 @@
 - Local web UI for Markdown files with live reload.
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
+- Formula dashboard final report view with a dedicated follow-up coder chat.
 - Embedded Picoclaw agent runtime command.
 - Embedded casual stock investor chat command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
@@ -64,6 +65,7 @@ Available commands:
 | Command | Description |
 | --- | --- |
 | `agent` | Run the embedded Picoclaw agent runtime and optimize embedded agents for a target repository. |
+| `formula` | Author, validate, run, and inspect graph-first formula workflows in CLI and local dashboard flows. |
 | `cmd2skill` | Convert CLI commands into skill files. |
 | `repo2skill` | Convert repositories into agent-oriented library skills. |
 | `config` | Inspect and initialize `tt` configuration. |
@@ -138,6 +140,23 @@ Flags:
 - `-p, --port int`: service port, default `9680`.
 - `-f, --file string`: open a specific JSON file.
 - `--pattern strings`: filter JSON files by glob patterns.
+
+### `tt formula`
+
+Author, validate, compile, run, and inspect formula workflows. The dashboard final report view now includes a dedicated follow-up chat that starts a separate `coder` session and uses the final report as chat context.
+
+Final report chat behavior:
+
+- Open **Final report** after a run completes to view the report and the follow-up chat in the same modal.
+- Click **Start chat** to create or recover a run-scoped session named like `<run-id>:final-report-chat`.
+- The chat is fixed to the embedded `coder` agent for this feature; agent switching is not part of this flow.
+- The current final report is injected as context for the chat, and subsequent turns continue in the same derived session.
+- Chat history is persisted inside the formula snapshot, so it can reappear after dashboard refresh or reconnect.
+- If no final report exists, the report view still opens, but the chat panel shows an unavailable state instead of blocking report access.
+
+Current limitation:
+
+- Because chat messages are stored in the snapshot and broadcast through the dashboard state, very long follow-up chats increase snapshot size and websocket payload size.
 
 ### `tt agent`
 
