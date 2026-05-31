@@ -595,7 +595,16 @@ export function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardS
           elementsSelectable
         >
           <Background color="rgba(125, 211, 252, 0.18)" gap={28} size={1} />
-          <MiniMap pannable zoomable nodeStrokeWidth={3} className="flow-minimap" />
+          <MiniMap
+            pannable
+            zoomable
+            nodeStrokeWidth={3}
+            bgColor="rgba(10, 18, 32, 0.96)"
+            maskColor="rgba(125, 211, 252, 0.12)"
+            nodeColor="rgba(191, 219, 254, 0.92)"
+            nodeStrokeColor="rgba(125, 211, 252, 0.95)"
+            className="flow-minimap"
+          />
           <Controls className="flow-controls" />
         </ReactFlow>
       </div>
