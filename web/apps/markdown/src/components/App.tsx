@@ -52,11 +52,15 @@ export function App() {
   const restoreScrollPosition = (key: string) => {
     const pane = contentPaneRef.current;
     const snapshot = scrollPositionsRef.current[key];
-    if (!pane || !snapshot || window.location.hash) return;
+    if (!pane || window.location.hash) return;
     requestAnimationFrame(() => {
       if (activeScrollKeyRef.current !== key) return;
       const currentPane = contentPaneRef.current;
       if (!currentPane) return;
+      if (!snapshot) {
+        currentPane.scrollTo({ top: 0, behavior: 'instant' });
+        return;
+      }
       const maxScrollTop = Math.max(0, currentPane.scrollHeight - currentPane.clientHeight);
       const ratioTop = snapshot.ratio * maxScrollTop;
       const targetTop = Math.min(maxScrollTop, Math.max(0, Math.round(Math.min(snapshot.top, ratioTop))));

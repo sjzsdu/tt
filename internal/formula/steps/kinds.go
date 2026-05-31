@@ -180,8 +180,12 @@ func parseDynamicHumanInputRequest(out Value) (*AwaitRequest, bool, error) {
 		return nil, false, nil
 	}
 	var req AwaitRequest
-	if err := json.Unmarshal([]byte(strings.TrimSpace(m[1])), &req); err != nil {
-		return nil, true, fmt.Errorf("tt-human-input block must be valid JSON: %w", err)
+	payload := strings.TrimSpace(m[1])
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		repaired := repairMissingJSONClosers(payload)
+		if repaired == payload || json.Unmarshal([]byte(repaired), &req) != nil {
+			return nil, true, fmt.Errorf("tt-human-input block must be valid JSON: %w", err)
+		}
 	}
 	if strings.TrimSpace(req.Type) == "" {
 		req.Type = string(KindHumanInput)
@@ -190,6 +194,62 @@ func parseDynamicHumanInputRequest(out Value) (*AwaitRequest, bool, error) {
 		return nil, true, fmt.Errorf("tt-human-input request must include reason or form")
 	}
 	return &req, true, nil
+}
+
+func repairMissingJSONClosers(input string) string {
+	if strings.TrimSpace(input) == "" {
+		return input
+	}
+	var out strings.Builder
+	out.Grow(len(input) + 8)
+	stack := make([]rune, 0, 8)
+	inString := false
+	escaped := false
+	changed := false
+	for _, r := range input {
+		if inString {
+			out.WriteRune(r)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			for len(stack) > 0 && stack[len(stack)-1] != r {
+				out.WriteRune(stack[len(stack)-1])
+				stack = stack[:len(stack)-1]
+				changed = true
+			}
+			if len(stack) > 0 && stack[len(stack)-1] == r {
+				stack = stack[:len(stack)-1]
+			}
+		}
+		out.WriteRune(r)
+	}
+	for len(stack) > 0 {
+		out.WriteRune(stack[len(stack)-1])
+		stack = stack[:len(stack)-1]
+		changed = true
+	}
+	if !changed {
+		return input
+	}
+	return out.String()
 }
 
 func valueText(out Value) string {

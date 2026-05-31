@@ -121,6 +121,28 @@ func TestStepErrorMarshalStoresStringCause(t *testing.T) {
 	}
 }
 
+func TestParseDynamicHumanInputRepairsMissingFieldsArrayCloser(t *testing.T) {
+	raw, err := json.Marshal("```tt-human-input json\n" + `{"reason":"need scope","form":{"title":"Scope","fields":[{"name":"audience","label":"Audience","type":"select","options":["dev","ops"]},{"name":"constraints","label":"Constraints","type":"textarea"}}}` + "\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, found, err := parseDynamicHumanInputRequest(Value{Type: "json", Raw: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || req == nil {
+		t.Fatalf("request not found: found=%v req=%+v", found, req)
+	}
+	form, ok := req.Form.(map[string]any)
+	if !ok {
+		t.Fatalf("form = %#v", req.Form)
+	}
+	fields, ok := form["fields"].([]any)
+	if !ok || len(fields) != 2 {
+		t.Fatalf("fields = %#v", form["fields"])
+	}
+}
+
 func TestLoopStepEmitsSkippedForConditionFalseBodyStep(t *testing.T) {
 	loop := LoopStep{
 		Base: Base{Metadata: Metadata{ID: "monitor", Kind: KindLoop}},
