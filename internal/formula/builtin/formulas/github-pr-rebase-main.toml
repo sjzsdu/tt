@@ -498,8 +498,8 @@ id = "cleanup-worktree"
 title = "清理临时 rebase worktree"
 execution = "script"
 depends_on = ["prepare-rebase-worktree", "push-rebased-branch"]
-condition = "prepare-rebase-worktree.stdout.ok == true"
-description = "rebase/push 流程结束后移除隔离 worktree，避免 .tt/worktrees 持续膨胀；只移除 worktree，不删除分支。"
+condition = "prepare-rebase-worktree.stdout.worktree_path != \"\""
+description = "只要 prepare 阶段产生了 worktree_path，就在流程结束前移除该隔离 worktree；即使 checkout/rebase/validation/push 失败也要清理，避免 .tt/worktrees 持续膨胀。只移除 worktree，不删除分支。"
 
 [steps.script]
 command = ["bash", "-lc", """
