@@ -222,7 +222,8 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 		boundary.Type = "boundary"
 	}
 
-	namespaced := namespaceEmbeddedSteps(filteredSteps, step.ID, name, step.ID)
+	protectedTemplateRoots := collectTemplateRootsFromVars(childVars)
+	namespaced := namespaceEmbeddedSteps(filteredSteps, step.ID, name, step.ID, protectedTemplateRoots)
 	if len(namespaced) > 0 {
 		entryIDs, exitIDs := embeddedBoundaryIDs(namespaced)
 		for _, childStep := range namespaced {
@@ -340,12 +341,12 @@ func substituteStringMapVars(values map[string]string, vars map[string]string) m
 	return out
 }
 
-func namespaceEmbeddedSteps(steps []*Step, prefix, sourceFormula, embeddedBy string) []*Step {
+func namespaceEmbeddedSteps(steps []*Step, prefix, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) []*Step {
 	mapping := make(map[string]string)
 	collectStepNamespaceMapping(steps, prefix, mapping)
 	result := make([]*Step, 0, len(steps))
 	for _, step := range steps {
-		result = append(result, rewriteEmbeddedStep(step, mapping, sourceFormula, embeddedBy))
+		result = append(result, rewriteEmbeddedStep(step, mapping, sourceFormula, embeddedBy, protectedTemplateRoots))
 	}
 	return result
 }
@@ -365,7 +366,7 @@ func collectStepNamespaceMapping(steps []*Step, prefix string, mapping map[strin
 	}
 }
 
-func rewriteEmbeddedStep(step *Step, mapping map[string]string, sourceFormula, embeddedBy string) *Step {
+func rewriteEmbeddedStep(step *Step, mapping map[string]string, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) *Step {
 	clone := cloneStep(step)
 	origID := step.ID
 	if mapped, ok := mapping[origID]; ok {
@@ -373,10 +374,10 @@ func rewriteEmbeddedStep(step *Step, mapping map[string]string, sourceFormula, e
 	}
 	clone.DependsOn = rewriteStepRefs(step.DependsOn, mapping)
 	clone.Needs = rewriteStepRefs(step.Needs, mapping)
-	clone.Condition = rewriteContextRefsInString(step.Condition, mapping)
+	clone.Condition = rewriteContextRefsInString(step.Condition, mapping, nil)
 	clone.InputCtx = rewriteContextKeys(step.InputCtx, mapping, embeddedBy)
 	clone.OutputKey = rewriteContextKey(step.OutputKey, mapping, embeddedBy)
-	rewriteEmbeddedStepTemplates(clone, mapping)
+	rewriteEmbeddedStepTemplates(clone, mapping, protectedTemplateRoots)
 	clone.Metadata = copyStringMap(clone.Metadata)
 	if clone.Metadata == nil {
 		clone.Metadata = map[string]string{}
@@ -388,11 +389,11 @@ func rewriteEmbeddedStep(step *Step, mapping map[string]string, sourceFormula, e
 	if len(step.Children) > 0 {
 		clone.Children = make([]*Step, len(step.Children))
 		for i, child := range step.Children {
-			clone.Children[i] = rewriteEmbeddedStep(child, mapping, sourceFormula, embeddedBy)
+			clone.Children[i] = rewriteEmbeddedStep(child, mapping, sourceFormula, embeddedBy, protectedTemplateRoots)
 		}
 	}
 	if clone.Loop != nil {
-		clone.Loop = cloneLoopSpec(clone.Loop, mapping, sourceFormula, embeddedBy)
+		clone.Loop = cloneLoopSpec(clone.Loop, mapping, sourceFormula, embeddedBy, protectedTemplateRoots)
 	}
 	return clone
 }
@@ -436,55 +437,55 @@ func rewriteContextKey(v string, mapping map[string]string, prefix string) strin
 	return prefix + "." + v
 }
 
-func rewriteEmbeddedStepTemplates(step *Step, mapping map[string]string) {
-	step.Title = rewriteContextRefsInString(step.Title, mapping)
-	step.Description = rewriteContextRefsInString(step.Description, mapping)
-	step.Timeout = rewriteContextRefsInString(step.Timeout, mapping)
-	step.Metadata = rewriteStringMapContextRefs(step.Metadata, mapping)
+func rewriteEmbeddedStepTemplates(step *Step, mapping map[string]string, protectedTemplateRoots map[string]bool) {
+	step.Title = rewriteContextRefsInString(step.Title, mapping, protectedTemplateRoots)
+	step.Description = rewriteContextRefsInString(step.Description, mapping, protectedTemplateRoots)
+	step.Timeout = rewriteContextRefsInString(step.Timeout, mapping, protectedTemplateRoots)
+	step.Metadata = rewriteStringMapContextRefs(step.Metadata, mapping, protectedTemplateRoots)
 	if step.Agent != nil {
 		agent := *step.Agent
-		agent.Name = rewriteContextRefsInString(agent.Name, mapping)
-		agent.Model = rewriteContextRefsInString(agent.Model, mapping)
-		agent.Cwd = rewriteContextRefsInString(agent.Cwd, mapping)
+		agent.Name = rewriteContextRefsInString(agent.Name, mapping, protectedTemplateRoots)
+		agent.Model = rewriteContextRefsInString(agent.Model, mapping, protectedTemplateRoots)
+		agent.Cwd = rewriteContextRefsInString(agent.Cwd, mapping, protectedTemplateRoots)
 		step.Agent = &agent
 	}
 	if step.Script != nil {
 		script := *step.Script
-		script.Command = rewriteStringSliceContextRefs(script.Command, mapping)
-		script.Cwd = rewriteContextRefsInString(script.Cwd, mapping)
-		script.Env = rewriteStringMapContextRefs(script.Env, mapping)
+		script.Command = rewriteStringSliceContextRefs(script.Command, mapping, protectedTemplateRoots)
+		script.Cwd = rewriteContextRefsInString(script.Cwd, mapping, protectedTemplateRoots)
+		script.Env = rewriteStringMapContextRefs(script.Env, mapping, protectedTemplateRoots)
 		step.Script = &script
 	}
 	if step.Tool != nil {
 		tool := *step.Tool
-		tool.Name = rewriteContextRefsInString(tool.Name, mapping)
+		tool.Name = rewriteContextRefsInString(tool.Name, mapping, protectedTemplateRoots)
 		step.Tool = &tool
 	}
 }
 
-func rewriteStringSliceContextRefs(values []string, mapping map[string]string) []string {
+func rewriteStringSliceContextRefs(values []string, mapping map[string]string, protectedTemplateRoots map[string]bool) []string {
 	if len(values) == 0 {
 		return nil
 	}
 	out := make([]string, len(values))
 	for i, value := range values {
-		out[i] = rewriteContextRefsInString(value, mapping)
+		out[i] = rewriteContextRefsInString(value, mapping, protectedTemplateRoots)
 	}
 	return out
 }
 
-func rewriteStringMapContextRefs(values map[string]string, mapping map[string]string) map[string]string {
+func rewriteStringMapContextRefs(values map[string]string, mapping map[string]string, protectedTemplateRoots map[string]bool) map[string]string {
 	if len(values) == 0 {
 		return nil
 	}
 	out := make(map[string]string, len(values))
 	for key, value := range values {
-		out[key] = rewriteContextRefsInString(value, mapping)
+		out[key] = rewriteContextRefsInString(value, mapping, protectedTemplateRoots)
 	}
 	return out
 }
 
-func rewriteContextRefsInString(value string, mapping map[string]string) string {
+func rewriteContextRefsInString(value string, mapping map[string]string, protectedTemplateRoots map[string]bool) string {
 	if value == "" || len(mapping) == 0 {
 		return value
 	}
@@ -495,6 +496,9 @@ func rewriteContextRefsInString(value string, mapping map[string]string) string 
 	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
 	out := value
 	for _, key := range keys {
+		if protectedTemplateRoots[key] {
+			continue
+		}
 		mapped := mapping[key]
 		out = strings.ReplaceAll(out, "{{"+key+"}}", "{{"+mapped+"}}")
 		out = strings.ReplaceAll(out, "{{"+key+".", "{{"+mapped+".")
@@ -583,20 +587,56 @@ func embeddedBoundaryIDs(steps []*Step) (entries []string, exits []string) {
 	return entries, exits
 }
 
-func cloneLoopSpec(loop *LoopSpec, mapping map[string]string, sourceFormula, prefix string) *LoopSpec {
+func cloneLoopSpec(loop *LoopSpec, mapping map[string]string, sourceFormula, prefix string, protectedTemplateRoots map[string]bool) *LoopSpec {
 	if loop == nil {
 		return nil
 	}
 	cp := *loop
-	cp.ForEach = rewriteContextRefsInString(cp.ForEach, mapping)
-	cp.Until = rewriteContextRefsInString(cp.Until, mapping)
+	cp.ForEach = rewriteContextRefsInString(cp.ForEach, mapping, nil)
+	cp.Until = rewriteContextRefsInString(cp.Until, mapping, nil)
 	if len(loop.Body) > 0 {
 		cp.Body = make([]*Step, len(loop.Body))
 		for i, step := range loop.Body {
-			cp.Body[i] = rewriteEmbeddedStep(step, mapping, sourceFormula, prefix)
+			cp.Body[i] = rewriteEmbeddedStep(step, mapping, sourceFormula, prefix, protectedTemplateRoots)
 		}
 	}
 	return &cp
+}
+
+func collectTemplateRootsFromVars(vars map[string]string) map[string]bool {
+	roots := map[string]bool{}
+	for _, value := range vars {
+		for _, root := range collectTemplateRoots(value) {
+			roots[root] = true
+		}
+	}
+	return roots
+}
+
+func collectTemplateRoots(value string) []string {
+	var roots []string
+	start := 0
+	for {
+		open := strings.Index(value[start:], "{{")
+		if open < 0 {
+			break
+		}
+		open += start + 2
+		close := strings.Index(value[open:], "}}")
+		if close < 0 {
+			break
+		}
+		inner := strings.TrimSpace(value[open : open+close])
+		root := inner
+		if dot := strings.Index(root, "."); dot >= 0 {
+			root = root[:dot]
+		}
+		if root != "" {
+			roots = append(roots, root)
+		}
+		start = open + close + 2
+	}
+	return roots
 }
 
 func copyStringMap(in map[string]string) map[string]string {

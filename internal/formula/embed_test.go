@@ -252,6 +252,105 @@ title = "Loop"
 	t.Fatalf("expanded loop body missing embedded.show: %+v", expanded[0].Loop.Body)
 }
 
+func TestNestedEmbedVarsPreserveCallerLoopVarWhenChildStepIDCollides(t *testing.T) {
+	dir := t.TempDir()
+	writeFormula := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, name+".toml")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	writeFormula("atomic", `formula = "atomic"
+version = 1
+type = "atomic"
+
+[vars]
+pr_ref = { default = "" }
+
+[[steps]]
+id = "pr"
+title = "Fetch PR"
+execution = "script"
+
+[steps.script]
+command = ["echo", "{{pr_ref}}"]
+
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+`)
+
+	writeFormula("child", `formula = "child"
+version = 1
+type = "workflow"
+
+[vars]
+pr_ref = { default = "" }
+
+[[steps]]
+id = "fetch-pr-metadata"
+title = "Fetch metadata"
+embed = "atomic"
+
+[steps.embed_vars]
+pr_ref = "{{pr_ref}}"
+`)
+
+	writeFormula("parent", `formula = "parent"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "loop"
+title = "Loop"
+
+  [steps.loop]
+  for_each = "items"
+  var = "pr"
+
+  [[steps.loop.body]]
+  id = "run-pr-rebase"
+  title = "Run PR"
+  embed = "child"
+
+  [steps.loop.body.embed_vars]
+  pr_ref = "{{pr.pr_ref}}"
+`)
+
+	parser := NewParser(dir)
+	resolved, err := parser.LoadByName("parent")
+	if err != nil {
+		t.Fatalf("LoadByName(parent) error = %v", err)
+	}
+	resolved, err = parser.Resolve(resolved)
+	if err != nil {
+		t.Fatalf("Resolve(parent) error = %v", err)
+	}
+	expanded, err := ApplyEmbedsWithVars(resolved.Steps, parser, nil, []string{"parent"})
+	if err != nil {
+		t.Fatalf("ApplyEmbedsWithVars error = %v", err)
+	}
+	if len(expanded) != 1 || expanded[0].Loop == nil {
+		t.Fatalf("expected runtime loop step, got %+v", expanded)
+	}
+	for _, child := range expanded[0].Loop.Body {
+		if child.ID == "run-pr-rebase.fetch-pr-metadata.pr" {
+			if child.Script == nil {
+				t.Fatalf("embedded atomic step missing script")
+			}
+			if got, want := child.Script.Command[1], "{{pr.pr_ref}}"; got != want {
+				t.Fatalf("command template = %q, want %q", got, want)
+			}
+			if got, want := child.Script.Env["TT_PR_REF"], "{{pr.pr_ref}}"; got != want {
+				t.Fatalf("env template = %q, want %q", got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("expanded loop body missing run-pr-rebase.fetch-pr-metadata.pr: %+v", expanded[0].Loop.Body)
+}
+
 func TestEmbedRewritesInternalContextRefsInTemplatesAndInputContext(t *testing.T) {
 	dir := t.TempDir()
 	writeFormula := func(name, content string) {
