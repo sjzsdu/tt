@@ -1,0 +1,45 @@
+formula = "github-fetch-pr-diff"
+description = "原子 formula：获取 GitHub PR patch diff，并包装为 JSON。"
+version = 1
+type = "atomic"
+category = "github"
+tags = ["github", "pr", "diff", "atomic"]
+
+[preflight]
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI"
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用"
+
+[vars]
+pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
+repo_hint = { description = "可选 owner/repo", default = "" }
+
+[[steps]]
+id = "diff"
+title = "获取 PR diff"
+execution = "script"
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+pr=os.environ.get('TT_PR_REF','').strip(); repo=os.environ.get('TT_REPO_HINT','').strip()
+cmd=['gh','pr','diff',pr,'--patch']
+if repo: cmd+=['--repo',repo]
+p=subprocess.run(cmd,text=True,capture_output=True)
+out={'ok':p.returncode==0,'patch':p.stdout,'patch_chars':len(p.stdout),'stderr':p.stderr.strip(),'command':cmd,'error':'' if p.returncode==0 else (p.stderr.strip() or p.stdout.strip() or 'gh pr diff failed')}
+print(json.dumps(out,ensure_ascii=False,separators=(',',':')))
+"""]
+format = "json"
+timeout = "60s"
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+[steps.validate]
+format = "json"
+required = ["stdout"]

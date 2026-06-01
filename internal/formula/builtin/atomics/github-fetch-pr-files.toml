@@ -1,0 +1,50 @@
+formula = "github-fetch-pr-files"
+description = "原子 formula：获取 GitHub PR 的 files 列表。"
+version = 1
+type = "atomic"
+category = "github"
+tags = ["github", "pr", "files", "atomic"]
+
+[preflight]
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI"
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用"
+
+[vars]
+pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
+repo_hint = { description = "可选 owner/repo", default = "" }
+
+[[steps]]
+id = "files"
+title = "获取 PR files"
+execution = "script"
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+pr=os.environ.get('TT_PR_REF','').strip(); repo=os.environ.get('TT_REPO_HINT','').strip()
+cmd=['gh','pr','view',pr,'--json','files']
+if repo: cmd+=['--repo',repo]
+p=subprocess.run(cmd,text=True,capture_output=True)
+if p.returncode!=0:
+ print(json.dumps({'ok':False,'files':[],'error':p.stderr.strip() or p.stdout.strip() or 'gh pr view files failed','command':cmd},ensure_ascii=False,separators=(',',':'))); raise SystemExit(0)
+try: data=json.loads(p.stdout or '{}')
+except Exception as exc:
+ print(json.dumps({'ok':False,'files':[],'error':f'parse gh files failed: {exc}','command':cmd},ensure_ascii=False,separators=(',',':'))); raise SystemExit(0)
+data['ok']=True; data['error']=''; data['command']=cmd
+print(json.dumps(data,ensure_ascii=False,separators=(',',':')))
+"""]
+format = "json"
+timeout = "30s"
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+[steps.validate]
+format = "json"
+required = ["stdout"]
