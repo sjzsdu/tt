@@ -53,12 +53,15 @@ const (
 
 	// TypeAspect is a cross-cutting concern that can be applied to other formulas.
 	TypeAspect Type = "aspect"
+
+	// TypeAtomic is a reusable building block intended to be embedded by higher-level formulas.
+	TypeAtomic Type = "atomic"
 )
 
 // IsValid checks if the formula type is recognized.
 func (t Type) IsValid() bool {
 	switch t {
-	case TypeWorkflow, TypeExpansion, TypeAspect:
+	case TypeWorkflow, TypeExpansion, TypeAspect, TypeAtomic:
 		return true
 	}
 	return false
@@ -88,7 +91,7 @@ type Formula struct {
 	// "graph.v2" enables graph-first workflow compilation.
 	Contract string `json:"contract,omitempty" toml:"contract,omitempty"`
 
-	// Type categorizes the formula: workflow, expansion, or aspect.
+	// Type categorizes the formula: workflow, expansion, aspect, or atomic.
 	Type Type `json:"type" toml:"type"`
 
 	// Extends is a list of parent formulas to inherit from.
@@ -987,7 +990,7 @@ func (f *Formula) Validate() error {
 	}
 
 	if f.Type != "" && !f.Type.IsValid() {
-		errs = append(errs, fmt.Sprintf("type: invalid value %q (must be workflow, expansion, or aspect)", f.Type))
+		errs = append(errs, fmt.Sprintf("type: invalid value %q (must be workflow, expansion, aspect, or atomic)", f.Type))
 	}
 
 	if f.Workspace != nil {

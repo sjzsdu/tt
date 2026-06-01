@@ -2,6 +2,7 @@ package formula
 
 import (
 	"context"
+	"slices"
 	"testing"
 )
 
@@ -70,6 +71,75 @@ func TestBuiltinFormulaContent(t *testing.T) {
 	}
 	if !ok || len(data) == 0 {
 		t.Fatalf("expected fresh-topic-docs content")
+	}
+}
+
+func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
+	regular, err := BuiltinFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinFormulas() error = %v", err)
+	}
+	for _, entry := range regular {
+		if slices.Contains([]string{"git-status-check", "git-integrate-ref", "git-run-validation", "git-push-branch", "github-fetch-pr", "github-list-my-prs"}, entry.Name) {
+			t.Fatalf("atomic formula %q should not appear in regular builtin list", entry.Name)
+		}
+	}
+
+	atomics, err := BuiltinAtomicFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinAtomicFormulas() error = %v", err)
+	}
+	want := []string{"git-status-check", "git-integrate-ref", "git-run-validation", "git-push-branch", "github-fetch-pr", "github-list-my-prs"}
+	got := make(map[string]bool)
+	for _, entry := range atomics {
+		got[entry.Name] = true
+		if entry.Category == "" || entry.Description == "" {
+			t.Fatalf("atomic builtin metadata incomplete: %+v", entry)
+		}
+	}
+	for _, name := range want {
+		if !got[name] {
+			t.Fatalf("missing atomic builtin %q; got %+v", name, atomics)
+		}
+
+		data, ok, err := BuiltinFormulaContent(name)
+		if err != nil {
+			t.Fatalf("BuiltinFormulaContent(%q) error = %v", name, err)
+		}
+		if !ok || len(data) == 0 {
+			t.Fatalf("expected atomic builtin content for %q", name)
+		}
+
+		p := NewParser()
+		f, err := p.LoadByName(name)
+		if err != nil {
+			t.Fatalf("LoadByName(%q) error = %v", name, err)
+		}
+		if f.Type != "atomic" {
+			t.Fatalf("atomic formula %q type = %q, want atomic", name, f.Type)
+		}
+		if err := f.Validate(); err != nil {
+			t.Fatalf("Validate(%q) error = %v", name, err)
+		}
+	}
+}
+
+func TestBuiltinAtomicFormulasCompile(t *testing.T) {
+	varsByName := map[string]map[string]string{
+		"github-fetch-pr": {"pr_ref": "1"},
+	}
+	atomics, err := BuiltinAtomicFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinAtomicFormulas() error = %v", err)
+	}
+	for _, entry := range atomics {
+		workflow, err := CompileWorkflowByName(context.Background(), entry.Name, nil, varsByName[entry.Name])
+		if err != nil {
+			t.Fatalf("CompileWorkflowByName(%q) error = %v", entry.Name, err)
+		}
+		if workflow.Name != entry.Name {
+			t.Fatalf("workflow.Name = %q, want %q", workflow.Name, entry.Name)
+		}
 	}
 }
 

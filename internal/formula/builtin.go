@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed builtin/formulas/*.toml
+//go:embed builtin/formulas/*.toml builtin/formulas/atomics/*.toml
 var builtinFormulaFS embed.FS
 
 type BuiltinEntry struct {
@@ -21,7 +21,15 @@ type BuiltinEntry struct {
 }
 
 func BuiltinFormulas() ([]BuiltinEntry, error) {
-	entries, err := builtinFormulaFS.ReadDir("builtin/formulas")
+	return builtinFormulasInDir("builtin/formulas")
+}
+
+func BuiltinAtomicFormulas() ([]BuiltinEntry, error) {
+	return builtinFormulasInDir("builtin/formulas/atomics")
+}
+
+func builtinFormulasInDir(dir string) ([]BuiltinEntry, error) {
+	entries, err := builtinFormulaFS.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +39,7 @@ func BuiltinFormulas() ([]BuiltinEntry, error) {
 		if e.IsDir() || !IsTOMLFilename(e.Name()) {
 			continue
 		}
-		path := "builtin/formulas/" + e.Name()
+		path := dir + "/" + e.Name()
 		data, err := builtinFormulaFS.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -61,26 +69,42 @@ func BuiltinFormulaContent(name string) ([]byte, bool, error) {
 	}
 	for _, c := range candidates {
 		base := filepath.Base(c)
-		data, err := builtinFormulaFS.ReadFile("builtin/formulas/" + base)
-		if err == nil {
-			return data, true, nil
+		for _, dir := range []string{"builtin/formulas", "builtin/formulas/atomics"} {
+			data, err := builtinFormulaFS.ReadFile(dir + "/" + base)
+			if err == nil {
+				return data, true, nil
+			}
 		}
 	}
-	entries, err := BuiltinFormulas()
+	entries, err := allBuiltinEntries()
 	if err != nil {
 		return nil, false, err
 	}
 	for _, e := range entries {
 		if e.Name == name {
 			for _, ext := range []string{CanonicalTOMLExt} {
-				data, err := builtinFormulaFS.ReadFile("builtin/formulas/" + e.Name + ext)
-				if err == nil {
-					return data, true, nil
+				for _, dir := range []string{"builtin/formulas", "builtin/formulas/atomics"} {
+					data, err := builtinFormulaFS.ReadFile(dir + "/" + e.Name + ext)
+					if err == nil {
+						return data, true, nil
+					}
 				}
 			}
 		}
 	}
 	return nil, false, nil
+}
+
+func allBuiltinEntries() ([]BuiltinEntry, error) {
+	regular, err := BuiltinFormulas()
+	if err != nil {
+		return nil, err
+	}
+	atomics, err := BuiltinAtomicFormulas()
+	if err != nil {
+		return nil, err
+	}
+	return append(regular, atomics...), nil
 }
 
 func (p *Parser) ParseBuiltin(name string) (*Formula, error) {
