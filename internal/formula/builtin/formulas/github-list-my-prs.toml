@@ -1,0 +1,99 @@
+formula = "github-list-my-prs"
+description = "原子 formula：列出当前 GitHub 仓库中指定作者的 open PR，输出结构化 items 列表。"
+version = 1
+type = "atomic"
+category = "github"
+tags = ["github", "pr", "atomic", "list"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI: https://cli.github.com/"
+
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用，请先执行 gh auth login"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[vars]
+repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+author = { description = "PR 作者筛选，默认 @me 表示当前 gh 登录用户", default = "@me" }
+state = { description = "PR 状态", default = "open", enum = ["open", "closed", "merged", "all"] }
+limit = { description = "最多返回数量", default = "200" }
+base_branch = { description = "可选 base 分支过滤；为空不过滤", default = "" }
+
+[[steps]]
+id = "prs"
+title = "列出 PR"
+execution = "script"
+description = "使用 gh pr list 输出结构化 PR 列表，便于上层 formula 循环组合。"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess, sys, traceback
+
+def emit(obj):
+    print(json.dumps(obj, ensure_ascii=False, separators=(',', ':')))
+
+repo = os.environ.get('TT_REPO_HINT', '').strip()
+author = os.environ.get('TT_AUTHOR', '').strip() or '@me'
+state = os.environ.get('TT_STATE', '').strip() or 'open'
+limit = os.environ.get('TT_LIMIT', '').strip() or '200'
+base = os.environ.get('TT_BASE_BRANCH', '').strip()
+fields = 'number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
+cmd = ['gh', 'pr', 'list', '--state', state, '--author', author, '--json', fields, '--limit', limit]
+if repo:
+    cmd += ['--repo', repo]
+try:
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    if p.returncode != 0:
+        emit({'ok': False, 'error': (p.stderr or p.stdout or 'gh pr list failed').strip(), 'command': cmd, 'repo_hint': repo, 'author': author, 'state': state, 'items': [], 'total': 0})
+        raise SystemExit(0)
+    raw = json.loads(p.stdout or '[]')
+    items = []
+    for pr in raw:
+        if base and (pr.get('baseRefName') or '') != base:
+            continue
+        number = pr.get('number')
+        if number is None:
+            continue
+        items.append({
+            'number': number,
+            'pr_ref': str(number),
+            'title': pr.get('title') or '',
+            'url': pr.get('url') or '',
+            'state': pr.get('state') or '',
+            'isDraft': bool(pr.get('isDraft')),
+            'baseRefName': pr.get('baseRefName') or '',
+            'headRefName': pr.get('headRefName') or '',
+            'headRefOid': pr.get('headRefOid') or '',
+        })
+    emit({'ok': True, 'error': '', 'command': cmd, 'repo_hint': repo, 'author': author, 'state': state, 'base_branch': base, 'total': len(items), 'items': items})
+except SystemExit:
+    raise
+except Exception as exc:
+    emit({'ok': False, 'error': f'list PRs failed: {exc}', 'traceback': traceback.format_exc()[-2000:], 'command': cmd, 'repo_hint': repo, 'author': author, 'state': state, 'items': [], 'total': 0})
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_REPO_HINT = "{{repo_hint}}"
+TT_AUTHOR = "{{author}}"
+TT_STATE = "{{state}}"
+TT_LIMIT = "{{limit}}"
+TT_BASE_BRANCH = "{{base_branch}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]

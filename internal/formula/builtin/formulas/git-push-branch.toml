@@ -1,0 +1,85 @@
+formula = "git-push-branch"
+description = "原子 formula：将当前 HEAD push 到指定 remote/branch。默认 no_verify=true、force_with_lease=true；这是远端副作用，需由上层 formula 显式组合。"
+version = 1
+type = "atomic"
+category = "git"
+tags = ["git", "atomic", "push"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = true
+message = "当前目录必须是带 remote 的 git 仓库"
+
+[vars]
+remote = { description = "目标 remote，默认优先使用 upstream remote，否则 origin", default = "" }
+branch = { description = "目标远端分支，默认优先使用 upstream branch，否则当前分支", default = "" }
+force_with_lease = { description = "是否使用 --force-with-lease", default = "true", enum = ["true", "false"] }
+no_verify = { description = "是否使用 --no-verify 跳过本地 hook", default = "true", enum = ["true", "false"] }
+dry_run = { description = "是否只做 dry-run", default = "false", enum = ["true", "false"] }
+
+[[steps]]
+id = "push"
+title = "push 当前 HEAD"
+execution = "script"
+description = "根据参数 push 当前 HEAD 到指定 remote/branch，并输出结构化结果。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+remote="${TT_REMOTE:-}"
+branch="${TT_BRANCH:-}"
+force_with_lease="${TT_FORCE_WITH_LEASE:-true}"
+no_verify="${TT_NO_VERIFY:-true}"
+dry_run="${TT_DRY_RUN:-false}"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+if [ -z "$remote" ]; then
+  if [ -n "$upstream" ] && printf '%s' "$upstream" | grep -q '/'; then remote="${upstream%%/*}"; else remote="origin"; fi
+fi
+if [ -z "$branch" ]; then
+  if [ -n "$upstream" ] && printf '%s' "$upstream" | grep -q '/'; then branch="${upstream#*/}"; else branch="$(git branch --show-current)"; fi
+fi
+if [ -z "$branch" ]; then
+  jq -cn --arg repo_root "$repo_root" '{requested:true,pushed:false,repo_root:$repo_root,error:"target branch is empty",stdout:"",stderr:"target branch is empty"}'
+  exit 0
+fi
+args=(push)
+[ "$dry_run" = true ] && args+=(--dry-run)
+[ "$no_verify" = true ] && args+=(--no-verify)
+[ "$force_with_lease" = true ] && args+=(--force-with-lease)
+args+=("$remote" "HEAD:$branch")
+out="$(git "${args[@]}" 2>&1)"
+rc=$?
+cmd="git ${args[*]}"
+jq -cn --arg command "$cmd" --arg repo_root "$repo_root" --arg remote "$remote" --arg branch "$branch" --arg head "$(git rev-parse HEAD)" --arg output "$out" --argjson dry_run "$dry_run" --argjson pushed "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:true,pushed:$pushed,dry_run:$dry_run,command:$command,repo_root:$repo_root,remote:$remote,branch:$branch,head:$head,stdout:(if $pushed then $output else "" end),stderr:(if $pushed then "" else $output end),error:(if $pushed then "" else $output end)}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_REMOTE = "{{remote}}"
+TT_BRANCH = "{{branch}}"
+TT_FORCE_WITH_LEASE = "{{force_with_lease}}"
+TT_NO_VERIFY = "{{no_verify}}"
+TT_DRY_RUN = "{{dry_run}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]

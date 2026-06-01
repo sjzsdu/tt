@@ -1,0 +1,63 @@
+formula = "github-fetch-pr"
+description = "原子 formula：用 gh pr view 获取单个 GitHub PR 的结构化元数据。"
+version = 1
+type = "atomic"
+category = "github"
+tags = ["github", "pr", "atomic", "metadata"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI: https://cli.github.com/"
+
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用，请先执行 gh auth login"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[vars]
+pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
+repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+
+[[steps]]
+id = "pr"
+title = "获取 PR 元数据"
+execution = "script"
+description = "输出 PR 编号、标题、URL、状态、head/base 分支和 head SHA 等结构化信息。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+pr="${TT_PR_REF:-}"
+repo="${TT_REPO_HINT:-}"
+fields='number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
+cmd=(gh pr view "$pr" --json "$fields")
+if [ -n "$repo" ]; then cmd+=(--repo "$repo"); fi
+out="$("${cmd[@]}" 2>&1)"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$out" '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error}'
+  exit 0
+fi
+jq -c --arg pr_ref "$pr" --arg repo_hint "$repo" '. + {ok:true,pr_ref:$pr_ref,repo_hint:$repo_hint,error:""}' <<<"$out"
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+TT_PR_REF = "{{pr_ref}}"
+TT_REPO_HINT = "{{repo_hint}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]

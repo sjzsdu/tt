@@ -1,0 +1,60 @@
+formula = "git-run-validation"
+description = "原子 formula：在当前仓库运行可选验证命令，输出结构化验证结果。"
+version = 1
+type = "atomic"
+category = "git"
+tags = ["git", "atomic", "validation", "test"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "bash"
+command = "bash"
+message = "需要安装 bash"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+message = "当前目录必须是 git 仓库"
+
+[vars]
+command = { description = "验证命令；为空或 - 时跳过并返回 success=true", default = "" }
+timeout_hint = { description = "给报告使用的超时提示；实际超时由 formula step 固定为 20m", default = "20m" }
+
+[[steps]]
+id = "validation"
+title = "运行验证命令"
+execution = "script"
+description = "运行用户提供的验证命令；未提供时返回 requested=false, success=true。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+cmd="${TT_VALIDATION_COMMAND:-}"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
+  jq -cn --arg repo_root "$repo_root" '{requested:false,success:true,command:"",repo_root:$repo_root,stdout:"",stderr:""}'
+  exit 0
+fi
+cd "$repo_root"
+out="$(bash -lc "$cmd" 2>&1)"
+rc=$?
+jq -cn --arg command "$cmd" --arg repo_root "$repo_root" --arg output "$out" --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:true,success:$success,command:$command,repo_root:$repo_root,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end)}'
+"""]
+format = "json"
+timeout = "20m"
+
+[steps.script.env]
+TT_VALIDATION_COMMAND = "{{command}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]

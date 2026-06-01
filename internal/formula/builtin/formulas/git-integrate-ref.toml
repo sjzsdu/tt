@@ -1,0 +1,268 @@
+formula = "git-integrate-ref"
+description = "原子 formula：确保当前分支完整集成目标 ref。脚本负责确定性 git 操作和验证，agent 负责冲突/验证失败等不可编程环节的闭环修复。不包含 push。"
+version = 1
+type = "atomic"
+category = "git"
+tags = ["git", "atomic", "rebase", "merge", "conflict", "agent-loop"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "command"
+name = "bash"
+command = "bash"
+message = "需要安装 bash"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = true
+message = "当前目录必须是带 remote 的 git 仓库"
+
+[vars]
+target_ref = { description = "要集成进当前分支的目标 ref，例如 origin/main", default = "origin/main" }
+strategy = { description = "集成策略：rebase、merge 或 auto；auto 默认使用 rebase", default = "rebase", enum = ["rebase", "merge", "auto"] }
+validation_command = { description = "可选验证命令；为空或 - 时跳过", default = "" }
+max_agent_rounds = { description = "提示 agent 最多循环处理轮数", default = "30" }
+
+[[steps]]
+id = "pre-status"
+title = "采集集成前状态"
+execution = "script"
+description = "确认当前仓库适合开始集成，并输出初始状态。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+target="${TT_TARGET_REF:-origin/main}"
+strategy="${TT_STRATEGY:-rebase}"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+branch="$(git branch --show-current 2>/dev/null || true)"
+head="$(git rev-parse HEAD 2>/dev/null || true)"
+status_short="$(git status --short 2>/dev/null || true)"
+conflict_files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
+in_rebase=false
+if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then in_rebase=true; fi
+in_merge=false
+if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then in_merge=true; fi
+target_exists=true
+git rev-parse --verify "$target^{commit}" >/dev/null 2>&1 || target_exists=false
+ok=true
+reason=""
+if [ -z "$branch" ]; then ok=false; reason="detached HEAD is not supported by this atomic formula"; fi
+if [ "$target_exists" != true ]; then ok=false; reason="target ref does not resolve to a commit"; fi
+if [ -n "$status_short" ] && [ "$in_rebase" != true ] && [ "$in_merge" != true ]; then ok=false; reason="worktree has uncommitted changes before integration"; fi
+jq -cn --argjson ok "$ok" --arg reason "$reason" --arg repo_root "$repo_root" --arg branch "$branch" --arg head "$head" --arg target_ref "$target" --arg strategy "$strategy" --arg status_short "$status_short" --argjson in_rebase "$in_rebase" --argjson in_merge "$in_merge" --argjson conflict_files "$conflict_files" '{ok:$ok,reason:$reason,repo_root:$repo_root,branch:$branch,head:$head,target_ref:$target_ref,strategy:(if $strategy == "auto" then "rebase" else $strategy end),status_short:$status_short,in_rebase:$in_rebase,in_merge:$in_merge,conflict_files:$conflict_files}'
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+TT_TARGET_REF = "{{target_ref}}"
+TT_STRATEGY = "{{strategy}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "attempt-integrate"
+title = "尝试执行 git 集成"
+execution = "script"
+depends_on = ["pre-status"]
+condition = "pre-status.stdout.ok == true"
+description = "先用确定性脚本尝试 rebase/merge；冲突或复杂状态交给 agent 闭环处理。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+repo_root="${TT_REPO_ROOT:-}"
+target="${TT_TARGET_REF:-origin/main}"
+strategy="${TT_STRATEGY:-rebase}"
+cd "$repo_root" 2>/dev/null || { jq -cn '{attempted:false,success:false,conflict:false,error:"repo root missing",conflict_files:[]}'; exit 0; }
+git fetch --all --prune >/dev/null 2>&1 || true
+if git merge-base --is-ancestor "$target" HEAD 2>/dev/null; then
+  jq -cn --arg head "$(git rev-parse HEAD)" '{attempted:false,success:true,already_integrated:true,conflict:false,error:"",stdout:"target already integrated",head:$head,conflict_files:[]}'
+  exit 0
+fi
+if [ "$strategy" = "merge" ]; then
+  out="$(GIT_EDITOR=true git merge --no-edit "$target" 2>&1)"
+else
+  out="$(GIT_EDITOR=true git rebase "$target" 2>&1)"
+fi
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,already_integrated:false,conflict:false,error:"",stdout:$output,head:$head,conflict_files:[]}'
+  exit 0
+fi
+files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
+in_rebase=false
+if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then in_rebase=true; fi
+in_merge=false
+if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then in_merge=true; fi
+jq -cn --arg output "$out" --argjson conflict_files "$files" --argjson in_rebase "$in_rebase" --argjson in_merge "$in_merge" '{attempted:true,success:false,conflict:($conflict_files|length>0),in_rebase:$in_rebase,in_merge:$in_merge,error:$output,stdout:$output,conflict_files:$conflict_files}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_REPO_ROOT = "{{pre-status.stdout.repo_root}}"
+TT_TARGET_REF = "{{pre-status.stdout.target_ref}}"
+TT_STRATEGY = "{{pre-status.stdout.strategy}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "agent-integrate-loop"
+title = "agent 闭环解决集成问题"
+depends_on = ["attempt-integrate"]
+condition = "attempt-integrate.stdout.success != true"
+input_context = ["pre-status.stdout", "attempt-integrate.stdout"]
+cwd = "{{pre-status.stdout.repo_root}}"
+description = """
+你在一个 git 原子 formula 中，目标是确保当前分支完整集成 target_ref，而不是遇到冲突就停止。
+
+请在当前仓库中循环执行，直到达到成功条件或必须请求人类决策：
+1. 读取 pre-status 和 attempt-integrate 的结构化信息，确认 strategy 是 rebase 还是 merge，target_ref 是什么。
+2. 运行 git status --short、git diff --name-only --diff-filter=U、git status，确认当前是否在 rebase/merge 中。
+3. 如果有冲突，逐个读取冲突文件，理解业务语义，解决 conflict markers，运行 grep 确认无 <<<<<<<、=======、>>>>>>>，然后 git add。
+4. 如果是 rebase，执行 GIT_EDITOR=true git rebase --continue；如果之后又出现冲突，继续循环。
+5. 如果是 merge，冲突解决并 git add 后，执行 GIT_EDITOR=true git commit --no-edit 完成 merge。
+6. 如果没有冲突但验证/状态未达成，判断需要的修复并继续处理。
+7. 最多循环 {{max_agent_rounds}} 轮。不要 push，不要改远端。
+8. 只有在缺少业务决策、权限/外部依赖不可用、或存在高风险不可逆选择时，才停止并写 blocker。
+
+成功条件：
+- 不处于 rebase/merge/cherry-pick 状态。
+- git diff --name-only --diff-filter=U 为空。
+- git merge-base --is-ancestor target_ref HEAD 成功。
+- 工作区没有未暂存/未提交变更，除非这些变更是当前集成必须保留且已提交。
+
+输出 ONLY compact JSON：
+{"resolved":true,"integrated":true,"rounds":3,"files_changed":["..."],"validation_actions":["..."],"remaining_conflicts":[],"blocker":""}
+"""
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["resolved", "integrated", "remaining_conflicts", "blocker"]
+
+[[steps]]
+id = "verify-integrated"
+title = "确定性验证集成结果"
+execution = "script"
+depends_on = ["pre-status", "attempt-integrate", "agent-integrate-loop"]
+condition = "pre-status.stdout.ok == true"
+description = "验证 target_ref 已被当前 HEAD 包含、无冲突、不处于 rebase/merge/cherry-pick。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+repo_root="${TT_REPO_ROOT:-}"
+target="${TT_TARGET_REF:-origin/main}"
+cd "$repo_root" 2>/dev/null || { jq -cn '{success:false,status:"failed",error:"repo root missing",conflict_files:[]}'; exit 0; }
+conflict_files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
+in_rebase=false
+if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then in_rebase=true; fi
+in_merge=false
+if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then in_merge=true; fi
+in_cherry_pick=false
+if [ -f "$(git rev-parse --git-path CHERRY_PICK_HEAD 2>/dev/null)" ]; then in_cherry_pick=true; fi
+contains=false
+git merge-base --is-ancestor "$target" HEAD 2>/dev/null && contains=true
+status_short="$(git status --short 2>/dev/null || true)"
+dirty=false
+if [ -n "$status_short" ]; then dirty=true; fi
+success=false
+status="blocked"
+error=""
+if [ "$contains" = true ] && [ "$in_rebase" != true ] && [ "$in_merge" != true ] && [ "$in_cherry_pick" != true ] && [ "$(jq 'length' <<<"$conflict_files")" = "0" ] && [ "$dirty" != true ]; then
+  success=true
+  status="success"
+else
+  error="integration success criteria not met"
+fi
+jq -cn --argjson success "$success" --arg status "$status" --arg error "$error" --arg repo_root "$repo_root" --arg target_ref "$target" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" --arg status_short "$status_short" --argjson contains_target "$contains" --argjson dirty "$dirty" --argjson in_rebase "$in_rebase" --argjson in_merge "$in_merge" --argjson in_cherry_pick "$in_cherry_pick" --argjson conflict_files "$conflict_files" '{success:$success,status:$status,error:$error,repo_root:$repo_root,target_ref:$target_ref,head:$head,contains_target:$contains_target,dirty:$dirty,in_rebase:$in_rebase,in_merge:$in_merge,in_cherry_pick:$in_cherry_pick,conflict_files:$conflict_files,status_short:$status_short}'
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+TT_REPO_ROOT = "{{pre-status.stdout.repo_root}}"
+TT_TARGET_REF = "{{pre-status.stdout.target_ref}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "run-validation"
+title = "运行可选验证"
+execution = "script"
+depends_on = ["verify-integrated"]
+condition = "verify-integrated.stdout.success == true"
+description = "集成成功后运行可选 validation_command。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+repo_root="${TT_REPO_ROOT:-}"
+cmd="${TT_VALIDATION_COMMAND:-}"
+if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
+  jq -cn '{requested:false,success:true,command:"",stdout:"",stderr:""}'
+  exit 0
+fi
+cd "$repo_root" 2>/dev/null || { jq -cn --arg command "$cmd" '{requested:true,success:false,command:$command,stdout:"",stderr:"repo root missing"}'; exit 0; }
+out="$(bash -lc "$cmd" 2>&1)"
+rc=$?
+jq -cn --arg command "$cmd" --arg output "$out" --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:true,success:$success,command:$command,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end)}'
+"""]
+format = "json"
+timeout = "20m"
+
+[steps.script.env]
+TT_REPO_ROOT = "{{pre-status.stdout.repo_root}}"
+TT_VALIDATION_COMMAND = "{{validation_command}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "final-report"
+title = "输出 git 集成原子结果"
+depends_on = ["pre-status", "attempt-integrate", "agent-integrate-loop", "verify-integrated", "run-validation"]
+input_context = ["pre-status.stdout", "attempt-integrate.stdout", "agent-integrate-loop", "verify-integrated.stdout", "run-validation.stdout"]
+description = """
+输出中文精简报告，说明 git-integrate-ref 是否成功。
+
+必须包含：
+- 结论：成功 / 仍需人类决策 / blocked。
+- strategy、target_ref、当前分支、HEAD。
+- 是否由 agent 介入，是否完成所有冲突循环。
+- validation_command 是否执行及结果。
+- 明确说明本 formula 不 push。
+
+不要编造未出现在 input_context 中的测试或远端结果。
+"""
+
+[steps.agent]
+name = "reporter"
