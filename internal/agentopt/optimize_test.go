@@ -65,6 +65,24 @@ func TestOptimizeUpdatesSourceAgentInPlaceByDefault(t *testing.T) {
 	if !result.InPlace || result.Output != path || result.Generated.ID != "base" {
 		t.Fatalf("expected in-place update preserving id, got %#v", result)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "Base prompt") || !strings.Contains(text, "Repository Knowledge Distillation") || !strings.Contains(text, "You are optimized for repo") {
+		t.Fatalf("expected in-place optimization to preserve base prompt and append repo knowledge, got:\n%s", text)
+	}
+}
+
+func TestMergeOptimizedPromptPreservesPreviousRepositories(t *testing.T) {
+	existing := "Base prompt\n\n## Repository Knowledge Distillation\n\n### repo-a\nKnowledge for repo-a."
+	merged := mergeOptimizedPrompt(existing, "Knowledge for repo-b.", &repo2skillpkg.RepoProfile{Name: "repo-b"})
+	for _, want := range []string{"Base prompt", "repo-a", "Knowledge for repo-a", "repo-b", "Knowledge for repo-b"} {
+		if !strings.Contains(merged, want) {
+			t.Fatalf("merged prompt missing %q:\n%s", want, merged)
+		}
+	}
 }
 
 func TestOptimizeCopyCreatesSiblingAgent(t *testing.T) {

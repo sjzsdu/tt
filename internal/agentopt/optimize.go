@@ -115,6 +115,7 @@ func (o Optimizer) Optimize(opts Options) (*Result, error) {
 		if strings.TrimSpace(generated.Name) == "" {
 			generated.Name = base.Name
 		}
+		generated.Prompt = mergeOptimizedPrompt(base.Prompt, generated.Prompt, profile)
 	}
 	if err := validateGenerated(profile, base, generated, maxPromptChars); err != nil {
 		return nil, err
@@ -193,8 +194,8 @@ func buildRequest(profile *repo2skillpkg.RepoProfile, base pcwrap.EmbeddedAgent,
 		"optimization_policy": map[string]any{
 			"target_kind":      "repository, library, application, service, CLI, website-backed project, or product codebase",
 			"max_prompt_chars": maxPromptChars,
-			"merge_strategy":   "compress and replace outdated or generic guidance; do not append unbounded new sections",
-			"dedupe":           "deduplicate repeated workflows, constraints, commands, and terminology",
+			"merge_strategy":   "preserve existing distilled repository/domain expertise and add this target's durable expertise; compress duplicate or generic guidance but do not drop earlier repositories unless explicitly obsolete",
+			"dedupe":           "deduplicate repeated workflows, constraints, commands, and terminology while retaining repository-specific facts",
 		},
 		"base_agent": map[string]any{
 			"id":                    base.ID,
@@ -247,6 +248,29 @@ func compactCode(in []repo2skillpkg.CodeFile) []repo2skillpkg.CodeFile {
 		}
 	}
 	return out
+}
+
+func mergeOptimizedPrompt(existing, generated string, profile *repo2skillpkg.RepoProfile) string {
+	existing = strings.TrimSpace(existing)
+	generated = strings.TrimSpace(generated)
+	if existing == "" {
+		return generated
+	}
+	if generated == "" || strings.Contains(existing, generated) {
+		return existing
+	}
+	if strings.Contains(generated, existing) {
+		return generated
+	}
+	repoName := "repository"
+	if profile != nil && strings.TrimSpace(profile.Name) != "" {
+		repoName = strings.TrimSpace(profile.Name)
+	}
+	section := fmt.Sprintf("## Repository Knowledge Distillation\n\n### %s\n%s", repoName, generated)
+	if strings.Contains(existing, "## Repository Knowledge Distillation") {
+		return existing + "\n\n### " + repoName + "\n" + generated
+	}
+	return existing + "\n\n" + section
 }
 
 func limitSlice[T any](in []T, n int) []T {
