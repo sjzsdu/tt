@@ -1580,8 +1580,8 @@ button, input, textarea { font: inherit; }
 }
 
 .step-modal-collapse .ant-collapse-expand-icon {
-  align-self: stretch;
-  display: flex !important;
+  align-self: center;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   padding-inline-start: 14px !important;
@@ -1648,11 +1648,12 @@ button, input, textarea { font: inherit; }
 }
 
 .step-input-collapse .ant-collapse-expand-icon {
-  align-self: stretch;
-  display: flex !important;
+  align-self: center;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   padding-block: 0 !important;
+  line-height: 1;
 }
 
 .step-input-collapse .ant-collapse-expand-icon > .ant-collapse-arrow {
