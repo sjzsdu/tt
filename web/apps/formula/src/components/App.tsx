@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { App as AntdApp, Button, Card, Empty, Progress, Segmented, Tag, Timeline } from 'antd';
+import { App as AntdApp, Button, Card, Empty, Progress, Segmented, Tag, Timeline, Tooltip } from 'antd';
 import { ApartmentOutlined, CopyOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import type { DashboardView, FormulaDashboardStep } from '../types';
@@ -14,7 +14,7 @@ import { RetryStepModal } from './modals/RetryStepModal';
 import { StepCard } from './steps/StepCard';
 import { StepInspector } from './steps/StepInspector';
 
-export function App() {
+export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onThemeChange: (theme: 'light' | 'dark') => void }) {
   const { message } = AntdApp.useApp();
   const [view, setView] = useState<DashboardView>(currentView());
   const [selectedStep, setSelectedStep] = useState<FormulaDashboardStep | null>(null);
@@ -148,6 +148,20 @@ export function App() {
           <p>{snapshot.description || 'Live execution control room for formula runs.'}</p>
         </div>
         <div className="hero-actions">
+          <div className="theme-switcher">
+            <span className="theme-switcher-label">Theme</span>
+            <Tooltip title="Switch theme">
+              <Segmented
+                size="small"
+                value={theme}
+                onChange={value => onThemeChange(value as 'light' | 'dark')}
+                options={[
+                  { label: 'Light', value: 'light' },
+                  { label: 'Dark', value: 'dark' },
+                ]}
+              />
+            </Tooltip>
+          </div>
           <Segmented
             value={view}
             onChange={value => setDashboardView(value as DashboardView)}
@@ -203,7 +217,7 @@ export function App() {
               {orderedSteps.map(step => <StepCard key={step.id} step={step} onSelect={setSelectedStep} />)}
             </div>
           ) : (
-            <GraphPanel snapshot={snapshot} onSelect={setSelectedStep} />
+            <GraphPanel snapshot={snapshot} onSelect={setSelectedStep} theme={theme} />
           )}
         </div>
 

@@ -4,6 +4,8 @@ import type { FinalReportChat } from '../types';
 import { marked, type TokensList } from 'marked';
 import mermaid from 'mermaid';
 
+type AppTheme = 'light' | 'dark';
+
 type MarkdownPart =
   | { type: 'html'; html: string }
   | { type: 'table'; headers: string[]; rows: string[][] }
@@ -53,38 +55,65 @@ function splitMarkdownParts(markdown: string): MarkdownPart[] {
   return parts;
 }
 
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: 'loose',
-  theme: 'base',
-  themeVariables: {
-    darkMode: true,
-    background: 'transparent',
-    mainBkg: '#0f2238',
-    secondBkg: '#172b45',
-    tertiaryBkg: '#1e3553',
-    primaryColor: '#0f2238',
-    primaryBorderColor: '#67e8f9',
-    primaryTextColor: '#e0f2fe',
-    secondaryColor: '#172b45',
-    secondaryBorderColor: '#a78bfa',
-    secondaryTextColor: '#f5f3ff',
-    tertiaryColor: '#1e3553',
-    tertiaryBorderColor: '#34d399',
-    tertiaryTextColor: '#ecfdf5',
-    lineColor: '#93c5fd',
-    edgeLabelBackground: '#071322',
-    clusterBkg: '#081827',
-    clusterBorder: '#38bdf8',
-    defaultLinkColor: '#93c5fd',
-    titleColor: '#e0f2fe',
-    nodeTextColor: '#e0f2fe',
-    textColor: '#e5e7eb',
-    labelTextColor: '#e5e7eb',
-  },
-});
+function mermaidConfig(theme: AppTheme) {
+  const dark = theme === 'dark';
+  return {
+    startOnLoad: false,
+    securityLevel: 'loose' as const,
+    theme: 'base' as const,
+    themeVariables: dark ? {
+      darkMode: true,
+      background: 'transparent',
+      mainBkg: '#0f2238',
+      secondBkg: '#172b45',
+      tertiaryBkg: '#1e3553',
+      primaryColor: '#0f2238',
+      primaryBorderColor: '#67e8f9',
+      primaryTextColor: '#e0f2fe',
+      secondaryColor: '#172b45',
+      secondaryBorderColor: '#a78bfa',
+      secondaryTextColor: '#f5f3ff',
+      tertiaryColor: '#1e3553',
+      tertiaryBorderColor: '#34d399',
+      tertiaryTextColor: '#ecfdf5',
+      lineColor: '#93c5fd',
+      edgeLabelBackground: '#071322',
+      clusterBkg: '#081827',
+      clusterBorder: '#38bdf8',
+      defaultLinkColor: '#93c5fd',
+      titleColor: '#e0f2fe',
+      nodeTextColor: '#e0f2fe',
+      textColor: '#e5e7eb',
+      labelTextColor: '#e5e7eb',
+    } : {
+      darkMode: false,
+      background: 'transparent',
+      mainBkg: '#ffffff',
+      secondBkg: '#f8fafc',
+      tertiaryBkg: '#eef4ff',
+      primaryColor: '#ffffff',
+      primaryBorderColor: '#38bdf8',
+      primaryTextColor: '#0f172a',
+      secondaryColor: '#f8fafc',
+      secondaryBorderColor: '#a78bfa',
+      secondaryTextColor: '#0f172a',
+      tertiaryColor: '#eef4ff',
+      tertiaryBorderColor: '#22c55e',
+      tertiaryTextColor: '#0f172a',
+      lineColor: '#64748b',
+      edgeLabelBackground: '#f8fafc',
+      clusterBkg: '#f8fafc',
+      clusterBorder: '#38bdf8',
+      defaultLinkColor: '#64748b',
+      titleColor: '#0f172a',
+      nodeTextColor: '#0f172a',
+      textColor: '#0f172a',
+      labelTextColor: '#0f172a',
+    },
+  };
+}
 
-function MermaidDiagram({ code }: { code: string }) {
+function MermaidDiagram({ code, theme }: { code: string; theme: AppTheme }) {
   const [svg, setSvg] = useState('');
   const [error, setError] = useState('');
   const idRef = useRef(`formula-mermaid-${Math.random().toString(36).slice(2)}`);
@@ -93,6 +122,7 @@ function MermaidDiagram({ code }: { code: string }) {
     let cancelled = false;
     setError('');
     setSvg('');
+    mermaid.initialize(mermaidConfig(theme));
     mermaid.render(idRef.current, code)
       .then(result => {
         if (!cancelled) setSvg(result.svg);
@@ -101,7 +131,7 @@ function MermaidDiagram({ code }: { code: string }) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       });
     return () => { cancelled = true; };
-  }, [code]);
+  }, [code, theme]);
 
   if (error) {
     return <pre className="code-block error-block">Mermaid render failed: {error}\n\n{code}</pre>;
@@ -207,7 +237,7 @@ function outputLabel(kind: OutputKind) {
   }
 }
 
-export function MarkdownOutput({ content, className = '' }: { content: string; className?: string }) {
+export function MarkdownOutput({ content, className = '', theme }: { content: string; className?: string; theme: AppTheme }) {
   const parts = useMemo(() => splitMarkdownParts(content), [content]);
 
   return (
@@ -218,7 +248,7 @@ export function MarkdownOutput({ content, className = '' }: { content: string; c
         }
 
         if (part.type === 'mermaid') {
-          return <MermaidDiagram key={index} code={part.code} />;
+          return <MermaidDiagram key={index} code={part.code} theme={theme} />;
         }
 
         return (
@@ -360,7 +390,7 @@ export function AutoOutput({ content, className = '' }: { content: string; class
         <Tag>{outputLabel(parsed.kind)}</Tag>
       </div>
       {parsed.kind === 'json' && <JsonOutput value={parsed.value} source={parsed.source} />}
-      {parsed.kind === 'markdown' && <MarkdownOutput content={parsed.content} />}
+      {parsed.kind === 'markdown' && <MarkdownOutput content={parsed.content} theme={(document.documentElement.dataset.theme as AppTheme) || 'dark'} />}
       {parsed.kind === 'text' && <pre className="code-block auto-output-text">{parsed.content}</pre>}
       {parsed.kind === 'empty' && <div className="auto-output-empty">No output</div>}
     </div>

@@ -8,6 +8,7 @@
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
 - Formula dashboard final report view with a dedicated follow-up coder chat.
+- Light/dark theme switching for the formula dashboard and markdown web UI, with local preference persistence.
 - Embedded Picoclaw agent runtime command.
 - Embedded casual stock investor chat command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
@@ -101,6 +102,12 @@ tt markdown --content "# Hello" --content-only
 
 For development, run `make web-build` to rebuild embedded web assets or `cd web && npm run dev:markdown` for the Vite dev server.
 
+Theme support:
+
+- Use the light/dark theme toggle in the left file pane to switch the UI theme.
+- The selected theme is saved in browser `localStorage` and restored on refresh.
+- The markdown UI theme also drives Mermaid rendering and the main content/editor surfaces so diagrams and prose stay readable in both modes.
+
 Flags:
 
 - `-p, --port int`: service port, default `9595`.
@@ -157,6 +164,12 @@ Final report chat behavior:
 Current limitation:
 
 - Because chat messages are stored in the snapshot and broadcast through the dashboard state, very long follow-up chats increase snapshot size and websocket payload size.
+
+Theme support:
+
+- Use the light/dark theme toggle in the dashboard header to switch the formula UI theme.
+- The selected theme is saved in browser `localStorage` and restored on refresh.
+- The theme source is shared across Ant Design components, the final report markdown view, Mermaid diagrams, and the React Flow graph panel/minimap so the main execution surfaces stay visually aligned.
 
 ### `tt agent`
 
@@ -481,6 +494,15 @@ tt config --init-project
 When `cmd/version.go` changes on `main`, GitHub Actions builds Linux, macOS, and Windows binaries for `amd64` and `arm64`, then publishes them to a GitHub Release tagged with the version, for example `v0.1.0`.
 
 ## Development
+
+Frontend theme implementation notes:
+
+- `web/apps/formula` and `web/apps/markdown` both use the same minimal theme pattern: root-level light/dark state, `document.documentElement.dataset.theme`, and browser `localStorage` persistence.
+- Ant Design theme algorithms are switched from the same theme state used by app-level CSS variables, instead of maintaining a separate component-library theme source.
+- Mermaid rendering is re-initialized from the active app theme so diagrams match the surrounding UI.
+- The current implementation intentionally favors CSS variables and targeted overrides over a full design-system migration.
+
+Common targets:
 
 Common targets:
 

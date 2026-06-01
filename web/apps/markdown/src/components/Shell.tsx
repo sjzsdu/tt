@@ -1,10 +1,12 @@
-import { Anchor, Input, Segmented, Splitter } from 'antd';
+import { Anchor, Input, Segmented, Splitter, Tooltip } from 'antd';
 import type { ReactNode } from 'react';
 import type { MdFile, TocItem } from '../types';
 import { FileList } from './FileList';
 import { filterFiles } from '../utils/fileSearch';
 
 interface ShellProps {
+  theme: 'light' | 'dark';
+  onThemeChange: (theme: 'light' | 'dark') => void;
   files: MdFile[];
   current: string;
   navigate: (href: string) => void;
@@ -30,6 +32,8 @@ export function Shell({
   contentPaneRef,
   onContentScroll,
   children,
+  theme,
+  onThemeChange,
 }: ShellProps) {
   const filteredFiles = filterFiles(files, fileQuery);
   const anchorItems = toc.map(item => ({
@@ -54,15 +58,28 @@ export function Shell({
           />
           <div className="file-toolbar">
             <span>{filteredFiles.length}/{files.length} files</span>
-            <Segmented
-              size="small"
-              value={fileMode}
-              onChange={v => setFileMode(v as 'tree' | 'flat')}
-              options={[
-                { label: 'Tree', value: 'tree' },
-                { label: 'List', value: 'flat' },
-              ]}
-            />
+            <div className="file-toolbar-actions">
+              <Tooltip title="Switch theme">
+                <Segmented
+                  size="small"
+                  value={theme}
+                  onChange={value => onThemeChange(value as 'light' | 'dark')}
+                  options={[
+                    { label: 'Light', value: 'light' },
+                    { label: 'Dark', value: 'dark' },
+                  ]}
+                />
+              </Tooltip>
+              <Segmented
+                size="small"
+                value={fileMode}
+                onChange={v => setFileMode(v as 'tree' | 'flat')}
+                options={[
+                  { label: 'Tree', value: 'tree' },
+                  { label: 'List', value: 'flat' },
+                ]}
+              />
+            </div>
           </div>
           <FileList files={filteredFiles} current={current} navigate={navigate} mode={fileMode} searchActive={Boolean(fileQuery.trim())} />
         </aside>

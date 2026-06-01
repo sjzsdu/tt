@@ -7,6 +7,7 @@ import { MermaidToolbar } from './MermaidToolbar';
 interface MermaidFigureProps {
   code: string;
   index: number;
+  theme?: 'light' | 'dark';
 }
 
 interface SvgSize {
@@ -134,11 +135,11 @@ function readSvgSize(svg: SVGSVGElement): SvgSize {
   };
 }
 
-export function MermaidFigure({ code, index }: MermaidFigureProps) {
+export function MermaidFigure({ code, index, theme = ((document.documentElement.dataset.theme as 'light' | 'dark') || 'light') }: MermaidFigureProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const svgElRef = useRef<SVGSVGElement | null>(null);
-  const { svg, err } = useMermaid(code, index);
+  const { svg, err } = useMermaid(code, index, theme);
   const [panZoomTarget, setPanZoomTarget] = useState<HTMLDivElement | null>(null);
   const [baseSize, setBaseSize] = useState<SvgSize>({ minX: 0, minY: 0, width: 600, height: 300 });
   const [initialState, setInitialState] = useState<PanZoomState>({ scale: 1, position: { x: 0, y: 0 } });

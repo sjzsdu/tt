@@ -1,6 +1,12 @@
-:root {
+:root,
+:root[data-theme='dark'] {
   color-scheme: dark;
   --bg: #070b14;
+  --bg-grad-1: rgba(103, 232, 249, 0.14);
+  --bg-grad-2: rgba(139, 92, 246, 0.12);
+  --bg-base-1: #060a13;
+  --bg-base-2: #0a1020;
+  --bg-base-3: #070b14;
   --panel: rgba(12, 18, 32, 0.82);
   --panel-strong: rgba(10, 16, 30, 0.96);
   --line: rgba(125, 211, 252, 0.14);
@@ -12,6 +18,39 @@
   --warning: #fbbf24;
   --success: #34d399;
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  --surface-soft: rgba(255,255,255,0.025);
+  --graph-bg: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)), radial-gradient(circle at top left, rgba(102, 227, 196, 0.08), transparent 22%), linear-gradient(180deg, rgba(4, 10, 18, 0.92), rgba(7, 16, 29, 0.98));
+  --graph-node-bg: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0)), linear-gradient(180deg, rgba(8, 16, 29, 0.99), rgba(10, 20, 36, 0.9));
+  --graph-node-text: var(--text);
+  --code-bg: rgba(4, 9, 18, 0.88);
+  --code-text: #d8ebff;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #eef4ff;
+  --bg-grad-1: rgba(59, 130, 246, 0.12);
+  --bg-grad-2: rgba(167, 139, 250, 0.10);
+  --bg-base-1: #f8fbff;
+  --bg-base-2: #eef4ff;
+  --bg-base-3: #e6eefb;
+  --panel: rgba(255, 255, 255, 0.84);
+  --panel-strong: rgba(255, 255, 255, 0.98);
+  --line: rgba(59, 130, 246, 0.16);
+  --text: #0f172a;
+  --muted: #5b6b82;
+  --accent: #0284c7;
+  --accent-2: #7c3aed;
+  --danger: #e11d48;
+  --warning: #d97706;
+  --success: #16a34a;
+  --shadow: 0 22px 60px rgba(15, 23, 42, 0.10);
+  --surface-soft: rgba(255,255,255,0.7);
+  --graph-bg: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0.6)), radial-gradient(circle at top left, rgba(59, 130, 246, 0.10), transparent 22%), linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.98));
+  --graph-node-bg: linear-gradient(180deg, rgba(255,255,255,1), rgba(248,250,252,0.96));
+  --graph-node-text: #0f172a;
+  --code-bg: rgba(241, 245, 249, 0.96);
+  --code-text: #0f172a;
 }
 
 * { box-sizing: border-box; }
@@ -21,9 +60,9 @@ body {
   min-height: 100vh;
   font-family: 'Noto Sans', sans-serif;
   background:
-    radial-gradient(circle at 8% 0%, rgba(103, 232, 249, 0.14), transparent 28%),
-    radial-gradient(circle at 88% 6%, rgba(139, 92, 246, 0.12), transparent 28%),
-    linear-gradient(180deg, #060a13 0%, #0a1020 48%, #070b14 100%);
+    radial-gradient(circle at 8% 0%, var(--bg-grad-1), transparent 28%),
+    radial-gradient(circle at 88% 6%, var(--bg-grad-2), transparent 28%),
+    linear-gradient(180deg, var(--bg-base-1) 0%, var(--bg-base-2) 48%, var(--bg-base-3) 100%);
   color: var(--text);
 }
 
@@ -239,7 +278,7 @@ button, input, textarea { font: inherit; }
   padding: 12px;
   border-radius: 16px;
   border: 1px solid rgba(125, 211, 252, 0.1);
-  background: rgba(255,255,255,0.025);
+  background: var(--surface-soft);
 }
 
 .overview-metrics span {
@@ -562,10 +601,7 @@ button, input, textarea { font: inherit; }
   min-height: 520px;
   padding: 0;
   border-radius: 24px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)),
-    radial-gradient(circle at top left, rgba(102, 227, 196, 0.08), transparent 22%),
-    linear-gradient(180deg, rgba(4, 10, 18, 0.92), rgba(7, 16, 29, 0.98));
+  background: var(--graph-bg);
   border: 1px solid rgba(125, 211, 252, 0.1);
   scrollbar-gutter: stable both-edges;
 }
@@ -810,10 +846,8 @@ button, input, textarea { font: inherit; }
   padding: 14px 15px;
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0)),
-    linear-gradient(180deg, rgba(8, 16, 29, 0.99), rgba(10, 20, 36, 0.9));
-  color: var(--text);
+  background: var(--graph-node-bg);
+  color: var(--graph-node-text);
   text-align: left;
   cursor: pointer;
   box-shadow: 0 22px 48px rgba(0, 0, 0, 0.28);
@@ -1412,9 +1446,9 @@ button, input, textarea { font: inherit; }
   margin: 0;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(4, 9, 18, 0.88);
+  background: var(--code-bg);
   border: 1px solid rgba(125, 211, 252, 0.14);
-  color: #d8ebff;
+  color: var(--code-text);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1924,7 +1958,7 @@ button, input, textarea { font: inherit; }
   padding: 10px 12px;
   border: 1px solid rgba(125, 211, 252, 0.1);
   border-radius: 14px;
-  background: rgba(255,255,255,0.025);
+  background: var(--surface-soft);
 }
 
 .loop-plan-grid span,
@@ -2002,7 +2036,7 @@ button, input, textarea { font: inherit; }
   padding: 5px 8px;
   border: 1px solid rgba(125, 211, 252, 0.1);
   border-radius: 999px;
-  background: rgba(255,255,255,0.025);
+  background: var(--surface-soft);
   text-transform: none;
   letter-spacing: 0;
 }
@@ -2395,3 +2429,52 @@ button, input, textarea { font: inherit; }
     grid-template-columns: 1fr;
   }
 }
+
+.theme-switcher { display: grid; gap: 6px; justify-items: end; }
+.theme-switcher-label { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+:root[data-theme='light'] .run-id-copy code,
+:root[data-theme='light'] .step-activity-mini,
+:root[data-theme='light'] .loop-summary-pill,
+:root[data-theme='light'] .graph-header-metrics span,
+:root[data-theme='light'] .graph-now-running span,
+:root[data-theme='light'] .loop-group-title,
+:root[data-theme='light'] .graph-column-label,
+:root[data-theme='light'] .final-output-kicker,
+:root[data-theme='light'] .json-output-actions,
+:root[data-theme='light'] .json-key { color: #1d4ed8 !important; }
+:root[data-theme='light'] .formula-markdown-output h1,
+:root[data-theme='light'] .formula-markdown-output h2,
+:root[data-theme='light'] .formula-markdown-output h3,
+:root[data-theme='light'] .formula-markdown-output h4,
+:root[data-theme='light'] .formula-markdown-output h5,
+:root[data-theme='light'] .formula-markdown-output h6,
+:root[data-theme='light'] .formula-markdown-output p,
+:root[data-theme='light'] .formula-markdown-output li,
+:root[data-theme='light'] .formula-markdown-output strong,
+:root[data-theme='light'] .formula-markdown-output blockquote,
+:root[data-theme='light'] .formula-markdown-output td,
+:root[data-theme='light'] .formula-markdown-output th { color: #0f172a !important; }
+:root[data-theme='light'] .formula-markdown-output pre,
+:root[data-theme='light'] .formula-markdown-output code { background: rgba(226,232,240,0.8) !important; color: #0f172a !important; }
+:root[data-theme='light'] .markdown-table-scroll,
+:root[data-theme='light'] .formula-markdown-table,
+:root[data-theme='light'] .formula-markdown-table tbody td,
+:root[data-theme='light'] .formula-markdown-table tbody tr:nth-child(even) td { background: #ffffff !important; }
+:root[data-theme='light'] .formula-markdown-table thead th { background: #eaf2ff !important; color: #0f172a !important; }
+:root[data-theme='light'] .mermaid-diagram { background: linear-gradient(180deg, #ffffff, #eff6ff); }
+:root[data-theme='light'] .mermaid-diagram .node rect,
+:root[data-theme='light'] .mermaid-diagram .node circle,
+:root[data-theme='light'] .mermaid-diagram .node ellipse,
+:root[data-theme='light'] .mermaid-diagram .node polygon,
+:root[data-theme='light'] .mermaid-diagram .node path { fill: #ffffff !important; stroke: #38bdf8 !important; }
+:root[data-theme='light'] .mermaid-diagram .nodeLabel,
+:root[data-theme='light'] .mermaid-diagram .label,
+:root[data-theme='light'] .mermaid-diagram .label text,
+:root[data-theme='light'] .mermaid-diagram .edgeLabel,
+:root[data-theme='light'] .mermaid-diagram text { color: #0f172a !important; fill: #0f172a !important; }
+:root[data-theme='light'] .mermaid-diagram .edgeLabel,
+:root[data-theme='light'] .mermaid-diagram .edgeLabel rect { background: #f8fafc !important; fill: #f8fafc !important; }
+:root[data-theme='light'] .flow-minimap { background: rgba(255,255,255,0.96) !important; }
+:root[data-theme='light'] .flow-controls { background: rgba(255,255,255,0.92) !important; }
+:root[data-theme='light'] .flow-controls button { color: #0f172a !important; }
+:root[data-theme='light'] .graph-node-state { background: rgba(226,232,240,0.85); }

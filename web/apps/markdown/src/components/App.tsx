@@ -21,7 +21,7 @@ interface ScrollSnapshot {
   ratio: number;
 }
 
-export function App() {
+export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onThemeChange: (theme: 'light' | 'dark') => void }) {
   const [route, setRoute] = useState<Route>(currentRoute());
   const [list, setList] = useState<ListResponse | null>(null);
   const [doc, setDoc] = useState<DocumentResponse | null>(null);
@@ -201,6 +201,8 @@ export function App() {
     toc,
     contentPaneRef,
     onContentScroll: handleContentScroll,
+    theme,
+    onThemeChange,
   };
 
   if (error) return <Shell {...shellProps}><div className="empty error">{error}</div></Shell>;

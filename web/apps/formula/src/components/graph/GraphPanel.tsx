@@ -536,7 +536,7 @@ function computeGraphLayout(snapshot: FormulaDashboardSnapshot, onSelect: (step:
   };
 }
 
-export function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void }) {
+export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void; theme: 'light' | 'dark' }) {
   const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set());
   const toggleLoop = useCallback((stepID: string) => {
     setExpandedLoopIDs(current => {
@@ -594,15 +594,15 @@ export function GraphPanel({ snapshot, onSelect }: { snapshot: FormulaDashboardS
           nodesConnectable={false}
           elementsSelectable
         >
-          <Background color="rgba(125, 211, 252, 0.18)" gap={28} size={1} />
+          <Background color={theme === 'dark' ? 'rgba(125, 211, 252, 0.18)' : 'rgba(100, 116, 139, 0.18)'} gap={28} size={1} />
           <MiniMap
             pannable
             zoomable
             nodeStrokeWidth={3}
-            bgColor="rgba(10, 18, 32, 0.96)"
-            maskColor="rgba(125, 211, 252, 0.12)"
-            nodeColor="rgba(191, 219, 254, 0.92)"
-            nodeStrokeColor="rgba(125, 211, 252, 0.95)"
+            bgColor={theme === 'dark' ? 'rgba(10, 18, 32, 0.96)' : 'rgba(255, 255, 255, 0.96)'}
+            maskColor={theme === 'dark' ? 'rgba(125, 211, 252, 0.12)' : 'rgba(59, 130, 246, 0.10)'}
+            nodeColor={theme === 'dark' ? 'rgba(191, 219, 254, 0.92)' : 'rgba(148, 163, 184, 0.92)'}
+            nodeStrokeColor={theme === 'dark' ? 'rgba(125, 211, 252, 0.95)' : 'rgba(59, 130, 246, 0.92)'}
             className="flow-minimap"
           />
           <Controls className="flow-controls" />
