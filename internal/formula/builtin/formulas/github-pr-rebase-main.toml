@@ -518,7 +518,7 @@ title = "push rebase 后的 PR 分支"
 execution = "script"
 depends_on = ["summarize-rebase-state", "run-validation"]
 condition = "summarize-rebase-state.stdout.rebase_done == true"
-description = "验证通过或未请求验证时，按 push 变量决定是否 git push --force-with-lease 回 PR 分支；默认 push=true。"
+description = "验证通过或未请求验证时，按 push 变量决定是否 git push --no-verify --force-with-lease 回 PR 分支；默认 push=true。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -545,7 +545,7 @@ if [ -n "$upstream" ] && printf '%s' "$upstream" | grep -q '/'; then
   remote_branch="${upstream#*/}"
 fi
 [ -n "$remote_branch" ] || remote_branch="$(git branch --show-current)"
-out="$(git push --force-with-lease "$remote" "HEAD:$remote_branch" 2>&1)"
+out="$(git push --no-verify --force-with-lease "$remote" "HEAD:$remote_branch" 2>&1)"
 rc=$?
 jq -cn \
   --arg remote "$remote" \
