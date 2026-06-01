@@ -6,6 +6,45 @@ description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁
 version = 10
 type = "workflow"
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI: https://cli.github.com/"
+
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用，请先执行 gh auth login"
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "command"
+name = "npm"
+command = "npm"
+message = "冲突修复后的构建验证需要 npm"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = true
+message = "需要在 flex 仓库或带 origin remote 的 git 仓库中运行，以便修复并 push tmp branch"
+
 [vars]
 env_name = { description = "发布环境", required = true, enum = ["dev", "uat2", "preprod"] }
 tag = { description = "可选 tag/branch；空或 - 时不传", default = "" }
@@ -151,20 +190,22 @@ format = "json"
   condition = "classify-run-state.action == repair_conflict"
   input_context = ["classify-run-state.tmp_branch", "classify-run-state.remaining_queue", "classify-run-state.conflicted_branches", "fetch-run-info.stdout.failed_job_logs"]
   description = """
-根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。你可以读写当前 git workspace 中的代码，但不要新建 workflow run，不要 rerun，不要执行 git push；本步骤只负责在本地修复冲突并产生提交，后续 push-repair-branch 脚本会确定性执行 push。
+根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。你的目标不是“尝试一次”，而是把 tmp branch 本地推进到可 push 的完整状态。你可以读写当前 git workspace 中的代码，但不要新建 workflow run，不要 rerun，不要执行 git push；本步骤只负责在本地修复冲突并产生提交，后续 push-repair-branch 脚本会确定性执行 push。
 
 必须执行：
 1. 读取目标目录就近 README.md 和项目规则，但只作为约束，不要输出规则确认。
 2. git fetch origin。
 3. 从 origin/<tmp_branch> 建立/重建本地工作分支。
 4. rebase origin/<tmp_branch>。
-5. 按 remaining_queue 顺序 merge origin/<branch>。
-6. 解决冲突并 commit。
-7. 运行必要轻量验证。
-8. 不要执行 git push；保持本地 HEAD 在已提交的修复 commit 上，等待 push-repair-branch 脚本推送。
+5. 按 remaining_queue 顺序逐个 merge origin/<branch>。
+6. 每次 merge 如遇冲突，读取冲突文件，理解 Flow360 UI 语义，解决 conflict markers，git add，然后完成 merge commit。
+7. 如果后续分支又产生新冲突，继续循环处理，直到 remaining_queue 全部合入或遇到明确 blocker。
+8. 运行必要轻量验证。
+9. 最终确认：不处于 merge/rebase/cherry-pick 状态，git diff --name-only --diff-filter=U 为空，工作区没有未提交变更。
+10. 不要执行 git push；保持本地 HEAD 在已提交的修复 commit 上，等待 push-repair-branch 脚本推送。
 
 输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
-{"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"local_commit":"","push_completed":false,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":""}
+{"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"local_commit":"","push_completed":false,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":"","remaining_conflicts":[]}
 """
 
     [steps.loop.body.agent]
@@ -329,7 +370,7 @@ if [ -z "$tmp_branch" ]; then
   exit 0
 fi
 head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
-out="$(git push --no-verify origin "HEAD:${tmp_branch}" 2>&1)"
+out="$(git push --no-verify --force-with-lease origin "HEAD:${tmp_branch}" 2>&1)"
 rc=$?
 jq -cn \
   --arg tmp_branch "$tmp_branch" \
@@ -493,13 +534,20 @@ title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
 input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.build_ready_to_push", "release-progress.stdout.build_initial_success", "release-progress.stdout.build_fix_attempted", "release-progress.stdout.build_fix_fixed", "release-progress.stdout.build_final_success", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
 description = """
-输出中文发布报告，包含环境、tag、fresh_deploy、repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、npm run build 是否通过、是否触发 build 修复、是否已 push 到 origin、冲突分支、rerun failed jobs 结果、验证项和 blocker。
+输出中文发布报告，结论先行，必须简明。使用固定结构：
+
+1. `## 结论`：1-3 句话说明发布是否成功、run id/url、是否还有 blocker。
+2. `## 发布明细`：使用 Markdown 表格，列为：环境、tag、fresh、run、状态、tmp branch、冲突修复、build、push、rerun、问题/下一步。
+3. `## 说明`：最多 3 条，说明本次只以 multi-branch job completed/success 作为发布成功条件。
+
+必须覆盖：repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、npm run build 是否通过、是否触发 build 修复、是否已 push 到 origin、冲突分支、rerun failed jobs 结果、验证项和 blocker。
 
 强调：
 - 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
 - 若最终状态不是 succeeded，后续 assert-release-success 会让本次 formula 以 failed 结束；
 - 本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch；
 - 不要臆造未出现在 input_context 中的分支、日志或验证结果。
+- 不要输出长篇过程日志，重点说结果、阻塞和下一步。
 """
 
 [steps.agent]
