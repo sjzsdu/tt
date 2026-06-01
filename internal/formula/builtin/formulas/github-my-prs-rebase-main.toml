@@ -159,6 +159,7 @@ def parse(name, default=None):
 
 try:
     pr = parse('TT_PR', {})
+    check = parse('TT_CHECK', {})
     prepare = parse('TT_PREPARE', {})
     attempt = parse('TT_ATTEMPT', {})
     summary = parse('TT_SUMMARY', {})
@@ -166,9 +167,10 @@ try:
     push = parse('TT_PUSH_RESULT', {})
     cleanup = parse('TT_CLEANUP', {})
     report = os.environ.get('TT_FINAL_REPORT', '').strip()
+    already_on_pr_branch = bool(check.get('already_on_pr_branch'))
     rebase_done = bool(summary.get('rebase_done'))
     blocked = bool(summary.get('blocked'))
-    status = 'success' if rebase_done else ('blocked' if blocked or summary.get('blocker') or attempt.get('error') else 'unknown')
+    status = 'success' if rebase_done else ('already_on_pr_branch' if already_on_pr_branch else ('blocked' if blocked or summary.get('blocker') or attempt.get('error') or prepare.get('error') else 'unknown'))
     result = {
         'pr_number': pr.get('number'),
         'title': pr.get('title') or '',
@@ -178,8 +180,9 @@ try:
         'status': status,
         'rebase_done': rebase_done,
         'conflict': bool(attempt.get('conflict') or summary.get('conflict_seen')),
-        'blocker': summary.get('blocker') or attempt.get('error') or '',
-        'worktree_path': prepare.get('worktree_path') or '',
+        'blocker': summary.get('blocker') or attempt.get('error') or prepare.get('error') or '',
+        'already_on_pr_branch': already_on_pr_branch,
+        'worktree_path': prepare.get('worktree_path') or check.get('worktree_path') or '',
         'validation_requested': bool(validation.get('requested')),
         'validation_success': validation.get('success'),
         'push_requested': bool(push.get('requested')),
@@ -198,6 +201,7 @@ print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
 
   [steps.loop.body.script.env]
   TT_PR = "{{pr}}"
+  TT_CHECK = "{{run-pr-rebase.check-current-pr-worktree.stdout}}"
   TT_PREPARE = "{{run-pr-rebase.prepare-rebase-worktree.stdout}}"
   TT_ATTEMPT = "{{run-pr-rebase.attempt-rebase.stdout}}"
   TT_SUMMARY = "{{run-pr-rebase.summarize-rebase-state.stdout}}"
@@ -222,7 +226,7 @@ description = """
 1. 本次筛选条件：author、state=open、repo_hint、目标 base_branch；
 2. 找到的 PR 总数，并列出 PR 编号、标题、URL、head/base；
 3. 是否并发执行了 rebase，以及并发上限为 3；
-4. 对每个 PR，总结 github-pr-rebase-main 子流程的结果：成功 / blocked / 失败 / 未执行；
+4. 对每个 PR，总结 github-pr-rebase-main 子流程的结果：success / already_on_pr_branch / blocked / failed / unknown；
 5. 说明 validation_command 和 push 是按同一配置传给每个子流程；
 6. 若没有 open PR，明确说明没有执行任何 rebase；
 7. 不要编造子流程输出中没有出现的测试、push 或冲突结果。

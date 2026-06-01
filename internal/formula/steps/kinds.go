@@ -1348,7 +1348,9 @@ func getNestedJSONValue(value Value, path string) (Value, bool) {
 	if err := json.Unmarshal(value.Raw, &current); err != nil {
 		return Value{}, false
 	}
+	current = normalizeJSONTextValue(current)
 	for _, part := range strings.Split(path, ".") {
+		current = normalizeJSONTextValue(current)
 		object, ok := current.(map[string]any)
 		if !ok {
 			return Value{}, false

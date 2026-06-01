@@ -165,6 +165,28 @@ func TestLoopIterationStoreGetUsesLongestStoredPrefixForDottedStepIDs(t *testing
 	}
 }
 
+func TestLoopIterationStoreGetNormalizesJSONStringOutputs(t *testing.T) {
+	store := newLoopIterationStore(nil)
+	raw, err := json.Marshal(map[string]any{"stdout": `{"ok":true,"nested":{"done":true}}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("run-pr-rebase.prepare-rebase-worktree", Value{Type: "json", Raw: raw}); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := store.Get("run-pr-rebase.prepare-rebase-worktree.stdout.ok")
+	if !ok {
+		t.Fatal("nested JSON string output not found")
+	}
+	var got bool
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("ok = false, want true")
+	}
+}
+
 func TestLoopStepEmitsSkippedForConditionFalseBodyStep(t *testing.T) {
 	loop := LoopStep{
 		Base: Base{Metadata: Metadata{ID: "monitor", Kind: KindLoop}},
