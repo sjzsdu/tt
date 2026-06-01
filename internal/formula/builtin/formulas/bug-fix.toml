@@ -5,6 +5,7 @@ type = "workflow"
 
 [vars]
 issue_summary = { description = "用户反馈的 bug 摘要或问题描述", required = true }
+workspace_path = { description = "可选执行工作区路径；为空时使用公式运行目录", default = "" }
 
 [[steps]]
 id = "analyze-issue"
@@ -27,6 +28,7 @@ description = """
 - assumptions 记录仍然不确定但不阻塞调研的假设。
 """
 agent.name = "coder"
+agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -54,6 +56,7 @@ description = """
 - acceptance_criteria 用于后续确认“问题存在/不存在”和修复后验证。
 """
 agent.name = "coder"
+agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -95,6 +98,7 @@ description = """
 - 不要直接开始修代码，先给出研究结论。
 """
 agent.name = "code-research"
+agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -126,6 +130,7 @@ description = """
 - validation_plan 必须能支撑“修复 bug 同时不引入新问题”。
 """
 agent.name = "coder"
+agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -162,6 +167,7 @@ description = """
 - verification_actions 要具体，不要写空泛“已测试”。
 """
 agent.name = "coder"
+agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -191,6 +197,7 @@ description = """
 - 不要含糊其辞。
 """
 agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -221,3 +228,4 @@ description = """
 - 不要把不存在的执行结果写成已完成事实。
 """
 agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"

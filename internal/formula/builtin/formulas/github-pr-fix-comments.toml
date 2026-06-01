@@ -1,6 +1,6 @@
 formula = "github-pr-fix-comments"
-description = "遍历 PR 的所有待处理 review comments，用 typed runtime foreach 并发内嵌 bug-fix 处理每条评论，最后汇总处理结果。"
-version = 2
+description = "遍历 PR 的所有未解决 review comments，在 PR worktree 中逐条用 bug-fix 修复，最后汇总处理结果。"
+version = 3
 type = "workflow"
 
 [preflight]
@@ -18,100 +18,303 @@ command = "gh auth status"
 message = "GitHub CLI 未登录或不可用，请先执行 gh auth login"
 
 [[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
+[[preflight.checks]]
 type = "git"
 name = "git-repo"
 require_repo = true
-message = "需要在 GitHub git 仓库中运行"
+require_remote = true
+message = "需要在带 origin remote 的 GitHub git 仓库中运行"
 
 [vars]
 pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
 review_focus = { description = "处理评论时重点关注方面", default = "正确性、风险与可维护性" }
+repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+worktree_root = { description = "PR 评论修复使用的隔离 worktree 根目录；相对路径按执行命令时的目录解析", default = ".tt/worktrees/github-pr-fix-comments" }
 
 [[steps]]
 id = "fetch-pr-metadata"
 title = "获取 PR 元数据"
+embed = "github-fetch-pr"
+
+[steps.embed_vars]
+pr_ref = "{{pr_ref}}"
+repo_hint = "{{repo_hint}}"
+
+[[steps]]
+id = "prepare-fix-worktree"
+title = "准备 PR 修复 worktree"
+depends_on = ["fetch-pr-metadata"]
 execution = "script"
+description = "如果当前工作区已经在 PR head 分支，直接复用当前目录；否则创建或复用 .tt/worktrees 下的 PR worktree，并 checkout 到该 PR 分支。"
 
 [steps.script]
-command = ["gh", "pr", "view", "{{pr_ref}}", "--json", "number,title,url,headRefName,baseRefName,state"]
+command = ["bash", "-lc", """
+set -u
+meta="${TT_PR_META:-{}}"
+repo_hint="${TT_REPO_HINT:-}"
+root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-fix-comments}"
+ok="$(jq -r '.ok // false' <<<"$meta")"
+if [ "$ok" != true ]; then
+  jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
+  exit 0
+fi
+number="$(jq -r '.number // empty' <<<"$meta")"
+head="$(jq -r '.headRefName // empty' <<<"$meta")"
+base="$(jq -r '.baseRefName // empty' <<<"$meta")"
+if [ -z "$number" ] || [ -z "$head" ]; then
+  jq -cn --arg error "missing PR number/head branch" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
+  exit 0
+fi
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+repo_root_real="$(cd "$repo_root" && pwd -P)"
+invocation_dir="$(pwd)"
+current_branch="$(git -C "$repo_root" branch --show-current 2>/dev/null || true)"
+if [ "$current_branch" = "$head" ]; then
+  jq -cn --arg path "$repo_root" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:true,reused_worktree:false,created:false,cleanup_required:false}'
+  exit 0
+fi
+safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
+worktree_root="$root_input"
+case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
+target="$worktree_root/pr-${number}-${safe_head}"
+mkdir -p "$worktree_root"
+match_path=""
+current_path=""
+while IFS= read -r line; do
+  case "$line" in
+    worktree' '*) current_path="${line#worktree }" ;;
+    branch' 'refs/heads/*)
+      branch="${line#branch refs/heads/}"
+      if [ "$branch" = "$head" ]; then match_path="$current_path"; fi
+      ;;
+    "") if [ -n "$match_path" ]; then break; fi; current_path="" ;;
+  esac
+done < <(git -C "$repo_root" worktree list --porcelain)
+if [ -n "$match_path" ]; then
+  match_real="$(cd "$match_path" 2>/dev/null && pwd -P || printf '%s' "$match_path")"
+  if [ "$match_real" != "$repo_root_real" ]; then
+    jq -cn --arg path "$match_path" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:false}'
+    exit 0
+  fi
+fi
+if [ -d "$target/.git" ] || [ -f "$target/.git" ]; then
+  git -C "$target" fetch origin --prune >/dev/null 2>&1 || true
+  if ! git -C "$target" checkout "$head" >/dev/null 2>&1; then
+    if [ -n "$repo_hint" ]; then
+      (cd "$target" && gh pr checkout "$number" --repo "$repo_hint" >/dev/null 2>&1) || true
+    else
+      (cd "$target" && gh pr checkout "$number" >/dev/null 2>&1) || true
+    fi
+  fi
+  jq -cn --arg path "$target" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:false}'
+  exit 0
+fi
+if ! git -C "$repo_root" fetch origin --prune >/dev/null 2>&1; then
+  jq -cn --arg error "git fetch origin failed" '{ok:false,error:$error,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
+  exit 0
+fi
+base_ref="origin/${base:-main}"
+if ! git -C "$repo_root" worktree add "$target" "$base_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
+  err="$(cat /tmp/tt-pr-fix-worktree.log 2>/dev/null || true)"
+  jq -cn --arg error "git worktree add failed: $err" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:false}'
+  exit 0
+fi
+if [ -n "$repo_hint" ]; then
+  checkout_out="$(cd "$target" && gh pr checkout "$number" --repo "$repo_hint" 2>&1)"
+else
+  checkout_out="$(cd "$target" && gh pr checkout "$number" 2>&1)"
+fi
+checkout_rc=$?
+if [ "$checkout_rc" -ne 0 ]; then
+  jq -cn --arg error "gh pr checkout failed: $checkout_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:true}'
+  exit 0
+fi
+jq -cn --arg path "$target" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:false,created:true,cleanup_required:false}'
+"""]
 format = "json"
-timeout = "30s"
+timeout = "90s"
+
+[steps.script.env]
+TT_PR_META = "{{fetch-pr-metadata.pr.stdout}}"
+TT_REPO_HINT = "{{repo_hint}}"
+TT_WORKTREE_ROOT = "{{worktree_root}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
 
 [[steps]]
 id = "fetch-review-comments"
-title = "获取待处理 review comments"
+title = "获取未解决 review comments"
 depends_on = ["fetch-pr-metadata"]
-input_context = ["fetch-pr-metadata"]
-description = """
-收集 '{{pr_ref}}' 的 review comments，并输出标准化列表。
+execution = "script"
+description = "用 GitHub GraphQL 一次性收集 PR review threads，保留未 resolved 的所有 comments，避免 agent 只抽取部分评论。"
 
-输出 ONLY compact JSON：
-{
-  "pr_number": 123,
-  "pr_url": "...",
-  "head_branch": "...",
-  "pending_count": 2,
-  "comment_items": [
-    {
-      "comment_id": "123",
-      "thread_id": "abc",
-      "author": "reviewer",
-      "body": "...",
-      "path": "a.go",
-      "line": 10,
-      "url": "..."
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess, sys
+
+def emit(obj):
+    print(json.dumps(obj, ensure_ascii=False, separators=(',', ':')))
+
+def run(cmd):
+    return subprocess.run(cmd, text=True, capture_output=True)
+
+meta = json.loads(os.environ.get('TT_PR_META') or '{}')
+repo_hint = os.environ.get('TT_REPO_HINT', '').strip()
+if not meta.get('ok'):
+    emit({'ok': False, 'error': 'pr metadata unavailable', 'comment_items': [], 'pending_count': 0, 'total_threads': 0})
+    raise SystemExit(0)
+number = int(meta.get('number') or 0)
+repo = repo_hint
+if not repo:
+    p = run(['gh', 'repo', 'view', '--json', 'owner,name'])
+    if p.returncode != 0:
+        emit({'ok': False, 'error': (p.stderr or p.stdout or 'gh repo view failed').strip(), 'comment_items': [], 'pending_count': 0, 'total_threads': 0})
+        raise SystemExit(0)
+    rv = json.loads(p.stdout or '{}')
+    owner = (rv.get('owner') or {}).get('login') or rv.get('owner') or ''
+    name = rv.get('name') or ''
+else:
+    owner, name = repo.split('/', 1)
+query = r'''
+query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      number title url headRefName baseRefName state
+      reviewThreads(first:100, after:$cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id isResolved isOutdated path line startLine diffSide
+          comments(first:50) {
+            nodes { id databaseId author { login } body url path line originalLine diffHunk createdAt updatedAt }
+          }
+        }
+      }
     }
-  ]
+  }
 }
+'''
+items=[]; total_threads=0; cursor=''; page=0
+while True:
+    page += 1
+    cmd=['gh','api','graphql','-f',f'owner={owner}','-f',f'name={name}','-F',f'number={number}','-f',f'query={query}']
+    if cursor:
+        cmd += ['-f', f'cursor={cursor}']
+    p=run(cmd)
+    if p.returncode != 0:
+        emit({'ok': False, 'error': (p.stderr or p.stdout or 'gh api graphql failed').strip(), 'comment_items': items, 'pending_count': len(items), 'total_threads': total_threads})
+        raise SystemExit(0)
+    data=json.loads(p.stdout or '{}')
+    pr=((data.get('data') or {}).get('repository') or {}).get('pullRequest') or {}
+    threads=(pr.get('reviewThreads') or {})
+    for th in threads.get('nodes') or []:
+        total_threads += 1
+        if th.get('isResolved'):
+            continue
+        comments=((th.get('comments') or {}).get('nodes') or [])
+        for c in comments:
+            body=(c.get('body') or '').strip()
+            if not body:
+                continue
+            items.append({
+                'comment_id': c.get('id') or str(c.get('databaseId') or ''),
+                'thread_id': th.get('id') or '',
+                'author': ((c.get('author') or {}).get('login') or ''),
+                'body': body,
+                'path': c.get('path') or th.get('path') or '',
+                'line': c.get('line') or th.get('line') or c.get('originalLine') or '',
+                'url': c.get('url') or '',
+                'is_outdated': bool(th.get('isOutdated')),
+                'diff_hunk': c.get('diffHunk') or '',
+                'created_at': c.get('createdAt') or '',
+                'updated_at': c.get('updatedAt') or '',
+            })
+    pi=threads.get('pageInfo') or {}
+    if not pi.get('hasNextPage'):
+        break
+    cursor=pi.get('endCursor') or ''
+    if page >= 20:
+        break
+emit({'ok': True, 'error': '', 'pr_number': number, 'pr_url': meta.get('url') or '', 'head_branch': meta.get('headRefName') or '', 'base_branch': meta.get('baseRefName') or '', 'repo': f'{owner}/{name}', 'pending_count': len(items), 'total_threads': total_threads, 'comment_items': items})
+"""]
+format = "json"
+timeout = "60s"
 
-约束：
-- 仅保留仍需处理的评论。
-- comment_items 每项必须保留 comment_id 与 body。
-"""
-agent.name = "coder"
+[steps.script.env]
+TT_PR_META = "{{fetch-pr-metadata.pr.stdout}}"
+TT_REPO_HINT = "{{repo_hint}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
 
 [[steps]]
 id = "normalize-comment-items"
 title = "整理 comment 列表供循环使用"
-depends_on = ["fetch-review-comments"]
-input_context = ["fetch-review-comments"]
-description = """
-从 comment_context 生成循环用的数组。
+depends_on = ["fetch-review-comments", "prepare-fix-worktree"]
+execution = "script"
 
-输出 ONLY compact JSON：
-{
-  "items": [
-    {
-      "comment_id": "123",
-      "thread_id": "abc",
-      "body": "...",
-      "path": "a.go",
-      "line": 10,
-      "url": "...",
-      "issue_summary": "..."
-    }
-  ],
-  "total": 1
-}
+[steps.script]
+command = ["python3", "-c", """
+import json, os, re
+comments = json.loads(os.environ.get('TT_COMMENTS') or '{}')
+worktree = json.loads(os.environ.get('TT_WORKTREE') or '{}')
+items = []
+for c in comments.get('comment_items') or []:
+    loc = ''
+    if c.get('path'):
+        loc = c['path'] + ((':' + str(c.get('line'))) if c.get('line') else '')
+    summary = f"GitHub PR review comment {c.get('comment_id') or ''}\n位置: {loc or '未提供'}\n作者: {c.get('author') or 'unknown'}\nURL: {c.get('url') or ''}\n关注点: {os.environ.get('TT_REVIEW_FOCUS','')}\n\n评论内容:\n{c.get('body') or ''}\n"
+    if c.get('diff_hunk'):
+        summary += f"\n相关 diff hunk:\n{c.get('diff_hunk')}\n"
+    summary += "\n请在 PR head 分支对应 worktree 中确认问题是否真实存在，若存在则做最小范围修复并执行必要验证。"
+    item = dict(c)
+    item['issue_summary'] = summary
+    items.append(item)
+print(json.dumps({'items': items, 'total': len(items), 'workspace_path': worktree.get('workspace_path') or '', 'worktree_ok': bool(worktree.get('ok')), 'worktree': worktree}, ensure_ascii=False, separators=(',', ':')))
+"""]
+format = "json"
+timeout = "30s"
 
-要求：
-- issue_summary 必须是可直接交给 bug-fix 的问题描述，包含评论诉求、代码位置与期望行为。
-- 若没有待处理评论，items 为空数组，total=0。
-"""
-agent.name = "planner"
+[steps.script.env]
+TT_COMMENTS = "{{fetch-review-comments.stdout}}"
+TT_WORKTREE = "{{prepare-fix-worktree.stdout}}"
+TT_REVIEW_FOCUS = "{{review_focus}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
 
 [[steps]]
 id = "fix-each-comment"
-title = "逐条执行 bug-fix"
+title = "逐条在 PR worktree 中执行 bug-fix"
 depends_on = ["normalize-comment-items"]
-input_context = ["normalize-comment-items"]
-condition = "normalize-comment-items.total != 0"
+input_context = ["normalize-comment-items.stdout"]
+condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-items.stdout.worktree_ok == true"
 
   [steps.loop]
-  for_each = "normalize-comment-items.items"
+  for_each = "normalize-comment-items.stdout.items"
   var = "comment"
-  parallel = true
-  max_concurrency = 3
+  parallel = false
+  max_concurrency = 1
 
   [[steps.loop.body]]
   id = "run-bug-fix"
@@ -120,6 +323,7 @@ condition = "normalize-comment-items.total != 0"
 
   [steps.loop.body.embed_vars]
   issue_summary = "{{comment.issue_summary}}"
+  workspace_path = "{{normalize-comment-items.stdout.workspace_path}}"
 
   [[steps.loop.body]]
   id = "collect-result"
@@ -139,24 +343,155 @@ condition = "normalize-comment-items.total != 0"
   }
   """
   agent.name = "coder"
+  agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"
+
+[[steps]]
+id = "resolve-review-threads"
+title = "resolve 已处理的 GitHub review threads"
+depends_on = ["fix-each-comment"]
+condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-items.stdout.worktree_ok == true"
+execution = "script"
+description = "对已确认 fixed 或 not-confirmed 的评论线程调用 GitHub GraphQL resolveReviewThread；needs-followup 不自动 resolve。"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+
+def emit(obj):
+    print(json.dumps(obj, ensure_ascii=False, separators=(',', ':')))
+
+def load(name, default):
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
+items = load('TT_ITEMS', {}).get('items') or []
+results = load('TT_RESULTS', [])
+status_by_comment = {}
+for row in results if isinstance(results, list) else []:
+    obj = row.get('stdout') if isinstance(row, dict) and isinstance(row.get('stdout'), dict) else row
+    if isinstance(obj, dict) and obj.get('comment_id'):
+        status_by_comment[str(obj.get('comment_id'))] = obj.get('status') or ''
+targets = []
+seen = set()
+skipped = []
+for item in items:
+    cid = str(item.get('comment_id') or '')
+    tid = str(item.get('thread_id') or '')
+    status = status_by_comment.get(cid, '')
+    if not tid:
+        skipped.append({'comment_id': cid, 'reason': 'missing thread_id', 'status': status})
+        continue
+    if status not in ('fixed', 'not-confirmed'):
+        skipped.append({'comment_id': cid, 'thread_id': tid, 'reason': 'status not resolved automatically', 'status': status})
+        continue
+    if tid in seen:
+        continue
+    seen.add(tid)
+    targets.append({'comment_id': cid, 'thread_id': tid, 'status': status})
+mutation = 'mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}'
+resolved = []
+failed = []
+for target in targets:
+    p = subprocess.run(['gh', 'api', 'graphql', '-f', 'threadId=' + target['thread_id'], '-f', 'query=' + mutation], text=True, capture_output=True)
+    if p.returncode == 0:
+        resolved.append(target)
+    else:
+        failed.append({**target, 'error': (p.stderr or p.stdout or 'resolveReviewThread failed').strip()})
+emit({'requested': bool(targets), 'resolved_count': len(resolved), 'failed_count': len(failed), 'resolved': resolved, 'failed': failed, 'skipped': skipped, 'ok': len(failed) == 0})
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_ITEMS = "{{normalize-comment-items.stdout}}"
+TT_RESULTS = "{{fix-each-comment}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "commit-and-push"
+title = "提交并 push PR 分支"
+depends_on = ["resolve-review-threads"]
+condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-items.stdout.worktree_ok == true"
+execution = "script"
+description = "若 worktree 有改动，则自动 git add/commit --no-verify，然后 git push --no-verify origin HEAD:<PR head branch>。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+workspace="${TT_WORKSPACE_PATH:-}"
+head="${TT_HEAD_BRANCH:-}"
+if [ -z "$workspace" ] || [ ! -d "$workspace" ]; then
+  jq -cn --arg error "workspace_path unavailable" '{ok:false,error:$error,pushed:false,committed:false,changed:false}'
+  exit 0
+fi
+if [ -z "$head" ]; then
+  jq -cn --arg error "head branch unavailable" '{ok:false,error:$error,pushed:false,committed:false,changed:false}'
+  exit 0
+fi
+status_before="$(git -C "$workspace" status --porcelain)"
+committed=false
+commit_sha=""
+commit_out=""
+if [ -n "$status_before" ]; then
+  git -C "$workspace" add -A
+  commit_out="$(git -C "$workspace" commit --no-verify -m "fix: address PR review comments" 2>&1)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    jq -cn --arg error "git commit failed: $commit_out" --arg status "$status_before" '{ok:false,error:$error,pushed:false,committed:false,changed:true,status_before:$status}'
+    exit 0
+  fi
+  committed=true
+  commit_sha="$(git -C "$workspace" rev-parse HEAD 2>/dev/null || true)"
+fi
+push_out="$(git -C "$workspace" push --no-verify origin "HEAD:${head}" 2>&1)"
+push_rc=$?
+if [ "$push_rc" -ne 0 ]; then
+  jq -cn --arg error "git push failed: $push_out" --arg commit_sha "$commit_sha" --argjson committed "$committed" --arg status "$status_before" '{ok:false,error:$error,pushed:false,committed:$committed,commit_sha:$commit_sha,changed:($status != ""),status_before:$status}'
+  exit 0
+fi
+jq -cn --arg push_stdout "$push_out" --arg commit_stdout "$commit_out" --arg commit_sha "$commit_sha" --argjson committed "$committed" --arg status "$status_before" '{ok:true,error:"",pushed:true,committed:$committed,commit_sha:$commit_sha,changed:($status != ""),status_before:$status,commit_stdout:$commit_stdout,push_stdout:$push_stdout}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.script.env]
+TT_WORKSPACE_PATH = "{{normalize-comment-items.stdout.workspace_path}}"
+TT_HEAD_BRANCH = "{{fetch-pr-metadata.pr.stdout.headRefName}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
 
 [[steps]]
 id = "final-report"
 title = "输出 PR 评论处理总报告"
-depends_on = ["fix-each-comment"]
-input_context = ["fetch-pr-metadata", "fetch-review-comments", "normalize-comment-items", "fix-each-comment"]
+depends_on = ["commit-and-push"]
+input_context = ["fetch-pr-metadata.pr.stdout", "prepare-fix-worktree.stdout", "fetch-review-comments.stdout", "normalize-comment-items.stdout", "fix-each-comment", "resolve-review-threads.stdout", "commit-and-push.stdout"]
 description = """
 输出最终中文总结。
 
 必须包含：
 1. 总评论数与实际处理数；
-2. 每条评论的结论摘要（fixed / not-confirmed / needs-followup）；
-3. 需要人工继续处理的项；
-4. 下一步建议。
-5. 如果 comment_items.total == 0，明确说明没有待处理评论且没有执行 bug-fix。
+2. worktree 使用情况：复用当前分支 / 复用已有 worktree / 新建 worktree，以及路径；
+3. 每条评论的结论摘要（fixed / not-confirmed / needs-followup）；
+4. GitHub review thread resolve 情况；
+5. push --no-verify 是否成功、是否产生 commit；
+6. 需要人工继续处理的项；
+7. 如果 comment_items.total == 0，明确说明没有待处理评论且没有执行 bug-fix。
+8. 如果 worktree 准备失败，明确输出失败原因，不要声称执行了修复。
 
 要求：
 - 结论先行。
 - 控制在 8-12 条要点，避免冗长。
+- 不要编造未执行的测试、push 或评论处理结果。
 """
 agent.name = "reporter"
+agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"
