@@ -384,17 +384,20 @@ condition = "attempt-rebase.stdout.conflict == true"
 input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout"]
 cwd = "{{prepare-rebase-worktree.stdout.worktree_path}}"
 description = """
-在隔离 worktree 中修复 rebase 冲突。你必须实际读取冲突文件、解决冲突并 git add 相关文件，但不要 push，不要 rebase --continue，由后续脚本完成。
+在隔离 worktree 中完整修复 rebase 冲突并推进 rebase，直到 rebase 完成或遇到明确 blocker。你必须实际读取冲突文件、解决冲突、git add，并在每一轮冲突解决后执行 git rebase --continue。不要 push。
 
 要求：
-1. 先运行 git status --short 和 git diff --name-only --diff-filter=U 确认冲突文件。
+1. 先运行 git status --short 和 git diff --name-only --diff-filter=U 确认当前冲突文件。
 2. 逐个冲突文件解决 conflict markers，保留 PR 语义并兼容最新 base。
 3. 运行必要的轻量检查，如 grep 确认没有 <<<<<<<、=======、>>>>>>> 标记。
 4. 执行 git add <resolved files>。
-5. 不要创建额外 commit，不要 push。
+5. 执行 GIT_EDITOR=true git rebase --continue。
+6. 如果 rebase --continue 后又出现新冲突，重复步骤 1-5，最多处理 30 轮，直到 git status 显示不再处于 rebase 中。
+7. 不要创建额外 commit，不要 push。
+8. 如果确实无法判断某个冲突怎么解决，保留 worktree 当前状态并在 blocker 中精确说明文件和原因。
 
 输出 ONLY compact JSON：
-{"resolved":true,"files_resolved":["..."],"validation_actions":["..."],"remaining_conflicts":[],"blocker":""}
+{"resolved":true,"rebase_completed":true,"continue_attempts":2,"files_resolved":["..."],"validation_actions":["..."],"remaining_conflicts":[],"blocker":""}
 """
 
 [steps.agent]
@@ -410,7 +413,7 @@ title = "继续 rebase 并确认无冲突"
 execution = "script"
 depends_on = ["resolve-conflicts"]
 condition = "resolve-conflicts.resolved == true"
-description = "冲突文件由 agent 解决并 add 后，用确定性脚本执行 git rebase --continue。"
+description = "冲突 agent 会循环解决冲突并推进 rebase；这里用确定性脚本做最终确认，必要时再执行一次 git rebase --continue。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -420,6 +423,14 @@ cd "$wt" 2>/dev/null || { jq -cn '{attempted:false,success:false,error:"worktree
 remaining="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
 if [ "$(jq 'length' <<<"$remaining")" != "0" ]; then
   jq -cn --argjson conflict_files "$remaining" '{attempted:false,success:false,error:"unresolved conflict files remain",conflict_files:$conflict_files}'
+  exit 0
+fi
+in_rebase=false
+if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then
+  in_rebase=true
+fi
+if [ "$in_rebase" != true ]; then
+  jq -cn --arg head "$(git rev-parse HEAD)" '{attempted:false,success:true,error:"",stdout:"rebase already completed by conflict resolver",head:$head,conflict_files:[]}'
   exit 0
 fi
 out="$(GIT_EDITOR=true git rebase --continue 2>&1)"
@@ -445,7 +456,7 @@ required = ["stdout"]
 id = "summarize-rebase-state"
 title = "汇总 rebase 状态"
 execution = "script"
-depends_on = ["check-current-pr-worktree", "attempt-rebase", "continue-rebase"]
+depends_on = ["check-current-pr-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase"]
 condition = "check-current-pr-worktree.stdout.already_on_pr_branch != true"
 description = "统一判断 rebase 是否完成、是否仍被冲突阻塞。"
 
@@ -454,18 +465,21 @@ command = ["bash", "-lc", """
 set -euo pipefail
 jq -cn \
   --arg attempt "${TT_ATTEMPT:-}" \
+  --arg resolve "${TT_RESOLVE:-}" \
   --arg cont "${TT_CONTINUE:-}" '
   def obj($s): if ($s|length)==0 then {} else (($s|fromjson?) // {}) end;
   obj($attempt) as $a |
+  obj($resolve) as $r |
   obj($cont) as $c |
   (($a.success == true) or ($c.success == true)) as $done |
+  (($r.blocker // "") != "") as $resolver_blocked |
   {
     rebase_done:$done,
     conflict_seen:($a.conflict == true),
-    blocked:(($done|not) and (($a.conflict == true) or (($a.error // "") != "") or (($c.error // "") != ""))),
-    blocker:(if $done then "" elif ($c.error // "") != "" then $c.error elif ($a.error // "") != "" then $a.error else "rebase did not complete" end),
+    blocked:(($done|not) and (($a.conflict == true) or $resolver_blocked or (($a.error // "") != "") or (($c.error // "") != ""))),
+    blocker:(if $done then "" elif $resolver_blocked then ($r.blocker // "") elif ($c.error // "") != "" then $c.error elif ($a.error // "") != "" then $a.error else "rebase did not complete" end),
     head:($c.head // $a.head // ""),
-    conflict_files:($c.conflict_files // $a.conflict_files // [])
+    conflict_files:($c.conflict_files // $r.remaining_conflicts // $a.conflict_files // [])
   }'
 """]
 format = "json"
@@ -473,6 +487,7 @@ timeout = "30s"
 
 [steps.script.env]
 TT_ATTEMPT = "{{attempt-rebase.stdout}}"
+TT_RESOLVE = "{{resolve-conflicts}}"
 TT_CONTINUE = "{{continue-rebase.stdout}}"
 
 [steps.validate]
@@ -572,9 +587,9 @@ required = ["stdout"]
 id = "cleanup-worktree"
 title = "清理临时 rebase worktree"
 execution = "script"
-depends_on = ["prepare-rebase-worktree", "push-rebased-branch"]
+depends_on = ["prepare-rebase-worktree", "summarize-rebase-state", "push-rebased-branch"]
 condition = "prepare-rebase-worktree.stdout.worktree_path != \"\""
-description = "只要 prepare 阶段产生了 worktree_path，就在流程结束前移除该隔离 worktree；即使 checkout/rebase/validation/push 失败也要清理，避免 .tt/worktrees 持续膨胀。只移除 worktree，不删除分支。"
+description = "rebase 完成后移除隔离 worktree；若仍被冲突阻塞，则保留 worktree 以便继续修复。复用当前工作区时不删除当前目录。只移除 worktree，不删除分支。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -583,8 +598,13 @@ wt="${TT_WORKTREE_PATH:-}"
 repo_root="${TT_REPO_ROOT:-}"
 reused_current="${TT_REUSED_CURRENT:-false}"
 stale_target="${TT_STALE_TARGET_WORKTREE_PATH:-}"
+rebase_blocked="${TT_REBASE_BLOCKED:-false}"
 if [ -z "$wt" ]; then
   jq -cn '{attempted:false,removed:false,worktree_path:"",stdout:"",stderr:"missing worktree_path"}'
+  exit 0
+fi
+if [ "$rebase_blocked" = true ]; then
+  jq -cn --arg worktree_path "$wt" '{attempted:true,removed:false,skipped_reason:"rebase_blocked",worktree_path:$worktree_path,stdout:"",stderr:""}'
   exit 0
 fi
 if [ "$reused_current" = true ]; then
@@ -620,6 +640,7 @@ TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
 TT_REPO_ROOT = "{{prepare-rebase-worktree.stdout.repo_root}}"
 TT_REUSED_CURRENT = "{{prepare-rebase-worktree.stdout.reused_current}}"
 TT_STALE_TARGET_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.stale_target_worktree_path}}"
+TT_REBASE_BLOCKED = "{{summarize-rebase-state.stdout.blocked}}"
 
 [steps.validate]
 format = "json"
