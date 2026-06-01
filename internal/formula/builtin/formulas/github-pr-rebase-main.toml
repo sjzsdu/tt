@@ -96,12 +96,14 @@ description = "检查当前目录或其它 worktree 是否已 checkout 到该 PR
 command = ["bash", "-lc", """
 set -u
 meta="${TT_PR_META:-{}}"
+root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}"
 ok="$(jq -r '.ok // false' <<<"$meta")"
 if [ "$ok" != true ]; then
   jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,already_on_pr_branch:false,error:$error,metadata:$meta,current_branch:"",head_branch:"",worktree_path:""}'
   exit 0
 fi
 head="$(jq -r '.headRefName // empty' <<<"$meta")"
+number="$(jq -r '.number // empty' <<<"$meta")"
 if [ -z "$head" ]; then
   jq -cn --arg error "missing PR head branch" '{ok:false,already_on_pr_branch:false,error:$error,current_branch:"",head_branch:"",worktree_path:""}'
   exit 0
@@ -113,6 +115,12 @@ fi
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 repo_root_real="$(cd "$repo_root" && pwd -P)"
 current_branch="$(git branch --show-current 2>/dev/null || true)"
+invocation_dir="$(pwd)"
+safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
+expected_root="$root_input"
+case "$expected_root" in /*) ;; *) expected_root="$invocation_dir/$expected_root" ;; esac
+expected_path="$expected_root/pr-${number}-${safe_head}"
+expected_path_real="$(cd "$expected_path" 2>/dev/null && pwd -P || printf '%s' "$expected_path")"
 match_path=""
 match_head=""
 current_path=""
@@ -146,6 +154,15 @@ if [ -n "$match_path" ]; then
       '{ok:true,already_on_pr_branch:false,current_on_pr_branch:true,error:"",reason:"current workspace is already on the PR head branch",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path,head_sha:$head_sha}'
     exit 0
   fi
+  if [ "$match_path_real" = "$expected_path_real" ]; then
+    jq -cn \
+      --arg current_branch "$current_branch" \
+      --arg head_branch "$head" \
+      --arg worktree_path "$match_path" \
+      --arg head_sha "$match_head" \
+      '{ok:true,already_on_pr_branch:false,current_on_pr_branch:false,target_worktree_on_pr_branch:true,error:"",reason:"formula target worktree is already on the PR head branch and will be reused",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path,head_sha:$head_sha}'
+    exit 0
+  fi
   jq -cn \
     --arg current_branch "$head" \
     --arg head_branch "$head" \
@@ -165,6 +182,7 @@ timeout = "30s"
 
 [steps.script.env]
 TT_PR_META = "{{fetch-pr-metadata.stdout}}"
+TT_WORKTREE_ROOT = "{{worktree_root}}"
 
 [steps.validate]
 format = "json"
@@ -208,6 +226,17 @@ fi
 if [ "$(jq -r '.current_on_pr_branch // false' <<<"$current_check")" = true ]; then
   worktree_path="$(jq -r '.worktree_path // empty' <<<"$current_check")"
   [ -n "$worktree_path" ] || worktree_path="$repo_root"
+  safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
+  worktree_root="$root_input"
+  case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
+  stale_target="$worktree_root/pr-${number}-${safe_head}"
+  stale_target_real="$(cd "$stale_target" 2>/dev/null && pwd -P || printf '%s' "$stale_target")"
+  worktree_path_real="$(cd "$worktree_path" 2>/dev/null && pwd -P || printf '%s' "$worktree_path")"
+  if [ "$stale_target_real" = "$worktree_path_real" ]; then
+    stale_target=""
+  elif [ ! -d "$stale_target/.git" ] && [ ! -f "$stale_target/.git" ]; then
+    stale_target=""
+  fi
   cd "$worktree_path"
   git fetch origin "$base" --prune >/dev/null 2>&1
   current_branch="$(git branch --show-current)"
@@ -225,7 +254,8 @@ if [ "$(jq -r '.current_on_pr_branch // false' <<<"$current_check")" = true ]; t
     --arg upstream "$upstream" \
     --arg head_sha "$head_sha" \
     --arg base_sha "$base_sha" \
-    '{ok:true,error:"",worktree_path:$worktree_path,worktree_root:$worktree_root,invocation_dir:$invocation_dir,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:"",reused:true,created:false,reused_current:true}'
+    --arg stale_target_worktree_path "$stale_target" \
+    '{ok:true,error:"",worktree_path:$worktree_path,worktree_root:$worktree_root,invocation_dir:$invocation_dir,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:"",reused:true,created:false,reused_current:true,stale_target_worktree_path:$stale_target_worktree_path}'
   exit 0
 fi
 cd "$repo_root"
@@ -552,11 +582,19 @@ set -u
 wt="${TT_WORKTREE_PATH:-}"
 repo_root="${TT_REPO_ROOT:-}"
 reused_current="${TT_REUSED_CURRENT:-false}"
+stale_target="${TT_STALE_TARGET_WORKTREE_PATH:-}"
 if [ -z "$wt" ]; then
   jq -cn '{attempted:false,removed:false,worktree_path:"",stdout:"",stderr:"missing worktree_path"}'
   exit 0
 fi
 if [ "$reused_current" = true ]; then
+  if [ -n "$stale_target" ] && [ -e "$stale_target" ]; then
+    stale_out="$(git -C "$repo_root" worktree remove --force --force "$stale_target" 2>&1)"
+    stale_rc=$?
+    git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
+    jq -cn --arg worktree_path "$wt" --arg stale_target_worktree_path "$stale_target" --arg output "$stale_out" --argjson stale_removed "$([ "$stale_rc" -eq 0 ] && echo true || echo false)" '{attempted:true,removed:false,skipped_reason:"reused_current_workspace",worktree_path:$worktree_path,stale_target_worktree_path:$stale_target_worktree_path,stale_target_removed:$stale_removed,stdout:(if $stale_removed then $output else "" end),stderr:(if $stale_removed then "" else $output end)}'
+    exit 0
+  fi
   jq -cn --arg worktree_path "$wt" '{attempted:true,removed:false,skipped_reason:"reused_current_workspace",worktree_path:$worktree_path,stdout:"",stderr:""}'
   exit 0
 fi
@@ -581,6 +619,7 @@ continue_on_error = true
 TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
 TT_REPO_ROOT = "{{prepare-rebase-worktree.stdout.repo_root}}"
 TT_REUSED_CURRENT = "{{prepare-rebase-worktree.stdout.reused_current}}"
+TT_STALE_TARGET_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.stale_target_worktree_path}}"
 
 [steps.validate]
 format = "json"
