@@ -148,6 +148,44 @@ func TestBuiltinAtomicFormulasCompile(t *testing.T) {
 	}
 }
 
+func TestAllBuiltinFormulasCompile(t *testing.T) {
+	entries, err := BuiltinFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinFormulas() error = %v", err)
+	}
+	for _, entry := range entries {
+		vars := builtinCompileSmokeVars(entry.Name)
+		workflow, err := CompileWorkflowByName(context.Background(), entry.Name, nil, vars)
+		if err != nil {
+			t.Fatalf("CompileWorkflowByName(%q) error = %v", entry.Name, err)
+		}
+		if workflow.Name != entry.Name {
+			t.Fatalf("workflow.Name = %q, want %q", workflow.Name, entry.Name)
+		}
+	}
+}
+
+func builtinCompileSmokeVars(name string) map[string]string {
+	switch name {
+	case "bug-fix":
+		return map[string]string{"issue_summary": "smoke bug"}
+	case "fresh-topic-docs":
+		return map[string]string{"topic": "smoke topic"}
+	case "github-pr-review", "github-pr-fix-comments", "github-pr-rebase-main":
+		return map[string]string{"pr_ref": "1"}
+	case "github-repo-docs":
+		return map[string]string{"repo": "."}
+	case "gongbu":
+		return map[string]string{"feature_request": "smoke feature"}
+	case "jira-bug-fix":
+		return map[string]string{"ticket_key": "SMOKE-1"}
+	case "shan-yi-zhe":
+		return map[string]string{"question": "smoke question"}
+	default:
+		return nil
+	}
+}
+
 func TestShanYiZheBuiltinFormula(t *testing.T) {
 	p := NewParser()
 	f, err := p.LoadByName("shan-yi-zhe")
