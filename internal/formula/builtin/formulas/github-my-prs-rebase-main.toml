@@ -38,6 +38,12 @@ require_repo = true
 require_remote = true
 message = "当前目录必须是带 origin remote 的 git 仓库"
 
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
 [vars]
 repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
 author = { description = "PR 作者筛选，默认 @me 表示当前 gh 登录用户", default = "@me" }

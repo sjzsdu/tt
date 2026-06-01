@@ -3,6 +3,14 @@ description = "获取 Jira ticket 与最新评论后，直接用 typed runtime �
 version = 3
 type = "workflow"
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "jira"
+command = "jira"
+message = "需要安装并配置 Jira CLI，确保 jira issue view 可用"
+
 [vars]
 ticket_key = { description = "Jira ticket 编号，例如 PROJ-123", required = true }
 

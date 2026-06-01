@@ -23,6 +23,12 @@ name = "git-repo"
 require_repo = true
 message = "repo_hint 为空时需要在 GitHub git 仓库中运行"
 
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
 [vars]
 pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
 review_focus = { description = "重点关注的方面，例如正确性、架构、性能、安全、兼容性", default = "正确性、风险与可维护性" }

@@ -4,6 +4,26 @@ version = 1
 type = "workflow"
 workspace = { kind = "worktree", cleanup = false, branch = "{{branch_name}}", base = "{{base_branch}}", branch_slug_from = "feature_request", branch_prefix = "feature" }
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "gongbu 的仓库检查脚本需要 python3"
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "gongbu 使用 git worktree，需要安装 git"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+message = "gongbu 需要在 git 仓库中运行，以便创建隔离 worktree"
+
 [vars]
 feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述", required = true }
 branch_name = { description = "可选覆盖：特性分支名；默认从 feature_request 推导为 feature/<slug>" }
