@@ -156,7 +156,7 @@ print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
   TT_PREPARE = "{{run-pr-rebase.prepare-rebase-worktree.stdout}}"
   TT_ATTEMPT = "{{run-pr-rebase.attempt-rebase.stdout}}"
   TT_SUMMARY = "{{run-pr-rebase.summarize-rebase-state.stdout}}"
-  TT_VALIDATION = "{{run-pr-rebase.run-validation.stdout}}"
+  TT_VALIDATION = "{{run-pr-rebase.run-validation.validation.stdout}}"
   TT_PUSH_RESULT = "{{run-pr-rebase.push-rebased-branch.stdout}}"
   TT_CLEANUP = "{{run-pr-rebase.cleanup-worktree.stdout}}"
   TT_FINAL_REPORT = "{{run-pr-rebase.final-report}}"

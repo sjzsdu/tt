@@ -26,6 +26,7 @@ require_repo = true
 message = "当前目录必须是 git 仓库"
 
 [vars]
+repo_path = { description = "可选仓库目录；为空时使用当前 git 仓库", default = "" }
 command = { description = "验证命令；为空或 - 时跳过并返回 success=true", default = "" }
 timeout_hint = { description = "给报告使用的超时提示；实际超时由 formula step 固定为 20m", default = "20m" }
 
@@ -39,7 +40,12 @@ description = "运行用户提供的验证命令；未提供时返回 requested=
 command = ["bash", "-lc", """
 set -u
 cmd="${TT_VALIDATION_COMMAND:-}"
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+repo_input="${TT_REPO_PATH:-}"
+if [ -n "$repo_input" ]; then
+  repo_root="$repo_input"
+else
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
 if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
   jq -cn --arg repo_root "$repo_root" '{requested:false,success:true,command:"",repo_root:$repo_root,stdout:"",stderr:""}'
   exit 0
@@ -53,6 +59,7 @@ format = "json"
 timeout = "20m"
 
 [steps.script.env]
+TT_REPO_PATH = "{{repo_path}}"
 TT_VALIDATION_COMMAND = "{{command}}"
 
 [steps.validate]

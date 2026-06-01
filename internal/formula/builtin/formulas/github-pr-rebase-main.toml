@@ -55,35 +55,11 @@ push = { description = "rebase 成功后是否 push --force-with-lease 回 PR �
 [[steps]]
 id = "fetch-pr-metadata"
 title = "获取 PR 元数据"
-execution = "script"
-description = "使用 gh pr view 获取 PR 分支、base、URL 等信息。repo_hint 为空时使用当前仓库上下文。"
+embed = "github-fetch-pr"
 
-[steps.script]
-command = ["bash", "-lc", """
-set -u
-pr="${TT_PR_REF:-}"
-repo="${TT_REPO_HINT:-}"
-fields='number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
-cmd=(gh pr view "$pr" --json "$fields")
-if [ -n "$repo" ]; then cmd+=(--repo "$repo"); fi
-out="$(${cmd[@]} 2>&1)"
-rc=$?
-if [ "$rc" -ne 0 ]; then
-  jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$out" '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error}'
-  exit 0
-fi
-jq -c --arg pr_ref "$pr" --arg repo_hint "$repo" '. + {ok:true,pr_ref:$pr_ref,repo_hint:$repo_hint,error:""}' <<<"$out"
-"""]
-format = "json"
-timeout = "30s"
-
-[steps.script.env]
-TT_PR_REF = "{{pr_ref}}"
-TT_REPO_HINT = "{{repo_hint}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
+[steps.embed_vars]
+pr_ref = "{{pr_ref}}"
+repo_hint = "{{repo_hint}}"
 
 [[steps]]
 id = "check-current-pr-worktree"
@@ -181,7 +157,7 @@ format = "json"
 timeout = "30s"
 
 [steps.script.env]
-TT_PR_META = "{{fetch-pr-metadata.stdout}}"
+TT_PR_META = "{{fetch-pr-metadata.pr.stdout}}"
 TT_WORKTREE_ROOT = "{{worktree_root}}"
 
 [steps.validate]
@@ -319,7 +295,7 @@ format = "json"
 timeout = "120s"
 
 [steps.script.env]
-TT_PR_META = "{{fetch-pr-metadata.stdout}}"
+TT_PR_META = "{{fetch-pr-metadata.pr.stdout}}"
 TT_REPO_HINT = "{{repo_hint}}"
 TT_BASE_BRANCH = "{{base_branch}}"
 TT_WORKTREE_ROOT = "{{worktree_root}}"
@@ -381,7 +357,7 @@ id = "resolve-conflicts"
 title = "冲突时修复 rebase conflicts"
 depends_on = ["attempt-rebase"]
 condition = "attempt-rebase.stdout.conflict == true"
-input_context = ["fetch-pr-metadata.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout"]
+input_context = ["fetch-pr-metadata.pr.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout"]
 cwd = "{{prepare-rebase-worktree.stdout.worktree_path}}"
 description = """
 在隔离 worktree 中完整修复 rebase 冲突并推进 rebase，直到 rebase 完成或遇到明确 blocker。你必须实际读取冲突文件、解决冲突、git add，并在每一轮冲突解决后执行 git rebase --continue。不要 push。
@@ -497,35 +473,13 @@ required = ["stdout"]
 [[steps]]
 id = "run-validation"
 title = "运行可选验证命令"
-execution = "script"
 depends_on = ["summarize-rebase-state"]
 condition = "summarize-rebase-state.stdout.rebase_done == true"
-description = "如果 validation_command 非空，则在 worktree 中执行该命令。"
+embed = "git-run-validation"
 
-[steps.script]
-command = ["bash", "-lc", """
-set -u
-wt="${TT_WORKTREE_PATH:-}"
-cmd="${TT_VALIDATION_COMMAND:-}"
-if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
-  jq -cn '{requested:false,success:true,command:"",stdout:"",stderr:""}'
-  exit 0
-fi
-cd "$wt" 2>/dev/null || { jq -cn --arg command "$cmd" '{requested:true,success:false,command:$command,stdout:"",stderr:"worktree path missing"}'; exit 0; }
-out="$(bash -lc "$cmd" 2>&1)"
-rc=$?
-jq -cn --arg command "$cmd" --arg output "$out" --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:true,success:$success,command:$command,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end)}'
-"""]
-format = "json"
-timeout = "20m"
-
-[steps.script.env]
-TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
-TT_VALIDATION_COMMAND = "{{validation_command}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
+[steps.embed_vars]
+repo_path = "{{prepare-rebase-worktree.stdout.worktree_path}}"
+command = "{{validation_command}}"
 
 [[steps]]
 id = "push-rebased-branch"
@@ -577,7 +531,7 @@ timeout = "120s"
 TT_PUSH = "{{push}}"
 TT_WORKTREE_PATH = "{{prepare-rebase-worktree.stdout.worktree_path}}"
 TT_HEAD_BRANCH = "{{prepare-rebase-worktree.stdout.head_branch}}"
-TT_VALIDATION = "{{run-validation.stdout}}"
+TT_VALIDATION = "{{run-validation.validation.stdout}}"
 
 [steps.validate]
 format = "json"
@@ -650,7 +604,7 @@ required = ["stdout"]
 id = "final-report"
 title = "输出 PR rebase 结果报告"
 depends_on = ["fetch-pr-metadata", "check-current-pr-worktree", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch", "cleanup-worktree"]
-input_context = ["fetch-pr-metadata.stdout", "check-current-pr-worktree.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.stdout", "push-rebased-branch.stdout", "cleanup-worktree.stdout"]
+input_context = ["fetch-pr-metadata.pr.stdout", "check-current-pr-worktree.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.validation.stdout", "push-rebased-branch.stdout", "cleanup-worktree.stdout"]
 description = """
 输出中文最终报告，结论先行。
 
