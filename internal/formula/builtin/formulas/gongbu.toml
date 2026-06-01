@@ -233,40 +233,16 @@ agent.name = "full-stack"
 id = "run-tests"
 title = "执行测试与基础验证"
 depends_on = ["implement-feature"]
-execution = "script"
+embed = "git-auto-detect-validation"
 
-[steps.script]
-command = [
-  "python3",
-  "-c",
-  """
-import json, os, subprocess
-commands = [(['go', 'test', './...'], 'go'), (['npm', 'test'], 'npm')]
-selected = None
-for cmd, marker in commands:
-    if marker == 'go' and os.path.exists('go.mod'):
-        selected = cmd
-        break
-    if marker == 'npm' and os.path.exists('package.json'):
-        selected = cmd
-        break
-if selected is None:
-    print(json.dumps({'attempted': False, 'command': [], 'exit_code': 0, 'stdout': '', 'stderr': 'no go.mod or package.json found; skipped automatic validation'}, ensure_ascii=False))
-    raise SystemExit(0)
-p = subprocess.run(selected, text=True, capture_output=True)
-print(json.dumps({'attempted': True, 'command': selected, 'exit_code': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}, ensure_ascii=False))
-raise SystemExit(0)
-""",
-]
-format = "json"
-timeout = "10m"
-continue_on_error = true
+[steps.embed_vars]
+command = ""
 
 [[steps]]
 id = "review-quality"
 title = "评估实现质量与测试覆盖"
 depends_on = ["implement-feature", "run-tests"]
-input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests"]
+input_context = ["analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests.validation.stdout"]
 description = """
 基于实现结果和测试输出，评估本次 feature 是否达到可交付状态。不要编造测试结果。
 
@@ -307,7 +283,7 @@ agent.name = "writer"
 id = "final-check"
 title = "做最终交付检查"
 depends_on = ["write-docs", "update-changelog", "review-quality"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests.validation.stdout", "review-quality", "write-docs", "update-changelog"]
 description = """
 做最终交付检查，确认实现、测试、文档、changelog 是否形成闭环。
 
@@ -351,7 +327,7 @@ required = ["stdout"]
 id = "final-report"
 title = "输出最终结论与报告"
 depends_on = ["commit-changes", "final-check"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
+input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests.validation.stdout", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
 description = """
 面向用户输出最终报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name、工作区路径以及未完成事项。
 """

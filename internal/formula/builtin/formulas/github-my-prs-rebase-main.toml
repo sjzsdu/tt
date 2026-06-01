@@ -55,72 +55,23 @@ push = { description = "每个 PR rebase 成功后是否 push --force-with-lease
 [[steps]]
 id = "fetch-open-prs"
 title = "获取当前用户 open PR 列表"
-execution = "script"
-description = "使用 gh pr list 获取当前仓库中 author 匹配且 state=open 的 PR。"
+embed = "github-list-my-prs"
 
-[steps.script]
-command = ["python3", "-c", """
-import json, os, subprocess, sys, traceback
-
-def emit(obj):
-    print(json.dumps(obj, ensure_ascii=False, separators=(',', ':')))
-
-repo = os.environ.get('TT_REPO_HINT', '').strip()
-author = os.environ.get('TT_AUTHOR', '').strip() or '@me'
-base = os.environ.get('TT_BASE_BRANCH', '').strip() or 'main'
-fields = 'number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
-cmd = ['gh', 'pr', 'list', '--state', 'open', '--author', author, '--json', fields, '--limit', '200']
-if repo:
-    cmd += ['--repo', repo]
-try:
-    p = subprocess.run(cmd, text=True, capture_output=True)
-    if p.returncode != 0:
-        emit({'ok': False, 'error': (p.stderr or p.stdout or 'gh pr list failed').strip(), 'command': cmd, 'repo_hint': repo, 'author': author, 'base_branch': base, 'items': [], 'total': 0})
-        raise SystemExit(0)
-    raw = json.loads(p.stdout or '[]')
-    items = []
-    for pr in raw:
-        number = pr.get('number')
-        if number is None:
-            continue
-        items.append({
-            'number': number,
-            'pr_ref': str(number),
-            'title': pr.get('title') or '',
-            'url': pr.get('url') or '',
-            'state': pr.get('state') or 'OPEN',
-            'isDraft': bool(pr.get('isDraft')),
-            'baseRefName': pr.get('baseRefName') or '',
-            'target_base_branch': base,
-            'headRefName': pr.get('headRefName') or '',
-            'headRefOid': pr.get('headRefOid') or '',
-        })
-    emit({'ok': True, 'error': '', 'command': cmd, 'repo_hint': repo, 'author': author, 'base_branch': base, 'total': len(items), 'items': items})
-except SystemExit:
-    raise
-except Exception as exc:
-    emit({'ok': False, 'error': f'fetch open PRs failed: {exc}', 'traceback': traceback.format_exc()[-2000:], 'command': cmd, 'repo_hint': repo, 'author': author, 'base_branch': base, 'items': [], 'total': 0})
-"""]
-format = "json"
-timeout = "60s"
-
-[steps.script.env]
-TT_REPO_HINT = "{{repo_hint}}"
-TT_AUTHOR = "{{author}}"
-TT_BASE_BRANCH = "{{base_branch}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
+[steps.embed_vars]
+repo_hint = "{{repo_hint}}"
+author = "{{author}}"
+state = "open"
+limit = "200"
+base_branch = "{{base_branch}}"
 
 [[steps]]
 id = "rebase-each-pr"
 title = "并发 rebase 每个 open PR"
 depends_on = ["fetch-open-prs"]
-condition = "fetch-open-prs.stdout.total != 0"
+condition = "fetch-open-prs.prs.stdout.total != 0"
 
   [steps.loop]
-  for_each = "fetch-open-prs.stdout.items"
+  for_each = "fetch-open-prs.prs.stdout.items"
   var = "pr"
   parallel = true
   max_concurrency = 3
@@ -218,7 +169,7 @@ print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
 id = "final-report"
 title = "输出批量 PR rebase 报告"
 depends_on = ["fetch-open-prs", "rebase-each-pr"]
-input_context = ["fetch-open-prs.stdout", "rebase-each-pr"]
+input_context = ["fetch-open-prs.prs.stdout", "rebase-each-pr"]
 description = """
 输出中文最终报告，必须简明、结论先行，不要展开长篇过程日志。
 

@@ -40,7 +40,7 @@ command = ["bash", "-lc", """
 set -u
 pr="${TT_PR_REF:-}"
 repo="${TT_REPO_HINT:-}"
-fields='number,title,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository'
+fields='number,title,body,author,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify'
 cmd=(gh pr view "$pr" --json "$fields")
 if [ -n "$repo" ]; then cmd+=(--repo "$repo"); fi
 out="$("${cmd[@]}" 2>&1)"

@@ -140,8 +140,8 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 	if err != nil {
 		return nil, fmt.Errorf("embed %q on step %q: resolving formula %q: %w", step.ID, step.ID, name, err)
 	}
-	if resolved.Type != TypeWorkflow {
-		return nil, fmt.Errorf("embed %q on step %q: %q is not a workflow formula (type=%s)", step.ID, step.ID, name, resolved.Type)
+	if resolved.Type != TypeWorkflow && resolved.Type != TypeAtomic {
+		return nil, fmt.Errorf("embed %q on step %q: %q is not an embeddable formula (type=%s)", step.ID, step.ID, name, resolved.Type)
 	}
 
 	childVars := make(map[string]string)
