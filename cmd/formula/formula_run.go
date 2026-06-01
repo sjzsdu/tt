@@ -33,10 +33,11 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		formulaSession = "cli:formula"
 	}
 
-	workflow, err := formula.CompileWorkflowByName(context.Background(), name, getSearchPaths(), vars)
+	resolvedFormula, err := formula.ResolveFormulaByName(context.Background(), name, getSearchPaths(), vars)
 	if err != nil {
 		return err
 	}
+	workflow := formula.WorkflowFromFormula(resolvedFormula)
 
 	projectRoot, _ := os.Getwd()
 	if formulaDryRun {
@@ -48,6 +49,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			Vars:         vars,
 			Out:          cmd.OutOrStdout(),
 		})
+	}
+
+	if err := runFormulaPreflight(context.Background(), resolvedFormula, projectRoot); err != nil {
+		return err
 	}
 
 	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {

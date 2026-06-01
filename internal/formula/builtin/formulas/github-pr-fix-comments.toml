@@ -3,6 +3,26 @@ description = "遍历 PR 的所有待处理 review comments，用 typed runtime 
 version = 2
 type = "workflow"
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI: https://cli.github.com/"
+
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用，请先执行 gh auth login"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+message = "需要在 GitHub git 仓库中运行"
+
 [vars]
 pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
 review_focus = { description = "处理评论时重点关注方面", default = "正确性、风险与可维护性" }

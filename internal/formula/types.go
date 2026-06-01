@@ -124,8 +124,30 @@ type Formula struct {
 	// Workspace configures the formula execution workspace policy.
 	Workspace *WorkspaceSpec `json:"workspace,omitempty" toml:"workspace,omitempty"`
 
+	// Preflight defines checks that must pass before a workflow run starts.
+	Preflight *PreflightSpec `json:"preflight,omitempty" toml:"preflight,omitempty"`
+
 	// Source tracks where this formula was loaded from (set by parser).
 	Source string `json:"-" toml:"-"`
+}
+
+// PreflightSpec contains configurable checks to run before starting a formula.
+type PreflightSpec struct {
+	Checks []*PreflightCheck `json:"checks,omitempty" toml:"checks,omitempty"`
+}
+
+// PreflightCheck defines one pre-run environment check.
+type PreflightCheck struct {
+	Type    string   `json:"type" toml:"type"`
+	Name    string   `json:"name,omitempty" toml:"name,omitempty"`
+	Command string   `json:"command,omitempty" toml:"command,omitempty"`
+	Args    []string `json:"args,omitempty" toml:"args,omitempty"`
+	Env     string   `json:"env,omitempty" toml:"env,omitempty"`
+	Path    string   `json:"path,omitempty" toml:"path,omitempty"`
+	Message string   `json:"message,omitempty" toml:"message,omitempty"`
+
+	RequireRepo   bool `json:"require_repo,omitempty" toml:"require_repo,omitempty"`
+	RequireRemote bool `json:"require_remote,omitempty" toml:"require_remote,omitempty"`
 }
 
 // VarDef defines a template variable with optional validation.
@@ -972,6 +994,38 @@ func (f *Formula) Validate() error {
 		kind := strings.ToLower(strings.TrimSpace(f.Workspace.Kind))
 		if kind != "" && kind != "worktree" {
 			errs = append(errs, fmt.Sprintf("workspace.kind: invalid value %q (must be worktree)", f.Workspace.Kind))
+		}
+	}
+
+	if f.Preflight != nil {
+		for i, check := range f.Preflight.Checks {
+			prefix := fmt.Sprintf("preflight.checks[%d]", i)
+			if check == nil {
+				errs = append(errs, fmt.Sprintf("%s: check cannot be null", prefix))
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(check.Type)) {
+			case "command":
+				if strings.TrimSpace(check.Command) == "" {
+					errs = append(errs, fmt.Sprintf("%s: command check requires command", prefix))
+				}
+			case "exec":
+				if strings.TrimSpace(check.Command) == "" {
+					errs = append(errs, fmt.Sprintf("%s: exec check requires command", prefix))
+				}
+			case "git":
+				// git checks are valid with only require_repo/require_remote flags.
+			case "env":
+				if strings.TrimSpace(check.Env) == "" && strings.TrimSpace(check.Name) == "" {
+					errs = append(errs, fmt.Sprintf("%s: env check requires env or name", prefix))
+				}
+			case "path":
+				if strings.TrimSpace(check.Path) == "" {
+					errs = append(errs, fmt.Sprintf("%s: path check requires path", prefix))
+				}
+			default:
+				errs = append(errs, fmt.Sprintf("%s: invalid type %q (must be command, exec, git, env, or path)", prefix, check.Type))
+			}
 		}
 	}
 

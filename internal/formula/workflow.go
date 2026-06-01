@@ -19,6 +19,12 @@ func CompileWorkflowByName(_ context.Context, name string, searchPaths []string,
 	return WorkflowFromFormula(f), nil
 }
 
+// ResolveFormulaByName loads and resolves a workflow formula using the same
+// compile-time expansion path as CompileWorkflowByName.
+func ResolveFormulaByName(_ context.Context, name string, searchPaths []string, vars map[string]string) (*Formula, error) {
+	return resolveFormulaForWorkflow(name, searchPaths, vars, true)
+}
+
 func resolveFormulaForWorkflow(name string, searchPaths []string, vars map[string]string, validateRuntimeVars bool) (*Formula, error) {
 	parser := NewParser(searchPaths...)
 	f, err := parser.LoadByName(name)

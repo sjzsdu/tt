@@ -173,6 +173,7 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 		if merged.Workspace == nil {
 			merged.Workspace = parent.Workspace
 		}
+		merged.Preflight = mergePreflightSpec(merged.Preflight, parent.Preflight)
 
 		for name, varDef := range parent.Vars {
 			if _, exists := merged.Vars[name]; !exists {
@@ -192,6 +193,7 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 	merged.Steps = mergeSteps(merged.Steps, formula.Steps)
 	merged.Template = mergeSteps(merged.Template, formula.Template)
 	merged.Compose = mergeComposeRules(merged.Compose, formula.Compose)
+	merged.Preflight = mergePreflightSpec(merged.Preflight, formula.Preflight)
 
 	if merged.Workspace == nil && merged.Worktree {
 		merged.Workspace = &WorkspaceSpec{Kind: "worktree"}
@@ -206,6 +208,16 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 	}
 
 	return merged, nil
+}
+
+func mergePreflightSpec(base, overlay *PreflightSpec) *PreflightSpec {
+	if overlay == nil || len(overlay.Checks) == 0 {
+		return base
+	}
+	if base == nil || len(base.Checks) == 0 {
+		return &PreflightSpec{Checks: append([]*PreflightCheck{}, overlay.Checks...)}
+	}
+	return &PreflightSpec{Checks: append(append([]*PreflightCheck{}, base.Checks...), overlay.Checks...)}
 }
 
 func (p *Parser) loadFormula(name string) (*Formula, error) {

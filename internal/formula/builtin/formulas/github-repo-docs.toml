@@ -6,6 +6,20 @@ type = "workflow"
 category = "docs"
 tags = ["github", "repo", "docs", "code-reading", "foreach", "dynamic-form"]
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "读取 GitHub 仓库 URL 时需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
 [vars]
 repo = { description = "GitHub 仓库 URL、owner/repo，或本地目录路径", required = true }
 focus = { description = "解读关注点，例如架构、上手导览、核心模块、API、数据流、迁移风险；空则由 agent 判断是否澄清", default = "" }
