@@ -190,7 +190,7 @@ try:
         'push_remote': push.get('remote') or '',
         'push_branch': push.get('remote_branch') or '',
         'cleanup_removed': cleanup.get('removed'),
-        'final_report': report,
+        'final_report_excerpt': report[:500],
     }
 except Exception as exc:
     result = {'status': 'failed', 'error': f'collect result failed: {exc}', 'traceback': traceback.format_exc()[-2000:]}
@@ -220,16 +220,24 @@ title = "输出批量 PR rebase 报告"
 depends_on = ["fetch-open-prs", "rebase-each-pr"]
 input_context = ["fetch-open-prs.stdout", "rebase-each-pr"]
 description = """
-输出中文最终报告，结论先行。
+输出中文最终报告，必须简明、结论先行，不要展开长篇过程日志。
 
-必须说明：
-1. 本次筛选条件：author、state=open、repo_hint、目标 base_branch；
-2. 找到的 PR 总数，并列出 PR 编号、标题、URL、head/base；
-3. 是否并发执行了 rebase，以及并发上限为 3；
-4. 对每个 PR，总结 github-pr-rebase-main 子流程的结果：success / already_on_pr_branch / blocked / failed / unknown；
-5. 说明 validation_command 和 push 是按同一配置传给每个子流程；
-6. 若没有 open PR，明确说明没有执行任何 rebase；
-7. 不要编造子流程输出中没有出现的测试、push 或冲突结果。
+固定输出结构：
+1. `## 结论`：1-3 句话说明总数、成功数、阻塞数、是否都已 push、是否还有 worktree 遗留。
+2. `## PR 明细`：必须用 Markdown 表格，且只保留这些列：
+   `PR`、`标题`、`分支`、`状态`、`Rebase`、`Push`、`清理`、`问题/下一步`。
+3. `## 配置`：一行说明 author、state=open、repo_hint、base_branch、并发上限 3、validation_command、push 配置。
+
+表格规则：
+- `PR` 列使用 `#编号`，有 URL 时做成链接。
+- `状态` 只能概括为：成功 / 冲突阻塞 / 执行失败 / 已跳过 / 未知。
+- `Rebase` 用 ✅/❌/⚠️/➖ 表达是否完成，不要写长句。
+- `Push` 用 ✅/❌/➖ 表达是否 push 到 origin。
+- `清理` 用 ✅/❌/➖ 表达 worktree cleanup 结果；如果复用当前工作区没有删除，也要简短说明“复用当前”。
+- `问题/下一步` 只写最关键的一句话，没有问题写“无”。
+- 若没有 open PR，输出一句结论和配置即可，不要输出空表格。
+- 不要编造子流程输出中没有出现的测试、push 或冲突结果。
+- 不要粘贴每个子流程的完整 final_report，只能基于结构化字段总结。
 """
 
 [steps.agent]
