@@ -1588,6 +1588,7 @@ button, input, textarea { font: inherit; }
   padding-block: 0 !important;
   line-height: 1;
   color: var(--muted);
+  height: auto !important;
 }
 
 .step-modal-collapse .ant-collapse-expand-icon > .ant-collapse-arrow {
@@ -1650,6 +1651,7 @@ button, input, textarea { font: inherit; }
 .step-input-collapse .ant-collapse-expand-icon {
   align-self: center;
   display: inline-flex !important;
+  height: auto !important;
   align-items: center;
   justify-content: center;
   padding-block: 0 !important;
