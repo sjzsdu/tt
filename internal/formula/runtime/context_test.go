@@ -31,3 +31,25 @@ func TestContextStoreGetReadsFieldsFromJSONStringOutputs(t *testing.T) {
 		t.Fatalf("nested condition value = %q, %v; want ok, true", actual, ok)
 	}
 }
+
+func TestContextStoreGetUsesLongestStoredPrefixForDottedStepIDs(t *testing.T) {
+	store := NewContextStore()
+	raw, err := json.Marshal(map[string]any{"stdout": map[string]any{"ok": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("run-pr-rebase.prepare-rebase-worktree", steps.Value{Type: "json", Raw: raw}); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := store.Get("run-pr-rebase.prepare-rebase-worktree.stdout.ok")
+	if !ok {
+		t.Fatal("dotted step output not found")
+	}
+	var got bool
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("ok = false, want true")
+	}
+}

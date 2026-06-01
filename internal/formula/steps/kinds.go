@@ -1301,6 +1301,9 @@ func (s *loopIterationStore) Get(path string) (Value, bool) {
 	if ok {
 		return value, true
 	}
+	if value, fieldPath, ok := s.longestStoredPrefixValue(path); ok {
+		return getNestedJSONValue(value, fieldPath)
+	}
 	if root, rest, split := strings.Cut(path, "."); split {
 		s.mu.RLock()
 		value, ok = s.values[root]
@@ -1313,6 +1316,24 @@ func (s *loopIterationStore) Get(path string) (Value, bool) {
 		return Value{}, false
 	}
 	return s.parent.Get(path)
+}
+
+func (s *loopIterationStore) longestStoredPrefixValue(path string) (Value, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	best := ""
+	for key := range s.values {
+		if key == "" || len(key) <= len(best) {
+			continue
+		}
+		if strings.HasPrefix(path, key+".") {
+			best = key
+		}
+	}
+	if best == "" {
+		return Value{}, "", false
+	}
+	return s.values[best], strings.TrimPrefix(path, best+"."), true
 }
 
 func (s *loopIterationStore) Set(path string, value Value) error {

@@ -23,6 +23,9 @@ func (s *ContextStore) Get(path string) (steps.Value, bool) {
 	if value, ok := s.values[path]; ok {
 		return value, true
 	}
+	if value, fieldPath, ok := longestStoredPrefixValue(s.values, path); ok {
+		return lookupValuePath(value, fieldPath)
+	}
 	root, fieldPath, ok := strings.Cut(path, ".")
 	if !ok {
 		return steps.Value{}, false
@@ -53,6 +56,22 @@ func (s *ContextStore) Snapshot() map[string]steps.Value {
 		out[k] = v
 	}
 	return out
+}
+
+func longestStoredPrefixValue(values map[string]steps.Value, path string) (steps.Value, string, bool) {
+	best := ""
+	for key := range values {
+		if key == "" || len(key) <= len(best) {
+			continue
+		}
+		if strings.HasPrefix(path, key+".") {
+			best = key
+		}
+	}
+	if best == "" {
+		return steps.Value{}, "", false
+	}
+	return values[best], strings.TrimPrefix(path, best+"."), true
 }
 
 func normalizePath(path string) string { return strings.Trim(strings.TrimSpace(path), ".") }
