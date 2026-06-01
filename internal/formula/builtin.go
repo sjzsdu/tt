@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed builtin/formulas/*.toml builtin/formulas/atomics/*.toml
+//go:embed builtin/formulas/*.toml builtin/atomics/*.toml
 var builtinFormulaFS embed.FS
 
 type BuiltinEntry struct {
@@ -25,7 +25,7 @@ func BuiltinFormulas() ([]BuiltinEntry, error) {
 }
 
 func BuiltinAtomicFormulas() ([]BuiltinEntry, error) {
-	return builtinFormulasInDir("builtin/formulas/atomics")
+	return builtinFormulasInDir("builtin/atomics")
 }
 
 func builtinFormulasInDir(dir string) ([]BuiltinEntry, error) {
@@ -69,7 +69,7 @@ func BuiltinFormulaContent(name string) ([]byte, bool, error) {
 	}
 	for _, c := range candidates {
 		base := filepath.Base(c)
-		for _, dir := range []string{"builtin/formulas", "builtin/formulas/atomics"} {
+		for _, dir := range []string{"builtin/formulas", "builtin/atomics"} {
 			data, err := builtinFormulaFS.ReadFile(dir + "/" + base)
 			if err == nil {
 				return data, true, nil
@@ -83,7 +83,7 @@ func BuiltinFormulaContent(name string) ([]byte, bool, error) {
 	for _, e := range entries {
 		if e.Name == name {
 			for _, ext := range []string{CanonicalTOMLExt} {
-				for _, dir := range []string{"builtin/formulas", "builtin/formulas/atomics"} {
+				for _, dir := range []string{"builtin/formulas", "builtin/atomics"} {
 					data, err := builtinFormulaFS.ReadFile(dir + "/" + e.Name + ext)
 					if err == nil {
 						return data, true, nil
