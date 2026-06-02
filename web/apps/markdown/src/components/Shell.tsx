@@ -1,8 +1,8 @@
-import { Anchor, Input, Segmented, Splitter, Tooltip } from 'antd';
+import { Splitter } from 'antd';
 import type { ReactNode } from 'react';
 import type { MdFile, TocItem } from '../types';
-import { FileList } from './FileList';
-import { filterFiles } from '../utils/fileSearch';
+import { FileSidebar } from './FileSidebar';
+import { TocSidebar } from './TocSidebar';
 
 interface ShellProps {
   theme: 'light' | 'dark';
@@ -35,54 +35,20 @@ export function Shell({
   theme,
   onThemeChange,
 }: ShellProps) {
-  const filteredFiles = filterFiles(files, fileQuery);
-  const anchorItems = toc.map(item => ({
-    key: item.id,
-    href: `#${item.id}`,
-    title: <span className={`toc-anchor-title level-${item.level}`}>{item.text}</span>,
-  }));
-
   return (
     <Splitter className="layout">
       <Splitter.Panel defaultSize={280} min={200}>
-        <aside className="files-pane section">
-          <h1 className="section-title">Markdown Files</h1>
-          <p className="section-subtitle">Browse and edit local Markdown files.</p>
-          <Input.Search
-            className="file-search"
-            allowClear
-            size="small"
-            placeholder="Search files"
-            value={fileQuery}
-            onChange={event => setFileQuery(event.target.value)}
-          />
-          <div className="file-toolbar">
-            <span>{filteredFiles.length}/{files.length} files</span>
-            <div className="file-toolbar-actions">
-              <Tooltip title="Switch theme">
-                <Segmented
-                  size="small"
-                  value={theme}
-                  onChange={value => onThemeChange(value as 'light' | 'dark')}
-                  options={[
-                    { label: 'Light', value: 'light' },
-                    { label: 'Dark', value: 'dark' },
-                  ]}
-                />
-              </Tooltip>
-              <Segmented
-                size="small"
-                value={fileMode}
-                onChange={v => setFileMode(v as 'tree' | 'flat')}
-                options={[
-                  { label: 'Tree', value: 'tree' },
-                  { label: 'List', value: 'flat' },
-                ]}
-              />
-            </div>
-          </div>
-          <FileList files={filteredFiles} current={current} navigate={navigate} mode={fileMode} searchActive={Boolean(fileQuery.trim())} />
-        </aside>
+        <FileSidebar
+          theme={theme}
+          onThemeChange={onThemeChange}
+          files={files}
+          current={current}
+          navigate={navigate}
+          fileMode={fileMode}
+          setFileMode={setFileMode}
+          fileQuery={fileQuery}
+          setFileQuery={setFileQuery}
+        />
       </Splitter.Panel>
 
       <Splitter.Panel min={400}>
@@ -90,31 +56,7 @@ export function Shell({
       </Splitter.Panel>
 
       <Splitter.Panel defaultSize={260} min={180} max={350}>
-        <aside className="toc-pane section">
-          <h2 className="toc-title">On this page</h2>
-          {toc.length ? (
-            <Anchor
-              affix={false}
-              className="toc-anchor"
-              getContainer={() => contentPaneRef.current || window}
-              items={anchorItems}
-              targetOffset={80}
-              onClick={(event, link) => {
-                event.preventDefault();
-                const id = link.href.replace(/^#/, '');
-                const el = document.getElementById(id);
-                const pane = contentPaneRef.current;
-                if (!el || !pane) return;
-                const paneRect = pane.getBoundingClientRect();
-                const elRect = el.getBoundingClientRect();
-                pane.scrollTo({ top: elRect.top - paneRect.top + pane.scrollTop - 20, behavior: 'smooth' });
-                history.replaceState(null, '', link.href);
-              }}
-            />
-          ) : (
-            <p className="toc-empty">No headings found.</p>
-          )}
-        </aside>
+        <TocSidebar toc={toc} contentPaneRef={contentPaneRef} />
       </Splitter.Panel>
     </Splitter>
   );
