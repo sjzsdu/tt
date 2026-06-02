@@ -1,6 +1,6 @@
 formula = "bug-detect"
 description = "Scan the current working directory from multiple angles, identify concrete code issues, create Jira tickets for confirmed issues, and summarize the submitted tickets with severity and rationale."
-version = 2
+version = 3
 type = "workflow"
 
 [preflight]
@@ -401,7 +401,16 @@ for issue in issues:
         "recommended_fix": issue.get("recommended_fix", ""),
         "confidence": issue.get("confidence", 0),
     }
-    cmd = ["jira", "create", "--project", project, "--summary", payload["summary"], "--description", json.dumps(payload, ensure_ascii=False)]
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    cmd = [
+        "jira", "issue", "create",
+        "--project", project,
+        "--type", "Task",
+        "--summary", payload["summary"],
+        "--body", body,
+        "--no-input",
+        "--raw",
+    ]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         ticket = {
@@ -425,8 +434,10 @@ for issue in issues:
             "stderr": str(e),
         })
 
+created_count = sum(1 for ticket in tickets if ticket.get("ok"))
 print(json.dumps({
-    "created_count": len(tickets),
+    "created_count": created_count,
+    "attempted_count": len(tickets),
     "tickets": tickets
 }, ensure_ascii=False))
 """]
