@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useMermaid } from '../hooks/useMermaid';
 import { useMermaidActions } from '../hooks/useMermaidActions';
 import { useMermaidViewport } from '../hooks/useMermaidViewport';
@@ -51,7 +52,8 @@ function MermaidBody({ err, svg }: { err: string; svg: string }) {
 }
 
 export function MermaidFigure({ code, index, theme = ((document.documentElement.dataset.theme as 'light' | 'dark') || 'light') }: MermaidFigureProps) {
-  const { svg, err } = useMermaid(code, index, theme);
+  const figureRef = useRef<HTMLElement | null>(null);
+  const { svg, err } = useMermaid(code, index, theme, figureRef);
   const {
     viewportRef,
     containerRef,
@@ -60,14 +62,15 @@ export function MermaidFigure({ code, index, theme = ((document.documentElement.
     baseSize,
     initialState,
     viewportHeight,
+    displaySvg,
   } = useMermaidViewport(svg);
-  const panZoom = usePanZoom(panZoomTarget, { initialState, minScale: 0.25 });
+  const panZoom = usePanZoom(panZoomTarget, { initialState, minScale: 0.08 });
   const actions = useMermaidActions(svg, svgElRef);
 
   usePanZoomEvents(viewportRef, panZoom);
 
   return (
-    <section className="mermaid-figure">
+    <section className="mermaid-figure" ref={figureRef}>
       <MermaidToolbar
         scale={panZoom.scale}
         title={diagramKind(code)}
@@ -82,8 +85,8 @@ export function MermaidFigure({ code, index, theme = ((document.documentElement.
       />
       <div className="mermaid-viewport" ref={viewportRef} style={{ height: viewportHeight }}>
         <div className="mermaid-stage" style={{ width: baseSize.width, height: baseSize.height }}>
-          <div className="mermaid" ref={containerRef}>
-            <MermaidBody err={err} svg={svg} />
+          <div className="mermaid-canvas" ref={containerRef}>
+            <MermaidBody err={err} svg={displaySvg} />
           </div>
         </div>
       </div>

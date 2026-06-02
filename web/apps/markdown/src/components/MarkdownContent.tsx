@@ -3,6 +3,7 @@ import { MermaidFigure } from './MermaidFigure';
 
 interface MarkdownContentProps {
   parts: MdPart[];
+  theme: 'light' | 'dark';
 }
 
 function slugify(text: string): string {
@@ -24,7 +25,7 @@ function addIdsToHeadings(html: string): string {
   });
 }
 
-export function MarkdownContent({ parts }: MarkdownContentProps) {
+export function MarkdownContent({ parts, theme }: MarkdownContentProps) {
   return (
     <>
       {parts.map((p, i) =>
@@ -35,7 +36,7 @@ export function MarkdownContent({ parts }: MarkdownContentProps) {
             dangerouslySetInnerHTML={{ __html: addIdsToHeadings(p.html) }}
           />
         ) : (
-          <MermaidFigure key={i} code={p.code} index={i} />
+          <MermaidFigure key={i} code={p.code} index={i} theme={theme} />
         )
       )}
     </>

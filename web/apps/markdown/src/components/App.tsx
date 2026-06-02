@@ -90,6 +90,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
         contentMode={list?.contentMode}
         saving={documentState.saving}
         contentPaneRef={contentPaneRef}
+        theme={theme}
         navigate={navigate}
         onSave={save}
         onDelete={deleteDoc}

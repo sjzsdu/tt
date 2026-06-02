@@ -8,8 +8,12 @@ export interface SvgSize {
 const SVG_PADDING = 12;
 
 export function readSvgSize(svg: SVGSVGElement): SvgSize {
-  const rect = svg.getBoundingClientRect();
   const viewBox = svg.viewBox?.baseVal;
+  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+    return { minX: viewBox.x, minY: viewBox.y, width: Math.ceil(viewBox.width), height: Math.ceil(viewBox.height) };
+  }
+
+  const rect = svg.getBoundingClientRect();
   if (rect.width > 0 && rect.height > 0) {
     return {
       minX: viewBox?.x ?? 0,
@@ -21,10 +25,6 @@ export function readSvgSize(svg: SVGSVGElement): SvgSize {
 
   const paintedBox = readPaintedBox(svg);
   if (paintedBox) return paddedSize(paintedBox);
-
-  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
-    return { minX: viewBox.x, minY: viewBox.y, width: Math.ceil(viewBox.width), height: Math.ceil(viewBox.height) };
-  }
 
   const width = Number(svg.getAttribute('width')) || rect.width || 600;
   const height = Number(svg.getAttribute('height')) || rect.height || 300;
@@ -43,6 +43,20 @@ export function prepareSvgForViewport(svg: SVGSVGElement, size: SvgSize) {
   svg.style.height = `${size.height}px`;
   svg.style.maxWidth = 'none';
   svg.style.display = 'block';
+}
+
+export function prepareSvgMarkupForViewport(markup: string): { svg: string; size: SvgSize } | null {
+  if (!markup.trim() || typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') return null;
+
+  const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  if (doc.querySelector('parsererror')) return null;
+
+  const svg = doc.querySelector<SVGSVGElement>('svg');
+  if (!svg) return null;
+
+  const size = readSvgSize(svg);
+  prepareSvgForViewport(svg, size);
+  return { svg: new XMLSerializer().serializeToString(svg), size };
 }
 
 function readPaintedBox(svg: SVGSVGElement): SvgSize | null {

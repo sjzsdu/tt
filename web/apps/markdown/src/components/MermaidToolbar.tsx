@@ -41,7 +41,7 @@ export function MermaidToolbar({
       </div>
       <div className="mermaid-toolbar-actions">
         <Slider
-          min={25}
+          min={8}
           max={400}
           value={Math.round(scale * 100)}
           tooltip={{ formatter: v => `${v}%` }}

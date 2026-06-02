@@ -7,6 +7,7 @@ interface ArticleProps {
   doc: DocumentResponse;
   setToc: (items: TocItem[]) => void;
   contentPaneRef: React.RefObject<HTMLElement | null>;
+  theme: 'light' | 'dark';
 }
 
 function slugify(text: string): string {
@@ -18,7 +19,7 @@ function slugify(text: string): string {
     .replace(/-+/g, '-');
 }
 
-export function Article({ doc, setToc, contentPaneRef }: ArticleProps) {
+export function Article({ doc, setToc, contentPaneRef, theme }: ArticleProps) {
   const articleRef = useRef<HTMLElement | null>(null);
   const parts = useMarkdownParts(doc.contentText);
 
@@ -72,7 +73,7 @@ export function Article({ doc, setToc, contentPaneRef }: ArticleProps) {
     <div className="doc-wrap">
       {fmPanel}
       <article ref={articleRef} className="markdown-body">
-        <MarkdownContent parts={parts} />
+        <MarkdownContent parts={parts} theme={theme} />
       </article>
     </div>
   );

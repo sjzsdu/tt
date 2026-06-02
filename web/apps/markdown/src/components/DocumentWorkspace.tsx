@@ -18,6 +18,7 @@ interface DocumentWorkspaceProps {
   onSave: () => void;
   onDelete: () => void;
   setToc: (toc: TocItem[]) => void;
+  theme: 'light' | 'dark';
 }
 
 export function DocumentWorkspace({
@@ -34,6 +35,7 @@ export function DocumentWorkspace({
   onSave,
   onDelete,
   setToc,
+  theme,
 }: DocumentWorkspaceProps) {
   return (
     <>
@@ -49,7 +51,7 @@ export function DocumentWorkspace({
       {route.mode === 'edit' ? (
         <Editor doc={doc} content={content} setContent={setContent} fm={fm} setFm={setFm} />
       ) : (
-        <Article doc={doc} setToc={setToc} contentPaneRef={contentPaneRef} />
+        <Article doc={doc} setToc={setToc} contentPaneRef={contentPaneRef} theme={theme} />
       )}
     </>
   );

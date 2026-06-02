@@ -5,6 +5,7 @@ export type { AppTheme } from './mermaidTheme';
 export function createMermaidConfig(theme: AppTheme) {
   return {
     startOnLoad: false,
+    suppressErrorRendering: true,
     theme: 'base' as const,
     securityLevel: 'loose' as const,
     logLevel: 'error' as const,
