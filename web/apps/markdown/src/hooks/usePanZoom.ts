@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
-interface PanZoomState {
+export interface PanZoomState {
   scale: number;
   position: { x: number; y: number };
 }
@@ -138,3 +138,5 @@ export function usePanZoom(
     onPointerUp,
   };
 }
+
+export type PanZoomApi = ReturnType<typeof usePanZoom>;
