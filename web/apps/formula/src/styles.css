@@ -120,6 +120,7 @@ button, input, textarea { font: inherit; }
 .graph-node.completed, .loop-group-node.completed { border-color: var(--ant-color-success); }
 .graph-node.failed, .loop-group-node.failed { border-color: var(--ant-color-error); }
 .graph-node.waiting_input { border-color: var(--ant-color-warning); }
+.graph-node.compound-loop.expanded { border-color: rgba(168, 85, 247, 0.78); box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.22), var(--ant-box-shadow-secondary); }
 .graph-node-topline, .graph-node-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .graph-node-id { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .10em; text-transform: uppercase; }
 .graph-node-state { padding: 2px 7px; border-radius: 999px; background: var(--soft-bg); font-size: 11px; text-transform: uppercase; }
@@ -128,10 +129,33 @@ button, input, textarea { font: inherit; }
 .graph-node-meta { justify-content: flex-start; color: var(--text-muted); font-size: 11px; }
 .graph-node-action, .loop-summary-pill, .loop-iteration-pill { width: fit-content; padding: 4px 8px; border-radius: 999px; background: var(--soft-bg); color: var(--ant-color-primary); font-size: 12px; }
 .flow-handle { width: 9px !important; height: 9px !important; background: var(--ant-color-primary) !important; border-color: var(--app-bg) !important; }
+.loop-expand-handle { background: #a855f7 !important; }
 .loop-body-node { width: 260px; min-height: 120px; }
-.loop-group-node { display: grid; gap: 5px; width: 320px; min-height: 110px; pointer-events: none; }
+.loop-group-node {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  pointer-events: none;
+  border-style: dashed;
+  border-color: rgba(168, 85, 247, 0.45);
+  background:
+    linear-gradient(180deg, rgba(168, 85, 247, 0.12), rgba(56, 189, 248, 0.04)),
+    rgba(8, 13, 25, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.08);
+}
+.loop-group-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .loop-group-title { color: var(--ant-color-primary); font-size: 12px; font-weight: 800; }
+.loop-group-badge { padding: 3px 8px; border-radius: 999px; background: rgba(168, 85, 247, 0.16); color: var(--ant-color-primary) !important; font-weight: 800; white-space: nowrap; }
+.loop-group-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.loop-group-meta span { padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,0.04); }
 .loop-group-node span, .loop-group-node em { color: var(--text-muted); font-size: 12px; }
+.react-flow__edge.flow-edge .react-flow__edge-path { stroke-width: 2; }
+.react-flow__edge.loop-expand-edge .react-flow__edge-path { stroke: rgba(168, 85, 247, 0.9); stroke-dasharray: 7 6; stroke-width: 2.5; }
+.react-flow__edge.loop-body-edge .react-flow__edge-path { stroke: rgba(168, 85, 247, 0.68); }
+.react-flow__edge.loop-body-edge.synthetic .react-flow__edge-path { stroke-dasharray: 5 5; opacity: 0.72; }
 
 .step-inspector .ant-drawer-content-wrapper { max-width: 100vw; }
 .step-inspector .ant-drawer-body { min-width: 0; overflow-x: hidden; padding: 20px; }
@@ -195,9 +219,14 @@ button, input, textarea { font: inherit; }
 .formula-markdown-output { min-width: 0; max-width: 100%; overflow: hidden; padding: 0; background: transparent; color: inherit; }
 .formula-markdown-output pre, .formula-markdown-output code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .markdown-table-block { min-width: 0; max-width: 100%; overflow: hidden; }
-.markdown-table-scroll { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; }
-.formula-markdown-table { width: max-content; min-width: 100%; max-width: none; border-collapse: collapse; }
-.formula-markdown-table th, .formula-markdown-table td { max-width: min(420px, 42vw); padding: 8px; border: 1px solid var(--panel-border); overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+.markdown-table-scroll { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--panel-border); border-radius: 12px; background: color-mix(in srgb, var(--app-bg) 82%, transparent); }
+.formula-markdown-table { width: max-content; min-width: 100%; max-width: none; border-collapse: separate; border-spacing: 0; color: var(--ant-color-text); }
+.formula-markdown-table th, .formula-markdown-table td { max-width: min(420px, 42vw); padding: 9px 10px; border-right: 1px solid var(--panel-border); border-bottom: 1px solid var(--panel-border); overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+.formula-markdown-table th { background: color-mix(in srgb, var(--ant-color-primary) 14%, var(--app-bg)); color: var(--ant-color-text); font-weight: 800; }
+.formula-markdown-table td { background: color-mix(in srgb, var(--soft-bg) 72%, var(--app-bg)); }
+.formula-markdown-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--soft-bg) 88%, var(--app-bg)); }
+.formula-markdown-table th:last-child, .formula-markdown-table td:last-child { border-right: 0; }
+.formula-markdown-table tbody tr:last-child td { border-bottom: 0; }
 .markdown-html-block { min-width: 0; max-width: 100%; overflow: auto; overflow-wrap: anywhere; word-break: break-word; }
 .mermaid-diagram { display: grid; place-items: center; min-height: 160px; padding: 12px; border: 1px solid var(--panel-border); border-radius: 12px; background: var(--soft-bg); }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
@@ -205,18 +234,19 @@ button, input, textarea { font: inherit; }
 
 .final-output-modal .ant-modal-content { overflow: hidden; }
 .final-output-shell, .final-report-modal-layout { display: grid; gap: 16px; }
-.final-report-modal-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); align-items: stretch; }
-.final-report-pane, .final-report-chat-pane { min-height: 520px; overflow: auto; }
+.final-report-modal-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); align-items: start; }
+.final-report-pane { min-height: 520px; max-height: min(78vh, 900px); overflow: auto; }
+.final-report-chat-pane { max-height: min(72vh, 720px); overflow: auto; }
 .final-output-kicker, .final-report-chat-role { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .final-report-chat-pane, .final-report-chat-message { padding: 12px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--soft-bg); }
-.final-report-chat-pane { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.final-report-chat-pane { display: flex; flex-direction: column; gap: 12px; }
 .final-report-chat-header, .final-report-chat-actions { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .final-report-chat-header { align-items: flex-start; }
 .final-report-chat-header p { margin: 6px 0 0; color: var(--text-muted); line-height: 1.45; }
-.final-report-chat-composer { display: grid; gap: 8px; margin-top: auto; }
+.final-report-chat-composer { display: grid; gap: 8px; }
 .final-report-chat-composer textarea { resize: vertical; }
 .final-report-chat-content, .final-report-chat-messages { display: grid; gap: 10px; }
-.final-report-chat-messages { flex: 1; min-height: 0; overflow: auto; padding-right: 2px; }
+.final-report-chat-messages { max-height: min(36vh, 360px); overflow: auto; padding-right: 2px; }
 .final-report-chat-empty, .final-report-chat-thinking { color: var(--text-muted); }
 .final-report-chat-empty { padding: 12px; border: 1px dashed var(--panel-border); border-radius: 12px; background: rgba(255,255,255,0.025); }
 .final-report-chat-empty p { margin: 6px 0 0; line-height: 1.45; }
