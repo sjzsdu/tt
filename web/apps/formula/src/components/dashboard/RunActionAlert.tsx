@@ -6,12 +6,14 @@ export function RunActionAlert({
   focusedStep,
   onInspect,
   onRetry,
+  onProvideInput,
   onOpenFinalReport,
 }: {
   snapshot: FormulaDashboardSnapshot;
   focusedStep: FormulaDashboardStep | null;
   onInspect: (step: FormulaDashboardStep) => void;
   onRetry: (step: FormulaDashboardStep) => void;
+  onProvideInput: (step: FormulaDashboardStep) => void;
   onOpenFinalReport: () => void;
 }) {
   const waiting = snapshot.steps.find(step => step.status === 'waiting_input' && step.human_input_request) || null;
@@ -25,7 +27,12 @@ export function RunActionAlert({
         type="warning"
         message="Action required"
         description={`Step “${waiting.title}” is waiting for human input. Submit the requested values to resume the workflow.`}
-        action={<Button type="primary" onClick={() => onInspect(waiting)}>Review input step</Button>}
+        action={(
+          <Space>
+            <Button onClick={() => onInspect(waiting)}>Inspect</Button>
+            <Button type="primary" onClick={() => onProvideInput(waiting)}>Submit input</Button>
+          </Space>
+        )}
       />
     );
   }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { App as AntdApp, Empty, Layout, Space } from 'antd';
+import { App as AntdApp, Empty, Layout, Space, Spin } from 'antd';
 import { api } from '../api';
 import type { DashboardView, FormulaDashboardStep } from '../types';
 import { useFormulaDashboard } from '../hooks/useFormulaDashboard';
@@ -20,6 +20,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   const [view, setView] = useState<DashboardView>(currentView());
   const [selectedStep, setSelectedStep] = useState<FormulaDashboardStep | null>(null);
   const [retryStep, setRetryStep] = useState<FormulaDashboardStep | null>(null);
+  const [humanInputOpen, setHumanInputOpen] = useState(false);
   const [finalOutputOpen, setFinalOutputOpen] = useState(false);
   const [finalReportChatBusy, setFinalReportChatBusy] = useState(false);
   const [finalReportChatError, setFinalReportChatError] = useState('');
@@ -46,6 +47,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   const submitHumanInput = async (stepID: string, values: Record<string, unknown>) => {
     try {
       await api.submitHumanInput(stepID, values);
+      setHumanInputOpen(false);
       message.success('Human input submitted. Resuming workflow…');
     } catch (err) {
       message.error(`Human input submit failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -147,6 +149,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
             focusedStep={focusedStep}
             onInspect={setSelectedStep}
             onRetry={setRetryStep}
+            onProvideInput={() => setHumanInputOpen(true)}
             onOpenFinalReport={() => setFinalOutputOpen(true)}
           />
           <RunOverview summary={summary} progress={progress} runningStep={runningStep} status={snapshot.status} />
@@ -155,9 +158,9 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
 
         <StepInspector step={selectedStep} snapshot={snapshot} open={!!selectedStep} onClose={() => setSelectedStep(null)} onRetry={setRetryStep} />
         <RetryStepModal step={retryStep} open={!!retryStep} onCancel={() => setRetryStep(null)} onSubmit={submitRetryStep} />
-        <HumanInputModal step={waitingInputStep} onSubmit={submitHumanInput} />
+        <HumanInputModal step={waitingInputStep} open={humanInputOpen && !!waitingInputStep} onCancel={() => setHumanInputOpen(false)} onSubmit={submitHumanInput} />
         {snapshot.final_output && finalOutputOpen ? (
-          <Suspense fallback={null}>
+          <Suspense fallback={<div className="empty-screen lazy-surface-loading"><Spin tip="Loading final report…" /></div>}>
             <FinalReportModal
               open={finalOutputOpen}
               onClose={() => setFinalOutputOpen(false)}

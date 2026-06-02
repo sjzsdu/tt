@@ -4,7 +4,17 @@ import type { FormulaDashboardStep } from '../../types';
 
 const { TextArea } = Input;
 
-export function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep | undefined; onSubmit: (stepID: string, values: Record<string, unknown>) => Promise<void> }) {
+export function HumanInputModal({
+  step,
+  open,
+  onCancel,
+  onSubmit,
+}: {
+  step: FormulaDashboardStep | undefined;
+  open: boolean;
+  onCancel: () => void;
+  onSubmit: (stepID: string, values: Record<string, unknown>) => Promise<void>;
+}) {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const request = step?.human_input_request;
@@ -12,14 +22,14 @@ export function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep
   const title = request?.form?.title || `Input needed${step?.title ? `: ${step.title}` : ''}`;
 
   useEffect(() => {
-    if (!step) return;
+    if (!step || !open) return;
     const initial: Record<string, unknown> = {};
     for (const field of fields) {
       if (field.default) initial[field.name] = field.default;
       if (field.type === 'checkbox' && !initial[field.name]) initial[field.name] = [];
     }
     form.setFieldsValue(initial);
-  }, [step?.id]);
+  }, [step?.id, open]);
 
   const submit = async () => {
     if (!step) return;
@@ -34,15 +44,14 @@ export function HumanInputModal({ step, onSubmit }: { step: FormulaDashboardStep
 
   return (
     <Modal
-      open={!!step}
+      open={open && !!step}
       title={title}
       okText={request?.form?.submit_label || 'Submit and resume'}
       onOk={submit}
+      onCancel={onCancel}
       confirmLoading={submitting}
-      closable={false}
-      maskClosable={false}
       width={640}
-      cancelButtonProps={{ style: { display: 'none' } }}
+      maskClosable={false}
     >
       {request?.reason && <Alert type="warning" showIcon message={request.reason} style={{ marginBottom: 16 }} />}
       {request?.form?.description && <Alert type="info" showIcon message={request.form.description} style={{ marginBottom: 16 }} />}

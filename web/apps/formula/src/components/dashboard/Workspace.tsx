@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Col, Row } from 'antd';
+import { Col, Row, Spin } from 'antd';
 import type { DashboardView, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { StepCard } from '../steps/StepCard';
 import { ExecutionTimeline } from './ExecutionTimeline';
@@ -32,7 +32,7 @@ export function Workspace({
               ))}
             </Row>
           ) : (
-            <Suspense fallback={<div className="graph-canvas empty-screen">Loading graph…</div>}>
+            <Suspense fallback={<div className="graph-canvas empty-screen"><Spin tip="Loading graph…" /></div>}>
               <GraphPanel snapshot={snapshot} onSelect={onSelectStep} theme={theme} />
             </Suspense>
           )}
