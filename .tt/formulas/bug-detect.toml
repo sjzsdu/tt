@@ -19,7 +19,7 @@ message = "Jira CLI 不可调用，请先确认 jira 已配置并能正常执行
 
 [vars]
 scan_path = { description = "Directory to inspect. Defaults to the current working directory.", default = "{{env.cwd}}" }
-jira_project = { description = "Jira project key used when creating tickets, for example OPS or FLOW360. This is not a Jira issue key/ticket id.", required = true }
+jira_project = { description = "Jira project key used when creating tickets. This is not a Jira issue key/ticket id.", default = "FLOW360" }
 max_tickets = { description = "Maximum number of Jira tickets to create in one run.", default = "10" }
 
 [[steps]]
