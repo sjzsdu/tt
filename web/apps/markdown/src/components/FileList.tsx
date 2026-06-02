@@ -1,144 +1,18 @@
-import { useMemo, useState } from 'react';
-import { Tree } from 'antd';
-import type { DataNode } from 'antd/es/tree';
 import { Empty } from 'antd';
-import {
-  FileMarkdownOutlined,
-  FolderOutlined,
-  TagOutlined,
-} from '@ant-design/icons';
 import type { MdFile } from '../types';
+import { FileTree } from './FileTree';
+import { FlatFileList } from './FlatFileList';
 
 interface FileListProps {
   files: MdFile[];
   current: string;
   navigate: (href: string) => void;
+  mode: 'tree' | 'flat';
   searchActive?: boolean;
 }
 
-interface FileTreeNode {
-  key: string;
-  title: React.ReactNode;
-  file?: MdFile;
-  childrenMap: Map<string, FileTreeNode>;
-}
-
-function buildTree(files: MdFile[]): DataNode[] {
-  const root = new Map<string, FileTreeNode>();
-
-  for (const file of files) {
-    const parts = file.Relative.replace(/^\//, '').split('/').filter(Boolean);
-    let level = root;
-    let prefix = '';
-
-    parts.forEach((part, index) => {
-      const isFile = index === parts.length - 1;
-      const key = isFile ? file.Relative : `dir:${prefix}${part}`;
-
-      if (!level.has(part)) {
-        level.set(part, {
-          key,
-          title: part,
-          childrenMap: new Map(),
-          file: isFile ? file : undefined,
-        });
-      }
-
-      const node = level.get(part)!;
-      if (isFile) node.file = file;
-      level = node.childrenMap;
-      prefix += part + '/';
-    });
-  }
-
-  const convert = (m: Map<string, FileTreeNode>): DataNode[] =>
-    [...m.values()]
-      .sort((a, b) => String(a.title).localeCompare(String(b.title)))
-      .map(n =>
-        n.file
-          ? {
-              key: n.file.Relative,
-              title: (
-                <span className="tree-file-title">
-                  {n.file.Title || n.file.Name}
-                  {n.file.HasFrontmatter && <TagOutlined className="fm-icon" />}
-                </span>
-              ),
-              icon: <FileMarkdownOutlined />,
-            }
-          : {
-              key: n.key,
-              title: n.title,
-              icon: <FolderOutlined />,
-              children: convert(n.childrenMap),
-            }
-      );
-
-  return convert(root);
-}
-
-function dirKeysForFiles(files: MdFile[]) {
-  const keys = new Set<string>();
-  for (const file of files) {
-    const parts = file.Relative.replace(/^\//, '').split('/').filter(Boolean);
-    let prefix = '';
-    parts.slice(0, -1).forEach(part => {
-      keys.add(`dir:${prefix}${part}`);
-      prefix += part + '/';
-    });
-  }
-  return [...keys];
-}
-
-export function FileTree({ files, current, navigate, searchActive }: FileListProps) {
-  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(() =>
-    JSON.parse(localStorage.getItem('md-tree-expanded') || '[]')
-  );
-
-  const treeData = useMemo(() => buildTree(files), [files]);
-  const searchExpandedKeys = useMemo(() => dirKeysForFiles(files), [files]);
-
-  return (
-    <Tree
-      className="md-ant-tree"
-      blockNode
-      treeData={treeData}
-      selectedKeys={current ? [current] : []}
-      expandedKeys={searchActive ? searchExpandedKeys : expandedKeys}
-      onExpand={keys => {
-        setExpandedKeys(keys);
-        localStorage.setItem('md-tree-expanded', JSON.stringify(keys));
-      }}
-      onSelect={(_, info) => {
-        const path = String(info.node.key);
-        if (path.startsWith('/')) navigate('/view' + path);
-      }}
-    />
-  );
-}
-
-export function FileList({ files, current, navigate, mode, searchActive }: FileListProps & { mode: 'tree' | 'flat' }) {
+export function FileList({ files, current, navigate, mode, searchActive }: FileListProps) {
   if (!files.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No markdown files" />;
-
-  if (mode === 'flat') {
-    return (
-      <ul className="file-list">
-        {files.map(f => (
-          <li key={f.Relative} className="file-item">
-            <button
-              className={`file-link ${current === f.Relative ? 'active' : ''}`}
-              onClick={() => navigate('/view' + f.Relative)}
-              type="button"
-            >
-              <b>{f.Title || f.Name}</b>
-              <span>{f.Relative}</span>
-              {f.HasFrontmatter && <TagOutlined className="fm-icon" />}
-            </button>
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
+  if (mode === 'flat') return <FlatFileList files={files} current={current} navigate={navigate} />;
   return <FileTree files={files} current={current} navigate={navigate} searchActive={searchActive} />;
 }
