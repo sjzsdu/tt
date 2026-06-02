@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import mermaid from 'mermaid';
 
 type AppTheme = 'light' | 'dark';
 

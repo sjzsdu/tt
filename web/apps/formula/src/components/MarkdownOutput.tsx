@@ -447,11 +447,10 @@ export function FinalReportModal({
   className,
   chat,
   chatBusy,
-	chatError,
-	onClose,
-	onStartChat,
-	onSendMessage,
-	onPromoteLatest,
+  chatError,
+  onClose,
+  onSendMessage,
+  onPromoteLatest,
 }: {
   open: boolean;
   title: string;
@@ -460,15 +459,15 @@ export function FinalReportModal({
   chat?: FinalReportChat;
   chatBusy?: boolean;
   chatError?: string;
-	onClose: () => void;
-	onStartChat: () => void;
-	onSendMessage: (message: string) => Promise<void> | void;
-	onPromoteLatest: () => Promise<void> | void;
+  onClose: () => void;
+  onSendMessage: (message: string) => Promise<void> | void;
+  onPromoteLatest: () => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState('');
   const messages = chat?.messages || [];
   const reportAvailable = !!content?.trim();
-	const canPromote = messages.some(item => item.role === 'assistant' && item.content?.trim());
+  const chatStarted = !!chat?.session_id || messages.length > 0;
+  const canPromote = messages.some(item => item.role === 'assistant' && item.content?.trim());
 
   useEffect(() => {
     if (!open) setDraft('');
@@ -493,22 +492,22 @@ export function FinalReportModal({
             <div>
               <div className="final-output-kicker">Chat with coder</div>
               <strong>Ask coder to revise, extend, or validate this final report.</strong>
-              <p>Uses a separate session from the formula run.</p>
+              <p>Type a request below. The first message starts a separate coder session with this report as context.</p>
             </div>
-			{chat?.session_id ? <Tag>{chat.session_id}</Tag> : null}
-		  </div>
-		  {canPromote ? (
-			<div className="final-report-chat-promote">
-			  <Button onClick={onPromoteLatest} disabled={chatBusy}>Use latest assistant reply as final report</Button>
-			</div>
-		  ) : null}
-		  {chatError ? <Alert type="error" showIcon message={chatError} style={{ marginBottom: 12 }} /> : null}
+            {chat?.session_id ? <Tag>{chat.session_id}</Tag> : <Tag>Not started</Tag>}
+          </div>
+          {canPromote ? (
+            <div className="final-report-chat-promote">
+              <Button onClick={onPromoteLatest} disabled={chatBusy}>Use latest assistant reply as final report</Button>
+            </div>
+          ) : null}
+          {chatError ? <Alert type="error" showIcon message={chatError} style={{ marginBottom: 12 }} /> : null}
           {!reportAvailable ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chat is unavailable because no final report was produced." />
           ) : messages.length === 0 ? (
             <div className="final-report-chat-empty">
-              <p>Replies use the report as context.</p>
-              <Button onClick={onStartChat} loading={chatBusy}>Start chat</Button>
+              <strong>No chat messages yet</strong>
+              <p>Ask for revisions, validation, or follow-up sections. Starting a chat will not modify the report until you choose to promote an assistant reply.</p>
             </div>
           ) : (
             <div className="final-report-chat-messages">
@@ -524,8 +523,7 @@ export function FinalReportModal({
           <div className="final-report-chat-composer">
             <Input.TextArea value={draft} onChange={e => setDraft(e.target.value)} rows={4} placeholder="Ask coder to improve or modify this report..." disabled={!reportAvailable || chatBusy} />
             <div className="final-report-chat-actions">
-              {!messages.length ? <Button onClick={onStartChat} disabled={!reportAvailable || chatBusy}>Start chat</Button> : null}
-              <Button type="primary" onClick={submit} loading={chatBusy} disabled={!draft.trim() || !reportAvailable}>Send</Button>
+              <Button type="primary" onClick={submit} loading={chatBusy} disabled={!draft.trim() || !reportAvailable}>{chatStarted ? 'Send' : 'Start chat'}</Button>
             </div>
           </div>
         </aside>

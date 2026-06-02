@@ -22,6 +22,9 @@
   --code-bg: rgba(241, 245, 249, 0.96);
   --code-text: #0f172a;
 }
+.react-flow__panel {
+    display: none;
+}
 
 * { box-sizing: border-box; }
 body {
@@ -191,13 +194,21 @@ button, input, textarea { font: inherit; }
 
 .final-output-modal .ant-modal-content { overflow: hidden; }
 .final-output-shell, .final-report-modal-layout { display: grid; gap: 16px; }
-.final-report-modal-layout { grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); }
+.final-report-modal-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); align-items: stretch; }
 .final-report-pane, .final-report-chat-pane { min-height: 520px; overflow: auto; }
 .final-output-kicker, .final-report-chat-role { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .final-report-chat-pane, .final-report-chat-message { padding: 12px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--soft-bg); }
-.final-report-chat-header, .final-report-chat-actions, .final-report-chat-composer { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.final-report-chat-pane { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.final-report-chat-header, .final-report-chat-actions { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.final-report-chat-header { align-items: flex-start; }
+.final-report-chat-header p { margin: 6px 0 0; color: var(--text-muted); line-height: 1.45; }
+.final-report-chat-composer { display: grid; gap: 8px; margin-top: auto; }
+.final-report-chat-composer textarea { resize: vertical; }
 .final-report-chat-content, .final-report-chat-messages { display: grid; gap: 10px; }
+.final-report-chat-messages { flex: 1; min-height: 0; overflow: auto; padding-right: 2px; }
 .final-report-chat-empty, .final-report-chat-thinking { color: var(--text-muted); }
+.final-report-chat-empty { padding: 12px; border: 1px dashed var(--panel-border); border-radius: 12px; background: rgba(255,255,255,0.025); }
+.final-report-chat-empty p { margin: 6px 0 0; line-height: 1.45; }
 .final-report-chat-promote { margin-top: 8px; }
 
 .json-output-shell, .auto-output { display: grid; gap: 8px; min-width: 0; }

@@ -21,6 +21,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   const [selectedStep, setSelectedStep] = useState<FormulaDashboardStep | null>(null);
   const [retryStep, setRetryStep] = useState<FormulaDashboardStep | null>(null);
   const [humanInputOpen, setHumanInputOpen] = useState(false);
+  const [autoOpenedHumanInputStepID, setAutoOpenedHumanInputStepID] = useState('');
   const [finalOutputOpen, setFinalOutputOpen] = useState(false);
   const [finalReportChatBusy, setFinalReportChatBusy] = useState(false);
   const [finalReportChatError, setFinalReportChatError] = useState('');
@@ -30,6 +31,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   }, [message]);
 
   const { snapshot, error, summary, orderedSteps } = useFormulaDashboard(handleLoadError);
+  const waitingInputStep = snapshot?.steps.find(step => step.status === 'waiting_input' && step.human_input_request);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -38,6 +40,16 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
       return snapshot.steps.find(step => step.id === current.id) || current;
     });
   }, [snapshot]);
+
+  useEffect(() => {
+    if (!waitingInputStep) {
+      setAutoOpenedHumanInputStepID(current => current ? '' : current);
+      return;
+    }
+    if (waitingInputStep.id === autoOpenedHumanInputStepID) return;
+    setAutoOpenedHumanInputStepID(waitingInputStep.id);
+    setHumanInputOpen(true);
+  }, [autoOpenedHumanInputStepID, waitingInputStep?.id]);
 
   const setDashboardView = (next: DashboardView) => {
     persistDashboardView(next);
@@ -128,7 +140,6 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
 
   const progress = summary.steps ? Math.round(((summary.completed + summary.skipped) / summary.steps) * 100) : 0;
   const runningStep = snapshot.steps.find(step => step.status === 'running');
-  const waitingInputStep = snapshot.steps.find(step => step.status === 'waiting_input' && step.human_input_request);
   const focusedStep = attentionStep(snapshot);
 
   return (
@@ -170,7 +181,6 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
               chat={snapshot.final_report_chat}
               chatBusy={finalReportChatBusy || snapshot.final_report_chat?.status === 'running'}
               chatError={finalReportChatError || snapshot.final_report_chat?.error || ''}
-              onStartChat={ensureFinalReportChat}
               onSendMessage={sendFinalReportChatMessage}
               onPromoteLatest={promoteFinalReportChatResponse}
             />
