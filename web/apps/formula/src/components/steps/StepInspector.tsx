@@ -1,4 +1,4 @@
-import { Button, Card, Collapse, Descriptions, Drawer, Empty, Tag } from 'antd';
+import { Alert, Button, Card, Collapse, Descriptions, Drawer, Empty, Tag } from 'antd';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep, FormulaStepActivity } from '../../types';
 import { OutputSurface } from '../MarkdownOutput';
 import { activityShortId, formatDuration, statusLabel, statusTone } from '../../utils/status';
@@ -16,6 +16,37 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
   const latestLoopIteration = step.loop ? loopActivityIteration(latestLoopActivity(step)) : '';
   const defaultOpenLoopActivityKey = latestLoopIteration || loopActivityGroups.at(-1)?.iteration || 'step';
   const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
+  const statusSummary = (() => {
+    if (step.status === 'failed') {
+      return {
+        type: 'error' as const,
+        message: 'Step failed',
+        description: step.error || 'Inspect the activity log and retry this step with optional guidance.',
+      };
+    }
+    if (step.status === 'waiting_input') {
+      return {
+        type: 'warning' as const,
+        message: 'Input required',
+        description: step.human_input_request?.reason || 'This step needs human input before the workflow can continue.',
+      };
+    }
+    if (step.status === 'completed') {
+      return {
+        type: 'success' as const,
+        message: 'Step completed',
+        description: step.output ? 'Review the output below or open advanced runtime details.' : 'This step completed without a captured output.',
+      };
+    }
+    if (step.status === 'running') {
+      return {
+        type: 'info' as const,
+        message: 'Step running',
+        description: 'Live execution is in progress. Activity and output will refresh as the run advances.',
+      };
+    }
+    return null;
+  })();
 
   const collapsibleSectionLabel = (icon: string, title: string, extra?: string) => (
     <div className="step-modal-section-header collapsible-section-label">
@@ -81,6 +112,17 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         {step.type && <Tag>{step.type}</Tag>}
         {step.priority && <Tag>P{step.priority}</Tag>}
       </div>
+
+      {statusSummary && (
+        <Alert
+          showIcon
+          type={statusSummary.type}
+          message={statusSummary.message}
+          description={statusSummary.description}
+          action={step.status === 'failed' ? <Button danger onClick={() => onRetry(step)}>Retry this step</Button> : undefined}
+          className="step-status-summary"
+        />
+      )}
 
       <div className="step-modal-body inspector-body">
         <aside className="step-modal-sidebar">
