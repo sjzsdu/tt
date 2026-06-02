@@ -238,21 +238,21 @@ export function MermaidFigure({ code, index, theme = ((document.documentElement.
 
   const handleExportSvg = async () => {
     if (svgElRef.current) {
-      const { svgToBlob, downloadBlob } = await import('../utils/svgExport');
+      const { svgToBlob, downloadBlob } = await import('../utils/export');
       downloadBlob(svgToBlob(svgElRef.current), 'mermaid-diagram.svg');
     }
   };
 
   const handleExportPng = async () => {
     if (svg) {
-      const { svgMarkupToPngBlob, downloadBlob } = await import('../utils/svgExport');
+      const { svgMarkupToPngBlob, downloadBlob } = await import('../utils/export');
       downloadBlob(await svgMarkupToPngBlob(svg), 'mermaid-diagram.png');
     }
   };
 
   const handleCopy = async () => {
     if (svg) {
-      const { svgMarkupToPngBlob } = await import('../utils/svgExport');
+      const { svgMarkupToPngBlob } = await import('../utils/export');
       const blob = await svgMarkupToPngBlob(svg);
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob }),
