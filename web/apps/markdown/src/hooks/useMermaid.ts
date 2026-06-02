@@ -147,9 +147,12 @@ export function useMermaid(code: string, index: number, theme: AppTheme) {
     cancelledRef.current = false;
     timerRef.current = setTimeout(() => {
       idRef.current = `mermaid-${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      mermaid.initialize(createMermaidConfig(theme));
-      mermaid
-        .render(idRef.current, code)
+      void import('mermaid')
+        .then(module => {
+          const mermaid = module.default;
+          mermaid.initialize(createMermaidConfig(theme));
+          return mermaid.render(idRef.current, code);
+        })
         .then(r => {
           if (!cancelledRef.current) {
             setSvg(r.svg);
