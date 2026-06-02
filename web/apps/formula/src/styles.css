@@ -122,6 +122,10 @@ button, input, textarea { font: inherit; }
 .step-status-summary { margin-bottom: 16px; }
 .step-modal-body, .inspector-body { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; }
 .step-modal-sidebar, .step-modal-main { display: grid; gap: 12px; align-content: start; }
+.inspector-main-only { max-width: 1180px; margin: 0 auto; }
+.advanced-stack { display: grid; gap: 8px; }
+.advanced-step-collapse { margin-top: 4px; }
+.step-critical-section { border-color: var(--ant-color-error); }
 .step-sidebar-card, .step-modal-section, .step-modal-collapse { border-color: var(--panel-border); }
 .step-modal-section { padding: 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--soft-bg); }
 .step-modal-section-header, .step-input-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
