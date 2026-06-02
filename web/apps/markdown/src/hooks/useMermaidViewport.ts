@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { prepareSvgForViewport, readSvgSize, type SvgSize } from '../utils/svgViewport';
 
-export interface SvgSize {
-  minX: number;
-  minY: number;
-  width: number;
-  height: number;
-}
+export type { SvgSize } from '../utils/svgViewport';
 
 export interface PanZoomState {
   scale: number;
@@ -19,91 +15,6 @@ const VIEWPORT_HEIGHT_RATIO = 0.72;
 function clampViewportHeight(height: number) {
   const viewportCap = typeof window === 'undefined' ? MAX_VIEWPORT_HEIGHT : Math.floor(window.innerHeight * VIEWPORT_HEIGHT_RATIO);
   return Math.max(MIN_VIEWPORT_HEIGHT, Math.min(MAX_VIEWPORT_HEIGHT, viewportCap, height));
-}
-
-function transformedBox(el: SVGGraphicsElement): SvgSize | null {
-  const box = el.getBBox();
-  const matrix = el.getCTM();
-  if (!matrix || box.width <= 0 || box.height <= 0) return null;
-
-  const points = [
-    new DOMPoint(box.x, box.y),
-    new DOMPoint(box.x + box.width, box.y),
-    new DOMPoint(box.x, box.y + box.height),
-    new DOMPoint(box.x + box.width, box.y + box.height),
-  ].map(point => point.matrixTransform(matrix));
-
-  const xs = points.map(point => point.x);
-  const ys = points.map(point => point.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  if (maxX <= minX || maxY <= minY) return null;
-
-  return { minX, minY, width: maxX - minX, height: maxY - minY };
-}
-
-function readSvgSize(svg: SVGSVGElement): SvgSize {
-  const rect = svg.getBoundingClientRect();
-  const viewBox = svg.viewBox?.baseVal;
-  if (rect.width > 0 && rect.height > 0) {
-    return {
-      minX: viewBox?.x ?? 0,
-      minY: viewBox?.y ?? 0,
-      width: Math.max(1, Math.ceil(rect.width)),
-      height: Math.max(1, Math.ceil(rect.height)),
-    };
-  }
-
-  try {
-    const box = svg.getBBox();
-    if (box.width > 0 && box.height > 0) {
-      const padding = 12;
-      return {
-        minX: Math.floor(box.x - padding),
-        minY: Math.floor(box.y - padding),
-        width: Math.ceil(box.width + padding * 2),
-        height: Math.ceil(box.height + padding * 2),
-      };
-    }
-
-    const contentEl = svg.querySelector<SVGGraphicsElement>('g');
-    const transformed = contentEl ? transformedBox(contentEl) : null;
-    if (transformed) {
-      const padding = 12;
-      return {
-        minX: Math.floor(transformed.minX - padding),
-        minY: Math.floor(transformed.minY - padding),
-        width: Math.ceil(transformed.width + padding * 2),
-        height: Math.ceil(transformed.height + padding * 2),
-      };
-    }
-  } catch {
-    // getBBox may fail for detached or not-yet-painted SVGs. Fall back below.
-  }
-
-  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
-    return { minX: viewBox.x, minY: viewBox.y, width: Math.ceil(viewBox.width), height: Math.ceil(viewBox.height) };
-  }
-
-  const width = Number(svg.getAttribute('width')) || rect.width || 600;
-  const height = Number(svg.getAttribute('height')) || rect.height || 300;
-  return { minX: 0, minY: 0, width: Math.max(1, Math.ceil(width)), height: Math.max(1, Math.ceil(height)) };
-}
-
-function prepareSvgForViewport(svg: SVGSVGElement, size: SvgSize) {
-  const originalViewBox = svg.getAttribute('viewBox') || `${size.minX} ${size.minY} ${size.width} ${size.height}`;
-  svg.setAttribute('viewBox', originalViewBox);
-  svg.setAttribute('width', String(size.width));
-  svg.setAttribute('height', String(size.height));
-  svg.dataset.originalViewBox = originalViewBox;
-  svg.dataset.exportWidth = String(size.width);
-  svg.dataset.exportHeight = String(size.height);
-  svg.style.width = `${size.width}px`;
-  svg.style.height = `${size.height}px`;
-  svg.style.maxWidth = 'none';
-  svg.style.display = 'block';
 }
 
 export function useMermaidViewport(svg: string) {
