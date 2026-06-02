@@ -133,23 +133,31 @@ button, input, textarea { font: inherit; }
 .loop-group-title { color: var(--ant-color-primary); font-size: 12px; font-weight: 800; }
 .loop-group-node span, .loop-group-node em { color: var(--text-muted); font-size: 12px; }
 
-.step-inspector .ant-drawer-body { padding: 20px; }
+.step-inspector .ant-drawer-content-wrapper { max-width: 100vw; }
+.step-inspector .ant-drawer-body { min-width: 0; overflow-x: hidden; padding: 20px; }
+.step-inspector .ant-drawer-content,
+.step-inspector .ant-collapse,
+.step-inspector .ant-collapse-item,
+.step-inspector .ant-collapse-content,
+.step-inspector .ant-collapse-content-box,
+.step-inspector .ant-collapse-header { min-width: 0; max-width: 100%; }
+.step-inspector .ant-collapse-content-box { overflow: hidden; }
 .inspector-title-block { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .inspector-title-block h2 { margin: 3px 0 0; }
 .step-modal-tagbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .step-status-summary { margin-bottom: 16px; }
 .step-modal-body, .inspector-body { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; }
-.step-modal-sidebar, .step-modal-main { display: grid; gap: 12px; align-content: start; }
-.inspector-main-only { max-width: 1180px; margin: 0 auto; }
+.step-modal-sidebar, .step-modal-main { display: grid; min-width: 0; gap: 12px; align-content: start; }
+.inspector-main-only { width: 100%; max-width: min(1180px, 100%); min-width: 0; margin: 0 auto; }
 .advanced-stack { display: grid; gap: 8px; }
 .advanced-step-collapse { margin-top: 4px; }
 .step-critical-section { border-color: var(--ant-color-error); }
 .step-sidebar-card, .step-modal-section, .step-modal-collapse { border-color: var(--panel-border); }
-.step-modal-section { padding: 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--soft-bg); }
+.step-modal-section { min-width: 0; max-width: 100%; overflow: hidden; padding: 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--soft-bg); }
 .step-modal-section-header, .step-input-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .step-modal-section-header h4 { margin: 0; }
 .step-modal-section-icon { width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 8px; background: var(--soft-bg); }
-.step-modal-section-body p, .step-description-text { margin: 0; color: var(--text-muted); }
+.step-modal-section-body p, .step-description-text { margin: 0; color: var(--text-muted); overflow-wrap: anywhere; word-break: break-word; }
 .pill-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; }
 .pill-list li { padding: 4px 8px; border-radius: 999px; background: var(--soft-bg); font-size: 12px; }
 .card-subtitle, .step-section-hint, .step-section-footnote, .collapsible-section-extra { color: var(--text-muted); font-size: 12px; }
@@ -173,6 +181,8 @@ button, input, textarea { font: inherit; }
 
 .output-surface, .code-block {
   overflow: auto;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   padding: 12px;
   border: 1px solid var(--panel-border);
@@ -182,12 +192,13 @@ button, input, textarea { font: inherit; }
   white-space: pre-wrap;
 }
 .error-block { border-color: var(--ant-color-error); color: var(--ant-color-error); }
-.formula-markdown-output { padding: 0; background: transparent; color: inherit; }
-.formula-markdown-output pre, .formula-markdown-output code { white-space: pre-wrap; }
-.markdown-table-scroll, .markdown-table-block { overflow-x: auto; max-width: 100%; }
-.formula-markdown-table { width: 100%; border-collapse: collapse; }
-.formula-markdown-table th, .formula-markdown-table td { padding: 8px; border: 1px solid var(--panel-border); }
-.markdown-html-block { overflow: auto; }
+.formula-markdown-output { min-width: 0; max-width: 100%; overflow: hidden; padding: 0; background: transparent; color: inherit; }
+.formula-markdown-output pre, .formula-markdown-output code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.markdown-table-block { min-width: 0; max-width: 100%; overflow: hidden; }
+.markdown-table-scroll { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; }
+.formula-markdown-table { width: max-content; min-width: 100%; max-width: none; border-collapse: collapse; }
+.formula-markdown-table th, .formula-markdown-table td { max-width: min(420px, 42vw); padding: 8px; border: 1px solid var(--panel-border); overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+.markdown-html-block { min-width: 0; max-width: 100%; overflow: auto; overflow-wrap: anywhere; word-break: break-word; }
 .mermaid-diagram { display: grid; place-items: center; min-height: 160px; padding: 12px; border: 1px solid var(--panel-border); border-radius: 12px; background: var(--soft-bg); }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
 .mermaid-loading { color: var(--text-muted); }
