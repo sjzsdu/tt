@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Empty } from 'antd';
-import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
+import { ReactFlow, Background, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import type { FormulaDashboardLoopBody, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { activityShortId, graphShortId, statusLabel } from '../../utils/status';
 import { latestLoopActivity, loopActivityBodyID, loopActivityIteration, loopActivitySummary } from '../../utils/steps';
@@ -601,7 +601,6 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
             nodeStrokeColor={theme === 'dark' ? 'rgba(125, 211, 252, 0.95)' : 'rgba(59, 130, 246, 0.92)'}
             className="flow-minimap"
           />
-          <Controls className="flow-controls" />
         </ReactFlow>
       </div>
     </div>

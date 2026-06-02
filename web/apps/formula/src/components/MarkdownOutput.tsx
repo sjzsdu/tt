@@ -367,7 +367,10 @@ function JsonValue({ value, name, depth }: { value: unknown; name?: string; dept
 function PrimitiveValue({ value }: { value: unknown }) {
   const type = jsonType(value);
   if (value === null) return <span className="json-primitive null">null</span>;
-  if (typeof value === 'string') return <span className="json-primitive string">{JSON.stringify(value)}</span>;
+  if (typeof value === 'string') {
+    const isLongString = value.length > 80 || value.includes('\n');
+    return <span className={`json-primitive string ${isLongString ? 'long' : ''}`}>{isLongString ? value : JSON.stringify(value)}</span>;
+  }
   if (typeof value === 'number') return <span className="json-primitive number">{value}</span>;
   if (typeof value === 'boolean') return <span className="json-primitive boolean">{String(value)}</span>;
   return <span className={`json-primitive ${type}`}>{String(value)}</span>;

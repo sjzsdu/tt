@@ -38,7 +38,7 @@ export function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSel
           {description}
         </Typography.Paragraph>
 
-        {loopSummary && <Tag color="purple">↻ {loopSummary}</Tag>}
+        {loopSummary && <Tag color="purple" className="step-card-loop-summary">↻ {loopSummary}</Tag>}
 
         {latest && (
           <Typography.Text type="secondary" className={`step-activity-mini ${latest.status}`}>

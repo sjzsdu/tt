@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Empty, Segmented, Timeline, Typography } from 'antd';
+import { Button, Card, Empty, Segmented, Timeline, Typography } from 'antd';
 import { useMemo, useState } from 'react';
 import type { FormulaDashboardLogEntry, FormulaDashboardStep } from '../../types';
 
@@ -9,6 +9,15 @@ type TimelineItem = {
   isError: boolean;
   step: FormulaDashboardStep | null;
 };
+
+function TimelineFilterLabel({ label, count }: { label: string; count: number }) {
+  return (
+    <span className="timeline-filter-label">
+      <span className="timeline-filter-name">{label}</span>
+      <span className="timeline-filter-count">{count}</span>
+    </span>
+  );
+}
 
 function matchLogStep(log: FormulaDashboardLogEntry, steps: FormulaDashboardStep[]) {
   const text = log.text.toLowerCase();
@@ -45,9 +54,9 @@ export function ExecutionTimeline({ logs, steps, onSelectStep }: { logs: Formula
           value={filter}
           onChange={value => setFilter(value as TimelineFilter)}
           options={[
-            { value: 'all', label: <Badge size="small" count={counts.all} overflowCount={99}>All</Badge> },
-            { value: 'errors', label: <Badge size="small" count={counts.errors}>Errors</Badge> },
-            { value: 'linked', label: <Badge size="small" count={counts.linked}>Linked</Badge> },
+            { value: 'all', label: <TimelineFilterLabel label="All" count={counts.all} /> },
+            { value: 'errors', label: <TimelineFilterLabel label="Errors" count={counts.errors} /> },
+            { value: 'linked', label: <TimelineFilterLabel label="Linked" count={counts.linked} /> },
           ]}
         />
       )}
