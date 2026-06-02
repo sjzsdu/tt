@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Collapse, Descriptions, Drawer, Empty, Tag } from 'antd';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep, FormulaStepActivity } from '../../types';
-import { OutputSurface } from '../MarkdownOutput';
+import { OutputSurface } from '../OutputSurface';
 import { activityShortId, formatDuration, statusLabel, statusTone } from '../../utils/status';
 import { collectStepInputValues, groupLoopActivities, latestLoopActivity, loopActivityIteration, sameOutput } from '../../utils/steps';
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { App as AntdApp, Empty, Layout, Space } from 'antd';
 import { api } from '../api';
 import type { DashboardView, FormulaDashboardStep } from '../types';
@@ -9,10 +9,11 @@ import { DashboardHeader } from './dashboard/DashboardHeader';
 import { RunActionAlert } from './dashboard/RunActionAlert';
 import { RunOverview } from './dashboard/RunOverview';
 import { Workspace } from './dashboard/Workspace';
-import { FinalReportModal } from './MarkdownOutput';
 import { HumanInputModal } from './modals/HumanInputModal';
 import { RetryStepModal } from './modals/RetryStepModal';
 import { StepInspector } from './steps/StepInspector';
+
+const FinalReportModal = lazy(() => import('./MarkdownOutput').then(module => ({ default: module.FinalReportModal })));
 
 export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onThemeChange: (theme: 'light' | 'dark') => void }) {
   const { message } = AntdApp.useApp();
@@ -155,20 +156,22 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
         <StepInspector step={selectedStep} snapshot={snapshot} open={!!selectedStep} onClose={() => setSelectedStep(null)} onRetry={setRetryStep} />
         <RetryStepModal step={retryStep} open={!!retryStep} onCancel={() => setRetryStep(null)} onSubmit={submitRetryStep} />
         <HumanInputModal step={waitingInputStep} onSubmit={submitHumanInput} />
-        {snapshot.final_output ? (
-          <FinalReportModal
-            open={finalOutputOpen}
-            onClose={() => setFinalOutputOpen(false)}
-            title="Final output"
-            content={snapshot.final_output}
-            className="final-output-modal"
-            chat={snapshot.final_report_chat}
-            chatBusy={finalReportChatBusy || snapshot.final_report_chat?.status === 'running'}
-            chatError={finalReportChatError || snapshot.final_report_chat?.error || ''}
-            onStartChat={ensureFinalReportChat}
-            onSendMessage={sendFinalReportChatMessage}
-            onPromoteLatest={promoteFinalReportChatResponse}
-          />
+        {snapshot.final_output && finalOutputOpen ? (
+          <Suspense fallback={null}>
+            <FinalReportModal
+              open={finalOutputOpen}
+              onClose={() => setFinalOutputOpen(false)}
+              title="Final output"
+              content={snapshot.final_output}
+              className="final-output-modal"
+              chat={snapshot.final_report_chat}
+              chatBusy={finalReportChatBusy || snapshot.final_report_chat?.status === 'running'}
+              chatError={finalReportChatError || snapshot.final_report_chat?.error || ''}
+              onStartChat={ensureFinalReportChat}
+              onSendMessage={sendFinalReportChatMessage}
+              onPromoteLatest={promoteFinalReportChatResponse}
+            />
+          </Suspense>
         ) : null}
       </Layout.Content>
     </Layout>

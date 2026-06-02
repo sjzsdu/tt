@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react';
 import { Col, Row } from 'antd';
 import type { DashboardView, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
-import { GraphPanel } from '../graph/GraphPanel';
 import { StepCard } from '../steps/StepCard';
 import { ExecutionTimeline } from './ExecutionTimeline';
+
+const GraphPanel = lazy(() => import('../graph/GraphPanel').then(module => ({ default: module.GraphPanel })));
 
 export function Workspace({
   view,
@@ -30,7 +32,9 @@ export function Workspace({
               ))}
             </Row>
           ) : (
-            <GraphPanel snapshot={snapshot} onSelect={onSelectStep} theme={theme} />
+            <Suspense fallback={<div className="graph-canvas empty-screen">Loading graph…</div>}>
+              <GraphPanel snapshot={snapshot} onSelect={onSelectStep} theme={theme} />
+            </Suspense>
           )}
         </div>
       </Col>
