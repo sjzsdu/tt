@@ -8,7 +8,7 @@ export function createMermaidConfig(theme: AppTheme) {
     theme: 'base' as const,
     securityLevel: 'loose' as const,
     logLevel: 'error' as const,
-    flowchart: { useMaxWidth: true, htmlLabels: false, curve: 'basis' as const },
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' as const },
     themeVariables: mermaidThemeVariables(theme),
     themeCSS: mermaidThemeCss(theme),
   };
