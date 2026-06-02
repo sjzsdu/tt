@@ -3,76 +3,24 @@ description = "Scan the current working directory from multiple angles, identify
 version = 1
 type = "workflow"
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "jira"
+command = "jira"
+message = "需要安装并配置 Jira CLI；bug-detect 会使用 jira create 创建 ticket"
+
+[[preflight.checks]]
+type = "exec"
+name = "jira-callable"
+command = "jira --help"
+message = "Jira CLI 不可调用，请先确认 jira 已配置并能正常执行"
+
 [vars]
 scan_path = { description = "Directory to inspect. Defaults to the current working directory.", default = "{{env.cwd}}" }
 jira_project = { description = "Jira project key used when creating tickets, for example OPS or FLOW360. This is not a Jira issue key/ticket id.", required = true }
 max_tickets = { description = "Maximum number of Jira tickets to create in one run.", default = "10" }
-
-[[steps]]
-id = "jira-preflight"
-title = "Check Jira CLI before creating tickets"
-execution = "script"
-
-[steps.script]
-command = ["python3", "-c", """
-import json, os, shutil, subprocess, sys
-
-project = os.environ.get("JIRA_PROJECT", "").strip()
-jira_path = shutil.which("jira")
-checks = []
-
-def run(cmd, timeout=20):
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return {
-            "command": cmd,
-            "ok": p.returncode == 0,
-            "code": p.returncode,
-            "stdout": p.stdout.strip()[-4000:],
-            "stderr": p.stderr.strip()[-4000:],
-        }
-    except Exception as e:
-        return {"command": cmd, "ok": False, "code": -1, "stdout": "", "stderr": str(e)}
-
-ok = True
-error = ""
-if not project:
-    ok = False
-    error = "jira_project is required. Pass a Jira project key, for example --var jira_project=OPS."
-elif not jira_path:
-    ok = False
-    error = "jira CLI was not found in PATH. Install/configure jira before running bug-detect with ticket creation."
-else:
-    version = run(["jira", "--version"])
-    checks.append(version)
-    if not version["ok"]:
-        help_check = run(["jira", "--help"])
-        checks.append(help_check)
-        if not help_check["ok"]:
-            ok = False
-            error = "jira CLI exists but is not callable; check installation/auth/configuration."
-
-out = {
-    "ok": ok,
-    "jira_path": jira_path or "",
-    "jira_project": project,
-    "checks": checks,
-    "error": error,
-    "usage_hint": "Run with --var jira_project=<PROJECT_KEY>; do not pass a Jira ticket id such as ABC-123.",
-}
-print(json.dumps(out, ensure_ascii=False))
-if not ok:
-    sys.exit(1)
-"""]
-format = "json"
-timeout = "1m"
-
-[steps.script.env]
-JIRA_PROJECT = "{{jira_project}}"
-
-[steps.validate]
-format = "json"
-required = ["ok", "jira_path", "jira_project", "checks", "usage_hint"]
 
 [[steps]]
 id = "collect-repo-facts"
@@ -402,7 +350,7 @@ required = ["create_tickets", "issues", "summary"]
 [[steps]]
 id = "create-jira-tickets"
 title = "Create Jira tickets for confirmed issues"
-depends_on = ["triage-issues", "jira-preflight"]
+depends_on = ["triage-issues"]
 condition = "triage-issues.create_tickets == true"
 execution = "script"
 
@@ -500,7 +448,7 @@ id = "final-report"
 title = "Summarize detected issues and Jira tickets"
 depends_on = ["triage-issues", "create-jira-tickets"]
 condition = "triage-issues.create_tickets == true"
-input_context = ["collect-repo-facts", "run-static-checks", "run-tests", "triage-issues", "jira-preflight", "create-jira-tickets"]
+input_context = ["collect-repo-facts", "run-static-checks", "run-tests", "triage-issues", "create-jira-tickets"]
 description = """
 Write the final user-facing report in Chinese.
 

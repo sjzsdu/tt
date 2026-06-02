@@ -32,7 +32,8 @@ When asked to create or optimize a formula:
 5. Make data flow explicit with `input_context` for agent consumers.
 6. Prefer deterministic `tool`, `aggregate`, or `script` steps before agent steps.
 7. Use `[steps.validate]` for JSON that drives downstream structure, conditions, loops, or tools.
-8. Validate with `tt formula validate`, `tt formula compile`, and, when safe, `tt formula run --dry-run`.
+8. Use top-level `[preflight]` for required CLI/env/repo prerequisites; do not model prerequisite checks as workflow steps unless their output is needed downstream.
+9. Validate with `tt formula validate`, `tt formula compile`, and, when safe, `tt formula run --dry-run`.
 
 ## Methodology: design before TOML
 
@@ -102,6 +103,14 @@ description = "Short repeatable workflow description."
 version = 1
 type = "workflow"
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "git is required"
+
 [vars]
 topic = { description = "Thing to process", required = true }
 
@@ -112,6 +121,38 @@ description = "Analyze the topic and output concise findings."
 
 [steps.agent]
 name = "planner"
+```
+
+## Preflight checks
+
+Use top-level `[preflight]` for prerequisites that must be true before the workflow starts, such as required CLIs, auth commands, environment variables, paths, or git repository state. Preflight checks are not workflow nodes and their output is not available through `input_context`. Do **not** create a `*-preflight` step just to check whether a CLI exists.
+
+Supported check types:
+
+| Type | Required fields | Purpose |
+|---|---|---|
+| `command` | `command` | Check an executable exists in `PATH` via `exec.LookPath`. |
+| `exec` | `command` or `command` + `args` | Run a shell command before the formula starts, for auth/config checks such as `gh auth status` or `jira --help`. |
+| `git` | `require_repo`, `require_remote` | Require the workspace to be a git repo and/or have a remote. |
+| `env` | `env` or `name` | Require an environment variable to be set. |
+| `path` | `path` | Require a file or directory path to exist. Relative paths are resolved from the workspace. |
+
+Example:
+
+```toml
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "jira"
+command = "jira"
+message = "Install and configure Jira CLI before running this formula."
+
+[[preflight.checks]]
+type = "exec"
+name = "jira-callable"
+command = "jira --help"
+message = "Jira CLI is installed but not callable; check auth/configuration."
 ```
 
 ## Step creation guide

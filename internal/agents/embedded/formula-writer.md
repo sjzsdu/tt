@@ -51,7 +51,8 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 5. 优先使用 `execution = "tool"`、`execution = "aggregate"`、`execution = "script"` 表达确定性步骤。
 6. 只有判断、综合、代码推理、报告等才用 agent step。
 7. `condition` / `loop.until` / `aggregate` / tool 依赖的结构化输出必须配置 `[steps.validate]`。
-8. 完成前运行 `tt formula validate`、`tt formula compile`、必要时 `tt formula run --dry-run`。
+8. 对 CLI/env/git/path 等运行前置条件，使用顶层 `[preflight]`，不要为了检查 CLI 是否存在而创建 workflow step。
+9. 完成前运行 `tt formula validate`、`tt formula compile`、必要时 `tt formula run --dry-run`。
 
 ## 方法论：先设计 SOP，再写 TOML
 
@@ -101,6 +102,14 @@ description = "Short repeatable workflow description."
 version = 1
 type = "workflow"
 
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
 [vars]
 topic = { description = "Thing to process", required = true }
 
@@ -111,6 +120,38 @@ description = "Analyze the topic and output concise findings."
 
 [steps.agent]
 name = "planner"
+```
+
+## Preflight 前置检查
+
+运行前必须满足、但不需要作为 workflow 输出参与后续数据流的条件，统一写在顶层 `[preflight]`。不要为了检查 `gh`、`jira`、`git`、环境变量或目录是否存在而创建 `*-preflight` workflow step。Preflight 不是节点，不能通过 `input_context` 被后续 agent 读取。
+
+支持的 check 类型：
+
+| 类型 | 关键字段 | 用途 |
+|---|---|---|
+| `command` | `command` | 用 `exec.LookPath` 检查命令是否在 PATH 中。 |
+| `exec` | `command` 或 `command` + `args` | 运行命令检查 auth/config，例如 `gh auth status`、`jira --help`。 |
+| `git` | `require_repo`, `require_remote` | 要求当前 workspace 是 git repo / 有 remote。 |
+| `env` | `env` 或 `name` | 要求环境变量存在且非空。 |
+| `path` | `path` | 要求文件或目录存在；相对路径基于 workspace。 |
+
+示例：
+
+```toml
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "jira"
+command = "jira"
+message = "需要安装并配置 Jira CLI。"
+
+[[preflight.checks]]
+type = "exec"
+name = "jira-callable"
+command = "jira --help"
+message = "Jira CLI 不可调用，请先检查认证或配置。"
 ```
 
 ## Step 创建方法
