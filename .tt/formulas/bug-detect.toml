@@ -1,6 +1,6 @@
 formula = "bug-detect"
 description = "Scan the current working directory from multiple angles, identify concrete code issues, create Jira tickets for confirmed issues, and summarize the submitted tickets with severity and rationale."
-version = 3
+version = 4
 type = "workflow"
 
 [preflight]
@@ -334,6 +334,8 @@ input_context = ["review-code"]
 description = """
 Normalize and deduplicate the detected issues for Jira creation.
 
+All Jira-facing fields must be written in English, including title, problem, impact, evidence_summary, and recommended_fix. Do not output Chinese in issue fields.
+
 Output ONLY compact JSON:
 {
   "create_tickets": true,
@@ -492,7 +494,9 @@ The report must summarize:
 - any failed ticket creation attempts
 - the most urgent next actions
 
-Be concise but complete. Prefer bullet points and a short conclusion.
+The Jira ticket content itself is created in English. In this Chinese report, include a Markdown table named `Jira 创建结果` with one row per attempted ticket and these fixed columns: `Issue`, `Priority`, `Category`, `Created`, `Key/URL`, `Error`. Use `create-jira-tickets.stdout.tickets` as the source. If stdout contains raw JSON from Jira, extract the issue key or URL when available; otherwise put `未提供`. For failures, include the concise stderr reason.
+
+Be concise but complete. Prefer the Jira result table plus short bullets and a short conclusion.
 """
 
 [steps.agent]
