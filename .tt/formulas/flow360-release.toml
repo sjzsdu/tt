@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 10
+version = 11
 type = "workflow"
 
 [preflight]
@@ -448,15 +448,19 @@ format = "json"
     [steps.loop.body.script]
     command = ["bash", "-lc", """
 set -euo pipefail
-jq -cn \
-  --arg cls "${TT_CLASSIFY:-}" \
-  --arg repair "${TT_REPAIR:-}" \
-  --arg ready "${TT_READY:-}" \
-  --arg push "${TT_PUSH:-}" \
-  --arg rerun "${TT_RERUN:-}" \
-  --arg dispatch "${TT_DISPATCH:-}" \
-  --arg fetch "${TT_FETCH:-}" '
+state_dir=".tt/flow360-release-state"
+mkdir -p "$state_dir"
+state_key="$(jq -nr --arg dispatch "${TT_DISPATCH:-}" --arg fetch "${TT_FETCH:-}" '
   def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
+  (obj($dispatch).original_run_id // obj($fetch).original_run_id // "unknown")
+')"
+state_file="$state_dir/${state_key}.json"
+previous_state="{}"
+if [ -f "$state_file" ]; then previous_state="$(cat "$state_file")"; fi
+result="$(jq -cn   --arg cls "${TT_CLASSIFY:-}"   --arg repair "${TT_REPAIR:-}"   --arg ready "${TT_READY:-}"   --arg push "${TT_PUSH:-}"   --arg rerun "${TT_RERUN:-}"   --arg dispatch "${TT_DISPATCH:-}"   --arg fetch "${TT_FETCH:-}"   --arg previous "$previous_state" '
+  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
+  def arr(x): if x == null then [] elif (x | type) == "array" then x else [x] end;
+  def uniq_strings: map(select(. != null and . != "") | tostring) | unique;
   obj($cls) as $cls |
   obj($repair) as $repair |
   obj($ready) as $ready |
@@ -464,7 +468,7 @@ jq -cn \
   obj($rerun) as $rerun |
   obj($dispatch) as $dispatch |
   obj($fetch) as $fetch |
-  def b(x): x == true;
+  obj($previous) as $previous |
   ($cls.action // "block") as $action |
   ($repair.attempted == true) as $repair_attempted |
   ($repair.resolved == true) as $repair_resolved |
@@ -475,7 +479,45 @@ jq -cn \
   ($cls.done == true) as $class_done |
   ($cls.final_state // "running") as $class_state |
   ($cls.reason // "") as $class_summary |
-  if $action == "repair_conflict" then
+  (arr($fetch.multi_branch_jobs) | map(.name // .headBranch // .head_branch // empty) | uniq_strings) as $multi_job_names |
+  (arr($cls.remaining_queue) + arr($cls.conflicted_branches) + arr($repair.handled_branches) | uniq_strings) as $loop_branch_names |
+  (($previous.all_multi_branches // []) + $multi_job_names + $loop_branch_names | uniq_strings) as $all_multi_branches |
+  (if $action == "repair_conflict" then
+    (arr($cls.conflicted_branches) | uniq_strings | map({
+      branch:.,
+      conflicted:true,
+      tmp_branch:($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // ""),
+      resolution_status:(if $repair_resolved and $push_completed and $rerun_requested then "resolved_pushed_rerun" elif $repair_resolved and $ready_to_push then "resolved_ready_to_push" elif $repair_resolved then "resolved_local" elif $repair_attempted then "blocked" else "detected" end),
+      resolution_summary:(if $repair_resolved and $push_completed and $rerun_requested then "冲突已本地解决并提交，npm run build 通过，已 push 到 origin，并已 rerun failed jobs" elif $repair_resolved and $ready_to_push then "冲突已本地解决并通过构建，等待 push/rerun" elif $repair_resolved then "冲突已本地解决，但后续 build/push/rerun 未全部完成" elif $repair_attempted then ($repair.blocker_summary // "冲突修复未完成") else ($class_summary // "检测到冲突，尚未修复") end),
+      handled_branches:($repair.handled_branches // []),
+      touched_files:($repair.touched_files // []),
+      validations_run:(($repair.validations_run // []) + (if $repair_resolved then ["npm run build"] else [] end) | unique),
+      local_commit:($repair.local_commit // ""),
+      build_initial_success:($ready.build_initial_success == true),
+      build_fix_attempted:($ready.build_fix_attempted == true),
+      build_fix_fixed:($ready.build_fix_fixed == true),
+      build_final_success:($ready.build_final_success == true),
+      push_completed:$push_completed,
+      rerun_requested:$rerun_requested,
+      blocker_type:($repair.blocker_type // $ready.blocker_type // "none"),
+      blocker_summary:($repair.blocker_summary // $ready.summary // "")
+    }))
+  else [] end) as $new_conflict_records |
+  (($previous.conflict_resolution_records // []) + $new_conflict_records) as $conflict_resolution_records |
+  ($all_multi_branches | map(. as $branch | ($conflict_resolution_records | map(select(.branch == $branch)) | last) as $record | {
+    branch:$branch,
+    participated:true,
+    conflicted:($record.conflicted == true),
+    resolution_status:($record.resolution_status // "no_conflict_detected"),
+    resolution_summary:($record.resolution_summary // "未检测到该分支冲突"),
+    tmp_branch:($record.tmp_branch // ($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // "")),
+    touched_files:($record.touched_files // []),
+    local_commit:($record.local_commit // ""),
+    validations_run:($record.validations_run // []),
+    push_completed:($record.push_completed == true),
+    rerun_requested:($record.rerun_requested == true)
+  })) as $multi_branch_table |
+  (if $action == "repair_conflict" then
     if $repair_attempted and ($repair_resolved | not) then
       {done:true, final_state:"blocked", blocker_type:($repair.blocker_type // "unknown"), summary:($repair.blocker_summary // $class_summary // "repair failed")}
     elif $repair_resolved and $rerun_requested then
@@ -493,12 +535,15 @@ jq -cn \
     {done:true, final_state:"blocked", blocker_type:(if ($dispatch.dispatch_error // "") != "" then "dispatch" else "non_conflict_failure" end), summary:$class_summary}
   else
     {done:$class_done, final_state:$class_state, blocker_type:"none", summary:$class_summary}
-  end
+  end)
   + {
     run_url:($cls.run_url // $fetch.run_url // $dispatch.run_url // ""),
     original_run_id:($dispatch.original_run_id // $fetch.original_run_id // ""),
     tmp_branch:($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // ""),
     conflicted_branches:($cls.conflicted_branches // []),
+    all_multi_branches:$all_multi_branches,
+    conflict_resolution_records:$conflict_resolution_records,
+    multi_branch_table:$multi_branch_table,
     repair_attempted:$repair_attempted,
     repair_resolved:$repair_resolved,
     build_ready_to_push:$ready_to_push,
@@ -509,8 +554,13 @@ jq -cn \
     push_attempted:$push_attempted,
     push_completed:$push_completed,
     rerun_requested:$rerun_requested,
-    validations_run:(($repair.validations_run // []) + (if $repair_resolved then ["npm run build"] else [] end))
+    validations_run:(($repair.validations_run // []) + (if $repair_resolved then ["npm run build"] else [] end) | unique)
   }'
+)"
+printf '%s
+' "$result" > "$state_file"
+printf '%s
+' "$result"
 """]
 format = "json"
     timeout = "30s"
@@ -532,22 +582,25 @@ format = "json"
 id = "final-report"
 title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
-input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.build_ready_to_push", "release-progress.stdout.build_initial_success", "release-progress.stdout.build_fix_attempted", "release-progress.stdout.build_fix_fixed", "release-progress.stdout.build_final_success", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
+input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.all_multi_branches", "release-progress.stdout.multi_branch_table", "release-progress.stdout.conflict_resolution_records", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.build_ready_to_push", "release-progress.stdout.build_initial_success", "release-progress.stdout.build_fix_attempted", "release-progress.stdout.build_fix_fixed", "release-progress.stdout.build_final_success", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
 description = """
 输出中文发布报告，结论先行，必须简明。使用固定结构：
 
 1. `## 结论`：1-3 句话说明发布是否成功、run id/url、是否还有 blocker。
-2. `## 发布明细`：不要使用 Markdown 表格；改用分组 bullet/definition list，按 `基本信息`、`发布状态`、`冲突修复`、`验证与动作`、`问题/下一步` 组织。每组最多 3-5 条，字段缺失时写“未提供”。
-3. `## 说明`：最多 3 条，说明本次只以 multi-branch job completed/success 作为发布成功条件。
+2. `## Multi-branch 明细`：必须输出 Markdown 表格，基于 `release-progress.stdout.multi_branch_table`，列出每个参与部署的 multi branch。表格列固定为：`分支`、`是否冲突`、`解决状态`、`解决方式/结果`、`验证`、`push/rerun`。没有数据时写“未提供”，不要编造。
+3. `## 冲突解决记录`：如果 `conflict_resolution_records` 非空，用 bullet 简述每个冲突分支的 tmp_branch、touched_files、local_commit、build/push/rerun 结果；如果为空，写“本次未检测到 multi-branch merge conflict”。
+4. `## 发布明细`：用分组 bullet/definition list，按 `基本信息`、`发布状态`、`验证与动作`、`问题/下一步` 组织。每组最多 3-5 条，字段缺失时写“未提供”。
+5. `## 说明`：最多 3 条，说明本次只以 multi-branch job completed/success 作为发布成功条件。
 
-必须覆盖：repo/workflow、original_run_id/run_url、multi-branch job 最终状态、是否修复 merge conflict、tmp_branch、npm run build 是否通过、是否触发 build 修复、是否已 push 到 origin、冲突分支、rerun failed jobs 结果、验证项和 blocker。
+必须覆盖：repo/workflow、original_run_id/run_url、multi-branch job 最终状态、全部参与部署的 multi branch、哪些分支发生 merge conflict、每个冲突分支如何解决、tmp_branch、npm run build 是否通过、是否触发 build 修复、是否已 push 到 origin、rerun failed jobs 结果、验证项和 blocker。
 
 强调：
-- 全篇不要输出 Markdown table，尤其 `发布明细` 不要用表格；
+- `## Multi-branch 明细` 必须使用 Markdown 表格；其他章节不要输出大表格；
+- 优先使用 `multi_branch_table` 和 `conflict_resolution_records`，不要从长日志中猜测；
 - 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
 - 若最终状态不是 succeeded，本次报告会明确 blocker 和下一步；
 - 本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch；
-- 不要臆造未出现在 input_context 中的分支、日志或验证结果。
+- 不要臆造未出现在 input_context 中的分支、日志或验证结果；
 - 不要输出长篇过程日志，重点说结果、阻塞和下一步。
 """
 
