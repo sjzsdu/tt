@@ -1,0 +1,520 @@
+formula = "bug-detect"
+description = "Scan the current working directory from multiple angles, identify concrete code issues, create Jira tickets for confirmed issues, and summarize the submitted tickets with severity and rationale."
+version = 1
+type = "workflow"
+
+[vars]
+scan_path = { description = "Directory to inspect. Defaults to the current working directory.", default = "{{env.cwd}}" }
+jira_project = { description = "Jira project key used when creating tickets, for example OPS or FLOW360. This is not a Jira issue key/ticket id.", required = true }
+max_tickets = { description = "Maximum number of Jira tickets to create in one run.", default = "10" }
+
+[[steps]]
+id = "jira-preflight"
+title = "Check Jira CLI before creating tickets"
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, shutil, subprocess, sys
+
+project = os.environ.get("JIRA_PROJECT", "").strip()
+jira_path = shutil.which("jira")
+checks = []
+
+def run(cmd, timeout=20):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return {
+            "command": cmd,
+            "ok": p.returncode == 0,
+            "code": p.returncode,
+            "stdout": p.stdout.strip()[-4000:],
+            "stderr": p.stderr.strip()[-4000:],
+        }
+    except Exception as e:
+        return {"command": cmd, "ok": False, "code": -1, "stdout": "", "stderr": str(e)}
+
+ok = True
+error = ""
+if not project:
+    ok = False
+    error = "jira_project is required. Pass a Jira project key, for example --var jira_project=OPS."
+elif not jira_path:
+    ok = False
+    error = "jira CLI was not found in PATH. Install/configure jira before running bug-detect with ticket creation."
+else:
+    version = run(["jira", "--version"])
+    checks.append(version)
+    if not version["ok"]:
+        help_check = run(["jira", "--help"])
+        checks.append(help_check)
+        if not help_check["ok"]:
+            ok = False
+            error = "jira CLI exists but is not callable; check installation/auth/configuration."
+
+out = {
+    "ok": ok,
+    "jira_path": jira_path or "",
+    "jira_project": project,
+    "checks": checks,
+    "error": error,
+    "usage_hint": "Run with --var jira_project=<PROJECT_KEY>; do not pass a Jira ticket id such as ABC-123.",
+}
+print(json.dumps(out, ensure_ascii=False))
+if not ok:
+    sys.exit(1)
+"""]
+format = "json"
+timeout = "1m"
+
+[steps.script.env]
+JIRA_PROJECT = "{{jira_project}}"
+
+[steps.validate]
+format = "json"
+required = ["ok", "jira_path", "jira_project", "checks", "usage_hint"]
+
+[[steps]]
+id = "collect-repo-facts"
+title = "Collect repository facts"
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+def run(cmd):
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=30)
+        return {
+            "ok": p.returncode == 0,
+            "code": p.returncode,
+            "stdout": p.stdout.strip(),
+            "stderr": p.stderr.strip(),
+        }
+    except Exception as e:
+        return {"ok": False, "code": -1, "stdout": "", "stderr": str(e)}
+
+out = {
+    "scan_path": cwd,
+    "git_root": run(["git", "rev-parse", "--show-toplevel"]),
+    "git_branch": run(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+    "git_status": run(["git", "status", "--short"]),
+    "top_entries": sorted(os.listdir(cwd))[:200],
+    "env": {
+        "os": os.uname().sysname if hasattr(os, "uname") else "",
+    },
+}
+print(json.dumps(out, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "1m"
+
+[steps.script.env]
+SCAN_PATH = "{{scan_path}}"
+
+[steps.validate]
+format = "json"
+required = ["scan_path", "git_root", "git_branch", "git_status", "top_entries", "env"]
+
+[[steps]]
+id = "collect-file-index"
+title = "Collect source file index"
+depends_on = ["collect-repo-facts"]
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os
+cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+skip_dirs = {
+    ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
+    ".next", ".nuxt", "coverage", ".turbo", ".idea", ".vscode", "__pycache__"
+}
+exts = {
+    ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".rb", ".rs",
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".php", ".swift", ".m", ".mm",
+    ".scala", ".sh", ".sql", ".yaml", ".yml", ".json", ".toml"
+}
+files = []
+for root, dirs, names in os.walk(cwd):
+    dirs[:] = [d for d in dirs if d not in skip_dirs]
+    for name in names:
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, cwd)
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in exts:
+            continue
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        files.append({"path": rel, "ext": ext, "size": size})
+files.sort(key=lambda x: (x["ext"], x["path"]))
+summary = {}
+for f in files:
+    summary[f["ext"]] = summary.get(f["ext"], 0) + 1
+print(json.dumps({
+    "scan_path": cwd,
+    "file_count": len(files),
+    "by_ext": summary,
+    "files": files[:2000]
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "2m"
+
+[steps.script.env]
+SCAN_PATH = "{{scan_path}}"
+
+[steps.validate]
+format = "json"
+required = ["scan_path", "file_count", "by_ext", "files"]
+
+[[steps]]
+id = "run-static-checks"
+title = "Run deterministic static checks"
+depends_on = ["collect-repo-facts", "collect-file-index"]
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, re
+cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+skip_dirs = {
+    ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
+    ".next", ".nuxt", "coverage", ".turbo", ".idea", ".vscode", "__pycache__"
+}
+targets = {
+    ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".rb", ".rs",
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".php", ".swift", ".m", ".mm",
+    ".scala", ".sh"
+}
+patterns = [
+    ("debug_print", re.compile(r"\\b(console\\.log|print\\(|fmt\\.Println\\(|System\\.out\\.println\\()")),
+    ("todo_fixme", re.compile(r"\\b(TODO|FIXME|HACK|XXX)\\b")),
+    ("empty_catch", re.compile(r"catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}")),
+    ("bare_except", re.compile(r"except\\s*:\\s*(pass)?")),
+    ("panic_usage", re.compile(r"\\bpanic\\s*\\(")),
+    ("hardcoded_localhost", re.compile(r"localhost|127\\.0\\.0\\.1")),
+    ("hardcoded_secret_like", re.compile(r"(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|api[_-]?key\\s*[:=]|secret\\s*[:=]|password\\s*[:=])", re.I)),
+]
+findings = []
+for root, dirs, names in os.walk(cwd):
+    dirs[:] = [d for d in dirs if d not in skip_dirs]
+    for name in names:
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in targets:
+            continue
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, cwd)
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for lineno, line in enumerate(f, start=1):
+                    for kind, rx in patterns:
+                        if rx.search(line):
+                            findings.append({
+                                "path": rel,
+                                "line": lineno,
+                                "kind": kind,
+                                "snippet": line.strip()[:240]
+                            })
+        except Exception:
+            continue
+print(json.dumps({
+    "scan_path": cwd,
+    "finding_count": len(findings),
+    "findings": findings[:1000]
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "3m"
+continue_on_error = true
+
+[steps.script.env]
+SCAN_PATH = "{{scan_path}}"
+
+[steps.validate]
+format = "json"
+required = ["scan_path", "finding_count", "findings"]
+
+[[steps]]
+id = "run-tests"
+title = "Run available tests when recognizable"
+depends_on = ["collect-repo-facts", "collect-file-index"]
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+
+def exists(*parts):
+    return os.path.exists(os.path.join(cwd, *parts))
+
+def run(cmd, timeout):
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return {
+            "command": cmd,
+            "ok": p.returncode == 0,
+            "code": p.returncode,
+            "stdout": p.stdout[-12000:],
+            "stderr": p.stderr[-12000:],
+        }
+    except Exception as e:
+        return {
+            "command": cmd,
+            "ok": False,
+            "code": -1,
+            "stdout": "",
+            "stderr": str(e),
+        }
+
+attempts = []
+if exists("go.mod"):
+    attempts.append(run(["go", "test", "./..."], 300))
+elif exists("package.json"):
+    attempts.append(run(["npm", "test", "--", "--runInBand"], 300))
+elif exists("pytest.ini") or exists("pyproject.toml") or exists("requirements.txt"):
+    attempts.append(run(["pytest", "-q"], 300))
+else:
+    attempts.append({
+        "command": [],
+        "ok": True,
+        "code": 0,
+        "stdout": "",
+        "stderr": "",
+        "skipped": True,
+        "reason": "No recognized test runner configuration found."
+    })
+
+print(json.dumps({
+    "scan_path": cwd,
+    "attempt_count": len(attempts),
+    "attempts": attempts
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "6m"
+continue_on_error = true
+
+[steps.script.env]
+SCAN_PATH = "{{scan_path}}"
+
+[steps.validate]
+format = "json"
+required = ["scan_path", "attempt_count", "attempts"]
+
+[[steps]]
+id = "review-code"
+title = "Review the codebase from multiple angles"
+depends_on = ["collect-repo-facts", "collect-file-index", "run-static-checks", "run-tests"]
+input_context = ["collect-repo-facts", "collect-file-index", "run-static-checks", "run-tests"]
+description = """
+You are auditing the code under {{scan_path}}.
+
+Review the repository from multiple angles:
+- correctness and bug risk
+- error handling and edge cases
+- concurrency or state issues
+- configuration and environment assumptions
+- test gaps and failing signals
+- security and data safety
+- maintainability issues that are likely to cause defects soon
+
+Use the deterministic evidence from prior steps first. Only report concrete, actionable issues with enough evidence to justify creating a Jira ticket.
+
+Output ONLY compact JSON in this shape:
+{
+  "repo_summary":"short summary",
+  "issues":[
+    {
+      "title":"short Jira-ready summary",
+      "severity":"critical|high|medium|low",
+      "category":"correctness|reliability|security|performance|maintainability|test-gap|config",
+      "problem":"what is wrong",
+      "impact":"why it matters",
+      "evidence":[
+        {"path":"relative/path","line":1,"detail":"specific evidence"}
+      ],
+      "recommended_fix":"specific next action",
+      "confidence":0.0
+    }
+  ]
+}
+
+Rules:
+- Report at most {{max_tickets}} issues.
+- Keep only issues with confidence >= 0.7.
+- Do not invent file paths or line numbers.
+- If there is no justified issue, return an empty issues array.
+"""
+
+[steps.agent]
+name = "coder"
+
+[steps.validate]
+format = "json"
+required = ["repo_summary", "issues"]
+
+[[steps]]
+id = "triage-issues"
+title = "Triage and normalize issues"
+depends_on = ["review-code"]
+input_context = ["review-code"]
+description = """
+Normalize and deduplicate the detected issues for Jira creation.
+
+Output ONLY compact JSON:
+{
+  "create_tickets": true,
+  "issues":[
+    {
+      "title":"short Jira-ready summary",
+      "severity":"critical|high|medium|low",
+      "priority":"P0|P1|P2|P3",
+      "category":"correctness|reliability|security|performance|maintainability|test-gap|config",
+      "problem":"what is wrong",
+      "impact":"why it matters",
+      "evidence_summary":"concise evidence summary",
+      "recommended_fix":"specific next action",
+      "confidence":0.0
+    }
+  ],
+  "summary":"one paragraph summary"
+}
+
+Rules:
+- Deduplicate overlapping issues.
+- Keep at most {{max_tickets}} issues.
+- Set create_tickets to false when issues is empty.
+- Map severity to priority consistently.
+"""
+
+[steps.agent]
+name = "product-manager"
+
+[steps.validate]
+format = "json"
+required = ["create_tickets", "issues", "summary"]
+
+[[steps]]
+id = "create-jira-tickets"
+title = "Create Jira tickets for confirmed issues"
+depends_on = ["triage-issues", "jira-preflight"]
+condition = "triage-issues.create_tickets == true"
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess, sys
+
+raw = os.environ.get("TRIAGE_JSON", "")
+project = os.environ.get("JIRA_PROJECT", "").strip()
+if not raw:
+    print(json.dumps({"created_count": 0, "tickets": [], "error": "missing triage json"}, ensure_ascii=False))
+    sys.exit(0)
+
+triage = json.loads(raw)
+issues = triage.get("issues", [])
+tickets = []
+
+for issue in issues:
+    payload = {
+        "project": project,
+        "summary": issue.get("title", ""),
+        "severity": issue.get("severity", ""),
+        "priority": issue.get("priority", ""),
+        "category": issue.get("category", ""),
+        "problem": issue.get("problem", ""),
+        "impact": issue.get("impact", ""),
+        "evidence_summary": issue.get("evidence_summary", ""),
+        "recommended_fix": issue.get("recommended_fix", ""),
+        "confidence": issue.get("confidence", 0),
+    }
+    cmd = ["jira", "create", "--project", project, "--summary", payload["summary"], "--description", json.dumps(payload, ensure_ascii=False)]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        ticket = {
+            "ok": p.returncode == 0,
+            "summary": payload["summary"],
+            "severity": payload["severity"],
+            "priority": payload["priority"],
+            "category": payload["category"],
+            "stdout": p.stdout.strip(),
+            "stderr": p.stderr.strip(),
+        }
+        tickets.append(ticket)
+    except Exception as e:
+        tickets.append({
+            "ok": False,
+            "summary": payload["summary"],
+            "severity": payload["severity"],
+            "priority": payload["priority"],
+            "category": payload["category"],
+            "stdout": "",
+            "stderr": str(e),
+        })
+
+print(json.dumps({
+    "created_count": len(tickets),
+    "tickets": tickets
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "15m"
+continue_on_error = true
+
+[steps.script.env]
+TRIAGE_JSON = "{{triage-issues}}"
+JIRA_PROJECT = "{{jira_project}}"
+
+[steps.validate]
+format = "json"
+required = ["created_count", "tickets"]
+
+[[steps]]
+id = "no-issues"
+title = "Summarize when no issue is found"
+depends_on = ["triage-issues"]
+condition = "triage-issues.create_tickets != true"
+input_context = ["collect-repo-facts", "collect-file-index", "run-static-checks", "run-tests", "triage-issues"]
+description = """
+Write a concise final report explaining that no sufficiently justified issue was found for Jira creation.
+
+Include:
+- what was scanned
+- what evidence sources were used
+- why no ticket was created
+- what follow-up checks are still recommended
+
+Return normal prose.
+"""
+
+[steps.agent]
+name = "reporter"
+
+[[steps]]
+id = "final-report"
+title = "Summarize detected issues and Jira tickets"
+depends_on = ["triage-issues", "create-jira-tickets"]
+condition = "triage-issues.create_tickets == true"
+input_context = ["collect-repo-facts", "run-static-checks", "run-tests", "triage-issues", "jira-preflight", "create-jira-tickets"]
+description = """
+Write the final user-facing report in Chinese.
+
+The report must summarize:
+- what repository/path was scanned
+- what angles were checked
+- which concrete issues were selected
+- each issue's severity and priority
+- which Jira tickets were attempted or created
+- any failed ticket creation attempts
+- the most urgent next actions
+
+Be concise but complete. Prefer bullet points and a short conclusion.
+"""
+
+[steps.agent]
+name = "reporter"
