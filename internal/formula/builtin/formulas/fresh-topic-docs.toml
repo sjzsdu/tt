@@ -11,28 +11,31 @@ topic = { description = "想了解的新鲜事物、概念、趋势、产品、�
 
 [[steps]]
 id = "scope-analysis"
-title = "分析话题并动态澄清范围"
+title = "分析话题并按需澄清范围"
 form = true
 description = """
-深入分析话题「{{topic}}」的本质，并形成后续系列文章的写作范围配置。
+分析用户给出的主题「{{topic}}」，并决定后续系列文档的写作范围。
 
-你的目标不是套固定模板，而是根据话题本身判断：
-- 它属于什么领域：技术、商业、历史、社会、文化、科学、政治、艺术、经济等，可能多领域交叉。
-- 用户意图是否已经足够明确。
-- 是否需要进一步澄清关注方向、读者背景、文章深度、交付风格或边界。
+你拥有完全自主权：是否要问、问什么、问多少、输出什么结构，全由你根据主题本身判断。
+不要套用任何固定字段模板，不要因为 prompt 提示了某些维度就一定要问。
 
-动态澄清原则：
-1. 对于大多数宽泛话题，应该动态澄清。除非话题非常简单、具体、边界清晰，否则不要自作主张。
-2. 需要问什么由话题决定，不要使用固定字段模板。
-3. 问题数量由复杂度决定，通常 1-4 个，最多 5 个。
-4. 只问会影响系列文章结构、深度或侧重点的问题。
-5. 如果不需要澄清，直接完成输出。
+判断要不要追问：
+- 如果主题已经足够具体、边界清晰、读者与深度可推断，直接进入规划阶段，不要为了澄清而澄清。
+- 如果主题宽泛、含多义、或下游文章结构高度依赖某些未知信息，再发起动态表单。
+- 字段数量、字段类型、问题措辞都由你决定，通常 1-4 个，最多 5 个。
+- 只问会影响后续系列结构、深度、侧重点或交付形态的问题，不要问 nice-to-have。
 
-输出要求：
-- 如果需要用户补充信息，按运行时注入的 dynamic human input 协议发起表单。
-- 如果信息已经足够，或用户已完成澄清，输出 ONLY compact JSON，不要 Markdown，不要代码块。
-- JSON 格式：
-{"topic":"{{topic}}","topic_type":"...","focus":"...","audience":"...","depth":"入门|进阶|深入","deliverable_preferences":["..."],"scope_notes":"...","plan_brief":"...","assumptions":["..."]}
+输出要求（二选一，运行时协议决定）：
+- 如果需要用户补充信息：按 dynamic human input 协议，发起 tt-human-input 表单。
+- 如果信息已经足够、或用户已完成澄清：输出 ONLY 一个 compact JSON object。
+  - JSON 的 schema 自由决定，只包含你认为对后续步骤有用的字段。
+  - 不要再回到任何固定字段模板。
+  - 不要 Markdown，不要代码块。
+
+注意事项：
+- 这是一个会驱动后续全部系列文档的步骤，请认真判断，宁可一次问清也不要下游返工。
+- 主题的中英文、领域、读者人群、深度、风格、是否需视觉辅助，都由你判断决定要不要在表单中澄清。
+- 假设用户没有专业背景，问题应通俗；用户已给上下文时不要重复。
 """
 
 [steps.agent]
@@ -40,7 +43,7 @@ name = "planner"
 
 [steps.validate]
 format = "json"
-required = ["topic", "topic_type", "focus", "audience", "depth", "plan_brief"]
+required = []
 
 [[steps]]
 id = "article-plan"
@@ -48,19 +51,27 @@ title = "规划系列文章清单"
 depends_on = ["scope-analysis"]
 input_context = ["scope-analysis"]
 description = """
-根据 topic 和 scope-analysis 的完整范围配置，为「{{topic}}」规划一组系列文章。
+基于 scope-analysis 中你（planner）自己决定保留的字段，为「{{topic}}」规划一组系列文章。
+
+scope-analysis 的输出结构由你在上一步自主决定，本步骤只需要遵守其中的写作范围约定（无论它把信息放在哪些字段里）。
+不要再回头去假设固定的字段名。
 
 你的输出会被后续 foreach loop 直接消费，因此必须输出 ONLY compact JSON array，不要 Markdown，不要代码块。
 
-数组中每个对象代表一篇文章，格式如下：
-{"filename":"01-xxx.md","title":"文章标题","angle":"写作角度","audience":"目标读者","depth":"入门/进阶/深入","must_cover":["要点1","要点2"],"mermaid_hint":"适合使用的 Mermaid 图类型","table_hint":"适合使用的表格类型"}
+数组中每个对象代表一篇文章，每个对象包含你判断对下游写作有用的字段。建议至少包含：
+- filename：安全、简洁、以 .md 结尾，建议带两位数字前缀
+- title：文章标题
+- angle：本篇文章的写作角度
+- audience：目标读者
+- depth：入门/进阶/深入 或你认为合适的层级表达
+- must_cover：要覆盖的要点
+- mermaid_hint / table_hint：如适用
 
 要求：
 - 文章数量通常 3-6 篇，复杂话题可更多，简单话题可更少。
-- filename 必须安全、简洁、以 .md 结尾，建议带两位数字前缀。
 - 每篇文章边界清晰，避免大量重复。
-- 覆盖理解、背景、机制/方法、应用、风险/争议、未来趋势等合适维度。
-- 严格使用 scope-analysis 中的 focus、audience、depth 和边界。
+- 覆盖理解、背景、机制/方法、应用、风险/争议、未来趋势等合适维度（按话题需要取舍）。
+- 严格遵守 scope-analysis 留下的写作范围、读者与深度约束。
 - 不要编造具体数据或新闻；需要核实时可在 must_cover 中标注。
 """
 
@@ -88,6 +99,7 @@ description = """
 - topic_name 只允许小写字母、数字、连字符 `-`，不要空格、斜杠、冒号或其它特殊字符，控制在 40 个字符以内。
 - reading_order 必须覆盖 article-plan 中的每篇文章，但只保留 filename、title、summary，不要包含正文。
 - readme_notes 只放 README 组织信息和阅读建议，避免大段正文。
+- audience 可以从 scope-analysis 的写作范围中推断（无论 scope-analysis 用什么字段名），如果你无法推断，写一个通用占位即可。
 """
 
 [steps.agent]
@@ -95,7 +107,7 @@ name = "planner"
 
 [steps.validate]
 format = "json"
-required = ["topic_name", "series_title", "audience", "reading_order"]
+required = ["topic_name", "series_title", "reading_order"]
 
 [[steps]]
 id = "write-articles"
@@ -113,9 +125,10 @@ depends_on = ["article-plan"]
   title = "撰写 {{article.title}}"
   input_context = ["scope-analysis", "article"]
   description = """
-根据当前 article 对象和 scope-analysis 的完整范围配置，撰写关于「{{topic}}」的一篇完整 Markdown 文章，并整理成文件条目。
+根据当前 article 对象和 scope-analysis 留下的写作范围（结构由 planner 自主决定），撰写关于「{{topic}}」的一篇完整 Markdown 文章，并整理成文件条目。
 
-当前 article 对象可通过上下文 article 读取，常用字段包括：filename、title、angle、audience、depth、must_cover、mermaid_hint、table_hint。
+当前 article 对象可通过上下文 article 读取，字段由 article-plan 步骤决定；scope-analysis 同样以自由结构提供范围信息。
+请遵守其中关于读者、深度、风格、边界的所有约束，不要假设固定字段名。
 
 输出要求：
 - 输出 ONLY compact JSON object，不要 Markdown 代码块，不要额外解释。
@@ -127,9 +140,7 @@ depends_on = ["article-plan"]
 - content 是完整 Markdown 正文，第一行使用 `# {{article.title}}`。
 - content 中的一级标题 `#` 和二级标题 `##` 都必须简明扼要，通常控制在 20 个字符以内；不要写成长句或带多个逗号的解释型标题，避免导航栏拥挤。
 - content 至少 500 字，必须有实质内容，不要只有提纲。
-- 按需包含 Mermaid 图表，优先参考 article.mermaid_hint。
-- 按需包含 Markdown 表格，优先参考 article.table_hint。
-- 使用 blockquote、分隔线、列表、加粗、代码等方式增强可读性。
+- 按需包含 Mermaid 图表、Markdown 表格、blockquote、分隔线、列表、加粗、代码等。
 - 不要编造具体数据或新闻；不确定信息标注“需要进一步核实”。
 """
 
