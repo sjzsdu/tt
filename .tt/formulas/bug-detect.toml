@@ -1,6 +1,6 @@
 formula = "bug-detect"
 description = "Scan the current working directory from multiple angles, identify concrete code issues, create Jira tickets for confirmed issues, and summarize the submitted tickets with severity and rationale."
-version = 1
+version = 2
 type = "workflow"
 
 [preflight]
@@ -30,7 +30,12 @@ execution = "script"
 [steps.script]
 command = ["python3", "-c", """
 import json, os, subprocess
-cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+raw_scan_path = os.environ.get("SCAN_PATH", ".")
+candidate = os.path.abspath(os.path.expanduser(raw_scan_path))
+if "{{" in raw_scan_path or "}}" in raw_scan_path or not os.path.isdir(candidate):
+    cwd = os.getcwd()
+else:
+    cwd = candidate
 def run(cmd):
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=30)
@@ -63,7 +68,7 @@ SCAN_PATH = "{{scan_path}}"
 
 [steps.validate]
 format = "json"
-required = ["scan_path", "git_root", "git_branch", "git_status", "top_entries", "env"]
+required = ["stdout"]
 
 [[steps]]
 id = "collect-file-index"
@@ -74,7 +79,12 @@ execution = "script"
 [steps.script]
 command = ["python3", "-c", """
 import json, os
-cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+raw_scan_path = os.environ.get("SCAN_PATH", ".")
+candidate = os.path.abspath(os.path.expanduser(raw_scan_path))
+if "{{" in raw_scan_path or "}}" in raw_scan_path or not os.path.isdir(candidate):
+    cwd = os.getcwd()
+else:
+    cwd = candidate
 skip_dirs = {
     ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
     ".next", ".nuxt", "coverage", ".turbo", ".idea", ".vscode", "__pycache__"
@@ -117,7 +127,7 @@ SCAN_PATH = "{{scan_path}}"
 
 [steps.validate]
 format = "json"
-required = ["scan_path", "file_count", "by_ext", "files"]
+required = ["stdout"]
 
 [[steps]]
 id = "run-static-checks"
@@ -128,7 +138,12 @@ execution = "script"
 [steps.script]
 command = ["python3", "-c", """
 import json, os, re
-cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+raw_scan_path = os.environ.get("SCAN_PATH", ".")
+candidate = os.path.abspath(os.path.expanduser(raw_scan_path))
+if "{{" in raw_scan_path or "}}" in raw_scan_path or not os.path.isdir(candidate):
+    cwd = os.getcwd()
+else:
+    cwd = candidate
 skip_dirs = {
     ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
     ".next", ".nuxt", "coverage", ".turbo", ".idea", ".vscode", "__pycache__"
@@ -184,7 +199,7 @@ SCAN_PATH = "{{scan_path}}"
 
 [steps.validate]
 format = "json"
-required = ["scan_path", "finding_count", "findings"]
+required = ["stdout"]
 
 [[steps]]
 id = "run-tests"
@@ -195,7 +210,12 @@ execution = "script"
 [steps.script]
 command = ["python3", "-c", """
 import json, os, subprocess
-cwd = os.path.abspath(os.path.expanduser(os.environ.get("SCAN_PATH", ".")))
+raw_scan_path = os.environ.get("SCAN_PATH", ".")
+candidate = os.path.abspath(os.path.expanduser(raw_scan_path))
+if "{{" in raw_scan_path or "}}" in raw_scan_path or not os.path.isdir(candidate):
+    cwd = os.getcwd()
+else:
+    cwd = candidate
 
 def exists(*parts):
     return os.path.exists(os.path.join(cwd, *parts))
@@ -252,13 +272,13 @@ SCAN_PATH = "{{scan_path}}"
 
 [steps.validate]
 format = "json"
-required = ["scan_path", "attempt_count", "attempts"]
+required = ["stdout"]
 
 [[steps]]
 id = "review-code"
 title = "Review the codebase from multiple angles"
 depends_on = ["collect-repo-facts", "collect-file-index", "run-static-checks", "run-tests"]
-input_context = ["collect-repo-facts", "collect-file-index", "run-static-checks", "run-tests"]
+input_context = ["collect-repo-facts.stdout", "collect-file-index.stdout", "run-static-checks.stdout", "run-tests.stdout"]
 description = """
 You are auditing the code under {{scan_path}}.
 
@@ -420,14 +440,14 @@ JIRA_PROJECT = "{{jira_project}}"
 
 [steps.validate]
 format = "json"
-required = ["created_count", "tickets"]
+required = ["stdout"]
 
 [[steps]]
 id = "no-issues"
 title = "Summarize when no issue is found"
 depends_on = ["triage-issues"]
 condition = "triage-issues.create_tickets != true"
-input_context = ["collect-repo-facts", "collect-file-index", "run-static-checks", "run-tests", "triage-issues"]
+input_context = ["collect-repo-facts.stdout", "collect-file-index.stdout", "run-static-checks.stdout", "run-tests.stdout", "triage-issues"]
 description = """
 Write a concise final report explaining that no sufficiently justified issue was found for Jira creation.
 
@@ -448,7 +468,7 @@ id = "final-report"
 title = "Summarize detected issues and Jira tickets"
 depends_on = ["triage-issues", "create-jira-tickets"]
 condition = "triage-issues.create_tickets == true"
-input_context = ["collect-repo-facts", "run-static-checks", "run-tests", "triage-issues", "create-jira-tickets"]
+input_context = ["collect-repo-facts.stdout", "run-static-checks.stdout", "run-tests.stdout", "triage-issues", "create-jira-tickets.stdout"]
 description = """
 Write the final user-facing report in Chinese.
 
