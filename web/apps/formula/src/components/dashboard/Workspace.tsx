@@ -35,7 +35,7 @@ export function Workspace({
         </div>
       </Col>
       <Col xs={24} xl={7}>
-        <ExecutionTimeline logs={snapshot.logs} />
+        <ExecutionTimeline logs={snapshot.logs} steps={snapshot.steps} onSelectStep={onSelectStep} />
       </Col>
     </Row>
   );

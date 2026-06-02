@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { Alert, Button, Empty, Input, Modal, Tag } from 'antd';
 import type { FinalReportChat } from '../types';
 import { marked, type TokensList } from 'marked';
-import mermaid from 'mermaid';
 
 type AppTheme = 'light' | 'dark';
 
@@ -122,8 +121,12 @@ function MermaidDiagram({ code, theme }: { code: string; theme: AppTheme }) {
     let cancelled = false;
     setError('');
     setSvg('');
-    mermaid.initialize(mermaidConfig(theme));
-    mermaid.render(idRef.current, code)
+    void import('mermaid')
+      .then(module => {
+        const mermaid = module.default;
+        mermaid.initialize(mermaidConfig(theme));
+        return mermaid.render(idRef.current, code);
+      })
       .then(result => {
         if (!cancelled) setSvg(result.svg);
       })

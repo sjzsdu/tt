@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Empty } from 'antd';
-import { ExpandOutlined, PartitionOutlined } from '@ant-design/icons';
 import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import type { FormulaDashboardLoopBody, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { activityShortId, graphShortId, statusLabel } from '../../utils/status';
@@ -25,8 +24,6 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
   const step = data.step;
   const isLoopBody = data.kind === 'loop-body';
   const isLoop = !!step.loop?.body?.length;
-  const latest = step.activities?.at(-1);
-  const loopSummary = loopActivitySummary(step);
   if (isLoopBody) {
     const parent = data.parentStep || step;
     return (
@@ -54,12 +51,11 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
         <span className={`graph-node-state ${step.status}`}>{step.status}</span>
       </div>
       <strong>{step.title}</strong>
-      <p>{step.description || step.notes || 'Structured execution step in the formula pipeline.'}</p>
-      {loopSummary && <div className="loop-summary-pill">↻ {loopSummary}</div>}
-      {latest && <div className="step-activity-mini"><span>{latest.at}</span>{activityShortId(latest.step_id)} · {statusLabel(latest.status)}</div>}
       <div className="graph-node-meta">
-        <span><PartitionOutlined /> {step.agent || 'default agent'}</span>
-        {!!step.depends_on?.length && <span><ExpandOutlined /> {step.depends_on.length} deps</span>}
+        {isLoop && <span>loop · {step.loop?.body?.length || 0}</span>}
+        {step.human_input_request && <span>input required</span>}
+        {!!step.depends_on?.length && <span>{step.depends_on.length} deps</span>}
+        {!!step.activities?.length && <span>{step.activities.length} events</span>}
       </div>
       {isLoop && data.onToggleExpand && (
         <span
