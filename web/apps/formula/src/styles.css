@@ -60,6 +60,7 @@ button, input, textarea { font: inherit; }
 .step-card.running { border-color: var(--ant-color-info); }
 .step-card.failed { border-color: var(--ant-color-error); }
 .step-card.waiting_input { border-color: var(--ant-color-warning); }
+.step-card:focus-visible { outline: 3px solid var(--ant-color-primary); outline-offset: 3px; }
 .step-card-title-block, .step-card-body { width: 100%; }
 .step-card-kicker { display: block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .step-card-title { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

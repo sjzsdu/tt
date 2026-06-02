@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react';
 import { Card, Flex, Space, Tag, Typography } from 'antd';
 import type { FormulaDashboardStep } from '../../types';
 import { activityShortId, formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
@@ -7,13 +8,23 @@ export function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSel
   const latest = step.activities?.at(-1);
   const loopSummary = loopActivitySummary(step);
   const description = step.description || step.notes || 'No extra description for this step.';
+  const openStep = () => onSelect(step);
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openStep();
+  };
 
   return (
     <Card
       hoverable
       size="small"
       className={`step-card ${step.status}`}
-      onClick={() => onSelect(step)}
+      onClick={openStep}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open step ${step.title}, status ${statusLabel(step.status)}`}
       title={(
         <Space direction="vertical" size={2} className="step-card-title-block">
           <Typography.Text type="secondary" className="step-card-kicker">{step.id}</Typography.Text>

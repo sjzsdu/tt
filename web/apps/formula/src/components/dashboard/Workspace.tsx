@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
-import { Badge, Button, Col, Empty, Input, Row, Segmented, Space, Spin, Typography } from 'antd';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Badge, Button, Col, Empty, Input, Row, Segmented, Space, Spin, Typography, type InputRef } from 'antd';
 import type { DashboardView, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { StepCard } from '../steps/StepCard';
 import { ExecutionTimeline } from './ExecutionTimeline';
@@ -46,6 +46,24 @@ export function Workspace({
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<StepFilter>('all');
+  const searchRef = useRef<InputRef>(null);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+      if (event.key === '/' && !isTyping && view === 'list') {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === 'Escape' && view === 'list' && (query || filter !== 'all')) {
+        setQuery('');
+        setFilter('all');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [filter, query, view]);
 
   const counts = useMemo(() => ({
     all: orderedSteps.length,
@@ -77,14 +95,17 @@ export function Workspace({
                   <Typography.Text type="secondary"> {visibleSteps.length} of {orderedSteps.length}</Typography.Text>
                 </div>
                 <Input.Search
+                  ref={searchRef}
                   allowClear
-                  placeholder="Search id, title, agent, label, dependency…"
+                  placeholder="Search id, title, agent, label, dependency…  Press /"
+                  aria-label="Search formula steps"
                   value={query}
                   onChange={event => setQuery(event.target.value)}
                   className="step-search-input"
                 />
               </div>
               <Segmented
+                aria-label="Filter formula steps by status"
                 value={filter}
                 onChange={value => setFilter(value as StepFilter)}
                 options={[
