@@ -1,9 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  clampScale,
+  elementCenter,
+  eventPointInElement,
+  panBy,
+  zoomAroundPoint,
+  type PanZoomState,
+} from '../utils/panZoomMath';
 
-export interface PanZoomState {
-  scale: number;
-  position: { x: number; y: number };
-}
+export type { PanZoomState } from '../utils/panZoomMath';
 
 interface UsePanZoomOptions {
   minScale?: number;
@@ -30,90 +35,49 @@ export function usePanZoom(
     if (targetEl) setState(initialState);
   }, [initialState]);
 
-  const zoomIn = useCallback(() =>
-    setState(s => {
+  const zoomBy = useCallback((delta: number, limit: number) => {
+    setState(current => {
       const el = targetRef.current;
-      if (!el) return s;
-      const rect = el.parentElement?.getBoundingClientRect();
-      if (!rect) return s;
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const newScale = Math.min(maxScale, s.scale + step);
-      const scaleRatio = newScale / s.scale;
-      return {
-        scale: newScale,
-        position: {
-          x: centerX - scaleRatio * (centerX - s.position.x),
-          y: centerY - scaleRatio * (centerY - s.position.y),
-        },
-      };
-    }), [maxScale, step]);
-  const zoomOut = useCallback(() =>
-    setState(s => {
-      const el = targetRef.current;
-      if (!el) return s;
-      const rect = el.parentElement?.getBoundingClientRect();
-      if (!rect) return s;
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const newScale = Math.max(minScale, s.scale - step);
-      const scaleRatio = newScale / s.scale;
-      return {
-        scale: newScale,
-        position: {
-          x: centerX - scaleRatio * (centerX - s.position.x),
-          y: centerY - scaleRatio * (centerY - s.position.y),
-        },
-      };
-    }), [minScale, step]);
+      if (!el) return current;
+      const focus = elementCenter(el);
+      if (!focus) return current;
+      const nextScale = delta > 0 ? Math.min(limit, current.scale + delta) : Math.max(limit, current.scale + delta);
+      return zoomAroundPoint(current, nextScale, focus);
+    });
+  }, []);
+
+  const zoomIn = useCallback(() => zoomBy(step, maxScale), [maxScale, step, zoomBy]);
+  const zoomOut = useCallback(() => zoomBy(-step, minScale), [minScale, step, zoomBy]);
   const reset = useCallback(() => setState(initialState), [initialState]);
 
   const setScale = useCallback((scale: number) =>
-    setState(s => ({ ...s, scale: Math.min(maxScale, Math.max(minScale, scale)) })), [maxScale, minScale]);
+    setState(current => ({ ...current, scale: clampScale(scale, minScale, maxScale) })), [maxScale, minScale]);
 
-  const onWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
-    const el = e.currentTarget as HTMLElement | null;
+  const onWheel = useCallback((event: WheelEvent) => {
+    event.preventDefault();
+    const el = event.currentTarget as HTMLElement | null;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const factor = e.deltaY > 0 ? 0.95 : 1.05;
-    setState(s => {
-      const newScale = Math.min(maxScale, Math.max(minScale, s.scale * factor));
-      const scaleRatio = newScale / s.scale;
-      return {
-        scale: newScale,
-        position: {
-          x: mouseX - scaleRatio * (mouseX - s.position.x),
-          y: mouseY - scaleRatio * (mouseY - s.position.y),
-        },
-      };
-    });
+    const focus = eventPointInElement(event, el);
+    const factor = event.deltaY > 0 ? 0.95 : 1.05;
+    setState(current => zoomAroundPoint(current, clampScale(current.scale * factor, minScale, maxScale), focus));
   }, [maxScale, minScale]);
 
-  const onPointerDown = useCallback((e: PointerEvent) => {
-    const el = e.currentTarget as HTMLElement | null;
+  const onPointerDown = useCallback((event: PointerEvent) => {
+    const el = event.currentTarget as HTMLElement | null;
     if (!el) return;
     el.style.cursor = 'grabbing';
-    el.setPointerCapture(e.pointerId);
+    el.setPointerCapture(event.pointerId);
   }, []);
 
-  const onPointerMove = useCallback((e: PointerEvent) => {
-    if (e.buttons !== 1) return;
-    setState(s => ({
-      ...s,
-      position: { x: s.position.x + e.movementX, y: s.position.y + e.movementY },
-    }));
+  const onPointerMove = useCallback((event: PointerEvent) => {
+    if (event.buttons !== 1) return;
+    setState(current => panBy(current, { x: event.movementX, y: event.movementY }));
   }, []);
 
-  const onPointerUp = useCallback((e: PointerEvent) => {
-    const el = e.currentTarget as HTMLElement | null;
+  const onPointerUp = useCallback((event: PointerEvent) => {
+    const el = event.currentTarget as HTMLElement | null;
     if (!el) return;
-    if (el.hasPointerCapture(e.pointerId)) {
-      el.releasePointerCapture(e.pointerId);
-    }
+    if (el.hasPointerCapture(event.pointerId)) el.releasePointerCapture(event.pointerId);
     el.style.cursor = 'grab';
   }, []);
 
