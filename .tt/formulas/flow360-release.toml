@@ -2,8 +2,8 @@ formula = "flow360-release"
 title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
-description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 15
+description = "Flow360 发布流程：触发或复用固定 GitHub Actions workflow，循环检查指定 action 的 multi-branch job；成功则退出，否则固定重置 tmp branch、merge 指定分支、交给 agent 解冲突、merge --continue、push、rerun failed jobs，再等待后继续循环。"
+version = 29
 type = "workflow"
 
 [preflight]
@@ -33,29 +33,27 @@ command = "jq"
 message = "需要安装 jq"
 
 [[preflight.checks]]
-type = "command"
-name = "npm"
-command = "npm"
-message = "冲突修复后的构建验证需要 npm"
-
-[[preflight.checks]]
 type = "git"
 name = "git-repo"
 require_repo = true
 require_remote = true
-message = "需要在 flex 仓库或带 origin remote 的 git 仓库中运行，以便修复并 push tmp branch"
+message = "需要在 flex 仓库或带 origin remote 的 git 仓库中运行"
 
 [vars]
 env_name = { description = "发布环境", required = true, enum = ["dev", "uat2", "preprod"] }
 tag = { description = "可选 tag/branch；空或 - 时不传", default = "" }
 fresh_deploy = { description = "是否 fresh deploy", default = "false", enum = ["true", "false"] }
-poll_interval_seconds = { description = "轮询间隔秒数", default = "30", type = "int", pattern = "^[1-9][0-9]*$" }
+resume_run_id = { description = "可选：复用已有 GitHub Actions run id，只监控/修复/重跑 failed jobs，不重新 dispatch", default = "" }
+tmp_branch = { description = "要修复并 push 的临时部署分支", default = "tmp-deploy-c51db917" }
+merge_branch = { description = "要合入 tmp branch 的冲突源分支", default = "flow360-ui/volume-render-ly" }
+job_name_pattern = { description = "目标 job 名称关键字，默认匹配 multi-branch", default = "multi-branch" }
+poll_interval_seconds = { description = "每轮等待秒数", default = "30", type = "int", pattern = "^[1-9][0-9]*$" }
 
 [[steps]]
 id = "dispatch-run"
-title = "触发 Flow360 CD workflow"
+title = "触发或复用 Flow360 CD workflow"
 execution = "script"
-description = "触发 flexcompute/flex 的 Flow360 CD workflow，并锁定本次 run id。"
+description = "触发 flexcompute/flex 的 Flow360 CD workflow，并锁定本次 run id；如果提供 resume_run_id 则直接复用。"
 
   [steps.script]
   command = ["bash", "-lc", """
@@ -65,15 +63,24 @@ workflow='.github/workflows/frontend_flow360-ui-next-cd.yml'
 env_name="${TT_ENV_NAME:-}"
 tag="${TT_TAG:-}"
 fresh="${TT_FRESH_DEPLOY:-false}"
+resume_run_id="${TT_RESUME_RUN_ID:-}"
 pass_tag=false
 if [ -n "$tag" ] && [ "$tag" != "-" ]; then pass_tag=true; fi
 emit() {
-  jq -cn --arg repo "$repo" --arg workflow_path "$workflow" --arg env_name "$env_name" --arg tag "$tag" --arg fresh "$fresh" --arg original_run_id "${1:-}" --arg active_run_id "${1:-}" --arg run_url "${2:-}" --arg dispatch_error "${3:-}" --argjson run_created "${4:-false}" --argjson pass_tag "$pass_tag" '{repo:$repo,workflow_path:$workflow_path,env_name:$env_name,tag:$tag,pass_tag:$pass_tag,fresh_deploy:($fresh=="true"),run_created:$run_created,original_run_id:$original_run_id,active_run_id:$active_run_id,run_url:$run_url,dispatch_error:$dispatch_error}'
+  jq -cn --arg repo "$repo" --arg workflow_path "$workflow" --arg env_name "$env_name" --arg tag "$tag" --arg fresh "$fresh" --arg original_run_id "${1:-}" --arg run_url "${2:-}" --arg dispatch_error "${3:-}" --argjson run_created "${4:-false}" --argjson pass_tag "$pass_tag" '{repo:$repo,workflow_path:$workflow_path,env_name:$env_name,tag:$tag,pass_tag:$pass_tag,fresh_deploy:($fresh=="true"),run_created:$run_created,original_run_id:$original_run_id,run_url:$run_url,dispatch_error:$dispatch_error}'
 }
+if [ -n "$resume_run_id" ] && [ "$resume_run_id" != "-" ]; then
+  if run_data="$(gh run view "$resume_run_id" -R "$repo" --json databaseId,url 2>/dev/null)"; then
+    emit "$resume_run_id" "$(jq -r '.url // ""' <<<"$run_data")" '' true
+    exit 0
+  fi
+  emit '' '' "resume_run_id $resume_run_id was not found or is not accessible" false
+  exit 1
+fi
 known="$(gh run list -R "$repo" --workflow "$workflow" --limit 20 --json databaseId 2>/dev/null | jq -r '.[].databaseId // empty' | sort -u || true)"
 cmd=(gh workflow run "$workflow" -R "$repo" -f "envName=$env_name" -f "freshDeploy=$fresh")
 if [ "$pass_tag" = true ]; then cmd+=(-f "tag=$tag"); fi
-if ! dispatch_out="$(${cmd[@]} 2>&1)"; then
+if ! dispatch_out="$("${cmd[@]}" 2>&1)"; then
   emit '' '' "$dispatch_out" false
   exit 1
 fi
@@ -84,8 +91,7 @@ for _ in $(seq 1 12); do
   pick="$(jq -cn --argjson runs "$runs" --arg known "$known" '$known | split("\n") as $known_ids | ($runs | map(select(((.databaseId|tostring) as $id | $known_ids | index($id) | not))) | .[0]) // ($runs[0] // null)')"
   rid="$(jq -r '.databaseId // empty' <<<"$pick")"
   if [ -n "$rid" ]; then
-    url="$(jq -r '.url // ""' <<<"$pick")"
-    emit "$rid" "$url" '' true
+    emit "$rid" "$(jq -r '.url // ""' <<<"$pick")" '' true
     exit 0
   fi
 done
@@ -99,6 +105,7 @@ format = "json"
   TT_ENV_NAME = "{{env_name}}"
   TT_TAG = "{{tag}}"
   TT_FRESH_DEPLOY = "{{fresh_deploy}}"
+  TT_RESUME_RUN_ID = "{{resume_run_id}}"
 
 [steps.validate]
 format = "json"
@@ -106,167 +113,136 @@ required = ["stdout"]
 
 [[steps]]
 id = "monitor-and-rerun"
-title = "监控 run、修冲突并 rerun"
+title = "监控 multi-branch、修冲突并 rerun"
 depends_on = ["dispatch-run"]
-description = "循环检查 original_run_id 里的 multi-branch job；该 job completed/success 即结束；检测到 Flow360 multi-branch merge conflict 时自动修复 tmp branch 并 rerun failed jobs。"
+description = "每轮先检查指定 run 中目标 multi-branch job；success 退出，否则固定 git fetch/reset/merge，agent 解冲突，merge --continue，push，rerun failed job，等待后继续。"
 
   [steps.loop]
   until = "release-progress.stdout.done == true"
   max = 80
 
   [[steps.loop.body]]
-  id = "fetch-run-info"
-  title = "获取 multi-branch job 状态和日志"
+  id = "check-multi-branch-job"
+  title = "获取目标 multi-branch job 状态"
   execution = "script"
-  description = "读取 original_run_id 的 run/job 信息，筛选名称包含 multi 和 branch 的 job，并只抓取这些 job 的失败日志。"
+  description = "只读取指定 action run 中名称匹配 job_name_pattern 的 job；job success 即结束，running/queued 则等待，failure 则进入修冲突。"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
 set -euo pipefail
 repo='flexcompute/flex'
 rid="${TT_ORIGINAL_RUN_ID:-}"
-emit_empty() {
-  jq -cn --arg repo "$repo" --arg original_run_id "$rid" --arg error "${1:-}" '{repo:$repo,original_run_id:$original_run_id,run_url:"",status:"",conclusion:"",jobs:[],multi_branch_jobs:[],failed_job_logs:[],error:$error}'
+pattern="${TT_JOB_NAME_PATTERN:-multi-branch}"
+pattern_lc="$(printf '%s' "$pattern" | tr '[:upper:]' '[:lower:]')"
+emit() {
+  jq -cn --arg repo "$repo" --arg original_run_id "$rid" --arg run_url "${1:-}" --argjson jobs "${2:-[]}" --arg action "${3:-block}" --arg final_state "${4:-blocked}" --arg reason "${5:-}" '{repo:$repo,original_run_id:$original_run_id,run_url:$run_url,jobs:$jobs,action:$action,final_state:$final_state,done:($final_state=="succeeded" or $final_state=="blocked"),reason:$reason}'
 }
-if [ -z "$rid" ]; then emit_empty 'missing original_run_id'; exit 0; fi
+if [ -z "$rid" ]; then emit '' '[]' block blocked 'missing original_run_id'; exit 0; fi
 if ! data="$(gh run view "$rid" -R "$repo" --json databaseId,url,status,conclusion,jobs 2>&1)"; then
-  emit_empty "$data"
+  emit '' '[]' block blocked "$data"
   exit 0
 fi
-multi="$(jq '[.jobs[]? | select((.name // "" | ascii_downcase | contains("multi")) and (.name // "" | ascii_downcase | contains("branch")))]' <<<"$data")"
-logs='[]'
-while IFS=$'	' read -r jid name conclusion; do
-  [ -n "$jid" ] || continue
-  conclusion_lc="$(printf '%s' "$conclusion" | tr '[:upper:]' '[:lower:]')"
-  [ "$conclusion_lc" = failure ] || continue
-  log="$(gh run view "$rid" -R "$repo" --job "$jid" --log 2>/dev/null | tail -c 20000 || true)"
-  item="$(jq -cn --arg job_id "$jid" --arg name "$name" --arg log_excerpt "$log" '{job_id:$job_id,name:$name,log_excerpt:$log_excerpt}')"
-  logs="$(jq -cn --argjson logs "$logs" --argjson item "$item" '$logs + [$item]')"
-done < <(jq -r '.[] | [(.databaseId // ""),(.name // ""),(.conclusion // "")] | @tsv' <<<"$multi")
-jq -cn --argjson data "$data" --argjson multi "$multi" --argjson logs "$logs" --arg repo "$repo" --arg original_run_id "$rid" '{repo:$repo,original_run_id:$original_run_id,run_url:($data.url // ""),status:($data.status // ""),conclusion:($data.conclusion // ""),jobs:($data.jobs // []),multi_branch_jobs:$multi,failed_job_logs:$logs,error:""}'
+run_url="$(jq -r '.url // ""' <<<"$data")"
+jobs="$(jq --arg p "$pattern_lc" '[.jobs[]? | select((.name // "" | ascii_downcase | contains($p)) or (((.name // "" | ascii_downcase | contains("multi")) and (.name // "" | ascii_downcase | contains("branch")))))]' <<<"$data")"
+count="$(jq 'length' <<<"$jobs")"
+if [ "$count" -eq 0 ]; then
+  emit "$run_url" "$jobs" wait running "target job '$pattern' has not appeared yet"
+  exit 0
+fi
+if jq -e 'any(.[]; (.status // "") != "completed")' <<<"$jobs" >/dev/null; then
+  emit "$run_url" "$jobs" wait running "target multi-branch job is still running or queued"
+  exit 0
+fi
+if jq -e 'all(.[]; (.conclusion // "") == "success")' <<<"$jobs" >/dev/null; then
+  emit "$run_url" "$jobs" none succeeded "target multi-branch job completed successfully"
+  exit 0
+fi
+if jq -e 'any(.[]; (.conclusion // "") == "failure")' <<<"$jobs" >/dev/null; then
+  emit "$run_url" "$jobs" repair_conflict running "target multi-branch job failed; repair tmp branch then rerun failed jobs"
+  exit 0
+fi
+emit "$run_url" "$jobs" block blocked "target multi-branch job completed with non-success conclusion"
 """]
 format = "json"
     timeout = "60s"
 
     [steps.loop.body.script.env]
     TT_ORIGINAL_RUN_ID = "{{dispatch-run.stdout.original_run_id}}"
-
-  [steps.loop.body.validate]
-  format = "json"
-  required = ["stdout"]
-
-  [[steps.loop.body]]
-  id = "classify-run-state"
-  title = "判断 run 状态"
-  depends_on = ["fetch-run-info"]
-  input_context = ["dispatch-run.stdout.run_created", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "fetch-run-info.stdout.status", "fetch-run-info.stdout.conclusion", "fetch-run-info.stdout.run_url", "fetch-run-info.stdout.error", "fetch-run-info.stdout.multi_branch_jobs", "fetch-run-info.stdout.failed_job_logs"]
-  description = """
-只根据输入上下文中的 multi_branch_jobs 和 failed_job_logs 判断本轮动作，不要用整个 workflow run 的 conclusion 决定成功跳出 loop。
-
-规则：
-- dispatch-run.run_created=false 或 dispatch-run.dispatch_error 非空或 fetch-run-info.error 非空 -> done=true, action=block, final_state=blocked。
-- multi_branch_jobs 为空 -> done=false, action=wait, final_state=running，reason 说明 multi-branch job 尚未出现。
-- 任意 multi-branch job status 不是 completed -> done=false, action=wait, final_state=running。
-- 所有 multi-branch job completed 且 conclusion=success -> done=true, action=none, final_state=succeeded。这是唯一正常跳出 loop 的成功条件。
-- 任意 multi-branch job completed 且 conclusion=failure，并且 failed_job_logs 是 Flow360 multi-branch merge conflict -> done=false, action=repair_conflict，并提取 tmp_branch、remaining_queue、conflicted_branches。
-- 任意 multi-branch job completed 且 conclusion=failure，但不是可识别的 Flow360 multi-branch merge conflict -> done=true, action=block, final_state=blocked。
-- 其他 non-success conclusion，如 cancelled/skipped/timed_out -> done=true, action=block, final_state=blocked。
-
-输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
-{"done":false,"final_state":"running|succeeded|blocked","action":"wait|repair_conflict|block|none","run_url":"","tmp_branch":"","remaining_queue":[],"conflicted_branches":[],"reason":""}
-"""
-
-    [steps.loop.body.agent]
-    name = "coder"
-
-    [steps.loop.body.validate]
-    format = "json"
-    required = ["done", "final_state", "action", "reason"]
-
-  [[steps.loop.body]]
-  id = "prepare-conflict-merge"
-  title = "准备 tmp branch 并执行确定性 merge"
-  execution = "script"
-  depends_on = ["classify-run-state"]
-  condition = "classify-run-state.action == repair_conflict"
-  description = "脚本固定执行 git fetch、checkout tmp branch、merge 当前冲突分支；若产生冲突，只输出 conflict manifest，不由 agent 驱动 git 流程。"
-
-    [steps.loop.body.script]
-    command = ["bash", "-lc", """
-set -euo pipefail
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
-tmp_branch="${TT_TMP_BRANCH:-}"
-merge_branch="${TT_MERGE_BRANCH:-}"
-remaining_queue_raw='${TT_REMAINING_QUEUE:-[]}'
-remaining_queue="$(jq -cn --arg raw "$remaining_queue_raw" '($raw | fromjson? // []) | if type == "array" then . else [] end')"
-if [ -z "$tmp_branch" ] || [ -z "$merge_branch" ]; then
-  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"missing tmp_branch or merge branch",blocker_type:"missing_context"}'
-  exit 0
-fi
-if [ -e .git/MERGE_HEAD ] || [ -e .git/rebase-merge ] || [ -e .git/rebase-apply ] || [ -e .git/CHERRY_PICK_HEAD ]; then
-  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"repository already has an in-progress merge/rebase/cherry-pick",blocker_type:"git_state"}'
-  exit 0
-fi
-fetch_out="$(git fetch origin 2>&1)"
-git checkout -B "$tmp_branch" "origin/$tmp_branch" >/tmp/tt-flow360-checkout.log 2>&1
-merge_out=""
-set +e
-merge_out="$(git merge --no-ff "origin/$merge_branch" -m auto_manual_merge 2>&1)"
-merge_rc=$?
-set -e
-conflicted_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-staged_or_modified="$(git diff --name-only HEAD | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$merge_rc" -eq 0 ]; then
-  head_sha="$(git rev-parse HEAD)"
-  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" --arg fetch_out "$fetch_out" --arg head "$head_sha" --argjson remaining_queue "$remaining_queue" '{attempted:true,ready_for_agent:false,merge_complete:true,tmp_branch:$tmp_branch,current_branch:$merge_branch,handled_branches:[$merge_branch],conflicted_files:[],touched_files:[],remaining_queue:$remaining_queue,stdout:($fetch_out+"\n"+$merge_out),stderr:"",head:$head,blocker_type:"none"}'
-  exit 0
-fi
-if [ "$conflicted_files" = "[]" ]; then
-  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" --argjson remaining_queue "$remaining_queue" '{attempted:true,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,handled_branches:[],conflicted_files:[],touched_files:[],remaining_queue:$remaining_queue,stdout:"",stderr:$merge_out,blocker_type:"merge_failed_without_conflicts"}'
-  exit 0
-fi
-jq -cn \
-  --arg tmp_branch "$tmp_branch" \
-  --arg merge_branch "$merge_branch" \
-  --arg merge_out "$merge_out" \
-  --arg fetch_out "$fetch_out" \
-  --argjson conflicted_files "$conflicted_files" \
-  --argjson touched_files "$staged_or_modified" \
-  --argjson remaining_queue "$remaining_queue" \
-  '{attempted:true,ready_for_agent:true,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,handled_branches:[],conflicted_files:$conflicted_files,touched_files:$touched_files,remaining_queue:$remaining_queue,stdout:($fetch_out+"\n"+$merge_out),stderr:"",blocker_type:"none"}'
-"""]
-format = "json"
-    timeout = "5m"
-
-    [steps.loop.body.script.env]
-    TT_TMP_BRANCH = "{{classify-run-state.tmp_branch}}"
-    TT_MERGE_BRANCH = "{{classify-run-state.conflicted_branches.0}}"
-    TT_REMAINING_QUEUE = "{{classify-run-state.remaining_queue}}"
+    TT_JOB_NAME_PATTERN = "{{job_name_pattern}}"
 
     [steps.loop.body.validate]
     format = "json"
     required = ["stdout"]
 
   [[steps.loop.body]]
-  id = "resolve-current-conflict"
-  title = "只解决当前 merge 冲突文件"
+  id = "prepare-conflict-merge"
+  title = "重置 tmp branch 并 merge 指定分支"
+  execution = "script"
+  depends_on = ["check-multi-branch-job"]
+  condition = "check-multi-branch-job.stdout.action == repair_conflict"
+  description = "固定执行：git fetch origin；如果当前是 tmp branch 则 reset --hard origin/tmp，否则 checkout -B tmp origin/tmp；然后 git merge --no-ff origin/<merge_branch> -m auto_manual_merge。"
+
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -euo pipefail
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+tmp_branch="${TT_TMP_BRANCH:-tmp-deploy-c51db917}"
+merge_branch="${TT_MERGE_BRANCH:-flow360-ui/volume-render-ly}"
+merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
+if [ -e "$merge_head_path" ]; then git merge --abort >/tmp/tt-flow360-merge-abort.log 2>&1 || true; fi
+git fetch origin
+current="$(git branch --show-current 2>/dev/null || true)"
+if [ "$current" = "$tmp_branch" ]; then
+  git reset --hard "origin/$tmp_branch"
+else
+  git checkout -B "$tmp_branch" "origin/$tmp_branch"
+fi
+set +e
+merge_out="$(git merge --no-ff "origin/$merge_branch" -m auto_manual_merge 2>&1)"
+merge_rc=$?
+set -e
+conflicted_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+touched_files="$(git diff --name-only HEAD | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$merge_rc" -eq 0 ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" --arg head "$(git rev-parse HEAD)" '{attempted:true,merge_complete:true,ready_for_agent:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,conflicted_files:[],touched_files:[],stdout:$merge_out,stderr:"",head:$head}'
+  exit 0
+fi
+if [ "$conflicted_files" = "[]" ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" '{attempted:true,merge_complete:false,ready_for_agent:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,conflicted_files:[],touched_files:[],stdout:"",stderr:$merge_out,blocker_type:"merge_failed_without_conflicts"}'
+  exit 0
+fi
+jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" --argjson conflicted_files "$conflicted_files" --argjson touched_files "$touched_files" '{attempted:true,merge_complete:false,ready_for_agent:true,tmp_branch:$tmp_branch,merge_branch:$merge_branch,conflicted_files:$conflicted_files,touched_files:$touched_files,stdout:$merge_out,stderr:""}'
+"""]
+format = "json"
+    timeout = "5m"
+
+    [steps.loop.body.script.env]
+    TT_TMP_BRANCH = "{{tmp_branch}}"
+    TT_MERGE_BRANCH = "{{merge_branch}}"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["stdout"]
+
+  [[steps.loop.body]]
+  id = "resolve-conflicts"
+  title = "agent 解决 merge 冲突"
   depends_on = ["prepare-conflict-merge"]
   condition = "prepare-conflict-merge.stdout.ready_for_agent == true"
-  input_context = ["classify-run-state.tmp_branch", "prepare-conflict-merge.stdout.current_branch", "prepare-conflict-merge.stdout.conflicted_files", "prepare-conflict-merge.stdout.touched_files", "prepare-conflict-merge.stdout.remaining_queue", "fetch-run-info.stdout.failed_job_logs"]
+  input_context = ["prepare-conflict-merge.stdout.tmp_branch", "prepare-conflict-merge.stdout.merge_branch", "prepare-conflict-merge.stdout.conflicted_files", "prepare-conflict-merge.stdout.touched_files", "prepare-conflict-merge.stdout.stdout"]
   description = """
-当前 git 工作区已经由脚本执行了 checkout tmp branch 和 git merge --no-ff origin/<current_branch> -m auto_manual_merge，并停在冲突状态。
+当前工作区已经在 tmp branch 上执行了 git merge --no-ff origin/<merge_branch> -m auto_manual_merge，并停在冲突状态。
 
-你只负责解决 prepare-conflict-merge.stdout.conflicted_files 中列出的冲突文件：
-- 不要执行 git checkout/switch/merge/rebase/reset/push/gh。
+请只解决 prepare-conflict-merge.stdout.conflicted_files 中的冲突：
+- 可以读取相关文件理解上下文。
+- 不要 checkout/switch/reset/merge/rebase/push/gh。
 - 不要创建 commit。
-- 不要继续 merge remaining_queue 中的其它分支。
-- 解决冲突后只 git add 你实际解决的文件。
-- 保留 ours/theirs 两侧兼容业务逻辑；不确定时返回 blocker，不要猜。
-- 确认 touched files 中没有 conflict markers。
+- 解决后 git add 已解决的文件。
+- 确认没有 <<<<<<< / >>>>>>> 冲突标记。
 
 输出 ONLY compact JSON object，不要 Markdown，不要代码块：
-{"attempted":true,"resolved":true,"conflicted_files":[],"touched_files":[],"extra_touched_files":[],"resolution_summary":"","validations_run":[],"blocker_type":"none|semantic_uncertainty|missing_context|validation_failed|unknown","blocker_summary":""}
+{"attempted":true,"resolved":true,"touched_files":[],"resolution_summary":"","validations_run":[],"blocker_type":"none|semantic_uncertainty|missing_context|validation_failed|unknown","blocker_summary":""}
 """
 
     [steps.loop.body.agent]
@@ -277,12 +253,12 @@ format = "json"
     required = ["attempted", "resolved", "blocker_type"]
 
   [[steps.loop.body]]
-  id = "repair-conflict"
-  title = "验证冲突解决并提交 merge"
+  id = "continue-merge"
+  title = "完成 merge commit"
   execution = "script"
-  depends_on = ["prepare-conflict-merge", "resolve-current-conflict"]
+  depends_on = ["prepare-conflict-merge", "resolve-conflicts"]
   condition = "prepare-conflict-merge.stdout.attempted == true"
-  description = "确定性检查 agent 的冲突解决结果；无冲突时沿用 merge 结果，有冲突时确认无 unmerged/marker 后完成 merge commit。"
+  description = "无冲突或 agent 已解决冲突后，检查 unmerged 和 conflict marker，然后执行 git merge --continue；失败时 fallback 到 commit --no-edit。"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
@@ -291,258 +267,88 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 prep='${TT_PREPARE:-}'
 resolver='${TT_RESOLVER:-}'
-obj() { jq -cn --arg s "$1" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end'; }
-tmp_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).tmp_branch // ""')"
-current_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).current_branch // ""')"
-conflicted_files="$(jq -cn --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).conflicted_files // []')"
-merge_complete="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).merge_complete == true')"
-if [ "$merge_complete" = "true" ]; then
-  head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
-  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg head "$head_sha" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,handled_branches:[$current_branch],touched_files:[],validations_run:["git merge --no-ff"],local_commit:$head,push_completed:false,blocker_type:"none",blocker_summary:"",remaining_conflicts:[]}'
-  exit 0
-fi
-resolver_ok="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($resolver).resolved == true')"
-if [ "$resolver_ok" != "true" ]; then
-  blocker="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($resolver).blocker_summary // "resolver did not complete"')"
-  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg blocker "$blocker" --argjson conflicted_files "$conflicted_files" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:[],local_commit:"",push_completed:false,blocker_type:"semantic_uncertainty",blocker_summary:$blocker,remaining_conflicts:$conflicted_files}'
+prep_json="$(jq -cn --arg s "$prep" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+resolver_json="$(jq -cn --arg s "$resolver" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+tmp_branch="$(jq -r '.tmp_branch // ""' <<<"$prep_json")"
+merge_branch="$(jq -r '.merge_branch // ""' <<<"$prep_json")"
+merge_complete="$(jq -r '.merge_complete == true' <<<"$prep_json")"
+resolver_ok="$(jq -r '.resolved == true' <<<"$resolver_json")"
+if [ "$merge_complete" != "true" ] && [ "$resolver_ok" != "true" ]; then
+  blocker="$(jq -r '.blocker_summary // "resolver did not complete"' <<<"$resolver_json")"
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg blocker "$blocker" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:"",blocker_type:"resolver_failed",blocker_summary:$blocker,validations_run:[]}'
   exit 0
 fi
 unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
 if [ "$unmerged" != "[]" ]; then
-  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --argjson unmerged "$unmerged" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:["git diff --name-only --diff-filter=U"],local_commit:"",push_completed:false,blocker_type:"git_state",blocker_summary:"unmerged files remain",remaining_conflicts:$unmerged}'
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --argjson unmerged "$unmerged" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain",remaining_conflicts:$unmerged,validations_run:["git diff --name-only --diff-filter=U"]}'
   exit 0
 fi
-marker_files="$(git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ':!node_modules' ':!dist' 2>/dev/null | cut -d: -f1 | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
+marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 if [ "$marker_files" != "[]" ]; then
-  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --argjson marker_files "$marker_files" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:["git grep conflict markers"],local_commit:"",push_completed:false,blocker_type:"validation_failed",blocker_summary:"conflict markers remain",remaining_conflicts:$marker_files}'
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --argjson marker_files "$marker_files" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain",remaining_conflicts:$marker_files,validations_run:["git grep conflict markers"]}'
   exit 0
 fi
 git add -u
-if [ -e .git/MERGE_HEAD ]; then
-  git commit --no-edit >/tmp/tt-flow360-merge-commit.log 2>&1 || git commit -m auto_manual_merge >/tmp/tt-flow360-merge-commit.log 2>&1
+merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
+if [ -e "$merge_head_path" ]; then
+  set +e
+  HUSKY=0 GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no git -c core.hooksPath=/dev/null merge --continue >/tmp/tt-flow360-merge-continue.log 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    HUSKY=0 GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no git -c core.hooksPath=/dev/null commit --no-edit >>/tmp/tt-flow360-merge-continue.log 2>&1
+    rc=$?
+  fi
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    out="$(cat /tmp/tt-flow360-merge-continue.log 2>/dev/null || true)"
+    jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg out "$out" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:"",blocker_type:"merge_continue_failed",blocker_summary:$out,validations_run:["git merge --continue"]}'
+    exit 0
+  fi
 fi
-head_sha="$(git rev-parse HEAD)"
-touched="$(jq -cn --arg prep "$prep" --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; ((obj($prep).touched_files // []) + (obj($resolver).touched_files // [])) | unique')"
-validations="$(jq -cn --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; ((obj($resolver).validations_run // []) + ["git diff --name-only --diff-filter=U", "git grep conflict markers", "git commit --no-edit"]) | unique')"
-jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg head "$head_sha" --argjson touched "$touched" --argjson validations "$validations" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,handled_branches:[$current_branch],touched_files:$touched,validations_run:$validations,local_commit:$head,push_completed:false,blocker_type:"none",blocker_summary:"",remaining_conflicts:[]}'
+jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg head "$(git rev-parse HEAD)" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:$head,blocker_type:"none",blocker_summary:"",validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers","git merge --continue"]}'
 """]
 format = "json"
     timeout = "5m"
 
     [steps.loop.body.script.env]
-    TT_PREPARE = "{{prepare-conflict-merge}}"
-    TT_RESOLVER = "{{resolve-current-conflict}}"
+    TT_PREPARE = "{{prepare-conflict-merge.stdout}}"
+    TT_RESOLVER = "{{resolve-conflicts}}"
 
     [steps.loop.body.validate]
     format = "json"
     required = ["stdout"]
 
   [[steps.loop.body]]
-  id = "validate-repair-build"
-  title = "验证修复后的前端构建"
+  id = "push-and-rerun"
+  title = "push tmp branch 并 rerun failed job"
   execution = "script"
-  depends_on = ["repair-conflict"]
-  condition = "repair-conflict.resolved == true"
-  description = "冲突修复并本地提交后，确定性执行 npm run build；失败不直接中断 formula，而是输出结构化日志交给后续 agent 修复。"
-
-    [steps.loop.body.script]
-    command = ["bash", "-lc", """
-set -u
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
-if [ ! -f package.json ] && [ -f frontend/flow360-ui-next/package.json ]; then
-  cd frontend/flow360-ui-next
-  repo_root="$(pwd)"
-fi
-if [ ! -f package.json ]; then
-  jq -cn --arg repo_root "$repo_root" '{attempted:false,success:true,skipped:true,reason:"package.json missing",command:["npm","run","build"],exit_code:0,stdout:"",stderr:"",repo_root:$repo_root}'
-  exit 0
-fi
-out="$(npm run build 2>&1)"
-rc=$?
-jq -cn \
-  --arg output "$out" \
-  --arg repo_root "$repo_root" \
-  --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" \
-  --argjson exit_code "$rc" \
-  '{attempted:true,success:$success,skipped:false,reason:"",command:["npm","run","build"],exit_code:$exit_code,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end),repo_root:$repo_root}'
-exit 0
-"""]
-format = "json"
-    timeout = "20m"
-
-    [steps.loop.body.validate]
-    format = "json"
-    required = ["stdout"]
-
-  [[steps.loop.body]]
-  id = "fix-repair-build"
-  title = "修复构建错误"
-  depends_on = ["validate-repair-build"]
-  condition = "repair-conflict.resolved == true and validate-repair-build.stdout.success != true"
-  input_context = ["classify-run-state.tmp_branch", "repair-conflict", "validate-repair-build.stdout.exit_code", "validate-repair-build.stdout.stderr", "validate-repair-build.stdout.repo_root"]
-  description = """
-冲突修复后 npm run build 失败。请在当前 git workspace 中根据 validate-repair-build 的 stderr 修复低级构建错误。
-
-必须执行：
-1. 只修复 build 暴露的问题，不要扩大范围重构。
-2. 修复后运行 npm run build。
-3. 如果修复产生代码变更，提交到当前本地分支。
-4. 不要执行 git push，不要 rerun GitHub Actions；后续脚本会负责 push 和 rerun。
-
-输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
-{"attempted":true,"fixed":true,"validations_run":["npm run build"],"touched_files":[],"local_commit":"","blocker_type":"none|validation_failed|git_state|unknown","blocker_summary":""}
-"""
-
-    [steps.loop.body.agent]
-    name = "coder"
-
-    [steps.loop.body.validate]
-    format = "json"
-    required = ["attempted", "fixed", "blocker_type"]
-
-  [[steps.loop.body]]
-  id = "validate-repair-build-final"
-  title = "复验修复后的前端构建"
-  execution = "script"
-  depends_on = ["fix-repair-build"]
-  condition = "fix-repair-build.fixed == true"
-  description = "build 修复 agent 完成后，再次确定性执行 npm run build，作为 push 前最终 gate。"
-
-    [steps.loop.body.script]
-    command = ["bash", "-lc", """
-set -u
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
-if [ ! -f package.json ] && [ -f frontend/flow360-ui-next/package.json ]; then
-  cd frontend/flow360-ui-next
-  repo_root="$(pwd)"
-fi
-if [ ! -f package.json ]; then
-  jq -cn --arg repo_root "$repo_root" '{attempted:false,success:true,skipped:true,reason:"package.json missing",command:["npm","run","build"],exit_code:0,stdout:"",stderr:"",repo_root:$repo_root}'
-  exit 0
-fi
-out="$(npm run build 2>&1)"
-rc=$?
-jq -cn \
-  --arg output "$out" \
-  --arg repo_root "$repo_root" \
-  --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" \
-  --argjson exit_code "$rc" \
-  '{attempted:true,success:$success,skipped:false,reason:"",command:["npm","run","build"],exit_code:$exit_code,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end),repo_root:$repo_root}'
-exit 0
-"""]
-format = "json"
-    timeout = "20m"
-
-    [steps.loop.body.validate]
-    format = "json"
-    required = ["stdout"]
-
-  [[steps.loop.body]]
-  id = "repair-ready-to-push"
-  title = "汇总修复是否可 push"
-  execution = "script"
-  depends_on = ["validate-repair-build", "fix-repair-build", "validate-repair-build-final"]
-  condition = "repair-conflict.resolved == true"
-  description = "汇总 build 首次验证和修复后复验结果，为 push-repair-branch 提供单一确定性 gate。"
-
-    [steps.loop.body.script]
-    command = ["bash", "-lc", """
-set -euo pipefail
-jq -cn \
-  --arg build "${TT_BUILD:-}" \
-  --arg fix "${TT_BUILD_FIX:-}" \
-  --arg final "${TT_BUILD_FINAL:-}" '
-  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
-  obj($build) as $build |
-  obj($fix) as $fix |
-  obj($final) as $final |
-  ($build.success == true) as $initial_ok |
-  ($fix.fixed == true) as $fix_ok |
-  ($final.success == true) as $final_ok |
-  ($initial_ok or ($fix_ok and $final_ok)) as $ready |
-  {ready_to_push:$ready, build_initial_success:$initial_ok, build_fix_attempted:($fix.attempted == true), build_fix_fixed:$fix_ok, build_final_success:$final_ok, blocker_type:(if $ready then "none" elif ($fix.attempted == true and ($fix_ok | not)) then ($fix.blocker_type // "validation_failed") else "build_failed" end), summary:(if $ready then "repair build validation passed" elif ($fix.attempted == true and ($fix_ok | not)) then ($fix.blocker_summary // "build fix did not complete") else ($build.stderr // $final.stderr // "npm run build failed") end)}'
-"""]
-format = "json"
-    timeout = "30s"
-
-    [steps.loop.body.script.env]
-    TT_BUILD = "{{validate-repair-build.stdout}}"
-    TT_BUILD_FIX = "{{fix-repair-build}}"
-    TT_BUILD_FINAL = "{{validate-repair-build-final.stdout}}"
-
-    [steps.loop.body.validate]
-    format = "json"
-    required = ["stdout"]
-
-  [[steps.loop.body]]
-  id = "push-repair-branch"
-  title = "确认并 push 修复后的 tmp branch"
-  execution = "script"
-  depends_on = ["repair-ready-to-push"]
-  condition = "repair-ready-to-push.stdout.ready_to_push == true"
-  description = "agent 修复冲突且 npm run build 通过后，用确定性脚本再次执行 git push --no-verify origin HEAD:<tmp_branch>，避免只本地提交未推送。"
-
-    [steps.loop.body.script]
-    command = ["bash", "-lc", """
-set -u
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
-repair="${TT_REPAIR:-}"
-cls="${TT_CLASSIFY:-}"
-tmp_branch="$(jq -nr --arg repair "$repair" --arg cls "$cls" '
-  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
-  (obj($repair).tmp_branch // obj($cls).tmp_branch // "")
-')"
-if [ -z "$tmp_branch" ]; then
-  jq -cn '{attempted:false,pushed:false,tmp_branch:"",stdout:"",stderr:"missing tmp_branch",head:"",repo_root:""}'
-  exit 0
-fi
-head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
-out="$(git push --no-verify --force-with-lease origin "HEAD:${tmp_branch}" 2>&1)"
-rc=$?
-jq -cn \
-  --arg tmp_branch "$tmp_branch" \
-  --arg output "$out" \
-  --arg head "$head_sha" \
-  --arg repo_root "$repo_root" \
-  --argjson pushed "$([ "$rc" -eq 0 ] && echo true || echo false)" \
-  '{attempted:true,pushed:$pushed,tmp_branch:$tmp_branch,stdout:(if $pushed then $output else "" end),stderr:(if $pushed then "" else $output end),head:$head,repo_root:$repo_root}'
-"""]
-format = "json"
-    timeout = "120s"
-
-    [steps.loop.body.script.env]
-    TT_CLASSIFY = "{{classify-run-state}}"
-    TT_REPAIR = "{{repair-conflict}}"
-
-    [steps.loop.body.validate]
-    format = "json"
-    required = ["stdout"]
-
-  [[steps.loop.body]]
-  id = "rerun-failed-jobs"
-  title = "rerun failed jobs"
-  execution = "script"
-  depends_on = ["push-repair-branch"]
-  condition = "push-repair-branch.stdout.pushed == true"
-  description = "修复 tmp branch 并确认 push 到 origin 后，只 rerun failed jobs，继续监视同一个 original_run_id。"
+  depends_on = ["continue-merge"]
+  condition = "continue-merge.stdout.resolved == true"
+  description = "merge 完成后 push 当前 HEAD 到 origin/tmp_branch，然后 gh run rerun --failed。"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
 set -u
 repo='flexcompute/flex'
 rid="${TT_ORIGINAL_RUN_ID:-}"
-out="$(gh run rerun "$rid" -R "$repo" --failed 2>&1)"
-rc=$?
-jq -cn --arg original_run_id "$rid" --arg output "$out" --argjson requested "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:$requested,original_run_id:$original_run_id,stdout:(if $requested then $output else "" end),stderr:(if $requested then "" else $output end)}'
+tmp_branch="${TT_TMP_BRANCH:-tmp-deploy-c51db917}"
+head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+push_out="$(HUSKY=0 git push --no-verify origin "HEAD:${tmp_branch}" 2>&1)"
+push_rc=$?
+rerun_out=''
+rerun_rc=1
+if [ "$push_rc" -eq 0 ]; then
+  rerun_out="$(gh run rerun "$rid" -R "$repo" --failed 2>&1)"
+  rerun_rc=$?
+fi
+jq -cn --arg tmp_branch "$tmp_branch" --arg head "$head_sha" --arg push_out "$push_out" --arg rerun_out "$rerun_out" --arg original_run_id "$rid" --argjson pushed "$([ "$push_rc" -eq 0 ] && echo true || echo false)" --argjson rerun_requested "$([ "$rerun_rc" -eq 0 ] && echo true || echo false)" '{tmp_branch:$tmp_branch,head:$head,original_run_id:$original_run_id,pushed:$pushed,rerun_requested:$rerun_requested,push_stdout:(if $pushed then $push_out else "" end),push_stderr:(if $pushed then "" else $push_out end),rerun_stdout:(if $rerun_requested then $rerun_out else "" end),rerun_stderr:(if $rerun_requested then "" else $rerun_out end)}'
 """]
 format = "json"
-    timeout = "60s"
+    timeout = "120s"
 
     [steps.loop.body.script.env]
     TT_ORIGINAL_RUN_ID = "{{dispatch-run.stdout.original_run_id}}"
+    TT_TMP_BRANCH = "{{tmp_branch}}"
 
     [steps.loop.body.validate]
     format = "json"
@@ -550,10 +356,10 @@ format = "json"
 
   [[steps.loop.body]]
   id = "wait-next-poll"
-  title = "等待下一轮轮询"
+  title = "等待下一轮"
   execution = "script"
-  depends_on = ["classify-run-state"]
-  condition = "classify-run-state.action == wait"
+  depends_on = ["check-multi-branch-job", "push-and-rerun"]
+  condition = "check-multi-branch-job.stdout.action == wait or push-and-rerun.stdout.rerun_requested == true"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
@@ -562,7 +368,7 @@ sleep "$s"
 jq -cn --argjson wait_seconds "$s" '{wait_seconds:$wait_seconds}'
 """, "--", "{{poll_interval_seconds}}"]
 format = "json"
-    timeout = "120s"
+    timeout = "300s"
 
     [steps.loop.body.validate]
     format = "json"
@@ -572,137 +378,40 @@ format = "json"
   id = "release-progress"
   title = "更新发布进度"
   execution = "script"
-  depends_on = ["classify-run-state", "repair-conflict", "repair-ready-to-push", "push-repair-branch", "rerun-failed-jobs", "wait-next-poll"]
-  description = "用确定性脚本汇总本轮结果，避免额外 agent 漂移。"
+  depends_on = ["check-multi-branch-job", "continue-merge", "push-and-rerun", "wait-next-poll"]
+  description = "汇总本轮状态：success 退出；wait 或 rerun 后继续；修复/push/rerun 失败则阻塞退出。"
 
     [steps.loop.body.script]
     command = ["bash", "-lc", """
 set -euo pipefail
-state_dir=".tt/flow360-release-state"
-mkdir -p "$state_dir"
-state_key="$(jq -nr --arg dispatch "${TT_DISPATCH:-}" --arg fetch "${TT_FETCH:-}" '
-  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
-  (obj($dispatch).original_run_id // obj($fetch).original_run_id // "unknown")
-')"
-state_file="$state_dir/${state_key}.json"
-previous_state="{}"
-if [ -f "$state_file" ]; then previous_state="$(cat "$state_file")"; fi
-result="$(jq -cn   --arg cls "${TT_CLASSIFY:-}"   --arg repair "${TT_REPAIR:-}"   --arg ready "${TT_READY:-}"   --arg push "${TT_PUSH:-}"   --arg rerun "${TT_RERUN:-}"   --arg dispatch "${TT_DISPATCH:-}"   --arg fetch "${TT_FETCH:-}"   --arg previous "$previous_state" '
-  def obj($s): if ($s | length) == 0 then {} else (($s | fromjson?) // {}) end;
-  def arr(x): if x == null then [] elif (x | type) == "array" then x else [x] end;
-  def uniq_strings: map(select(. != null and . != "") | tostring) | unique;
-  obj($cls) as $cls |
-  obj($repair) as $repair |
-  obj($ready) as $ready |
+jq -cn --arg check "${TT_CHECK:-}" --arg cont "${TT_CONTINUE:-}" --arg push "${TT_PUSH:-}" '
+  def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end;
+  obj($check) as $check |
+  obj($cont) as $cont |
   obj($push) as $push |
-  obj($rerun) as $rerun |
-  obj($dispatch) as $dispatch |
-  obj($fetch) as $fetch |
-  obj($previous) as $previous |
-  ($cls.action // "block") as $action |
-  ($repair.attempted == true) as $repair_attempted |
-  ($repair.resolved == true) as $repair_resolved |
-  ($ready.ready_to_push == true) as $ready_to_push |
-  ($push.attempted == true) as $push_attempted |
-  ($push.pushed == true) as $push_completed |
-  ($rerun.requested == true) as $rerun_requested |
-  ($cls.done == true) as $class_done |
-  ($cls.final_state // "running") as $class_state |
-  ($cls.reason // "") as $class_summary |
-  (arr($fetch.multi_branch_jobs) | map(.name // .headBranch // .head_branch // empty) | uniq_strings) as $multi_job_names |
-  (arr($cls.remaining_queue) + arr($cls.conflicted_branches) + arr($repair.handled_branches) | uniq_strings) as $loop_branch_names |
-  (($previous.all_multi_branches // []) + $multi_job_names + $loop_branch_names | uniq_strings) as $all_multi_branches |
-  (if $action == "repair_conflict" then
-    (arr($cls.conflicted_branches) | uniq_strings | map({
-      branch:.,
-      conflicted:true,
-      tmp_branch:($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // ""),
-      resolution_status:(if $repair_resolved and $push_completed and $rerun_requested then "resolved_pushed_rerun" elif $repair_resolved and $ready_to_push then "resolved_ready_to_push" elif $repair_resolved then "resolved_local" elif $repair_attempted then "blocked" else "detected" end),
-      resolution_summary:(if $repair_resolved and $push_completed and $rerun_requested then "冲突已本地解决并提交，npm run build 通过，已 push 到 origin，并已 rerun failed jobs" elif $repair_resolved and $ready_to_push then "冲突已本地解决并通过构建，等待 push/rerun" elif $repair_resolved then "冲突已本地解决，但后续 build/push/rerun 未全部完成" elif $repair_attempted then ($repair.blocker_summary // "冲突修复未完成") else ($class_summary // "检测到冲突，尚未修复") end),
-      handled_branches:($repair.handled_branches // []),
-      touched_files:($repair.touched_files // []),
-      validations_run:(($repair.validations_run // []) + (if $repair_resolved then ["npm run build"] else [] end) | unique),
-      local_commit:($repair.local_commit // ""),
-      build_initial_success:($ready.build_initial_success == true),
-      build_fix_attempted:($ready.build_fix_attempted == true),
-      build_fix_fixed:($ready.build_fix_fixed == true),
-      build_final_success:($ready.build_final_success == true),
-      push_completed:$push_completed,
-      rerun_requested:$rerun_requested,
-      blocker_type:($repair.blocker_type // $ready.blocker_type // "none"),
-      blocker_summary:($repair.blocker_summary // $ready.summary // "")
-    }))
-  else [] end) as $new_conflict_records |
-  (($previous.conflict_resolution_records // []) + $new_conflict_records) as $conflict_resolution_records |
-  ($all_multi_branches | map(. as $branch | ($conflict_resolution_records | map(select(.branch == $branch)) | last) as $record | {
-    branch:$branch,
-    participated:true,
-    conflicted:($record.conflicted == true),
-    resolution_status:($record.resolution_status // "no_conflict_detected"),
-    resolution_summary:($record.resolution_summary // "未检测到该分支冲突"),
-    tmp_branch:($record.tmp_branch // ($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // "")),
-    touched_files:($record.touched_files // []),
-    local_commit:($record.local_commit // ""),
-    validations_run:($record.validations_run // []),
-    push_completed:($record.push_completed == true),
-    rerun_requested:($record.rerun_requested == true)
-  })) as $multi_branch_table |
-  (if $action == "repair_conflict" then
-    if $repair_attempted and ($repair_resolved | not) then
-      {done:true, final_state:"blocked", blocker_type:($repair.blocker_type // "unknown"), summary:($repair.blocker_summary // $class_summary // "repair failed")}
-    elif $repair_resolved and $rerun_requested then
-      {done:false, final_state:"running", blocker_type:"none", summary:"conflict repaired, npm run build passed, pushed to origin, and failed jobs rerun; continue monitoring original run"}
-    elif $repair_resolved and ($ready_to_push | not) then
-      {done:true, final_state:"blocked", blocker_type:($ready.blocker_type // "build_failed"), summary:($ready.summary // "repair resolved locally but npm run build did not pass")}
-    elif $repair_resolved and ($push_completed | not) then
-      {done:true, final_state:"blocked", blocker_type:"push_failed", summary:($push.stderr // "repair resolved locally but push to origin did not complete")}
+  if $check.final_state == "succeeded" then
+    {done:true,final_state:"succeeded",summary:($check.reason // "multi-branch job succeeded"),run_url:($check.run_url // ""),jobs:($check.jobs // []),tmp_branch:"",merge_branch:"",local_commit:"",pushed:false,rerun_requested:false,blocker_type:"none",blocker_summary:""}
+  elif $check.action == "wait" then
+    {done:false,final_state:"running",summary:($check.reason // "waiting"),run_url:($check.run_url // ""),jobs:($check.jobs // []),tmp_branch:"",merge_branch:"",local_commit:"",pushed:false,rerun_requested:false,blocker_type:"none",blocker_summary:""}
+  elif $check.action == "repair_conflict" then
+    if ($cont.resolved != true) then
+      {done:true,final_state:"blocked",summary:"merge conflict repair failed",run_url:($check.run_url // ""),jobs:($check.jobs // []),tmp_branch:($cont.tmp_branch // ""),merge_branch:($cont.merge_branch // ""),local_commit:"",pushed:false,rerun_requested:false,blocker_type:($cont.blocker_type // "repair_failed"),blocker_summary:($cont.blocker_summary // "")}
+    elif ($push.pushed == true and $push.rerun_requested == true) then
+      {done:false,final_state:"running",summary:"conflict repaired, pushed, rerun failed jobs requested; continue polling",run_url:($check.run_url // ""),jobs:($check.jobs // []),tmp_branch:($push.tmp_branch // $cont.tmp_branch // ""),merge_branch:($cont.merge_branch // ""),local_commit:($cont.local_commit // $push.head // ""),pushed:true,rerun_requested:true,blocker_type:"none",blocker_summary:""}
     else
-      {done:true, final_state:"blocked", blocker_type:"unknown", summary:($class_summary // "repair, push, or rerun did not complete")}
+      {done:true,final_state:"blocked",summary:"push or rerun failed",run_url:($check.run_url // ""),jobs:($check.jobs // []),tmp_branch:($push.tmp_branch // $cont.tmp_branch // ""),merge_branch:($cont.merge_branch // ""),local_commit:($cont.local_commit // $push.head // ""),pushed:($push.pushed == true),rerun_requested:($push.rerun_requested == true),blocker_type:(if ($push.pushed == true) then "rerun_failed" else "push_failed" end),blocker_summary:($push.push_stderr // $push.rerun_stderr // "")}
     end
-  elif $action == "wait" then
-    {done:false, final_state:"running", blocker_type:"none", summary:$class_summary}
-  elif $action == "block" then
-    {done:true, final_state:"blocked", blocker_type:(if ($dispatch.dispatch_error // "") != "" then "dispatch" else "non_conflict_failure" end), summary:$class_summary}
   else
-    {done:$class_done, final_state:$class_state, blocker_type:"none", summary:$class_summary}
-  end)
-  + {
-    run_url:($cls.run_url // $fetch.run_url // $dispatch.run_url // ""),
-    original_run_id:($dispatch.original_run_id // $fetch.original_run_id // ""),
-    tmp_branch:($cls.tmp_branch // $repair.tmp_branch // $push.tmp_branch // ""),
-    conflicted_branches:($cls.conflicted_branches // []),
-    all_multi_branches:$all_multi_branches,
-    conflict_resolution_records:$conflict_resolution_records,
-    multi_branch_table:$multi_branch_table,
-    repair_attempted:$repair_attempted,
-    repair_resolved:$repair_resolved,
-    build_ready_to_push:$ready_to_push,
-    build_initial_success:($ready.build_initial_success == true),
-    build_fix_attempted:($ready.build_fix_attempted == true),
-    build_fix_fixed:($ready.build_fix_fixed == true),
-    build_final_success:($ready.build_final_success == true),
-    push_attempted:$push_attempted,
-    push_completed:$push_completed,
-    rerun_requested:$rerun_requested,
-    validations_run:(($repair.validations_run // []) + (if $repair_resolved then ["npm run build"] else [] end) | unique)
-  }'
-)"
-printf '%s
-' "$result" > "$state_file"
-printf '%s
-' "$result"
+    {done:true,final_state:"blocked",summary:($check.reason // "blocked"),run_url:($check.run_url // ""),jobs:($check.jobs // []),tmp_branch:"",merge_branch:"",local_commit:"",pushed:false,rerun_requested:false,blocker_type:"job_failed",blocker_summary:($check.reason // "")}
+  end'
 """]
 format = "json"
     timeout = "30s"
 
     [steps.loop.body.script.env]
-    TT_DISPATCH = "{{dispatch-run.stdout}}"
-    TT_FETCH = "{{fetch-run-info.stdout}}"
-    TT_CLASSIFY = "{{classify-run-state}}"
-    TT_REPAIR = "{{repair-conflict}}"
-    TT_READY = "{{repair-ready-to-push.stdout}}"
-    TT_PUSH = "{{push-repair-branch.stdout}}"
-    TT_RERUN = "{{rerun-failed-jobs.stdout}}"
+    TT_CHECK = "{{check-multi-branch-job.stdout}}"
+    TT_CONTINUE = "{{continue-merge.stdout}}"
+    TT_PUSH = "{{push-and-rerun.stdout}}"
 
     [steps.loop.body.validate]
     format = "json"
@@ -712,26 +421,14 @@ format = "json"
 id = "final-report"
 title = "输出发布报告"
 depends_on = ["monitor-and-rerun"]
-input_context = ["dispatch-run.stdout.env_name", "dispatch-run.stdout.tag", "dispatch-run.stdout.fresh_deploy", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.run_url", "release-progress.stdout.tmp_branch", "release-progress.stdout.conflicted_branches", "release-progress.stdout.all_multi_branches", "release-progress.stdout.multi_branch_table", "release-progress.stdout.conflict_resolution_records", "release-progress.stdout.repair_attempted", "release-progress.stdout.repair_resolved", "release-progress.stdout.build_ready_to_push", "release-progress.stdout.build_initial_success", "release-progress.stdout.build_fix_attempted", "release-progress.stdout.build_fix_fixed", "release-progress.stdout.build_final_success", "release-progress.stdout.push_attempted", "release-progress.stdout.push_completed", "release-progress.stdout.rerun_requested", "release-progress.stdout.validations_run", "release-progress.stdout.blocker_type", "release-progress.stdout.summary"]
+input_context = ["dispatch-run.stdout.repo", "dispatch-run.stdout.workflow_path", "dispatch-run.stdout.original_run_id", "dispatch-run.stdout.run_url", "dispatch-run.stdout.dispatch_error", "release-progress.stdout.final_state", "release-progress.stdout.summary", "release-progress.stdout.run_url", "release-progress.stdout.jobs", "release-progress.stdout.tmp_branch", "release-progress.stdout.merge_branch", "release-progress.stdout.local_commit", "release-progress.stdout.pushed", "release-progress.stdout.rerun_requested", "release-progress.stdout.blocker_type", "release-progress.stdout.blocker_summary"]
 description = """
-输出中文发布报告，结论先行，必须简明。使用固定结构：
-
-1. `## 结论`：1-3 句话说明发布是否成功、run id/url、是否还有 blocker。
-2. `## Multi-branch 明细`：必须输出 Markdown 表格，基于 `release-progress.stdout.multi_branch_table`，列出每个参与部署的 multi branch。表格列固定为：`分支`、`是否冲突`、`解决状态`、`解决方式/结果`、`验证`、`push/rerun`。没有数据时写“未提供”，不要编造。
-3. `## 冲突解决记录`：如果 `conflict_resolution_records` 非空，用 bullet 简述每个冲突分支的 tmp_branch、touched_files、local_commit、build/push/rerun 结果；如果为空，写“本次未检测到 multi-branch merge conflict”。
-4. `## 发布明细`：用分组 bullet/definition list，按 `基本信息`、`发布状态`、`验证与动作`、`问题/下一步` 组织。每组最多 3-5 条，字段缺失时写“未提供”。
-5. `## 说明`：最多 3 条，说明本次只以 multi-branch job completed/success 作为发布成功条件。
-
-必须覆盖：repo/workflow、original_run_id/run_url、multi-branch job 最终状态、全部参与部署的 multi branch、哪些分支发生 merge conflict、每个冲突分支如何解决、tmp_branch、npm run build 是否通过、是否触发 build 修复、是否已 push 到 origin、rerun failed jobs 结果、验证项和 blocker。
-
-强调：
-- `## Multi-branch 明细` 必须使用 Markdown 表格；其他章节不要输出大表格；
-- 优先使用 `multi_branch_table` 和 `conflict_resolution_records`，不要从长日志中猜测；
-- 本次 loop 只以 multi-branch job completed/success 作为正常成功跳出条件；
-- 若最终状态不是 succeeded，本次报告会明确 blocker 和下一步；
-- 本次 original_run_id 只属于当前 formula run，下一次执行必须重新 dispatch；
-- 不要臆造未出现在 input_context 中的分支、日志或验证结果；
-- 不要输出长篇过程日志，重点说结果、阻塞和下一步。
+输出中文发布报告，结论先行，简明说明：
+- repo/workflow/run id/run url
+- 目标 multi-branch job 最终状态
+- 如果修复过冲突，说明 tmp_branch、merge_branch、local_commit、push、rerun failed jobs 结果
+- 如果 blocked，明确 blocker_type/blocker_summary 和下一步
+不要输出长日志，不要编造 input_context 中没有的信息。
 """
 
 [steps.agent]
