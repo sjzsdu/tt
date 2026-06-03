@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 12
+version = 13
 type = "workflow"
 
 [preflight]
@@ -196,10 +196,10 @@ format = "json"
 set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
-cls='${TT_CLASSIFY:-}'
-tmp_branch="$(jq -nr --arg cls "$cls" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($cls).tmp_branch // ""')"
-merge_branch="$(jq -nr --arg cls "$cls" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; (obj($cls).conflicted_branches // obj($cls).remaining_queue // []) | .[0] // ""')"
-remaining_queue="$(jq -cn --arg cls "$cls" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($cls).remaining_queue // []')"
+tmp_branch="${TT_TMP_BRANCH:-}"
+conflicted_branches='${TT_CONFLICTED_BRANCHES:-[]}'
+merge_branch="$(jq -nr --argjson branches "$conflicted_branches" '$branches[0] // ""')"
+remaining_queue='${TT_REMAINING_QUEUE:-[]}'
 if [ -z "$tmp_branch" ] || [ -z "$merge_branch" ]; then
   jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"missing tmp_branch or merge branch",blocker_type:"missing_context"}'
   exit 0
@@ -240,7 +240,9 @@ format = "json"
     timeout = "5m"
 
     [steps.loop.body.script.env]
-    TT_CLASSIFY = "{{classify-run-state}}"
+    TT_TMP_BRANCH = "{{classify-run-state.tmp_branch}}"
+    TT_CONFLICTED_BRANCHES = "{{classify-run-state.conflicted_branches}}"
+    TT_REMAINING_QUEUE = "{{classify-run-state.remaining_queue}}"
 
     [steps.loop.body.validate]
     format = "json"
