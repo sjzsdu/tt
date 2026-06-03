@@ -53,3 +53,25 @@ func TestContextStoreGetUsesLongestStoredPrefixForDottedStepIDs(t *testing.T) {
 		t.Fatal("ok = false, want true")
 	}
 }
+
+func TestContextStoreGetReadsArrayIndexPath(t *testing.T) {
+	store := NewContextStore()
+	raw, err := json.Marshal(map[string]any{"conflicted_branches": []any{"feature/a", "feature/b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("classify-run-state", steps.Value{Type: "json", Raw: raw}); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := store.Get("classify-run-state.conflicted_branches.0")
+	if !ok {
+		t.Fatal("array index path not found")
+	}
+	var got string
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "feature/a" {
+		t.Fatalf("branch = %q, want feature/a", got)
+	}
+}

@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -88,12 +89,20 @@ func lookupValuePath(value steps.Value, path string) (steps.Value, bool) {
 			return steps.Value{}, false
 		}
 		current = normalizeContextJSONText(current)
-		object, ok := current.(map[string]any)
-		if !ok {
-			return steps.Value{}, false
-		}
-		current, ok = object[part]
-		if !ok {
+		switch value := current.(type) {
+		case map[string]any:
+			next, ok := value[part]
+			if !ok {
+				return steps.Value{}, false
+			}
+			current = next
+		case []any:
+			index, err := strconv.Atoi(part)
+			if err != nil || index < 0 || index >= len(value) {
+				return steps.Value{}, false
+			}
+			current = value[index]
+		default:
 			return steps.Value{}, false
 		}
 	}
