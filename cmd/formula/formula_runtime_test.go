@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
@@ -49,11 +50,26 @@ func (f *fakeFormulaDirectProcessor) ProcessDirect(opt pcwrap.RunOptions) (strin
 }
 
 type fakeDashboardDirectProcessor struct {
-	opt pcwrap.RunOptions
+	opt    pcwrap.RunOptions
+	called chan struct{}
 }
 
 func (f *fakeDashboardDirectProcessor) ProcessDirectContext(ctx context.Context, opt pcwrap.RunOptions) (string, error) {
 	f.opt = opt
+	if f.called != nil {
+		close(f.called)
+	}
+	return "assistant reply", nil
+}
+
+type blockingDashboardDirectProcessor struct {
+	called  chan struct{}
+	release chan struct{}
+}
+
+func (f *blockingDashboardDirectProcessor) ProcessDirectContext(ctx context.Context, opt pcwrap.RunOptions) (string, error) {
+	close(f.called)
+	<-f.release
 	return "assistant reply", nil
 }
 
@@ -262,7 +278,7 @@ func TestFinalReportChatMessageHandler(t *testing.T) {
 	dashboard.state.RunID = "run-123"
 	dashboard.state.WorkspaceDir = "/repo/project/.tt"
 	dashboard.state.FinalOutput = "report body"
-	fake := &fakeDashboardDirectProcessor{}
+	fake := &fakeDashboardDirectProcessor{called: make(chan struct{})}
 	dashboard.directProcessor = fake
 	body := bytes.NewBufferString(`{"message":"Please revise it"}`)
 	req, err := http.NewRequest(http.MethodPost, "/api/final-report-chat/message", body)
@@ -273,6 +289,11 @@ func TestFinalReportChatMessageHandler(t *testing.T) {
 	dashboard.handleFinalReportChatMessage(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	select {
+	case <-fake.called:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for final report chat processor")
 	}
 	if fake.opt.Agent != finalReportChatAgent || fake.opt.Session != "run-123:final-report-chat" {
 		t.Fatalf("opt = %+v", fake.opt)
@@ -286,6 +307,47 @@ func TestFinalReportChatMessageHandler(t *testing.T) {
 	if dashboard.state.FinalReportChat == nil || len(dashboard.state.FinalReportChat.Messages) != 2 {
 		t.Fatalf("chat = %+v", dashboard.state.FinalReportChat)
 	}
+}
+
+func TestFinalReportChatMessageHandlerReturnsWhileProcessorRuns(t *testing.T) {
+	dashboard := newFormulaDashboardServer(nil)
+	dashboard.state.RunID = "run-123"
+	dashboard.state.FinalOutput = "report body"
+	fake := &blockingDashboardDirectProcessor{called: make(chan struct{}), release: make(chan struct{})}
+	dashboard.directProcessor = fake
+
+	body := bytes.NewBufferString(`{"message":"Please revise it"}`)
+	req, err := http.NewRequest(http.MethodPost, "/api/final-report-chat/message", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	dashboard.handleFinalReportChatMessage(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	select {
+	case <-fake.called:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for final report chat processor")
+	}
+
+	snap := dashboard.snapshot()
+	if snap.FinalReportChat == nil || snap.FinalReportChat.Status != "running" || len(snap.FinalReportChat.Messages) != 1 {
+		t.Fatalf("chat should be running with user message, got %+v", snap.FinalReportChat)
+	}
+
+	close(fake.release)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snap = dashboard.snapshot()
+		if snap.FinalReportChat != nil && snap.FinalReportChat.Status == "idle" && len(snap.FinalReportChat.Messages) == 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("chat did not finish after processor release: %+v", dashboard.snapshot().FinalReportChat)
 }
 
 func TestFinalReportChatPromoteHandler(t *testing.T) {

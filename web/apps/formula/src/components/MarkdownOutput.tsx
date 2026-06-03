@@ -489,12 +489,12 @@ export function FinalReportModal({
         </section>
         <aside className="final-report-chat-pane">
           <div className="final-report-chat-header">
-            <div>
+            <div className="final-report-chat-header-copy">
               <div className="final-output-kicker">Chat with coder</div>
               <strong>Ask coder to revise, extend, or validate this final report.</strong>
               <p>Type a request below. The first message starts a separate coder session with this report as context.</p>
             </div>
-            {chat?.session_id ? <Tag>{chat.session_id}</Tag> : <Tag>Not started</Tag>}
+            {chat?.session_id ? <Tag className="final-report-chat-session">{chat.session_id}</Tag> : <Tag className="final-report-chat-session">Not started</Tag>}
           </div>
           {canPromote ? (
             <div className="final-report-chat-promote">

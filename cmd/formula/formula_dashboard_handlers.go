@@ -164,43 +164,58 @@ func (s *formulaDashboardServer) handleFinalReportChatMessage(w http.ResponseWri
 	}
 	userMsg := formulaui.FinalReportChatMessage{Role: "user", Content: prompt, At: time.Now().Format(time.RFC3339)}
 	s.mu.Lock()
+	if s.state.FinalReportChat != nil && strings.EqualFold(strings.TrimSpace(s.state.FinalReportChat.Status), "running") {
+		s.mu.Unlock()
+		http.Error(w, "final report chat is already running", http.StatusConflict)
+		return
+	}
 	s.state.FinalReportChat.Messages = append(s.state.FinalReportChat.Messages, userMsg)
 	s.state.FinalReportChat.Status = "running"
 	s.state.FinalReportChat.Error = ""
 	s.mu.Unlock()
 	s.broadcast()
 
+	sessionID := chat.SessionID
+	chatPrompt := s.buildFinalReportChatPrompt(prompt)
+	workspace := s.finalReportChatWorkspace()
+	go s.processFinalReportChatMessage(sessionID, chatPrompt, workspace)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		OK bool `json:"ok"`
+	}{OK: true})
+}
+
+func (s *formulaDashboardServer) processFinalReportChatMessage(sessionID, prompt, workspace string) {
 	processor, err := s.finalReportDirectProcessor()
 	if err != nil {
 		s.failFinalReportChat(err)
 		s.broadcast()
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	response, err := processor.ProcessDirectContext(r.Context(), pcwrap.RunOptions{
+	response, err := processor.ProcessDirectContext(context.Background(), pcwrap.RunOptions{
 		Agent:     finalReportChatAgent,
-		Session:   chat.SessionID,
-		Message:   s.buildFinalReportChatPrompt(prompt),
-		Workspace: s.finalReportChatWorkspace(),
+		Session:   sessionID,
+		Message:   prompt,
+		Workspace: workspace,
 		Quiet:     true,
 	})
 	if err != nil {
 		s.failFinalReportChat(err)
 		s.broadcast()
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	assistantMsg := formulaui.FinalReportChatMessage{Role: "assistant", Content: strings.TrimSpace(response), At: time.Now().Format(time.RFC3339)}
 	s.mu.Lock()
+	if s.state.FinalReportChat == nil {
+		s.mu.Unlock()
+		return
+	}
 	s.state.FinalReportChat.Messages = append(s.state.FinalReportChat.Messages, assistantMsg)
 	s.state.FinalReportChat.Status = "idle"
 	s.state.FinalReportChat.Error = ""
 	s.mu.Unlock()
 	s.broadcast()
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(struct {
-		OK bool `json:"ok"`
-	}{OK: true})
 }
 
 func (s *formulaDashboardServer) handleFinalReportChatPromote(w http.ResponseWriter, r *http.Request) {
