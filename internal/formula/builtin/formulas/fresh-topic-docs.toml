@@ -1,7 +1,7 @@
 formula = "fresh-topic-docs"
 title = "新鲜事物系列文档"
 description = "根据用户输入的新鲜事物、概念、趋势或话题，用动态表单按需澄清范围，再生成文章计划数组，并用 foreach loop 并发撰写每篇 Markdown 文档，最后汇总写入 docs。"
-version = 15
+version = 16
 type = "workflow"
 category = "learning"
 tags = ["学习", "调研", "新鲜事物", "系列文档", "知识整理", "foreach", "dynamic-form"]
@@ -59,8 +59,8 @@ scope-analysis 的输出结构由你在上一步自主决定，本步骤只需�
 你的输出会被后续 foreach loop 直接消费，因此必须输出 ONLY compact JSON array，不要 Markdown，不要代码块。
 
 数组中每个对象代表一篇文章，每个对象包含你判断对下游写作有用的字段。建议至少包含：
-- filename：安全、简洁、以 .md 结尾，建议带两位数字前缀
-- title：文章标题
+- filename：安全、简洁、以 .md 结尾，建议带两位数字前缀，整体不超过 40 个字符
+- title：文章标题，必须简短，中文不超过 18 个字，英文不超过 8 个单词；不要使用副标题、冒号、破折号或解释型长句
 - angle：本篇文章的写作角度
 - audience：目标读者
 - depth：入门/进阶/深入 或你认为合适的层级表达
@@ -70,6 +70,7 @@ scope-analysis 的输出结构由你在上一步自主决定，本步骤只需�
 要求：
 - 文章数量通常 3-6 篇，复杂话题可更多，简单话题可更少。
 - 每篇文章边界清晰，避免大量重复。
+- 每篇 title 必须适合导航展示：中文不超过 18 个字，英文不超过 8 个单词；标题只表达主题，不写解释句。
 - 覆盖理解、背景、机制/方法、应用、风险/争议、未来趋势等合适维度（按话题需要取舍）。
 - 严格遵守 scope-analysis 留下的写作范围、读者与深度约束。
 - 不要编造具体数据或新闻；需要核实时可在 must_cover 中标注。
@@ -94,10 +95,15 @@ description = """
 输出 ONLY compact JSON object，不要 Markdown，不要代码块：
 {"topic_name":"safe-topic-name","series_title":"...","audience":"...","reading_order":[{"filename":"01-xxx.md","title":"...","summary":"..."}],"readme_notes":["..."]}
 
+标题长度硬约束：
+- series_title：中文不超过 20 个字，英文不超过 10 个单词。
+- reading_order[].title：必须沿用或压缩 article-plan 的短 title，中文不超过 18 个字，英文不超过 8 个单词。
+- 不要使用副标题、冒号、破折号、括号解释或长句式标题。
+
 要求：
 - topic_name 必须安全、可读、稳定；中文话题可使用简短拼音或英文译名，英文话题使用小写 kebab-case。
 - topic_name 只允许小写字母、数字、连字符 `-`，不要空格、斜杠、冒号或其它特殊字符，控制在 40 个字符以内。
-- reading_order 必须覆盖 article-plan 中的每篇文章，但只保留 filename、title、summary，不要包含正文。
+- reading_order 必须覆盖 article-plan 中的每篇文章，但只保留 filename、短 title、summary，不要包含正文。
 - readme_notes 只放 README 组织信息和阅读建议，避免大段正文。
 - audience 可以从 scope-analysis 的写作范围中推断（无论 scope-analysis 用什么字段名），如果你无法推断，写一个通用占位即可。
 """
@@ -135,10 +141,10 @@ depends_on = ["article-plan"]
 - 格式：
 {"filename":"...","title":"...","summary":"...","content":"完整 Markdown 内容"}
 - filename 必须使用 article.filename。
-- title 必须使用 article.title。
+- title 必须使用 article.title；如果 article.title 超长，先压缩到中文不超过 18 个字或英文不超过 8 个单词，再用于输出和正文一级标题。
 - summary 用 1-2 句话概括本文。
-- content 是完整 Markdown 正文，第一行使用 `# {{article.title}}`。
-- content 中的一级标题 `#` 和二级标题 `##` 都必须简明扼要，通常控制在 20 个字符以内；不要写成长句或带多个逗号的解释型标题，避免导航栏拥挤。
+- content 是完整 Markdown 正文，第一行使用 `# <压缩后的短标题>`，不要使用超长标题。
+- content 中的一级标题 `#` 和二级标题 `##` 都必须简明扼要，中文通常控制在 18 个字以内，英文通常控制在 8 个单词以内；不要写成长句或带多个逗号的解释型标题，避免导航栏拥挤。
 - content 至少 500 字，必须有实质内容，不要只有提纲。
 - 按需包含 Mermaid 图表、Markdown 表格、blockquote、分隔线、列表、加粗、代码等。
 - 不要编造具体数据或新闻；不确定信息标注“需要进一步核实”。
@@ -187,7 +193,7 @@ description = """
 3. 输出 Markdown 验收汇总，列出主题目录、README 路径、文章文件清单和阅读顺序即可。
 
 README.md 应包含：
-- 系列标题（基于 {{topic}} 和 topic-package-plan.series_title）
+- 系列标题（基于 {{topic}} 和 topic-package-plan.series_title，必须使用短标题：中文不超过 20 个字，英文不超过 10 个单词）
 - 适合谁读（使用 topic-package-plan.audience）
 - 阅读顺序建议（使用 topic-package-plan.reading_order）
 - 每篇的文件名、标题和简短摘要
