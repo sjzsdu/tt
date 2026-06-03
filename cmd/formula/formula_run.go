@@ -218,7 +218,7 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 	}
 	seedFormulaRuntimeResumeState(exec, initialResults, initialContext)
 	if dashboard != nil {
-		exec.Events = formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: exec.Workflow}
+		exec.Events = formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: exec.Workflow, session: runStore.Meta.Session, workspace: agentWorkspace}
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Resuming formula run with typed runtime: %s\n", runStore.Meta.RunID)

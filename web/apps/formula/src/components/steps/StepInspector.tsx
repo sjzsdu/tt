@@ -1,11 +1,17 @@
-import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Tag } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Modal, Space, Tag, Typography, message } from 'antd';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep, FormulaStepActivity } from '../../types';
 import { OutputSurface } from '../OutputSurface';
+import { api, type AgentSessionTranscript } from '../../api';
 import { activityShortId, formatDuration, statusLabel, statusTone } from '../../utils/status';
-import { collectStepInputValues, groupLoopActivities, latestLoopActivity, loopActivityIteration, sameOutput } from '../../utils/steps';
+import { collectStepInputValues, groupLoopActivities, latestLoopActivity, loopActivityIteration, sameOutput, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
 
 export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step: FormulaDashboardStep | null; snapshot: FormulaDashboardSnapshot | null; open: boolean; onClose: () => void; onRetry: (step: FormulaDashboardStep) => void }) {
+  const [selectedSession, setSelectedSession] = useState<AgentSessionView | null>(null);
+  const agentSessionViews = useMemo(() => step ? collectAgentSessionViews(step) : [], [step]);
+  const primaryAgentSession = agentSessionViews[0];
   if (!step) return null;
+  const executionKind = stepExecutionKind(step);
   const metadataEntries = Object.entries(step.metadata || {});
   const labels = step.labels || [];
   const inputCtx = step.input_ctx || [];
@@ -46,6 +52,11 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           <Tag color={statusTone[activity.status] || 'default'}>{statusLabel(activity.status)}</Tag>
         </div>
         <div className="step-activity-meta">{activity.at} · {activity.step_id}{activity.duration_ms ? ` · ${formatDuration(activity.duration_ms)}` : ''}</div>
+        {activity.session && (
+          <Button size="small" className="agent-session-inline-button" onClick={() => setSelectedSession({ session: activity.session!, agent: step.agent, stepID: activity.step_id, title: activity.title || activityShortId(activity.step_id), status: activity.status })}>
+            View agent session
+          </Button>
+        )}
         {activity.detail && <p>{activity.detail}</p>}
         {activity.output && !sameOutput(activity.output, step.output) && (
           <Collapse
@@ -126,18 +137,21 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
   ];
 
   return (
-    <Drawer open={open} onClose={onClose} width="96vw" title="Step Inspector" className="step-inspector" destroyOnClose>
+    <Drawer open={open} onClose={onClose} width="96vw" title="Step Inspector" className="step-inspector" destroyOnHidden>
       <div className="inspector-title-block">
         <div>
           <div className="step-card-kicker">{step.id}</div>
           <h2>{step.title}</h2>
         </div>
         {step.status === 'failed' && <Button type="primary" danger onClick={() => onRetry(step)}>Retry this step</Button>}
+        {primaryAgentSession && <Button type="primary" onClick={() => setSelectedSession(primaryAgentSession)}>View agent session</Button>}
       </div>
 
       <div className="step-modal-tagbar">
         <Tag color={statusTone[step.status] || 'default'}>{statusLabel(step.status)}</Tag>
+        <Tag color={stepExecutionTone(executionKind)}>{stepExecutionLabel(executionKind)}</Tag>
         {step.agent && <Tag>{step.agent}</Tag>}
+        {step.session && <Tag color="geekblue">session · {step.session}</Tag>}
         {step.model && <Tag>{step.model}</Tag>}
         {step.type && <Tag>{step.type}</Tag>}
         {step.priority && <Tag>P{step.priority}</Tag>}
@@ -243,7 +257,97 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
 
         <Collapse className="step-modal-collapse advanced-step-collapse" items={advancedItems} />
       </div>
+      <AgentSessionModal sessionView={selectedSession} snapshot={snapshot} onClose={() => setSelectedSession(null)} />
     </Drawer>
+  );
+}
+
+type AgentSessionView = {
+  session: string;
+  agent?: string;
+  stepID: string;
+  title: string;
+  status?: string;
+};
+
+function collectAgentSessionViews(step: FormulaDashboardStep): AgentSessionView[] {
+  const views: AgentSessionView[] = [];
+  const seen = new Set<string>();
+  const add = (view: AgentSessionView) => {
+    const key = `${view.session}\u0000${view.stepID}`;
+    if (!view.session || seen.has(key)) return;
+    seen.add(key);
+    views.push(view);
+  };
+  if (step.session) add({ session: step.session, agent: step.agent, stepID: step.id, title: step.title, status: step.status });
+  for (const activity of step.activities || []) {
+    if (!activity.session) continue;
+    add({ session: activity.session, agent: step.agent, stepID: activity.step_id, title: activity.title || activityShortId(activity.step_id), status: activity.status });
+  }
+  return views;
+}
+
+function AgentSessionModal({ sessionView, snapshot, onClose }: { sessionView: AgentSessionView | null; snapshot: FormulaDashboardSnapshot | null; onClose: () => void }) {
+  const [transcript, setTranscript] = useState<AgentSessionTranscript | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const sessionID = sessionView?.session || '';
+  const sessionsDir = snapshot?.workspace_dir ? `${snapshot.workspace_dir}/.tt/sessions` : '.tt/sessions';
+
+  useEffect(() => {
+    if (!sessionView?.session) {
+      setTranscript(null);
+      setError('');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    api.agentSession(sessionView.session, sessionView.agent)
+      .then(setTranscript)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false));
+  }, [sessionView?.session, sessionView?.agent]);
+  const copyText = async (text: string, label: string) => {
+    await navigator.clipboard.writeText(text);
+    message.success(`${label} copied`);
+  };
+
+  return (
+    <Modal open={!!sessionView} title="Agent session" onCancel={onClose} footer={<Button onClick={onClose}>Close</Button>} width={720} destroyOnHidden>
+      {sessionView ? (
+        <Space direction="vertical" size="middle" className="agent-session-modal-body">
+          <Alert
+            type="info"
+            showIcon
+            message="Use this session id to inspect the long-running agent trace outside the formula output."
+            description="The formula dashboard records the exact session used by this agent step, so you can audit prompts, tool calls, and responses while optimizing the formula."
+          />
+          <Descriptions column={1} size="small">
+            <Descriptions.Item label="Step">{sessionView.stepID}</Descriptions.Item>
+            <Descriptions.Item label="Title">{sessionView.title}</Descriptions.Item>
+            <Descriptions.Item label="Status">{sessionView.status || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Session">
+              <Typography.Text code copyable>{sessionID}</Typography.Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Agent">{sessionView.agent || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Workspace">{snapshot?.workspace_dir || '—'}</Descriptions.Item>
+            <Descriptions.Item label="Transcript path">{transcript?.path || sessionsDir}</Descriptions.Item>
+          </Descriptions>
+          {loading && <Alert type="info" showIcon message="Loading transcript…" />}
+          {(error || transcript?.missing) && <Alert type="warning" showIcon message="Transcript not found" description={error || transcript?.message || `No matching .jsonl file found under ${sessionsDir}`} />}
+          {transcript?.content && (
+            <div className="agent-session-transcript-section">
+              <div className="card-subtitle">Transcript tail</div>
+              <pre className="code-block session-command-block agent-session-transcript">{transcript.content}</pre>
+            </div>
+          )}
+          <Space wrap>
+            <Button onClick={() => copyText(sessionID, 'Session id')}>Copy session id</Button>
+            {transcript?.content && <Button type="primary" onClick={() => copyText(transcript.content || '', 'Transcript')}>Copy transcript</Button>}
+          </Space>
+        </Space>
+      ) : null}
+    </Modal>
   );
 }
 

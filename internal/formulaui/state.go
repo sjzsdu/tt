@@ -82,6 +82,7 @@ type StepActivity struct {
 	StepID     string `json:"step_id"`
 	Title      string `json:"title,omitempty"`
 	Status     string `json:"status"`
+	Session    string `json:"session,omitempty"`
 	Detail     string `json:"detail,omitempty"`
 	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`

@@ -84,12 +84,12 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 		s.state.Steps[i].DurationMS = 0
 		s.state.Steps[i].Error = ""
 		s.state.Steps[i].Output = ""
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Detail: fmt.Sprintf("Agent %s started this step", agent)})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Session: session, Detail: fmt.Sprintf("Agent %s started this step", agent)})
 		s.appendLogLocked(fmt.Sprintf("Step %s started", stepID))
 		break
 	}
 	if !found {
-		s.markLoopActivityLocked(stepID, title, "running", fmt.Sprintf("Agent %s started loop body", agent), "", "", 0)
+		s.markLoopActivityLocked(stepID, title, "running", session, fmt.Sprintf("Agent %s started loop body", agent), "", "", 0)
 		s.appendLogLocked(fmt.Sprintf("Loop step %s started", stepID))
 	}
 	if s.state.Status == "pending" {
@@ -120,7 +120,7 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 		break
 	}
 	if !found {
-		s.markLoopActivityLocked(stepID, "", "completed", fmt.Sprintf("Completed with %d chars of output", len(output)), output, "", 0)
+		s.markLoopActivityLocked(stepID, "", "completed", "", fmt.Sprintf("Completed with %d chars of output", len(output)), output, "", 0)
 		s.appendLogLocked(fmt.Sprintf("Loop step %s completed", stepID))
 	}
 	s.mu.Unlock()
@@ -156,7 +156,7 @@ func (s *formulaDashboardServer) markStepSkipped(stepID, reason string) {
 		if detail == "" {
 			detail = "Loop body condition evaluated to false"
 		}
-		s.markLoopActivityLocked(stepID, "", "skipped", detail, "", "", 0)
+		s.markLoopActivityLocked(stepID, "", "skipped", "", detail, "", "", 0)
 		s.appendLogLocked(fmt.Sprintf("Loop step %s skipped", stepID))
 	}
 	s.mu.Unlock()
@@ -185,7 +185,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 		break
 	}
 	if !found {
-		s.markLoopActivityLocked(stepID, "", "failed", errMsg, output, errMsg, 0)
+		s.markLoopActivityLocked(stepID, "", "failed", "", errMsg, output, errMsg, 0)
 		s.appendLogLocked(fmt.Sprintf("Loop step %s failed: %s", stepID, errMsg))
 	}
 	s.state.Status = "failed"
@@ -215,7 +215,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 		break
 	}
 	if !found {
-		s.markLoopActivityLocked(stepID, title, "waiting_input", "Waiting for human input", "", "", 0)
+		s.markLoopActivityLocked(stepID, title, "waiting_input", "", "Waiting for human input", "", "", 0)
 		s.appendLogLocked(fmt.Sprintf("Loop step %s waiting for human input", stepID))
 	}
 	s.state.Status = "waiting_input"
@@ -224,7 +224,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 	s.broadcast()
 }
 
-func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, detail, output, errMsg string, durationMS int64) {
+func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, session, detail, output, errMsg string, durationMS int64) {
 	parentID := formulaui.LoopParentStepID(stepID)
 	if parentID == "" {
 		return
@@ -237,7 +237,7 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, d
 			s.state.Steps[i].Status = "running"
 			s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
 		}
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
+		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Session: session, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
 		return
 	}
 }

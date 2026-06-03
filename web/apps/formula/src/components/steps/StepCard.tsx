@@ -2,11 +2,12 @@ import type { KeyboardEvent } from 'react';
 import { Card, Flex, Space, Tag, Typography } from 'antd';
 import type { FormulaDashboardStep } from '../../types';
 import { activityShortId, formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
-import { loopActivitySummary } from '../../utils/steps';
+import { loopActivitySummary, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
 
 export function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSelect: (step: FormulaDashboardStep) => void }) {
   const latest = step.activities?.at(-1);
   const loopSummary = loopActivitySummary(step);
+  const executionKind = stepExecutionKind(step);
   const description = step.description || step.notes || 'No extra description for this step.';
   const openStep = () => onSelect(step);
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -47,7 +48,9 @@ export function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSel
         )}
 
         <Flex gap={6} wrap="wrap">
+          <Tag color={stepExecutionTone(executionKind)}>{stepExecutionLabel(executionKind)}</Tag>
           {step.agent && <Tag>agent · {step.agent}</Tag>}
+          {step.session && <Tag color="geekblue">session · {step.session}</Tag>}
           {step.model && <Tag>model · {step.model}</Tag>}
           {step.duration_ms ? <Tag>duration · {formatDuration(step.duration_ms)}</Tag> : null}
           {!!step.depends_on?.length && <Tag>deps · {step.depends_on.length}</Tag>}

@@ -408,6 +408,8 @@ func renderFormulaRuntimeResult(cmd *cobra.Command, workflow *ir.Workflow, resul
 type formulaRuntimeDashboardEventSink struct {
 	dashboard *formulaDashboardServer
 	workflow  *ir.Workflow
+	session   string
+	workspace string
 }
 
 func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
@@ -422,19 +424,24 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 	title := ""
 	agent := ""
 	model := ""
+	session := ""
 	if node != nil && node.Step != nil {
 		meta := node.Step.Meta()
 		title = meta.Title
 		if agentStep, ok := node.Step.(steps.AgentStep); ok {
 			agent = agentStep.Agent
 			model = agentStep.Model
+			session = s.agentSessionForNode(string(event.NodeID), agentStep.Cwd)
 		}
 	} else {
 		title, agent, model = loopBodyEventDetails(s.workflow, string(event.NodeID))
+		if strings.TrimSpace(agent) != "" {
+			session = s.agentSessionForNode(string(event.NodeID), "")
+		}
 	}
 	switch event.Type {
 	case "step.started":
-		s.dashboard.markStepRunning(string(event.NodeID), title, agent, model, "")
+		s.dashboard.markStepRunning(string(event.NodeID), title, agent, model, session)
 	case "step.completed":
 		s.dashboard.markStepCompleted(string(event.NodeID), runtimeEventOutput(event.Payload))
 	case "step.skipped":
@@ -444,6 +451,15 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 	case "step.waiting":
 		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
 	}
+}
+
+func (s formulaRuntimeDashboardEventSink) agentSessionForNode(nodeID, cwd string) string {
+	session := agentSessionForNode(s.session, nodeID)
+	workspace := strings.TrimSpace(cwd)
+	if workspace == "" {
+		workspace = s.workspace
+	}
+	return agentSessionForWorkspace(session, workspace, s.workspace)
 }
 
 func (s formulaRuntimeDashboardEventSink) emitWorkflowEvent(event formularuntime.Event) {

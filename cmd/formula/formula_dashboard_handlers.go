@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 )
 
 const finalReportChatAgent = "coder"
+const maxAgentSessionBytes = 256 * 1024
 
 func (s *formulaDashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -39,6 +42,131 @@ func (s *formulaDashboardServer) handleState(w http.ResponseWriter, r *http.Requ
 		Type  string             `json:"type"`
 		State formulaui.Snapshot `json:"state"`
 	}{Type: "state", State: s.snapshot()})
+}
+
+type agentSessionResponse struct {
+	Session string `json:"session"`
+	Agent   string `json:"agent,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+	Missing bool   `json:"missing,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func (s *formulaDashboardServer) handleAgentSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	session := strings.TrimSpace(r.URL.Query().Get("session"))
+	agent := strings.TrimSpace(r.URL.Query().Get("agent"))
+	if session == "" {
+		http.Error(w, "session is required", http.StatusBadRequest)
+		return
+	}
+	workspace := ""
+	if s.store != nil {
+		workspace = strings.TrimSpace(s.store.Meta.WorkspaceDir)
+	}
+	if workspace == "" {
+		workspace = strings.TrimSpace(s.snapshot().WorkspaceDir)
+	}
+	if workspace == "" {
+		http.Error(w, "workspace is not available", http.StatusBadRequest)
+		return
+	}
+	path, content, err := readAgentSessionTranscript(workspace, session, agent)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(agentSessionResponse{Session: session, Agent: agent, Missing: true, Message: err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(agentSessionResponse{Session: session, Agent: agent, Path: path, Content: content})
+}
+
+func readAgentSessionTranscript(workspace, session, agent string) (string, string, error) {
+	sessionsDir := filepath.Join(workspace, ".tt", "sessions")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return "", "", fmt.Errorf("read sessions dir: %w", err)
+	}
+	slug := sessionFilenameToken(session)
+	agentPrefix := ""
+	if strings.TrimSpace(agent) != "" {
+		agentPrefix = "agent_" + sessionFilenameToken(agent) + "_"
+	}
+	var best string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		name := entry.Name()
+		if agentPrefix != "" && !strings.HasPrefix(name, agentPrefix) {
+			continue
+		}
+		if !strings.Contains(name, slug) {
+			continue
+		}
+		best = filepath.Join(sessionsDir, name)
+		break
+	}
+	if best == "" {
+		return "", "", fmt.Errorf("session transcript not found under %s", sessionsDir)
+	}
+	content, err := readFileTail(best, maxAgentSessionBytes)
+	if err != nil {
+		return "", "", err
+	}
+	return best, content, nil
+}
+
+func sessionFilenameToken(value string) string {
+	value = strings.TrimSpace(value)
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		keep := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-'
+		if keep {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func readFileTail(path string, maxBytes int64) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	offset := int64(0)
+	if info.Size() > maxBytes {
+		offset = info.Size() - maxBytes
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if offset > 0 {
+		if _, err := file.Seek(offset, 0); err != nil {
+			return "", err
+		}
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	if offset > 0 {
+		return "... transcript truncated to last 256 KiB ...\n" + string(data), nil
+	}
+	return string(data), nil
 }
 
 type formulaHumanInputSubmitRequest struct {

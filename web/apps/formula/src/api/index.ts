@@ -1,5 +1,14 @@
 import type { FormulaDashboardMessage, FormulaDashboardSnapshot, FormulaDashboardStep } from '../types';
 
+export type AgentSessionTranscript = {
+  session: string;
+  agent?: string;
+  path?: string;
+  content?: string;
+  missing?: boolean;
+  message?: string;
+};
+
 function normalizeStep(step: FormulaDashboardStep): FormulaDashboardStep {
   return {
     ...step,
@@ -72,5 +81,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
     });
     if (!r.ok) throw new Error(await r.text());
+  },
+  async agentSession(session: string, agent?: string): Promise<AgentSessionTranscript> {
+    const params = new URLSearchParams({ session });
+    if (agent) params.set('agent', agent);
+    const r = await fetch(`/api/agent-session?${params.toString()}`);
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json() as AgentSessionTranscript;
   },
 };

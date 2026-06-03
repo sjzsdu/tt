@@ -3,7 +3,7 @@ import { Empty } from 'antd';
 import { ReactFlow, Background, Handle, MarkerType, MiniMap, Position, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import type { FormulaDashboardLoopBody, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { activityShortId, graphShortId, statusLabel } from '../../utils/status';
-import { latestLoopActivity, loopActivityBodyID, loopActivityIteration, loopActivitySummary } from '../../utils/steps';
+import { latestLoopActivity, loopActivityBodyID, loopActivityIteration, loopActivitySummary, stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
 
 type StepNodeData = {
   step: FormulaDashboardStep;
@@ -24,6 +24,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
   const step = data.step;
   const isLoopBody = data.kind === 'loop-body';
   const isLoop = !!step.loop?.body?.length;
+  const executionKind = stepExecutionKind(step);
   if (isLoopBody) {
     const parent = data.parentStep || step;
     return (
@@ -31,6 +32,7 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
         <Handle type="target" position={Position.Top} className="flow-handle" />
         <div className="graph-node-topline">
           <div className="graph-node-id">body · {graphShortId(step.id)}</div>
+          <span className={`graph-node-kind ${executionKind}`}>{stepExecutionLabel(executionKind)}</span>
           <span className={`graph-node-state ${step.status}`}>{statusLabel(step.status)}</span>
         </div>
         <strong>{step.title}</strong>
@@ -46,13 +48,15 @@ function StepFlowNode({ data }: NodeProps<Node<StepNodeData>>) {
   return (
     <button type="button" className={`graph-node flow-graph-node ${isLoop ? 'compound-loop' : ''} ${data.expanded ? 'expanded' : ''} ${step.status}`} onClick={() => data.onSelect(step)}>
       <Handle type="target" position={Position.Left} className="flow-handle" />
-      <div className="graph-node-topline">
-        <div className="graph-node-id">{isLoop ? '↻ loop' : graphShortId(step.id)}</div>
-        <span className={`graph-node-state ${step.status}`}>{step.status}</span>
-      </div>
+        <div className="graph-node-topline">
+          <div className="graph-node-id">{isLoop ? '↻ loop' : graphShortId(step.id)}</div>
+          <span className={`graph-node-kind ${executionKind}`}>{stepExecutionLabel(executionKind)}</span>
+          <span className={`graph-node-state ${step.status}`}>{step.status}</span>
+        </div>
       <strong>{step.title}</strong>
       <div className="graph-node-meta">
         {isLoop && <span>loop · {step.loop?.body?.length || 0}</span>}
+        {step.agent && <span>agent · {step.agent}</span>}
         {step.human_input_request && <span>input required</span>}
         {!!step.depends_on?.length && <span>{step.depends_on.length} deps</span>}
         {!!step.activities?.length && <span>{step.activities.length} events</span>}

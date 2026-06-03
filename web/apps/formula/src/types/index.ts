@@ -9,6 +9,7 @@ export type FormulaStepActivity = {
   step_id: string;
   title?: string;
   status: string;
+  session?: string;
   detail?: string;
   output?: string;
   error?: string;
