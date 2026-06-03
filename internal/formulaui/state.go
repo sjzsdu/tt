@@ -163,6 +163,9 @@ func AppendStepActivity(step *Step, activity StepActivity) {
 		if activity.Title == "" {
 			activity.Title = step.Activities[i].Title
 		}
+		if activity.Session == "" {
+			activity.Session = step.Activities[i].Session
+		}
 		step.Activities[i] = activity
 		return
 	}
