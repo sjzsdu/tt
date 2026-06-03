@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发或复用固定 GitHub Actions workflow，循环检查指定 action 的 multi-branch job；成功则退出，否则固定重置 tmp branch、merge 指定分支、交给 agent 解冲突、merge --continue、push、rerun failed jobs，再等待后继续循环。"
-version = 29
+version = 30
 type = "workflow"
 
 [preflight]
@@ -189,15 +189,34 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 tmp_branch="${TT_TMP_BRANCH:-tmp-deploy-c51db917}"
 merge_branch="${TT_MERGE_BRANCH:-flow360-ui/volume-render-ly}"
+emit_prepare_blocker() {
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg blocker_type "${1:-git_prepare_failed}" --arg blocker_summary "${2:-}" '{attempted:true,merge_complete:false,ready_for_agent:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,conflicted_files:[],touched_files:[],stdout:"",stderr:$blocker_summary,blocker_type:$blocker_type}'
+}
 merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
-if [ -e "$merge_head_path" ]; then git merge --abort >/tmp/tt-flow360-merge-abort.log 2>&1 || true; fi
-git fetch origin
+rebase_merge_path="$(git rev-parse --git-path rebase-merge)"
+rebase_apply_path="$(git rev-parse --git-path rebase-apply)"
+cherry_pick_head_path="$(git rev-parse --git-path CHERRY_PICK_HEAD)"
+if [ -e "$merge_head_path" ]; then git merge --abort >/tmp/tt-flow360-abort.log 2>&1 || true; fi
+if [ -e "$rebase_merge_path" ] || [ -e "$rebase_apply_path" ]; then git rebase --abort >/tmp/tt-flow360-abort.log 2>&1 || true; fi
+if [ -e "$cherry_pick_head_path" ]; then git cherry-pick --abort >/tmp/tt-flow360-abort.log 2>&1 || true; fi
+set +e
+fetch_out="$(git fetch origin 2>&1)"
+fetch_rc=$?
+set -e
+if [ "$fetch_rc" -ne 0 ]; then emit_prepare_blocker git_fetch_failed "$fetch_out"; exit 0; fi
+if ! git show-ref --verify --quiet "refs/remotes/origin/$tmp_branch"; then emit_prepare_blocker missing_tmp_branch "origin/$tmp_branch not found"; exit 0; fi
+if ! git show-ref --verify --quiet "refs/remotes/origin/$merge_branch"; then emit_prepare_blocker missing_merge_branch "origin/$merge_branch not found"; exit 0; fi
 current="$(git branch --show-current 2>/dev/null || true)"
+set +e
 if [ "$current" = "$tmp_branch" ]; then
-  git reset --hard "origin/$tmp_branch"
+  prep_out="$(git reset --hard "origin/$tmp_branch" 2>&1)"
+  prep_rc=$?
 else
-  git checkout -B "$tmp_branch" "origin/$tmp_branch"
+  prep_out="$(git checkout -B "$tmp_branch" "origin/$tmp_branch" 2>&1)"
+  prep_rc=$?
 fi
+set -e
+if [ "$prep_rc" -ne 0 ]; then emit_prepare_blocker git_checkout_or_reset_failed "$prep_out"; exit 0; fi
 set +e
 merge_out="$(git merge --no-ff "origin/$merge_branch" -m auto_manual_merge 2>&1)"
 merge_rc=$?
@@ -272,7 +291,13 @@ resolver_json="$(jq -cn --arg s "$resolver" 'if ($s|length)==0 then {} else (($s
 tmp_branch="$(jq -r '.tmp_branch // ""' <<<"$prep_json")"
 merge_branch="$(jq -r '.merge_branch // ""' <<<"$prep_json")"
 merge_complete="$(jq -r '.merge_complete == true' <<<"$prep_json")"
+prep_blocker="$(jq -r '.blocker_type // ""' <<<"$prep_json")"
 resolver_ok="$(jq -r '.resolved == true' <<<"$resolver_json")"
+if [ "$merge_complete" != "true" ] && [ -n "$prep_blocker" ]; then
+  blocker="$(jq -r '.stderr // .blocker_summary // "prepare merge failed"' <<<"$prep_json")"
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg blocker_type "$prep_blocker" --arg blocker "$blocker" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:"",blocker_type:$blocker_type,blocker_summary:$blocker,validations_run:[]}'
+  exit 0
+fi
 if [ "$merge_complete" != "true" ] && [ "$resolver_ok" != "true" ]; then
   blocker="$(jq -r '.blocker_summary // "resolver did not complete"' <<<"$resolver_json")"
   jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg blocker "$blocker" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,merge_branch:$merge_branch,local_commit:"",blocker_type:"resolver_failed",blocker_summary:$blocker,validations_run:[]}'
@@ -333,7 +358,7 @@ repo='flexcompute/flex'
 rid="${TT_ORIGINAL_RUN_ID:-}"
 tmp_branch="${TT_TMP_BRANCH:-tmp-deploy-c51db917}"
 head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
-push_out="$(HUSKY=0 git push --no-verify origin "HEAD:${tmp_branch}" 2>&1)"
+push_out="$(HUSKY=0 git push --no-verify --force-with-lease origin "HEAD:${tmp_branch}" 2>&1)"
 push_rc=$?
 rerun_out=''
 rerun_rc=1
