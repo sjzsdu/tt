@@ -75,7 +75,8 @@ func GenerateMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
 	b.WriteString("\n")
 
 	b.WriteString("## Steps\n\n")
-	for i, step := range realWorkflowSteps(workflow) {
+	stepOrder := authoredStepOrder(f.Steps)
+	for i, step := range orderedWorkflowSteps(workflow, stepOrder) {
 		meta := step.Meta()
 		b.WriteString(fmt.Sprintf("### %d. `%s`\n\n", i+1, meta.ID))
 		if meta.Title != "" {
@@ -93,10 +94,7 @@ func GenerateMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
 				b.WriteString("**Dynamic form:** enabled\n\n")
 			}
 		case steps.ScriptStep:
-			b.WriteString("**Execution:** script\n\n")
-			if len(s.Command) > 0 {
-				b.WriteString(fmt.Sprintf("**Command:** `%s`\n\n", strings.Join(s.Command, " ")))
-			}
+			writeScriptMarkdown(&b, s)
 		case steps.HumanInputStep:
 			b.WriteString("**Execution:** human input\n\n")
 			if s.Reason != "" {
@@ -116,6 +114,36 @@ func GenerateMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
 		}
 	}
 	return b.String()
+}
+
+func writeScriptMarkdown(b *strings.Builder, step steps.ScriptStep) {
+	if b == nil {
+		return
+	}
+	b.WriteString("**Execution:** script\n\n")
+	if step.Cwd != "" {
+		b.WriteString(fmt.Sprintf("**Working directory:** `%s`\n\n", step.Cwd))
+	}
+	if step.OutputKey != "" {
+		b.WriteString(fmt.Sprintf("**Output key:** `%s`\n\n", step.OutputKey))
+	}
+	if step.Validation != nil {
+		b.WriteString(fmt.Sprintf("**Validation:** `%s`", emptyDefault(step.Validation.Format, "configured")))
+		if len(step.Validation.Required) > 0 {
+			b.WriteString(fmt.Sprintf("; required: `%s`", strings.Join(step.Validation.Required, "`, `")))
+		}
+		b.WriteString("\n\n")
+	}
+	if len(step.Command) == 0 {
+		return
+	}
+	summary := scriptCommandSummary(step.Command)
+	b.WriteString(fmt.Sprintf("**Command summary:** `%s`\n\n", summary))
+	b.WriteString("<details>\n<summary>Show script command</summary>\n\n")
+	b.WriteString("```bash\n")
+	b.WriteString(scriptCommandBody(step.Command))
+	b.WriteString("\n```\n\n")
+	b.WriteString("</details>\n\n")
 }
 
 func writeLoopMarkdown(b *strings.Builder, loop steps.LoopStep) {
@@ -170,7 +198,7 @@ func writeLoopMarkdown(b *strings.Builder, loop steps.LoopStep) {
 		case steps.ScriptStep:
 			b.WriteString("   - execution: `script`\n")
 			if len(typed.Command) > 0 {
-				b.WriteString(fmt.Sprintf("   - command: `%s`\n", strings.Join(typed.Command, " ")))
+				b.WriteString(fmt.Sprintf("   - command: `%s`\n", scriptCommandSummary(typed.Command)))
 			}
 		case steps.HumanInputStep:
 			b.WriteString("   - execution: `human_input`\n")
@@ -182,7 +210,7 @@ func writeLoopMarkdown(b *strings.Builder, loop steps.LoopStep) {
 func GenerateMermaidGraph(workflow *ir.Workflow) string {
 	var b strings.Builder
 	b.WriteString("graph TD\n")
-	stepsList := realWorkflowSteps(workflow)
+	stepsList := orderedWorkflowSteps(workflow, nil)
 	if len(stepsList) == 0 {
 		b.WriteString("  empty[No steps]\n")
 		return b.String()
@@ -299,18 +327,134 @@ func formulaAuthoredStepCounts(items []*formula.Step) (int, int) {
 }
 
 func realWorkflowSteps(workflow *ir.Workflow) []steps.Step {
+	return orderedWorkflowSteps(workflow, nil)
+}
+
+func orderedWorkflowSteps(workflow *ir.Workflow, order map[string]int) []steps.Step {
 	if workflow == nil {
 		return nil
 	}
-	out := make([]steps.Step, 0, len(workflow.Graph.Nodes))
-	for _, node := range workflow.Graph.Nodes {
+	nodes := make(map[ir.NodeID]steps.Step, len(workflow.Graph.Nodes))
+	for id, node := range workflow.Graph.Nodes {
 		if node == nil || node.Step == nil || node.Step.Meta().Kind == steps.KindNoop {
 			continue
 		}
-		out = append(out, node.Step)
+		nodes[id] = node.Step
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Meta().ID < out[j].Meta().ID })
-	return out
+	if len(nodes) == 0 {
+		return nil
+	}
+	inDegree := make(map[ir.NodeID]int, len(nodes))
+	outgoing := make(map[ir.NodeID][]ir.NodeID, len(nodes))
+	for id := range nodes {
+		inDegree[id] = 0
+	}
+	for _, edge := range workflow.Graph.Edges {
+		if _, ok := nodes[edge.From]; !ok {
+			continue
+		}
+		if _, ok := nodes[edge.To]; !ok {
+			continue
+		}
+		outgoing[edge.From] = append(outgoing[edge.From], edge.To)
+		inDegree[edge.To]++
+	}
+	ready := make([]ir.NodeID, 0, len(nodes))
+	for id, degree := range inDegree {
+		if degree == 0 {
+			ready = append(ready, id)
+		}
+	}
+	sortNodeIDs(ready, order)
+	out := make([]steps.Step, 0, len(nodes))
+	for len(ready) > 0 {
+		id := ready[0]
+		ready = ready[1:]
+		out = append(out, nodes[id])
+		children := outgoing[id]
+		sortNodeIDs(children, order)
+		for _, child := range children {
+			inDegree[child]--
+			if inDegree[child] == 0 {
+				ready = append(ready, child)
+			}
+		}
+		sortNodeIDs(ready, order)
+	}
+	if len(out) == len(nodes) {
+		return out
+	}
+	// Fall back to deterministic ID ordering if the graph is cyclic or malformed.
+	fallback := make([]steps.Step, 0, len(nodes))
+	for _, step := range nodes {
+		fallback = append(fallback, step)
+	}
+	sort.Slice(fallback, func(i, j int) bool { return fallback[i].Meta().ID < fallback[j].Meta().ID })
+	return fallback
+}
+
+func authoredStepOrder(items []*formula.Step) map[string]int {
+	order := map[string]int{}
+	var index int
+	var walk func([]*formula.Step)
+	walk = func(items []*formula.Step) {
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			if item.ID != "" {
+				if _, exists := order[item.ID]; !exists {
+					order[item.ID] = index
+					index++
+				}
+			}
+			if item.Loop != nil {
+				walk(item.Loop.Body)
+			}
+			walk(item.Children)
+		}
+	}
+	walk(items)
+	return order
+}
+
+func sortNodeIDs(ids []ir.NodeID, order map[string]int) {
+	sort.Slice(ids, func(i, j int) bool {
+		left := string(ids[i])
+		right := string(ids[j])
+		leftOrder, leftOK := order[left]
+		rightOrder, rightOK := order[right]
+		if leftOK && rightOK && leftOrder != rightOrder {
+			return leftOrder < rightOrder
+		}
+		if leftOK != rightOK {
+			return leftOK
+		}
+		return left < right
+	})
+}
+
+func scriptCommandSummary(command []string) string {
+	if len(command) == 0 {
+		return "empty"
+	}
+	if len(command) >= 3 && (command[0] == "bash" || command[0] == "sh") && command[1] == "-lc" {
+		lineCount := len(strings.Split(strings.TrimSpace(command[2]), "\n"))
+		return fmt.Sprintf("%s -lc (%d lines)", command[0], lineCount)
+	}
+	joined := strings.Join(command, " ")
+	const maxSummaryLength = 96
+	if len(joined) <= maxSummaryLength {
+		return joined
+	}
+	return joined[:maxSummaryLength-1] + "…"
+}
+
+func scriptCommandBody(command []string) string {
+	if len(command) >= 3 && (command[0] == "bash" || command[0] == "sh") && command[1] == "-lc" {
+		return strings.TrimRight(command[2], "\n")
+	}
+	return strings.TrimRight(strings.Join(command, " "), "\n")
 }
 
 func workflowDepsForStep(workflow *ir.Workflow, id ir.NodeID) []string {
