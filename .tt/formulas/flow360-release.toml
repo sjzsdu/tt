@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 14
+version = 15
 type = "workflow"
 
 [preflight]
@@ -291,19 +291,19 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 prep='${TT_PREPARE:-}'
 resolver='${TT_RESOLVER:-}'
-obj() { jq -cn --arg s "$1" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end'; }
-tmp_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).tmp_branch // ""')"
-current_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).current_branch // ""')"
-conflicted_files="$(jq -cn --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).conflicted_files // []')"
-merge_complete="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).merge_complete == true')"
+obj() { jq -cn --arg s "$1" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end'; }
+tmp_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).tmp_branch // ""')"
+current_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).current_branch // ""')"
+conflicted_files="$(jq -cn --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).conflicted_files // []')"
+merge_complete="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($prep).merge_complete == true')"
 if [ "$merge_complete" = "true" ]; then
   head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
   jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg head "$head_sha" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,handled_branches:[$current_branch],touched_files:[],validations_run:["git merge --no-ff"],local_commit:$head,push_completed:false,blocker_type:"none",blocker_summary:"",remaining_conflicts:[]}'
   exit 0
 fi
-resolver_ok="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($resolver).resolved == true')"
+resolver_ok="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($resolver).resolved == true')"
 if [ "$resolver_ok" != "true" ]; then
-  blocker="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($resolver).blocker_summary // "resolver did not complete"')"
+  blocker="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; obj($resolver).blocker_summary // "resolver did not complete"')"
   jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg blocker "$blocker" --argjson conflicted_files "$conflicted_files" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:[],local_commit:"",push_completed:false,blocker_type:"semantic_uncertainty",blocker_summary:$blocker,remaining_conflicts:$conflicted_files}'
   exit 0
 fi
@@ -322,15 +322,15 @@ if [ -e .git/MERGE_HEAD ]; then
   git commit --no-edit >/tmp/tt-flow360-merge-commit.log 2>&1 || git commit -m auto_manual_merge >/tmp/tt-flow360-merge-commit.log 2>&1
 fi
 head_sha="$(git rev-parse HEAD)"
-touched="$(jq -cn --arg prep "$prep" --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; ((obj($prep).touched_files // []) + (obj($resolver).touched_files // [])) | unique')"
-validations="$(jq -cn --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; ((obj($resolver).validations_run // []) + ["git diff --name-only --diff-filter=U", "git grep conflict markers", "git commit --no-edit"]) | unique')"
+touched="$(jq -cn --arg prep "$prep" --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; ((obj($prep).touched_files // []) + (obj($resolver).touched_files // [])) | unique')"
+validations="$(jq -cn --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type == "object" and (.stdout|type == "object") then .stdout else . end; ((obj($resolver).validations_run // []) + ["git diff --name-only --diff-filter=U", "git grep conflict markers", "git commit --no-edit"]) | unique')"
 jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg head "$head_sha" --argjson touched "$touched" --argjson validations "$validations" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,handled_branches:[$current_branch],touched_files:$touched,validations_run:$validations,local_commit:$head,push_completed:false,blocker_type:"none",blocker_summary:"",remaining_conflicts:[]}'
 """]
 format = "json"
     timeout = "5m"
 
     [steps.loop.body.script.env]
-    TT_PREPARE = "{{prepare-conflict-merge.stdout}}"
+    TT_PREPARE = "{{prepare-conflict-merge}}"
     TT_RESOLVER = "{{resolve-current-conflict}}"
 
     [steps.loop.body.validate]
@@ -350,6 +350,10 @@ format = "json"
 set -u
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
+if [ ! -f package.json ] && [ -f frontend/flow360-ui-next/package.json ]; then
+  cd frontend/flow360-ui-next
+  repo_root="$(pwd)"
+fi
 if [ ! -f package.json ]; then
   jq -cn --arg repo_root "$repo_root" '{attempted:false,success:true,skipped:true,reason:"package.json missing",command:["npm","run","build"],exit_code:0,stdout:"",stderr:"",repo_root:$repo_root}'
   exit 0
@@ -375,7 +379,7 @@ format = "json"
   id = "fix-repair-build"
   title = "修复构建错误"
   depends_on = ["validate-repair-build"]
-  condition = "validate-repair-build.stdout.success != true"
+  condition = "repair-conflict.resolved == true and validate-repair-build.stdout.success != true"
   input_context = ["classify-run-state.tmp_branch", "repair-conflict", "validate-repair-build.stdout.exit_code", "validate-repair-build.stdout.stderr", "validate-repair-build.stdout.repo_root"]
   description = """
 冲突修复后 npm run build 失败。请在当前 git workspace 中根据 validate-repair-build 的 stderr 修复低级构建错误。
@@ -410,6 +414,10 @@ format = "json"
 set -u
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
+if [ ! -f package.json ] && [ -f frontend/flow360-ui-next/package.json ]; then
+  cd frontend/flow360-ui-next
+  repo_root="$(pwd)"
+fi
 if [ ! -f package.json ]; then
   jq -cn --arg repo_root "$repo_root" '{attempted:false,success:true,skipped:true,reason:"package.json missing",command:["npm","run","build"],exit_code:0,stdout:"",stderr:"",repo_root:$repo_root}'
   exit 0
