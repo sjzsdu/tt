@@ -109,10 +109,11 @@ const darkThemeCss = `
       .edgePath .path { stroke: #94a3b8; stroke-width: 1.5px; }
       .edgeLabel, .edgeLabel rect { background-color: #0f172a; fill: #0f172a; color: #cbd5e1; font-size: 12px; }
       .cluster rect { fill: #111827; stroke: #334155; stroke-width: 1px; }
-      .actor, .actor-line { stroke: #64748b !important; }
-      .actor > rect, .actor-man, .actor-box { fill: #172033 !important; stroke: #64748b !important; }
+      .actor-line { stroke: #64748b !important; }
+      rect.actor, rect.actor-top, rect.actor-bottom, .actor > rect, rect.actor-box, .actor-man { fill: #172033 !important; stroke: #64748b !important; }
+      text.actor, text.actor-box, text.actor tspan, text.actor-box tspan, .actor text, .actor tspan { fill: #e5eefc !important; color: #e5eefc !important; stroke: none !important; }
       .labelBox, .labelBox rect, .labelBox polygon, .loopLine, .loopLine > rect, .loopLine > polygon, .note, .note rect, .note polygon, .sequenceNumber { fill: #1e293b !important; stroke: #64748b !important; }
-      .label, .label text, .label span, .nodeLabel, .nodeLabel p, .nodeLabel span, .edgeLabel, .edgeLabel text, .sectionTitle, .actor, .actor text, .messageText, .loopText, .noteText, .taskText, .taskTextOutsideRight, .taskTextOutsideLeft, .sequenceNumber text, .sequenceNumber, .labelBox text, .labelBox tspan, .loopLine text, .loopLine tspan, .note text, .note tspan, .mindmap-node .label, .mindmap-node .label text, .mindmap-node .label span, svg text, svg tspan { fill: #e5eefc !important; color: #e5eefc !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
+      .label, .label text, .label span, .nodeLabel, .nodeLabel p, .nodeLabel span, .edgeLabel, .edgeLabel text, .sectionTitle, text.actor, text.actor tspan, text.actor-box, text.actor-box tspan, .actor text, .actor tspan, .messageText, .loopText, .noteText, .taskText, .taskTextOutsideRight, .taskTextOutsideLeft, .sequenceNumber text, .sequenceNumber, .labelBox text, .labelBox tspan, .loopLine text, .loopLine tspan, .note text, .note tspan, .mindmap-node .label, .mindmap-node .label text, .mindmap-node .label span, svg text, svg tspan { fill: #e5eefc !important; color: #e5eefc !important; stroke: none !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
     `;
 
 const lightThemeCss = `
@@ -120,10 +121,11 @@ const lightThemeCss = `
       .edgePath .path { stroke: #94a3b8; stroke-width: 1.5px; }
       .edgeLabel, .edgeLabel rect { background-color: #fff; fill: #fff; color: #475569; font-size: 12px; }
       .cluster rect { fill: #f8fafc; stroke: #e2e8f0; stroke-width: 1px; }
-      .actor, .actor-line { stroke: #cbd5e1 !important; }
-      .actor > rect, .actor-man, .actor-box { fill: #ffffff !important; stroke: #cbd5e1 !important; }
+      .actor-line { stroke: #cbd5e1 !important; }
+      rect.actor, rect.actor-top, rect.actor-bottom, .actor > rect, rect.actor-box, .actor-man { fill: #ffffff !important; stroke: #cbd5e1 !important; }
+      text.actor, text.actor-box, text.actor tspan, text.actor-box tspan, .actor text, .actor tspan { fill: #0f172a !important; color: #0f172a !important; stroke: none !important; }
       .labelBox, .labelBox rect, .labelBox polygon, .loopLine, .loopLine > rect, .loopLine > polygon, .note, .note rect, .note polygon, .sequenceNumber { fill: #eef4ff !important; stroke: #cbd5e1 !important; }
-      .label, .label text, .label span, .nodeLabel, .nodeLabel p, .nodeLabel span, .edgeLabel, .edgeLabel text, .sectionTitle, .actor, .actor text, .messageText, .loopText, .noteText, .taskText, .taskTextOutsideRight, .taskTextOutsideLeft, .sequenceNumber text, .sequenceNumber, .labelBox text, .labelBox tspan, .loopLine text, .loopLine tspan, .note text, .note tspan, .mindmap-node .label, .mindmap-node .label text, .mindmap-node .label span, svg text, svg tspan { fill: #0f172a !important; color: #0f172a !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
+      .label, .label text, .label span, .nodeLabel, .nodeLabel p, .nodeLabel span, .edgeLabel, .edgeLabel text, .sectionTitle, text.actor, text.actor tspan, text.actor-box, text.actor-box tspan, .actor text, .actor tspan, .messageText, .loopText, .noteText, .taskText, .taskTextOutsideRight, .taskTextOutsideLeft, .sequenceNumber text, .sequenceNumber, .labelBox text, .labelBox tspan, .loopLine text, .loopLine tspan, .note text, .note tspan, .mindmap-node .label, .mindmap-node .label text, .mindmap-node .label span, svg text, svg tspan { fill: #0f172a !important; color: #0f172a !important; stroke: none !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
     `;
 
 export function mermaidThemeVariables(theme: AppTheme) {
