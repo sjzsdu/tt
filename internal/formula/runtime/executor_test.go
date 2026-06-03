@@ -117,6 +117,21 @@ func (fakeScript) RunScript(context.Context, steps.ScriptRequest) (steps.Value, 
 	return steps.Value{Type: "json", Raw: raw}, nil
 }
 
+type jsonStdoutScript struct{}
+
+func (jsonStdoutScript) RunScript(context.Context, steps.ScriptRequest) (steps.Value, error) {
+	stdout := `{"ready_for_agent":true,"current_branch":"feature/a"}` + "\n"
+	raw, _ := json.Marshal(map[string]any{"command": []string{"demo"}, "exit_code": 0, "stdout": stdout})
+	return steps.Value{Type: "json", Raw: raw}, nil
+}
+
+type conditionProbeAgent struct{ calls int }
+
+func (a *conditionProbeAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, error) {
+	a.calls++
+	return steps.Value{Type: "json", Raw: json.RawMessage(`{"ok":true}`)}, nil
+}
+
 type countingAgent struct{ calls int }
 
 func (a *countingAgent) RunAgent(context.Context, steps.AgentRequest) (steps.Value, error) {
@@ -150,6 +165,45 @@ func TestExecutorRunsTypedWorkflowInTopologicalOrder(t *testing.T) {
 	}
 	if len(result.Nodes) != 2 {
 		t.Fatalf("nodes = %d", len(result.Nodes))
+	}
+}
+
+func TestExecutorExposesScriptJSONStdoutForConditions(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "prepare", Step: steps.ScriptStep{
+		Base:       steps.Base{Metadata: steps.Metadata{ID: "prepare", Kind: steps.KindScript}},
+		Command:    []string{"demo"},
+		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"stdout"}},
+	}})
+	g.AddNode(&ir.Node{ID: "resolve", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "resolve", Kind: steps.KindAgent, Condition: "prepare.stdout.ready_for_agent == true"}}}})
+	g.AddEdge("prepare", "resolve", "blocks")
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &conditionProbeAgent{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent, Scripts: jsonStdoutScript{}})
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if agent.calls != 1 {
+		t.Fatalf("resolve agent calls = %d, want 1", agent.calls)
+	}
+	value, ok := exec.Context.Get("prepare.stdout.current_branch")
+	if !ok {
+		t.Fatal("missing normalized stdout path")
+	}
+	var branch string
+	if err := json.Unmarshal(value.Raw, &branch); err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feature/a" {
+		t.Fatalf("branch = %q", branch)
+	}
+	if _, ok := exec.Context.Get("prepare.stdout_text"); !ok {
+		t.Fatal("missing raw stdout_text")
 	}
 }
 

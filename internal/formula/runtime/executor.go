@@ -198,6 +198,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 				validationErr = validateStepOutput(node.Step, res.Output)
 			}
 			if validationErr == nil {
+				normalizeStepOutputForContext(node.Step, res)
 				e.rememberStepOutput(node.Step, res)
 				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 				e.emit(nodeID, "step.completed", res)
@@ -211,6 +212,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
 			return out, res.Error
 		}
+		normalizeStepOutputForContext(node.Step, res)
 		e.rememberStepOutput(node.Step, res)
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 		e.emit(nodeID, "step.completed", res)
@@ -389,6 +391,54 @@ func truncateValidationOutputPreview(raw []byte, limit int) string {
 		return text
 	}
 	return text[:limit] + "\n...(truncated)"
+}
+
+func normalizeStepOutputForContext(step steps.Step, res *steps.RunResult) {
+	if res == nil {
+		return
+	}
+	script, ok := scriptStepValue(step)
+	if !ok || script.Validation == nil || strings.ToLower(strings.TrimSpace(script.Validation.Format)) != "json" {
+		return
+	}
+	normalized, ok := normalizeScriptJSONStdout(res.Output.Raw)
+	if !ok {
+		return
+	}
+	res.Output = steps.Value{Type: "json", Raw: normalized}
+}
+
+func normalizeScriptJSONStdout(raw []byte) ([]byte, bool) {
+	var wrapper map[string]any
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return nil, false
+	}
+	stdout, ok := wrapper["stdout"].(string)
+	if !ok {
+		return nil, false
+	}
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return nil, false
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		return nil, false
+	}
+	wrapper["stdout_text"] = wrapper["stdout"]
+	wrapper["stdout"] = decoded
+	if obj, ok := decoded.(map[string]any); ok {
+		for key, value := range obj {
+			if _, exists := wrapper[key]; !exists {
+				wrapper[key] = value
+			}
+		}
+	}
+	data, err := json.Marshal(wrapper)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
 }
 
 func validateStepOutput(step steps.Step, out steps.Value) error {
