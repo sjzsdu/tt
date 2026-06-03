@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -224,6 +225,49 @@ func TestLoopStepEmitsSkippedForConditionFalseBodyStep(t *testing.T) {
 	assertLoopEvent(t, events, "monitor.iter1.wait", "step.completed", StatusCompleted)
 }
 
+func TestLoopStepExposesScriptJSONStdoutForLaterConditions(t *testing.T) {
+	agent := &countingStepAgentRunner{}
+	loop := LoopStep{
+		Base: Base{Metadata: Metadata{ID: "monitor", Kind: KindLoop}},
+		Max:  1,
+		Body: []Step{
+			ScriptStep{
+				Base:       Base{Metadata: Metadata{ID: "prepare", Kind: KindScript}},
+				Command:    []string{"demo"},
+				Validation: &OutputValidationSpec{Format: "json", Required: []string{"stdout"}},
+			},
+			AgentStep{Base: Base{Metadata: Metadata{ID: "resolve", Kind: KindAgent, Condition: "prepare.stdout.ready_for_agent == true"}}},
+		},
+	}
+	store := newLoopIterationStore(nil)
+	res, err := loop.Run(context.Background(), RunRequest{
+		NodeID:       "monitor",
+		Context:      store,
+		Outputs:      store,
+		Capabilities: Capabilities{Scripts: jsonStdoutScriptRunner{}, Agents: agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusCompleted {
+		t.Fatalf("status = %s", res.Status)
+	}
+	if agent.calls != 1 {
+		t.Fatalf("resolve calls = %d, want 1", agent.calls)
+	}
+	value, ok := store.Get("prepare.stdout.current_branch")
+	if !ok {
+		t.Fatal("missing normalized stdout current_branch")
+	}
+	var branch string
+	if err := json.Unmarshal(value.Raw, &branch); err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feature/a" {
+		t.Fatalf("branch = %q", branch)
+	}
+}
+
 func assertLoopEvent(t *testing.T, events []struct {
 	nodeID string
 	typ    string
@@ -256,6 +300,20 @@ type recordingScriptRunner struct {
 func (r *recordingScriptRunner) RunScript(_ context.Context, req ScriptRequest) (Value, error) {
 	r.req = req
 	return Value{Raw: []byte(`"ok"`)}, nil
+}
+
+type jsonStdoutScriptRunner struct{}
+
+func (jsonStdoutScriptRunner) RunScript(_ context.Context, _ ScriptRequest) (Value, error) {
+	stdout := `{"ready_for_agent":true,"current_branch":"feature/a"}` + "\n"
+	return Value{Type: "json", Raw: []byte(`{"command":["demo"],"exit_code":0,"stdout":` + strconv.Quote(stdout) + `}`)}, nil
+}
+
+type countingStepAgentRunner struct{ calls int }
+
+func (r *countingStepAgentRunner) RunAgent(_ context.Context, _ AgentRequest) (Value, error) {
+	r.calls++
+	return Value{Type: "json", Raw: []byte(`{"ok":true}`)}, nil
 }
 
 func TestAgentStepInjectsWholeInputContextJSON(t *testing.T) {

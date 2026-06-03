@@ -1120,6 +1120,7 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 				}
 				return res, nil
 			}
+			normalizeScriptStepJSONStdout(child, res)
 			if req.Emit != nil {
 				req.Emit(childNodeID, "step.completed", res)
 			}
@@ -1465,6 +1466,7 @@ func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int
 			}
 			return last, res, nil
 		}
+		normalizeScriptStepJSONStdout(child, res)
 		if req.Emit != nil {
 			req.Emit(childNodeID, "step.completed", res)
 		}
@@ -1476,6 +1478,68 @@ func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int
 		}
 	}
 	return last, nil, nil
+}
+
+func normalizeScriptStepJSONStdout(step Step, res *RunResult) {
+	if res == nil || len(res.Output.Raw) == 0 {
+		return
+	}
+	script, ok := scriptStepFromStep(step)
+	if !ok || script.Validation == nil || strings.ToLower(strings.TrimSpace(script.Validation.Format)) != "json" {
+		return
+	}
+	normalized, ok := normalizeScriptWrapperJSONStdout(res.Output.Raw)
+	if !ok {
+		return
+	}
+	res.Output = Value{Type: "json", Raw: normalized}
+}
+
+func scriptStepFromStep(step Step) (ScriptStep, bool) {
+	switch s := step.(type) {
+	case ScriptStep:
+		return s, true
+	case *ScriptStep:
+		if s == nil {
+			return ScriptStep{}, false
+		}
+		return *s, true
+	default:
+		return ScriptStep{}, false
+	}
+}
+
+func normalizeScriptWrapperJSONStdout(raw []byte) ([]byte, bool) {
+	var wrapper map[string]any
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return nil, false
+	}
+	stdout, ok := wrapper["stdout"].(string)
+	if !ok {
+		return nil, false
+	}
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return nil, false
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		return nil, false
+	}
+	wrapper["stdout_text"] = wrapper["stdout"]
+	wrapper["stdout"] = decoded
+	if obj, ok := decoded.(map[string]any); ok {
+		for key, value := range obj {
+			if _, exists := wrapper[key]; !exists {
+				wrapper[key] = value
+			}
+		}
+	}
+	data, err := json.Marshal(wrapper)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
 }
 
 func loopChildNodeID(parentNodeID string, iteration int, childID ID) string {
