@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Collapse, Descriptions, Drawer, Empty, Tag } from 'antd';
+import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Tag } from 'antd';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep, FormulaStepActivity } from '../../types';
 import { OutputSurface } from '../OutputSurface';
 import { activityShortId, formatDuration, statusLabel, statusTone } from '../../utils/status';
@@ -16,6 +16,8 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
   const latestLoopIteration = step.loop ? loopActivityIteration(latestLoopActivity(step)) : '';
   const defaultOpenLoopActivityKey = latestLoopIteration || loopActivityGroups.at(-1)?.iteration || 'step';
   const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
+  const outputSummary = summarizeContent(step.output);
+  const activityDefaultOpen = step.status === 'failed' || step.status === 'running' || step.status === 'waiting_input' ? ['activity'] : [];
 
   const statusSummary = (() => {
     if (step.status === 'failed') return { type: 'error' as const, message: 'Step failed', description: step.error || 'Inspect the activity log and retry this step with optional guidance.' };
@@ -33,7 +35,9 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
     </div>
   );
 
-  const renderActivityRow = (activity: FormulaStepActivity) => (
+  const renderActivityRow = (activity: FormulaStepActivity) => {
+    const activityOutputSummary = summarizeContent(activity.output);
+    return (
     <div key={`${activity.step_id}-${activity.at}-${activity.status}`} className={`step-activity-row ${activity.status}`}>
       <div className="step-activity-status-dot" />
       <div className="step-activity-content">
@@ -43,12 +47,22 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         </div>
         <div className="step-activity-meta">{activity.at} · {activity.step_id}{activity.duration_ms ? ` · ${formatDuration(activity.duration_ms)}` : ''}</div>
         {activity.detail && <p>{activity.detail}</p>}
-        {activity.output && !sameOutput(activity.output, step.output) && <OutputSurface content={activity.output} className="step-activity-output" />}
+        {activity.output && !sameOutput(activity.output, step.output) && (
+          <Collapse
+            className="step-activity-output-collapse"
+            items={[{
+              key: 'activity-output',
+              label: sectionLabel('📄', 'Activity output', activityOutputSummary),
+              children: <OutputSurface content={activity.output} className="step-activity-output" />,
+            }]}
+          />
+        )}
         {activity.output && sameOutput(activity.output, step.output) && <div className="step-activity-output-note">Output matches final step output.</div>}
         {activity.error && <pre className="code-block error-block">{activity.error}</pre>}
       </div>
     </div>
-  );
+    );
+  };
 
   const loopActivityItems = loopActivityGroups.map(group => {
     const key = group.iteration || 'step';
@@ -150,7 +164,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         )}
 
         {step.output && (
-          <Collapse className="step-modal-collapse" defaultActiveKey={['output']} items={[{ key: 'output', label: sectionLabel('📄', 'Output'), children: <OutputSurface content={step.output} className="step-output-shell" /> }]} />
+          <Collapse className="step-modal-collapse" items={[{ key: 'output', label: sectionLabel('📄', 'Output', outputSummary), children: <OutputSurface content={step.output} className="step-output-shell" /> }]} />
         )}
 
         <Collapse
@@ -158,12 +172,12 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           items={[{
             key: 'input',
             label: sectionLabel('📥', 'Input', inputValues.length ? `${inputValues.length} item${inputValues.length === 1 ? '' : 's'}` : 'empty'),
-            children: inputValues.length > 0 ? (
-              <Collapse className="step-input-collapse" items={inputValues.map(input => ({
-                key: input.key,
-                label: <div className="step-input-head input-collapse-label"><strong>{input.key}</strong><Tag>{input.source}</Tag></div>,
-                children: <OutputSurface content={input.value} className="step-input-output" />,
-              }))} />
+              children: inputValues.length > 0 ? (
+                <Collapse className="step-input-collapse" items={inputValues.map(input => ({
+                  key: input.key,
+                  label: <div className="step-input-head input-collapse-label"><strong>{input.key}</strong><Tag>{input.source}</Tag><span className="collapsible-section-extra">{summarizeContent(input.value)}</span></div>,
+                  children: <OutputSurface content={input.value} className="step-input-output" />,
+                }))} />
             ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No resolved input data yet" />,
           }]}
         />
@@ -196,6 +210,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
                         <div className="loop-body-meta">
                           {(body.agent || body.model) && <span>agent · {[body.agent, body.model].filter(Boolean).join(' / ')}</span>}
                           {body.output_key && <span>output · {body.output_key}</span>}
+                          {!!body.depends_on?.length && <span>depends · {body.depends_on.join(', ')}</span>}
                           {!!body.input_ctx?.length && <span>input · {body.input_ctx.join(', ')}</span>}
                           {body.condition && <span>if · {body.condition}</span>}
                         </div>
@@ -209,16 +224,46 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         )}
 
         {activities.length > 0 && (
-          <section className="step-modal-section">
-            <div className="step-modal-section-header"><span className="step-modal-section-icon">🛰️</span><h4>Activity timeline</h4></div>
-            <p className="step-section-hint">{step.loop ? 'Internal loop body activity grouped by iteration. These are not separate top-level steps.' : 'Status events for this step. The final output is shown once in the Output section above.'}</p>
-            {step.loop && loopActivityItems.length ? <Collapse className="loop-activity-collapse" defaultActiveKey={[defaultOpenLoopActivityKey]} items={loopActivityItems} /> : <div className="step-activity-list">{activities.map(renderActivityRow)}</div>}
-            {hiddenDuplicateOutputs > 0 && <div className="step-section-footnote">Hidden duplicate output in {hiddenDuplicateOutputs} timeline event{hiddenDuplicateOutputs === 1 ? '' : 's'}.</div>}
-          </section>
+          <Collapse
+            className="step-modal-collapse activity-timeline-collapse"
+            defaultActiveKey={activityDefaultOpen}
+            items={[{
+              key: 'activity',
+              label: sectionLabel('🛰️', 'Activity timeline', `${activities.length} event${activities.length === 1 ? '' : 's'}`),
+              children: (
+                <>
+                  <p className="step-section-hint">{step.loop ? 'Internal loop body activity grouped by iteration. These are not separate top-level steps.' : 'Status events for this step. The final output is shown once in the Output section above.'}</p>
+                  {step.loop && loopActivityItems.length ? <Collapse className="loop-activity-collapse" defaultActiveKey={[defaultOpenLoopActivityKey]} items={loopActivityItems} /> : <div className="step-activity-list">{activities.map(renderActivityRow)}</div>}
+                  {hiddenDuplicateOutputs > 0 && <div className="step-section-footnote">Hidden duplicate output in {hiddenDuplicateOutputs} timeline event{hiddenDuplicateOutputs === 1 ? '' : 's'}.</div>}
+                </>
+              ),
+            }]}
+          />
         )}
 
         <Collapse className="step-modal-collapse advanced-step-collapse" items={advancedItems} />
       </div>
     </Drawer>
   );
+}
+
+function summarizeContent(content?: string) {
+  const text = (content || '').trim();
+  if (!text) return 'empty';
+  const lineCount = text.split('\n').length;
+  const charCount = text.length;
+  const jsonKind = summarizeJSON(text);
+  const prefix = jsonKind ? `${jsonKind} · ` : '';
+  return `${prefix}${lineCount} line${lineCount === 1 ? '' : 's'} · ${charCount} char${charCount === 1 ? '' : 's'}`;
+}
+
+function summarizeJSON(content: string) {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (Array.isArray(parsed)) return `array(${parsed.length})`;
+    if (parsed && typeof parsed === 'object') return `object(${Object.keys(parsed).length})`;
+    return typeof parsed;
+  } catch {
+    return '';
+  }
 }

@@ -213,7 +213,8 @@ button, input, textarea { font: inherit; }
 .step-activity-row.completed .step-activity-status-dot { background: var(--ant-color-success); }
 .step-activity-row.failed .step-activity-status-dot { background: var(--ant-color-error); }
 .step-activity-content p, .step-activity-meta { margin: 0; color: var(--text-muted); font-size: 12px; }
-.step-activity-output, .step-activity-output-note { margin-top: 8px; }
+.step-activity-output, .step-activity-output-note, .step-activity-output-collapse { margin-top: 8px; }
+.step-activity-output-collapse .ant-collapse-content-box { padding: 8px; }
 
 .output-surface, .code-block {
   overflow: auto;
