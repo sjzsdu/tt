@@ -1,6 +1,6 @@
 formula = "bug-detect"
 description = "Scan the current working directory from multiple angles, identify concrete code issues, create Jira tickets for confirmed issues, and summarize the submitted tickets with severity and rationale."
-version = 4
+version = 5
 type = "workflow"
 
 [preflight]
@@ -19,7 +19,7 @@ message = "Jira CLI 不可调用，请先确认 jira 已配置并能正常执行
 
 [vars]
 scan_path = { description = "Directory to inspect. Defaults to the current working directory.", default = "{{env.cwd}}" }
-jira_project = { description = "Jira project key used when creating tickets. This is not a Jira issue key/ticket id.", default = "FLOW360" }
+jira_project = { description = "Jira project key used when creating tickets. This is not a Jira issue key/ticket id.", default = "FLOW" }
 max_tickets = { description = "Maximum number of Jira tickets to create in one run.", default = "10" }
 
 [[steps]]
