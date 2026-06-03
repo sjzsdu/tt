@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 11
+version = 12
 type = "workflow"
 
 [preflight]
@@ -184,36 +184,156 @@ format = "json"
     required = ["done", "final_state", "action", "reason"]
 
   [[steps.loop.body]]
-  id = "repair-conflict"
-  title = "修复 multi-branch merge conflict"
+  id = "prepare-conflict-merge"
+  title = "准备 tmp branch 并执行确定性 merge"
+  execution = "script"
   depends_on = ["classify-run-state"]
   condition = "classify-run-state.action == repair_conflict"
-  input_context = ["classify-run-state.tmp_branch", "classify-run-state.remaining_queue", "classify-run-state.conflicted_branches", "fetch-run-info.stdout.failed_job_logs"]
-  description = """
-根据 classify-run-state 的 tmp_branch、remaining_queue、conflicted_branches 修复冲突。你的目标不是“尝试一次”，而是把 tmp branch 本地推进到可 push 的完整状态。你可以读写当前 git workspace 中的代码，但不要新建 workflow run，不要 rerun，不要执行 git push；本步骤只负责在本地修复冲突并产生提交，后续 push-repair-branch 脚本会确定性执行 push。
+  description = "脚本固定执行 git fetch、checkout tmp branch、merge 当前冲突分支；若产生冲突，只输出 conflict manifest，不由 agent 驱动 git 流程。"
 
-必须执行：
-1. 读取目标目录就近 README.md 和项目规则，但只作为约束，不要输出规则确认。
-2. git fetch origin。
-3. 从 origin/<tmp_branch> 建立/重建本地工作分支。
-4. rebase origin/<tmp_branch>。
-5. 按 remaining_queue 顺序逐个 merge origin/<branch>。
-6. 每次 merge 如遇冲突，读取冲突文件，理解 Flow360 UI 语义，解决 conflict markers，git add，然后完成 merge commit。
-7. 如果后续分支又产生新冲突，继续循环处理，直到 remaining_queue 全部合入或遇到明确 blocker。
-8. 运行必要轻量验证。
-9. 最终确认：不处于 merge/rebase/cherry-pick 状态，git diff --name-only --diff-filter=U 为空，工作区没有未提交变更。
-10. 不要执行 git push；保持本地 HEAD 在已提交的修复 commit 上，等待 push-repair-branch 脚本推送。
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -euo pipefail
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+cls='${TT_CLASSIFY:-}'
+tmp_branch="$(jq -nr --arg cls "$cls" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($cls).tmp_branch // ""')"
+merge_branch="$(jq -nr --arg cls "$cls" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; (obj($cls).conflicted_branches // obj($cls).remaining_queue // []) | .[0] // ""')"
+remaining_queue="$(jq -cn --arg cls "$cls" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($cls).remaining_queue // []')"
+if [ -z "$tmp_branch" ] || [ -z "$merge_branch" ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"missing tmp_branch or merge branch",blocker_type:"missing_context"}'
+  exit 0
+fi
+if [ -e .git/MERGE_HEAD ] || [ -e .git/rebase-merge ] || [ -e .git/rebase-apply ] || [ -e .git/CHERRY_PICK_HEAD ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"repository already has an in-progress merge/rebase/cherry-pick",blocker_type:"git_state"}'
+  exit 0
+fi
+fetch_out="$(git fetch origin 2>&1)"
+git checkout -B "$tmp_branch" "origin/$tmp_branch" >/tmp/tt-flow360-checkout.log 2>&1
+merge_out=""
+set +e
+merge_out="$(git merge --no-ff "origin/$merge_branch" -m auto_manual_merge 2>&1)"
+merge_rc=$?
+set -e
+conflicted_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+staged_or_modified="$(git diff --name-only HEAD | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$merge_rc" -eq 0 ]; then
+  head_sha="$(git rev-parse HEAD)"
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" --arg fetch_out "$fetch_out" --arg head "$head_sha" --argjson remaining_queue "$remaining_queue" '{attempted:true,ready_for_agent:false,merge_complete:true,tmp_branch:$tmp_branch,current_branch:$merge_branch,handled_branches:[$merge_branch],conflicted_files:[],touched_files:[],remaining_queue:$remaining_queue,stdout:($fetch_out+"\n"+$merge_out),stderr:"",head:$head,blocker_type:"none"}'
+  exit 0
+fi
+if [ "$conflicted_files" = "[]" ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" --arg merge_out "$merge_out" --argjson remaining_queue "$remaining_queue" '{attempted:true,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,handled_branches:[],conflicted_files:[],touched_files:[],remaining_queue:$remaining_queue,stdout:"",stderr:$merge_out,blocker_type:"merge_failed_without_conflicts"}'
+  exit 0
+fi
+jq -cn \
+  --arg tmp_branch "$tmp_branch" \
+  --arg merge_branch "$merge_branch" \
+  --arg merge_out "$merge_out" \
+  --arg fetch_out "$fetch_out" \
+  --argjson conflicted_files "$conflicted_files" \
+  --argjson touched_files "$staged_or_modified" \
+  --argjson remaining_queue "$remaining_queue" \
+  '{attempted:true,ready_for_agent:true,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,handled_branches:[],conflicted_files:$conflicted_files,touched_files:$touched_files,remaining_queue:$remaining_queue,stdout:($fetch_out+"\n"+$merge_out),stderr:"",blocker_type:"none"}'
+"""]
+format = "json"
+    timeout = "5m"
 
-输出 ONLY compact JSON object，不要 Markdown，不要代码块，不要解释文字：
-{"attempted":true,"resolved":true,"tmp_branch":"","handled_branches":[],"touched_files":[],"validations_run":[],"local_commit":"","push_completed":false,"blocker_type":"none|git_state|validation_failed|auth|unknown","blocker_summary":"","remaining_conflicts":[]}
-"""
-
-    [steps.loop.body.agent]
-    name = "coder"
+    [steps.loop.body.script.env]
+    TT_CLASSIFY = "{{classify-run-state}}"
 
     [steps.loop.body.validate]
     format = "json"
-    required = ["attempted", "resolved", "tmp_branch", "push_completed", "blocker_type"]
+    required = ["stdout"]
+
+  [[steps.loop.body]]
+  id = "resolve-current-conflict"
+  title = "只解决当前 merge 冲突文件"
+  depends_on = ["prepare-conflict-merge"]
+  condition = "prepare-conflict-merge.stdout.ready_for_agent == true"
+  input_context = ["classify-run-state.tmp_branch", "prepare-conflict-merge.stdout.current_branch", "prepare-conflict-merge.stdout.conflicted_files", "prepare-conflict-merge.stdout.touched_files", "prepare-conflict-merge.stdout.remaining_queue", "fetch-run-info.stdout.failed_job_logs"]
+  description = """
+当前 git 工作区已经由脚本执行了 checkout tmp branch 和 git merge --no-ff origin/<current_branch> -m auto_manual_merge，并停在冲突状态。
+
+你只负责解决 prepare-conflict-merge.stdout.conflicted_files 中列出的冲突文件：
+- 不要执行 git checkout/switch/merge/rebase/reset/push/gh。
+- 不要创建 commit。
+- 不要继续 merge remaining_queue 中的其它分支。
+- 解决冲突后只 git add 你实际解决的文件。
+- 保留 ours/theirs 两侧兼容业务逻辑；不确定时返回 blocker，不要猜。
+- 确认 touched files 中没有 conflict markers。
+
+输出 ONLY compact JSON object，不要 Markdown，不要代码块：
+{"attempted":true,"resolved":true,"conflicted_files":[],"touched_files":[],"extra_touched_files":[],"resolution_summary":"","validations_run":[],"blocker_type":"none|semantic_uncertainty|missing_context|validation_failed|unknown","blocker_summary":""}
+"""
+
+    [steps.loop.body.agent]
+    name = "merge-conflict-resolver"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["attempted", "resolved", "blocker_type"]
+
+  [[steps.loop.body]]
+  id = "repair-conflict"
+  title = "验证冲突解决并提交 merge"
+  execution = "script"
+  depends_on = ["prepare-conflict-merge", "resolve-current-conflict"]
+  condition = "prepare-conflict-merge.stdout.attempted == true"
+  description = "确定性检查 agent 的冲突解决结果；无冲突时沿用 merge 结果，有冲突时确认无 unmerged/marker 后完成 merge commit。"
+
+    [steps.loop.body.script]
+    command = ["bash", "-lc", """
+set -euo pipefail
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+prep='${TT_PREPARE:-}'
+resolver='${TT_RESOLVER:-}'
+obj() { jq -cn --arg s "$1" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end'; }
+tmp_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).tmp_branch // ""')"
+current_branch="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).current_branch // ""')"
+conflicted_files="$(jq -cn --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).conflicted_files // []')"
+merge_complete="$(jq -nr --arg prep "$prep" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($prep).merge_complete == true')"
+if [ "$merge_complete" = "true" ]; then
+  head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg head "$head_sha" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,handled_branches:[$current_branch],touched_files:[],validations_run:["git merge --no-ff"],local_commit:$head,push_completed:false,blocker_type:"none",blocker_summary:"",remaining_conflicts:[]}'
+  exit 0
+fi
+resolver_ok="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($resolver).resolved == true')"
+if [ "$resolver_ok" != "true" ]; then
+  blocker="$(jq -nr --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; obj($resolver).blocker_summary // "resolver did not complete"')"
+  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg blocker "$blocker" --argjson conflicted_files "$conflicted_files" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:[],local_commit:"",push_completed:false,blocker_type:"semantic_uncertainty",blocker_summary:$blocker,remaining_conflicts:$conflicted_files}'
+  exit 0
+fi
+unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$unmerged" != "[]" ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --argjson unmerged "$unmerged" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:["git diff --name-only --diff-filter=U"],local_commit:"",push_completed:false,blocker_type:"git_state",blocker_summary:"unmerged files remain",remaining_conflicts:$unmerged}'
+  exit 0
+fi
+marker_files="$(git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ':!node_modules' ':!dist' 2>/dev/null | cut -d: -f1 | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$marker_files" != "[]" ]; then
+  jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --argjson marker_files "$marker_files" '{attempted:true,resolved:false,tmp_branch:$tmp_branch,handled_branches:[],touched_files:[],validations_run:["git grep conflict markers"],local_commit:"",push_completed:false,blocker_type:"validation_failed",blocker_summary:"conflict markers remain",remaining_conflicts:$marker_files}'
+  exit 0
+fi
+git add -u
+if [ -e .git/MERGE_HEAD ]; then
+  git commit --no-edit >/tmp/tt-flow360-merge-commit.log 2>&1 || git commit -m auto_manual_merge >/tmp/tt-flow360-merge-commit.log 2>&1
+fi
+head_sha="$(git rev-parse HEAD)"
+touched="$(jq -cn --arg prep "$prep" --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; ((obj($prep).touched_files // []) + (obj($resolver).touched_files // [])) | unique')"
+validations="$(jq -cn --arg resolver "$resolver" 'def obj($s): if ($s|length)==0 then {} else (($s|fromjson?)//{}) end; ((obj($resolver).validations_run // []) + ["git diff --name-only --diff-filter=U", "git grep conflict markers", "git commit --no-edit"]) | unique')"
+jq -cn --arg tmp_branch "$tmp_branch" --arg current_branch "$current_branch" --arg head "$head_sha" --argjson touched "$touched" --argjson validations "$validations" '{attempted:true,resolved:true,tmp_branch:$tmp_branch,handled_branches:[$current_branch],touched_files:$touched,validations_run:$validations,local_commit:$head,push_completed:false,blocker_type:"none",blocker_summary:"",remaining_conflicts:[]}'
+"""]
+format = "json"
+    timeout = "5m"
+
+    [steps.loop.body.script.env]
+    TT_PREPARE = "{{prepare-conflict-merge.stdout}}"
+    TT_RESOLVER = "{{resolve-current-conflict}}"
+
+    [steps.loop.body.validate]
+    format = "json"
+    required = ["stdout"]
 
   [[steps.loop.body]]
   id = "validate-repair-build"
