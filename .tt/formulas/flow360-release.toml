@@ -197,8 +197,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 tmp_branch="${TT_TMP_BRANCH:-}"
-conflicted_branches='${TT_CONFLICTED_BRANCHES:-[]}'
-merge_branch="$(jq -nr --argjson branches "$conflicted_branches" '$branches[0] // ""')"
+merge_branch="${TT_MERGE_BRANCH:-}"
 remaining_queue='${TT_REMAINING_QUEUE:-[]}'
 if [ -z "$tmp_branch" ] || [ -z "$merge_branch" ]; then
   jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"missing tmp_branch or merge branch",blocker_type:"missing_context"}'
@@ -241,7 +240,7 @@ format = "json"
 
     [steps.loop.body.script.env]
     TT_TMP_BRANCH = "{{classify-run-state.tmp_branch}}"
-    TT_CONFLICTED_BRANCHES = "{{classify-run-state.conflicted_branches}}"
+    TT_MERGE_BRANCH = "{{classify-run-state.conflicted_branches.0}}"
     TT_REMAINING_QUEUE = "{{classify-run-state.remaining_queue}}"
 
     [steps.loop.body.validate]

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -154,7 +155,7 @@ func appendDynamicHumanInputProtocol(prompt string) string {
 }
 
 var dynamicHumanInputBlockPattern = regexp.MustCompile("(?s)```tt-human-input(?:\\s+json)?\\s*\\n(.*?)\\n```")
-var runtimeTemplatePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_-]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)\s*\}\}`)
+var runtimeTemplatePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_-]*(?:\.(?:[a-zA-Z_][a-zA-Z0-9_-]*|[0-9]+))*)\s*\}\}`)
 
 func renderContextTemplates(input string, ctx ContextView) string {
 	if input == "" || ctx == nil {
@@ -1352,12 +1353,20 @@ func getNestedJSONValue(value Value, path string) (Value, bool) {
 	current = normalizeJSONTextValue(current)
 	for _, part := range strings.Split(path, ".") {
 		current = normalizeJSONTextValue(current)
-		object, ok := current.(map[string]any)
-		if !ok {
-			return Value{}, false
-		}
-		current, ok = object[part]
-		if !ok {
+		switch value := current.(type) {
+		case map[string]any:
+			next, ok := value[part]
+			if !ok {
+				return Value{}, false
+			}
+			current = next
+		case []any:
+			index, err := strconv.Atoi(part)
+			if err != nil || index < 0 || index >= len(value) {
+				return Value{}, false
+			}
+			current = value[index]
+		default:
 			return Value{}, false
 		}
 	}

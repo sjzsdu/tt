@@ -427,6 +427,31 @@ func TestScriptStepRendersRuntimeContextTemplates(t *testing.T) {
 	}
 }
 
+func TestScriptStepRendersArrayIndexRuntimeContextTemplate(t *testing.T) {
+	script := &recordingScriptRunner{}
+	step := ScriptStep{
+		Base:    Base{Metadata: Metadata{ID: "script", Kind: KindScript}},
+		Command: []string{"echo", "{{classify.conflicted_branches.0}}"},
+		Env:     map[string]string{"BRANCH": "{{classify.conflicted_branches.0}}"},
+	}
+
+	store := newLoopIterationStore(nil)
+	_ = store.Set("classify", Value{Raw: []byte(`{"conflicted_branches":["feature/a"]}`)})
+	_, err := step.Run(context.Background(), RunRequest{
+		Context:      store,
+		Capabilities: Capabilities{Scripts: script},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(script.req.Command, " "); got != "echo feature/a" {
+		t.Fatalf("command = %q", got)
+	}
+	if script.req.Env["BRANCH"] != "feature/a" {
+		t.Fatalf("env BRANCH = %q", script.req.Env["BRANCH"])
+	}
+}
+
 func TestAggregateStepCollectsAndProjectsObjects(t *testing.T) {
 	step := AggregateStep{
 		Base:    Base{Metadata: Metadata{ID: "manifest", Kind: KindAggregate}},
