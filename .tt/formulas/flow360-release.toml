@@ -3,7 +3,7 @@ title = "Flow360 UI Next release"
 category = "release"
 tags = ["flow360-next", "deploy", "github-actions", "merge-conflict"]
 description = "Flow360 发布流程：触发固定 GitHub Actions workflow，锁定 original_run_id，循环监控 multi-branch job；遇到 merge conflict 时修复 tmp branch、push --no-verify、rerun failed jobs，直到 multi-branch job 成功或阻塞。"
-version = 13
+version = 14
 type = "workflow"
 
 [preflight]
@@ -198,7 +198,8 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 tmp_branch="${TT_TMP_BRANCH:-}"
 merge_branch="${TT_MERGE_BRANCH:-}"
-remaining_queue='${TT_REMAINING_QUEUE:-[]}'
+remaining_queue_raw='${TT_REMAINING_QUEUE:-[]}'
+remaining_queue="$(jq -cn --arg raw "$remaining_queue_raw" '($raw | fromjson? // []) | if type == "array" then . else [] end')"
 if [ -z "$tmp_branch" ] || [ -z "$merge_branch" ]; then
   jq -cn --arg tmp_branch "$tmp_branch" --arg merge_branch "$merge_branch" '{attempted:false,ready_for_agent:false,merge_complete:false,tmp_branch:$tmp_branch,current_branch:$merge_branch,conflicted_files:[],touched_files:[],remaining_queue:[],stdout:"",stderr:"missing tmp_branch or merge branch",blocker_type:"missing_context"}'
   exit 0
