@@ -216,14 +216,15 @@ func sanitizeAgentSessionSuffix(value string) string {
 }
 
 type formulaRuntimeRunOptions struct {
-	Workflow     *ir.Workflow
-	RunStore     *formularun.Store
-	AgentRunner  steps.AgentRunner
-	Workspace    string
-	Vars         map[string]string
-	DryRun       bool
-	AllowScripts bool
-	RunID        string
+	Workflow            *ir.Workflow
+	RunStore            *formularun.Store
+	AgentRunner         steps.AgentRunner
+	ExternalAgentDriver string
+	Workspace           string
+	Vars                map[string]string
+	DryRun              bool
+	AllowScripts        bool
+	RunID               string
 }
 
 func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Executor, error) {
@@ -235,11 +236,13 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 	if opt.DryRun {
 		capabilities.Agents = formularuntime.DryRunAgentCapability{}
 		capabilities.Scripts = formularuntime.DryRunScriptCapability{}
+		capabilities.ExternalAgents = formularuntime.DryRunExternalAgentCapability{}
 	} else {
 		capabilities.Agents = opt.AgentRunner
 		if opt.AllowScripts {
 			capabilities.Scripts = formularuntime.ScriptCapability{DenyUnsafe: true}
 		}
+		capabilities.ExternalAgents = formularuntime.ExternalAgentCapability{Driver: opt.ExternalAgentDriver}
 	}
 	exec := formularuntime.NewExecutor(workflow, capabilities)
 	exec.SeedEnvironment(opt.Workspace)
@@ -256,19 +259,20 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 }
 
 type executeFormulaRuntimeOptions struct {
-	Workflow     *ir.Workflow
-	RunStore     *formularun.Store
-	Processor    formulaDirectProcessor
-	DefaultAgent string
-	DefaultModel string
-	Session      string
-	Workspace    string
-	Vars         map[string]string
-	Debug        bool
-	DryRun       bool
-	AllowScripts bool
-	Dashboard    *formulaDashboardServer
-	Out          io.Writer
+	Workflow            *ir.Workflow
+	RunStore            *formularun.Store
+	Processor           formulaDirectProcessor
+	DefaultAgent        string
+	DefaultModel        string
+	ExternalAgentDriver string
+	Session             string
+	Workspace           string
+	Vars                map[string]string
+	Debug               bool
+	DryRun              bool
+	AllowScripts        bool
+	Dashboard           *formulaDashboardServer
+	Out                 io.Writer
 }
 
 func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeOptions) error {
@@ -282,13 +286,14 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		quiet:        true,
 	}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
-		Workflow:     opt.Workflow,
-		RunStore:     opt.RunStore,
-		AgentRunner:  agentRunner,
-		Workspace:    opt.Workspace,
-		Vars:         opt.Vars,
-		DryRun:       opt.DryRun,
-		AllowScripts: opt.AllowScripts,
+		Workflow:            opt.Workflow,
+		RunStore:            opt.RunStore,
+		AgentRunner:         agentRunner,
+		ExternalAgentDriver: opt.ExternalAgentDriver,
+		Workspace:           opt.Workspace,
+		Vars:                opt.Vars,
+		DryRun:              opt.DryRun,
+		AllowScripts:        opt.AllowScripts,
 		RunID: func() string {
 			if opt.RunStore != nil {
 				return opt.RunStore.Meta.RunID

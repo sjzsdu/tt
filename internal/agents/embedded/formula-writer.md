@@ -37,6 +37,7 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 - script step 失败且 runtime 有 agent capability 时，会触发一次 agent-assisted repair：agent 产出临时 `fixed_command`，runtime 重跑一次，并写入 `formula_repairs.<step-id>` 作为用户提示。这个能力只用于临时恢复体验，不能替代正确维护 formula。最终报告若包含可能失败的 script/tool step，应把对应 `formula_repairs.<step-id>` 加入 `input_context`，提醒用户把修复同步回 formula 文档。
 - description、script argv/env/cwd、tool config 字符串可使用 `{{var}}`、`{{env.git.branch}}`、`{{step.field}}`。
 - condition 使用 bare expression，不用模板：`condition = "classify.kind == bug"`，不要写 `{{classify.kind}}`。
+- 当用户明确要求接入外部 CLI agent（jcode、codex、opencode、forge、bl）时，可以使用 `execution = "external_agent"` + `[steps.external_agent]`。typed schema 则使用 `kind = "external_agent"` 并把 driver/model/mode 等字段放在 step 顶层。
 
 ## 交付要求
 
@@ -80,6 +81,7 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 | 本地命令/API 调用且还没有内置 tool | `execution = "script"` |
 | 固定用户审批/选择/私有输入 | `execution = "human_input"` |
 | 缺失信息是否需要问用户要运行时判断 | agent step + `form = true` |
+| 需要调用已安装的外部 agent CLI，而不是内置 Picoclaw agent | `execution = "external_agent"` + `[steps.external_agent]` |
 | 需要判断、取舍、综合、实现推理、报告 | agent step，省略 `execution` |
 | 运行时重复直到条件满足或遍历数组 | `[steps.loop]` |
 | 稳定子流程复用 | `embed = "child-formula"` |
@@ -93,6 +95,33 @@ fetch-data -> aggregate-manifest -> write-files -> report
 - `depends_on` 表达顺序。
 - `input_context` 表达 agent 需要看的数据。
 - 不要把巨大正文传给最终报告 agent；先用 `tool write_files` 落盘，再用 `aggregate` 给 manifest。
+
+## 外部 agent step
+
+只有在用户明确希望用外部 agent CLI，或流程依赖该 CLI 的 session/模型行为时，才使用 `external_agent`。普通判断/综合优先使用内置 agent step。
+
+```toml
+[[steps]]
+id = "codex-review"
+title = "External review with Codex"
+execution = "external_agent"
+description = "Review the collected evidence and return concise risks."
+depends_on = ["collect-evidence"]
+input_context = ["collect-evidence"]
+
+[steps.external_agent]
+driver = "codex" # jcode | codex | opencode | forge | bl
+model = "gpt-5"
+mode = "exec"
+timeout = "5m"
+extra_args = ["--sandbox", "read-only"]
+```
+
+注意：
+
+- `tt formula run --ext-driver <driver>` 可为未声明 driver 的 external_agent step 指定默认 driver。
+- `bl` 通过 `jcode run --provider bl` 路由。
+- 使用 `codex`、`opencode`、`forge` 等非标准 CLI 时，必须加顶层 `[preflight]` command check。
 
 ## 基础骨架
 

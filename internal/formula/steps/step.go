@@ -22,8 +22,9 @@ const (
 	KindEmbed      Kind = "embed"
 	KindExpand     Kind = "expand"
 	KindTool       Kind = "tool"
-	KindAggregate  Kind = "aggregate"
-	KindWriteFiles Kind = "write_files"
+	KindAggregate     Kind = "aggregate"
+	KindWriteFiles    Kind = "write_files"
+	KindExternalAgent Kind = "external_agent"
 )
 
 type ID string
@@ -172,9 +173,10 @@ func (e *StepError) Error() string {
 }
 
 type Capabilities struct {
-	Agents  AgentRunner
-	Scripts ScriptRunner
-	Clock   Clock
+	Agents         AgentRunner
+	Scripts        ScriptRunner
+	ExternalAgents ExternalAgentRunner
+	Clock          Clock
 }
 
 type AgentRunner interface {
@@ -199,6 +201,48 @@ type ScriptRequest struct {
 	Env     map[string]string
 	Timeout time.Duration
 }
+
+// ExternalAgentRunner runs a step by invoking an external agent CLI such as
+// jcode, codex, opencode, or forge. The runner is responsible for spawning the
+// binary, forwarding the prompt, and parsing the response into a Value.
+type ExternalAgentRunner interface {
+	RunExternalAgent(context.Context, ExternalAgentRequest) (Value, error)
+}
+
+// ExternalAgentRequest is the contract between the formula step and the
+// external-agent runner. Driver selects the binary (e.g. "jcode", "codex",
+// "opencode", "forge"); Provider/Model are passed through as CLI flags where
+// the driver supports them. Resume continues an existing session; Mode is a
+// runner-specific mode hint such as "ambient", "plan", or "normal".
+type ExternalAgentRequest struct {
+	NodeID     string
+	Driver     string
+	Provider   string
+	Model      string
+	Mode       string
+	Resume     string
+	Workspace  string
+	Prompt     string
+	ExtraArgs  []string
+	Timeout    time.Duration
+}
+
+var (
+	// DefaultExternalAgentDriver is used when a step omits `driver` and no
+	// runner-level default is configured. Routed to the jcode adapter.
+	DefaultExternalAgentDriver = "jcode"
+
+	// SupportedExternalAgentDrivers enumerates drivers the bundled
+	// ExternalAgentCapability can spawn. Other drivers can be registered by
+	// callers supplying their own ExternalAgentRunner implementation.
+	SupportedExternalAgentDrivers = map[string]bool{
+		"jcode":    true,
+		"codex":    true,
+		"opencode": true,
+		"forge":    true,
+		"bl":       true, // routed via the jcode-style subprocess; opt-in.
+	}
+)
 
 type Clock interface {
 	Now() time.Time

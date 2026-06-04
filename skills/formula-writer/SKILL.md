@@ -20,6 +20,7 @@ The core rule is:
 - Runtime injects global `env`: `env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`.
 - Runtime templates such as `{{topic}}`, `{{env.cwd}}`, and `{{some-step.field}}` can be used in descriptions, script argv/env/cwd, and tool config strings.
 - Conditions use bare expressions, not templates: `condition = "classify.kind == bug"`, not `condition = "{{classify.kind}} == bug"`.
+- External agent steps are available when a workflow should delegate to an installed CLI agent such as jcode, codex, opencode, forge, or bl. In recipe TOML use `execution = "external_agent"` plus `[steps.external_agent]`; in typed schema use `kind = "external_agent"` and top-level driver fields.
 
 ## Delivery contract
 
@@ -63,6 +64,7 @@ Ask this in order:
 | Is it a local command/API call not covered by ToolStep? | `execution = "script"` |
 | Is it a known user approval/choice/private value? | `execution = "human_input"` |
 | Is missing context only sometimes needed and should be decided at runtime? | agent step with `form = true` |
+| Should this step run through an external installed agent CLI instead of the embedded Picoclaw agent? | `execution = "external_agent"` with `[steps.external_agent]` |
 | Does it require judgment, tradeoff, synthesis, code reasoning, or prose? | agent step, omit `execution` |
 | Is it repeat-until or foreach runtime iteration? | `[steps.loop]` |
 | Is it stable reusable workflow reuse? | `embed = "child-formula"` |
@@ -94,6 +96,33 @@ Do **not** ask an agent to:
 - validate that a file exists if a command/tool can check it.
 
 Agent steps should receive curated facts and produce judgments/reports.
+
+## External agent steps
+
+Use `external_agent` only when the user explicitly wants another installed agent CLI, or when a task depends on that tool's behavior/session. Prefer normal embedded agent steps otherwise.
+
+```toml
+[[steps]]
+id = "codex-review"
+title = "External review with Codex"
+execution = "external_agent"
+description = "Review the collected evidence and return concise risks."
+depends_on = ["collect-evidence"]
+input_context = ["collect-evidence"]
+
+[steps.external_agent]
+driver = "codex" # jcode | codex | opencode | forge | bl
+model = "gpt-5"
+mode = "exec"
+timeout = "5m"
+extra_args = ["--sandbox", "read-only"]
+```
+
+Notes:
+
+- `tt formula run --ext-driver <driver>` sets the default driver when a step omits `driver`.
+- `bl` is routed through `jcode run --provider bl`.
+- Always add a matching `[preflight]` command check for non-standard CLIs such as `codex`, `opencode`, or `forge`.
 
 ## Minimal formula skeleton
 

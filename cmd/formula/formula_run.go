@@ -42,12 +42,13 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	projectRoot, _ := os.Getwd()
 	if formulaDryRun {
 		return executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{
-			Workflow:     workflow,
-			DryRun:       true,
-			AllowScripts: !formulaNoScript,
-			Workspace:    projectRoot,
-			Vars:         vars,
-			Out:          cmd.OutOrStdout(),
+			Workflow:            workflow,
+			DryRun:              true,
+			AllowScripts:        !formulaNoScript,
+			ExternalAgentDriver: formulaExternalDriver,
+			Workspace:           projectRoot,
+			Vars:                vars,
+			Out:                 cmd.OutOrStdout(),
 		})
 	}
 
@@ -126,19 +127,20 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopRunSignals()
 	err = executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
-		Workflow:     workflow,
-		RunStore:     runStore,
-		Processor:    runner,
-		DefaultAgent: runAgent,
-		DefaultModel: formulaModel,
-		Session:      runSession,
-		Workspace:    agentWorkspace,
-		Vars:         vars,
-		Debug:        formulaDebug,
-		DryRun:       formulaDryRun,
-		AllowScripts: !formulaNoScript,
-		Dashboard:    dashboard,
-		Out:          out,
+		Workflow:            workflow,
+		RunStore:            runStore,
+		Processor:           runner,
+		DefaultAgent:        runAgent,
+		DefaultModel:        formulaModel,
+		ExternalAgentDriver: formulaExternalDriver,
+		Session:             runSession,
+		Workspace:           agentWorkspace,
+		Vars:                vars,
+		Debug:               formulaDebug,
+		DryRun:              formulaDryRun,
+		AllowScripts:        !formulaNoScript,
+		Dashboard:           dashboard,
+		Out:                 out,
 	})
 	if showWeb {
 		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)

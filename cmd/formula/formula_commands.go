@@ -213,6 +213,7 @@ Runtime control notes:
 	}
 	cmd.Flags().StringVar(&a.opts.Agent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
 	cmd.Flags().StringVar(&a.opts.Model, "model", "", "default model override")
+	cmd.Flags().StringVar(&a.opts.ExternalDriver, "ext-driver", "", "default external_agent driver (jcode|codex|opencode|forge|bl); empty falls back to jcode")
 	cmd.Flags().StringVar(&a.opts.Session, "session", "cli:formula", "session key prefix")
 	cmd.Flags().BoolVar(&a.opts.Web, "web", true, "show a live web dashboard while the formula runs (default true; kept for compatibility)")
 	cmd.Flags().BoolVar(&a.opts.NoWeb, "no-web", false, "do not open or keep a live web dashboard for this formula run")

@@ -131,12 +131,44 @@ type Executable interface {
 
 - `NoopStep`
 - `AgentStep`
+- `ExternalAgentStep`
 - `ScriptStep`
 - `HumanInputStep`
 - `LoopStep`
 - `RetryStep`
 
-其中 agent/script/human_input/noop 已经是直接运行路径，Loop/Retry 是面向扩展的 typed step 结构。
+其中 agent/external_agent/script/human_input/noop 已经是直接运行路径，Loop/Retry 是面向扩展的 typed step 结构。
+
+`ExternalAgentStep` 用于把某一步交给外部 agent CLI 执行，内置 driver 包括 `jcode`、`codex`、`opencode`、`forge`、`bl`。旧版 recipe TOML 写法：
+
+```toml
+[[steps]]
+id = "external-review"
+execution = "external_agent"
+description = "Review the current diff and return risks."
+input_context = ["collect-diff"]
+
+[steps.external_agent]
+driver = "codex"
+model = "gpt-5"
+mode = "exec"
+timeout = "5m"
+extra_args = ["--sandbox", "read-only"]
+```
+
+新版 typed schema 写法使用 `kind = "external_agent"`，并把 driver 字段放在 step 顶层：
+
+```toml
+[[steps]]
+id = "external-review"
+kind = "external_agent"
+prompt = "Review the current diff and return risks."
+input_context = ["collect-diff"]
+driver = "codex"
+model = "gpt-5"
+mode = "exec"
+timeout = "5m"
+```
 
 ## 运行模型
 

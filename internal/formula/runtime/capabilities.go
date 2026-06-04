@@ -132,3 +132,259 @@ func (DryRunScriptCapability) RunScript(_ context.Context, req steps.ScriptReque
 	}
 	return steps.Value{Type: "json", Raw: data}, nil
 }
+
+// ExternalAgentCapability spawns an external agent CLI (default: jcode) and
+// surfaces its structured response. The capability supports four drivers out
+// of the box: jcode, codex, opencode, and forge. bl is listed as opt-in but
+// routes through jcode's --provider abstraction where supported.
+type ExternalAgentCapability struct {
+	// Driver is the default agent CLI to invoke when a step omits `driver`.
+	// Defaults to "jcode" when empty.
+	Driver string
+	// DefaultProvider / DefaultModel are inherited by every step unless
+	// overridden at the step level.
+	DefaultProvider string
+	DefaultModel    string
+	// DefaultTimeout caps each invocation. Zero falls back to 5 minutes.
+	DefaultTimeout time.Duration
+	// Resolver maps a driver name to its binary on PATH. Empty entries fall
+	// back to looking up the driver name directly via exec.LookPath.
+	Resolver func(driver string) (string, error)
+}
+
+type externalAgentOutput struct {
+	Driver    string `json:"driver"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Text      string `json:"text"`
+	Stderr    string `json:"stderr,omitempty"`
+	ExitCode  int    `json:"exit_code"`
+	Duration  int64  `json:"duration_ms"`
+}
+
+func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps.ExternalAgentRequest) (steps.Value, error) {
+	driver := strings.TrimSpace(req.Driver)
+	if driver == "" {
+		driver = strings.TrimSpace(c.Driver)
+	}
+	if driver == "" {
+		driver = steps.DefaultExternalAgentDriver
+	}
+	if !steps.SupportedExternalAgentDrivers[driver] {
+		return steps.Value{}, fmt.Errorf("external_agent driver %q is not supported", driver)
+	}
+	bin, err := c.lookupDriver(driver)
+	if err != nil {
+		return steps.Value{}, err
+	}
+	provider := firstNonEmpty(req.Provider, c.DefaultProvider)
+	model := firstNonEmpty(req.Model, c.DefaultModel)
+	argv := buildExternalAgentArgv(driver, provider, model, req.Mode, req.Resume, req.ExtraArgs)
+	argv = appendAgentPrompt(argv, driver, req.Prompt)
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = c.DefaultTimeout
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, bin, argv[1:]...)
+	cmd.Stdin = strings.NewReader(req.Prompt)
+	if cwd := strings.TrimSpace(req.Workspace); cwd != "" {
+		if !filepath.IsAbs(cwd) {
+			if wd, wderr := os.Getwd(); wderr == nil {
+				cwd = filepath.Join(wd, cwd)
+			}
+		}
+		cmd.Dir = cwd
+	}
+	cmd.Env = os.Environ()
+	started := time.Now()
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	runErr := cmd.Run()
+	exitCode := 0
+	if runErr != nil {
+		exitCode = 1
+		if ee, ok := runErr.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		}
+	}
+	if runCtx.Err() == context.DeadlineExceeded {
+		runErr = fmt.Errorf("external_agent %s timed out after %s", driver, timeout)
+	}
+	out := externalAgentOutput{
+		Driver:    driver,
+		Provider:  provider,
+		Model:     model,
+		Mode:      req.Mode,
+		SessionID: extractExternalAgentSessionID(driver, stdout.String()),
+		Text:      extractExternalAgentText(driver, stdout.String()),
+		Stderr:    strings.TrimSpace(stderr.String()),
+		ExitCode:  exitCode,
+		Duration:  time.Since(started).Milliseconds(),
+	}
+	data, marshalErr := json.Marshal(out)
+	if marshalErr != nil {
+		return steps.Value{}, marshalErr
+	}
+	return steps.Value{Type: "json", Raw: data}, runErr
+}
+
+func (c ExternalAgentCapability) lookupDriver(driver string) (string, error) {
+	if c.Resolver != nil {
+		return c.Resolver(driver)
+	}
+	lookup := driver
+	if driver == "bl" {
+		lookup = "jcode"
+	}
+	path, err := exec.LookPath(lookup)
+	if err != nil {
+		return "", fmt.Errorf("external_agent driver %q not found on PATH: %w", lookup, err)
+	}
+	return path, nil
+}
+
+func buildExternalAgentArgv(driver, provider, model, mode, resume string, extra []string) []string {
+	argv := []string{driver}
+	switch driver {
+	case "jcode":
+		argv = append(argv, "run", "--json")
+		if provider != "" {
+			argv = append(argv, "--provider", provider)
+		}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		if resume != "" {
+			argv = append(argv, "--resume", resume)
+		}
+		argv = append(argv, extra...)
+	case "bl":
+		argv[0] = "jcode"
+		argv = append(argv, "run", "--json", "--provider", "bl")
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		if resume != "" {
+			argv = append(argv, "--resume", resume)
+		}
+		argv = append(argv, extra...)
+	case "codex":
+		if mode == "" {
+			mode = "exec"
+		}
+		argv = append(argv, mode)
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		if resume != "" {
+			argv = append(argv, "--resume", resume)
+		}
+		argv = append(argv, extra...)
+	case "opencode":
+		argv = append(argv, "run")
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		if resume != "" {
+			argv = append(argv, "--session", resume)
+		}
+		argv = append(argv, extra...)
+	case "forge":
+		argv = append(argv, "run")
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		if resume != "" {
+			argv = append(argv, "--resume", resume)
+		}
+		argv = append(argv, extra...)
+	}
+	return argv
+}
+
+func appendAgentPrompt(argv []string, driver, prompt string) []string {
+	if strings.TrimSpace(prompt) == "" {
+		return argv
+	}
+	switch driver {
+	case "jcode", "codex", "opencode", "forge", "bl":
+		return append(argv, prompt)
+	}
+	return argv
+}
+
+func extractExternalAgentText(driver, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	switch driver {
+	case "jcode", "bl":
+		var parsed struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(raw), &parsed); err == nil && parsed.Text != "" {
+			return parsed.Text
+		}
+	}
+	return raw
+}
+
+func extractExternalAgentSessionID(driver, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if driver != "jcode" && driver != "bl" {
+		return ""
+	}
+	var parsed struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+		return parsed.SessionID
+	}
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// DryRunExternalAgentCapability echoes the request as JSON so formulas can
+// be validated without spawning any agent. Used by --dry-run.
+type DryRunExternalAgentCapability struct{}
+
+func (DryRunExternalAgentCapability) RunExternalAgent(_ context.Context, req steps.ExternalAgentRequest) (steps.Value, error) {
+	data, err := json.Marshal(map[string]any{
+		"dry_run":    true,
+		"driver":     req.Driver,
+		"provider":   req.Provider,
+		"model":      req.Model,
+		"mode":       req.Mode,
+		"resume":     req.Resume,
+		"prompt":     req.Prompt,
+		"exit_code":  0,
+		"text":       "",
+		"session_id": "",
+		"stderr":     "",
+		"duration":   int64(0),
+	})
+	if err != nil {
+		return steps.Value{}, err
+	}
+	return steps.Value{Type: "json", Raw: data}, nil
+}

@@ -269,6 +269,80 @@ type ScriptStep struct {
 	OutputKey  string
 	Validation *OutputValidationSpec `json:"validate,omitempty"`
 }
+
+// ExternalAgentStep executes a step by spawning an external agent CLI
+// (jcode / codex / opencode / forge). It mirrors AgentStep so existing
+// input_context, validation, dashboard, and resume flows work unchanged.
+type ExternalAgentStep struct {
+	Base
+	Driver     string                `json:"driver,omitempty"`
+	Provider   string                `json:"provider,omitempty"`
+	Model      string                `json:"model,omitempty"`
+	Mode       string                `json:"mode,omitempty"`
+	Resume     string                `json:"resume,omitempty"`
+	Cwd        string                `json:"cwd,omitempty"`
+	Timeout    string                `json:"timeout,omitempty"`
+	Prompt     string                `json:"prompt,omitempty"`
+	ExtraArgs  []string              `json:"extra_args,omitempty"`
+	InputCtx   []string              `json:"input_context,omitempty"`
+	OutputKey  string                `json:"output_key,omitempty"`
+	Validation *OutputValidationSpec `json:"validate,omitempty"`
+}
+
+type ExternalAgentDecoder struct{}
+
+func (ExternalAgentDecoder) Kind() Kind { return KindExternalAgent }
+func (ExternalAgentDecoder) Decode(decl ast.StepDecl) (Step, error) {
+	var s ExternalAgentStep
+	_ = json.Unmarshal(decl.Raw, &s)
+	s.Base = Base{metadataFromDecl(decl, KindExternalAgent)}
+	if s.Driver == "" {
+		s.Driver = DefaultExternalAgentDriver
+	}
+	return s, nil
+}
+
+func (s ExternalAgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if req.Capabilities.ExternalAgents == nil {
+		err := &StepError{Message: "external_agent capability is required"}
+		return &RunResult{Status: StatusFailed, Error: err}, err
+	}
+	prompt := renderContextTemplates(s.Prompt, req.Context)
+	prompt = appendInputContext(prompt, s.InputCtx, req.Context)
+	prompt = appendFormulaAgentExecutionGuard(prompt)
+	driver := strings.TrimSpace(s.Driver)
+	if driver == "" {
+		driver = DefaultExternalAgentDriver
+	}
+	out, err := req.Capabilities.ExternalAgents.RunExternalAgent(ctx, ExternalAgentRequest{
+		NodeID:    req.NodeID,
+		Driver:    driver,
+		Provider:  s.Provider,
+		Model:     s.Model,
+		Mode:      s.Mode,
+		Resume:    s.Resume,
+		Workspace: renderStepCwd(s.Cwd, req.Context),
+		Prompt:    prompt,
+		ExtraArgs: append([]string(nil), s.ExtraArgs...),
+		Timeout:   parseStepTimeout(s.Timeout),
+	})
+	if err != nil {
+		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "external_agent step failed", Cause: err}}, err
+	}
+	return &RunResult{Status: StatusCompleted, Output: out}, nil
+}
+
+func parseStepTimeout(raw string) time.Duration {
+	if strings.TrimSpace(raw) == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
 type ScriptDecoder struct{}
 
 func (ScriptDecoder) Kind() Kind { return KindScript }

@@ -290,6 +290,10 @@ type Step struct {
 	// Script specifies a deterministic local command for execution="script" steps.
 	Script *ScriptSpec `json:"script,omitempty" toml:"script,omitempty"`
 
+	// ExternalAgent specifies the configuration for an execution="external_agent"
+	// step that spawns an external CLI (jcode / codex / opencode / forge / bl).
+	ExternalAgent *ExternalAgentConfig `json:"external_agent,omitempty" toml:"external_agent,omitempty"`
+
 	// Aggregate projects and collects data from prior step outputs.
 	Aggregate *AggregateSpec `json:"aggregate,omitempty" toml:"aggregate,omitempty"`
 
@@ -394,43 +398,44 @@ func (s *Step) normalizeCheckAlias(hasCheck bool, rawCheck interface{}, hasRalph
 }
 
 type stepTOMLAlias struct {
-	ID              string            `json:"id"`
-	Title           string            `json:"title"`
-	Description     string            `json:"description,omitempty"`
-	DescriptionFile string            `json:"description_file,omitempty"`
-	Notes           string            `json:"notes,omitempty"`
-	Type            string            `json:"type,omitempty"`
-	Priority        *int              `json:"priority,omitempty"`
-	Labels          []string          `json:"tags,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	DependsOn       []string          `json:"depends_on,omitempty"`
-	Needs           []string          `json:"needs,omitempty"`
-	WaitsFor        string            `json:"waits_for,omitempty"`
-	Assignee        string            `json:"assignee,omitempty"`
-	Expand          string            `json:"expand,omitempty"`
-	ExpandVars      map[string]string `json:"expand_vars,omitempty"`
-	Embed           string            `json:"embed,omitempty"`
-	EmbedVars       map[string]string `json:"embed_vars,omitempty"`
-	Condition       string            `json:"condition,omitempty"`
-	Children        []*stepTOMLAlias  `json:"children,omitempty"`
-	Gate            *Gate             `json:"gate,omitempty"`
-	Loop            *loopTOMLAlias    `json:"loop,omitempty"`
-	OnComplete      *OnCompleteSpec   `json:"on_complete,omitempty"`
-	Check           json.RawMessage   `json:"check,omitempty"`
-	Ralph           json.RawMessage   `json:"ralph,omitempty"`
-	Retry           *RetrySpec        `json:"retry,omitempty"`
-	Timeout         string            `json:"timeout,omitempty"`
-	Agent           *AgentConfig      `json:"agent,omitempty"`
-	Script          *ScriptSpec       `json:"script,omitempty"`
-	Aggregate       *AggregateSpec    `json:"aggregate,omitempty"`
-	Tool            *ToolSpec         `json:"tool,omitempty"`
-	WriteFiles      *WriteFilesSpec   `json:"write_files,omitempty"`
-	Form            json.RawMessage   `json:"form,omitempty"`
-	DynamicForm     bool              `json:"dynamic_form,omitempty"`
-	Validate        *ValidateSpec     `json:"validate,omitempty"`
-	OutputKey       string            `json:"output_key,omitempty"`
-	InputCtx        []string          `json:"input_context,omitempty"`
-	Execution       string            `json:"execution,omitempty"`
+	ID              string               `json:"id"`
+	Title           string               `json:"title"`
+	Description     string               `json:"description,omitempty"`
+	DescriptionFile string               `json:"description_file,omitempty"`
+	Notes           string               `json:"notes,omitempty"`
+	Type            string               `json:"type,omitempty"`
+	Priority        *int                 `json:"priority,omitempty"`
+	Labels          []string             `json:"tags,omitempty"`
+	Metadata        map[string]string    `json:"metadata,omitempty"`
+	DependsOn       []string             `json:"depends_on,omitempty"`
+	Needs           []string             `json:"needs,omitempty"`
+	WaitsFor        string               `json:"waits_for,omitempty"`
+	Assignee        string               `json:"assignee,omitempty"`
+	Expand          string               `json:"expand,omitempty"`
+	ExpandVars      map[string]string    `json:"expand_vars,omitempty"`
+	Embed           string               `json:"embed,omitempty"`
+	EmbedVars       map[string]string    `json:"embed_vars,omitempty"`
+	Condition       string               `json:"condition,omitempty"`
+	Children        []*stepTOMLAlias     `json:"children,omitempty"`
+	Gate            *Gate                `json:"gate,omitempty"`
+	Loop            *loopTOMLAlias       `json:"loop,omitempty"`
+	OnComplete      *OnCompleteSpec      `json:"on_complete,omitempty"`
+	Check           json.RawMessage      `json:"check,omitempty"`
+	Ralph           json.RawMessage      `json:"ralph,omitempty"`
+	Retry           *RetrySpec           `json:"retry,omitempty"`
+	Timeout         string               `json:"timeout,omitempty"`
+	Agent           *AgentConfig         `json:"agent,omitempty"`
+	Script          *ScriptSpec          `json:"script,omitempty"`
+	ExternalAgent   *ExternalAgentConfig `json:"external_agent,omitempty"`
+	Aggregate       *AggregateSpec       `json:"aggregate,omitempty"`
+	Tool            *ToolSpec            `json:"tool,omitempty"`
+	WriteFiles      *WriteFilesSpec      `json:"write_files,omitempty"`
+	Form            json.RawMessage      `json:"form,omitempty"`
+	DynamicForm     bool                 `json:"dynamic_form,omitempty"`
+	Validate        *ValidateSpec        `json:"validate,omitempty"`
+	OutputKey       string               `json:"output_key,omitempty"`
+	InputCtx        []string             `json:"input_context,omitempty"`
+	Execution       string               `json:"execution,omitempty"`
 }
 
 type loopTOMLAlias struct {
@@ -527,6 +532,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Timeout:         a.Timeout,
 		Agent:           a.Agent,
 		Script:          a.Script,
+		ExternalAgent:   a.ExternalAgent,
 		Aggregate:       a.Aggregate,
 		Tool:            a.Tool,
 		WriteFiles:      a.WriteFiles,
@@ -690,6 +696,21 @@ type AgentConfig struct {
 	Session string `json:"session,omitempty" toml:"session,omitempty"`
 	Timeout string `json:"timeout,omitempty" toml:"timeout,omitempty"`
 	Retries int    `json:"retries,omitempty" toml:"retries,omitempty"`
+}
+
+// ExternalAgentConfig configures an execution="external_agent" step. It mirrors
+// AgentConfig's surface so that steps can swap picoclaw for an external CLI
+// (jcode / codex / opencode / forge / bl) without changing input_context or
+// validate semantics.
+type ExternalAgentConfig struct {
+	Driver    string   `json:"driver,omitempty" toml:"driver,omitempty"`
+	Provider  string   `json:"provider,omitempty" toml:"provider,omitempty"`
+	Model     string   `json:"model,omitempty" toml:"model,omitempty"`
+	Mode      string   `json:"mode,omitempty" toml:"mode,omitempty"`
+	Resume    string   `json:"resume,omitempty" toml:"resume,omitempty"`
+	Cwd       string   `json:"cwd,omitempty" toml:"cwd,omitempty"`
+	Timeout   string   `json:"timeout,omitempty" toml:"timeout,omitempty"`
+	ExtraArgs []string `json:"extra_args,omitempty" toml:"extra_args,omitempty"`
 }
 
 // ScriptSpec describes a deterministic local command step. Prefer Command argv

@@ -154,6 +154,35 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 			env = step.Script.Env
 		}
 		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+	case "external_agent":
+		meta.Kind = steps.KindExternalAgent
+		var driver, provider, model, mode, resume, cwd, timeout string
+		var extra []string
+		if step.ExternalAgent != nil {
+			driver = step.ExternalAgent.Driver
+			provider = step.ExternalAgent.Provider
+			model = step.ExternalAgent.Model
+			mode = step.ExternalAgent.Mode
+			resume = step.ExternalAgent.Resume
+			cwd = step.ExternalAgent.Cwd
+			timeout = step.ExternalAgent.Timeout
+			extra = append([]string(nil), step.ExternalAgent.ExtraArgs...)
+		}
+		return steps.ExternalAgentStep{
+			Base:       steps.Base{Metadata: meta},
+			Driver:     driver,
+			Provider:   provider,
+			Model:      model,
+			Mode:       mode,
+			Resume:     resume,
+			Cwd:        cwd,
+			Timeout:    timeout,
+			Prompt:     step.Description,
+			ExtraArgs:  extra,
+			InputCtx:   append([]string(nil), step.InputCtx...),
+			OutputKey:  step.OutputKey,
+			Validation: outputValidationSpec(step),
+		}
 	case "aggregate":
 		meta.Kind = steps.KindAggregate
 		agg := step.Aggregate

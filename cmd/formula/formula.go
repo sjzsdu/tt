@@ -30,6 +30,7 @@ type formulaOptions struct {
 	Port            int
 	Agent           string
 	Model           string
+	ExternalDriver  string
 	Session         string
 	Web             bool
 	NoWeb           bool
@@ -66,6 +67,7 @@ var (
 	formulaPort            int
 	formulaAgent           string
 	formulaModel           string
+	formulaExternalDriver  string
 	formulaSession         string
 	formulaWeb             bool
 	formulaNoWeb           bool
@@ -103,6 +105,7 @@ func (a *App) installOptions() {
 	formulaPort = a.opts.Port
 	formulaAgent = a.opts.Agent
 	formulaModel = a.opts.Model
+	formulaExternalDriver = a.opts.ExternalDriver
 	formulaSession = a.opts.Session
 	formulaWeb = a.opts.Web
 	formulaNoWeb = a.opts.NoWeb

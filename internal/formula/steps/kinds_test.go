@@ -122,6 +122,51 @@ func TestStepErrorMarshalStoresStringCause(t *testing.T) {
 	}
 }
 
+type capturingExternalAgentRunner struct{ req ExternalAgentRequest }
+
+func (r *capturingExternalAgentRunner) RunExternalAgent(_ context.Context, req ExternalAgentRequest) (Value, error) {
+	r.req = req
+	return Value{Type: "json", Raw: []byte(`{"text":"ok"}`)}, nil
+}
+
+func TestExternalAgentStepPassesTimeoutAndConfig(t *testing.T) {
+	runner := &capturingExternalAgentRunner{}
+	step := ExternalAgentStep{
+		Base:      Base{Metadata: Metadata{ID: "ask", Kind: KindExternalAgent}},
+		Driver:    "codex",
+		Model:     "gpt-5",
+		Mode:      "exec",
+		Resume:    "sess",
+		Cwd:       ".",
+		Timeout:   "2s",
+		Prompt:    "review {{input}}",
+		ExtraArgs: []string{"--sandbox", "read-only"},
+	}
+	res, err := step.Run(context.Background(), RunRequest{
+		NodeID:       "ask",
+		Context:      mapContextView{"input": {Raw: []byte(`"code"`)}},
+		Capabilities: Capabilities{ExternalAgents: runner},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusCompleted {
+		t.Fatalf("status = %s", res.Status)
+	}
+	if runner.req.Driver != "codex" || runner.req.Model != "gpt-5" || runner.req.Mode != "exec" || runner.req.Resume != "sess" {
+		t.Fatalf("req = %+v", runner.req)
+	}
+	if runner.req.Timeout != 2*time.Second {
+		t.Fatalf("timeout = %s", runner.req.Timeout)
+	}
+	if !strings.Contains(runner.req.Prompt, "review code") || !strings.Contains(runner.req.Prompt, "Formula step execution guard") {
+		t.Fatalf("prompt = %q", runner.req.Prompt)
+	}
+	if got := strings.Join(runner.req.ExtraArgs, " "); got != "--sandbox read-only" {
+		t.Fatalf("extra args = %q", got)
+	}
+}
+
 func TestParseDynamicHumanInputRepairsMissingFieldsArrayCloser(t *testing.T) {
 	raw, err := json.Marshal("```tt-human-input json\n" + `{"reason":"need scope","form":{"title":"Scope","fields":[{"name":"audience","label":"Audience","type":"select","options":["dev","ops"]},{"name":"constraints","label":"Constraints","type":"textarea"}}}` + "\n```")
 	if err != nil {
