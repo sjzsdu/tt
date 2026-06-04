@@ -54,11 +54,11 @@ condition = "{{driver}} == forge"
 
 [[steps]]
 id = "collect-diff"
-title = "收集当前 git diff"
+title = "收集当前 git 状态"
 execution = "script"
 
 [steps.script]
-command = ["git", "diff", "--stat", "HEAD", "--", "."]
+command = ["git", "status", "--short"]
 timeout = "15s"
 
 [[steps]]
