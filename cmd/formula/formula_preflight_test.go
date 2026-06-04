@@ -12,7 +12,7 @@ import (
 
 func TestRunFormulaPreflightCommandMissing(t *testing.T) {
 	f := &formula.Formula{Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{{Type: "command", Name: "missing-tool", Command: "tt-definitely-missing-tool", Message: "install missing tool"}}}}
-	err := runFormulaPreflight(context.Background(), f, t.TempDir())
+	err := runFormulaPreflight(context.Background(), f, t.TempDir(), nil)
 	if err == nil {
 		t.Fatal("expected preflight error")
 	}
@@ -31,7 +31,7 @@ func TestRunFormulaPreflightExecAndPathPass(t *testing.T) {
 		{Type: "exec", Name: "shell", Command: "test -f marker.txt"},
 		{Type: "path", Name: "marker", Path: "marker.txt"},
 	}}}
-	if err := runFormulaPreflight(context.Background(), f, dir); err != nil {
+	if err := runFormulaPreflight(context.Background(), f, dir, nil); err != nil {
 		t.Fatalf("preflight should pass: %v", err)
 	}
 }
@@ -39,7 +39,28 @@ func TestRunFormulaPreflightExecAndPathPass(t *testing.T) {
 func TestRunFormulaPreflightEnv(t *testing.T) {
 	t.Setenv("TT_PREFLIGHT_TEST_ENV", "ok")
 	f := &formula.Formula{Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{{Type: "env", Env: "TT_PREFLIGHT_TEST_ENV"}}}}
-	if err := runFormulaPreflight(context.Background(), f, t.TempDir()); err != nil {
+	if err := runFormulaPreflight(context.Background(), f, t.TempDir(), nil); err != nil {
 		t.Fatalf("preflight should pass: %v", err)
 	}
 }
+
+func TestRunFormulaPreflightSkipsFalseCondition(t *testing.T) {
+	f := &formula.Formula{Vars: map[string]*formula.VarDef{"driver": &formula.VarDef{Default: stringPtr("jcode")}}, Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{
+		{Type: "command", Name: "codex", Command: "tt-definitely-missing-tool", Condition: "{{driver}} == codex"},
+	}}}
+	if err := runFormulaPreflight(context.Background(), f, t.TempDir(), nil); err != nil {
+		t.Fatalf("preflight should skip false condition: %v", err)
+	}
+}
+
+func TestRunFormulaPreflightRunsTrueConditionWithOverride(t *testing.T) {
+	f := &formula.Formula{Vars: map[string]*formula.VarDef{"driver": &formula.VarDef{Default: stringPtr("jcode")}}, Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{
+		{Type: "command", Name: "codex", Command: "tt-definitely-missing-tool", Condition: "{{driver}} == codex"},
+	}}}
+	err := runFormulaPreflight(context.Background(), f, t.TempDir(), map[string]string{"driver": "codex"})
+	if err == nil || !strings.Contains(err.Error(), "codex") {
+		t.Fatalf("expected conditional preflight failure, got %v", err)
+	}
+}
+
+func stringPtr(v string) *string { return &v }

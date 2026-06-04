@@ -166,6 +166,8 @@ name = "planner"
 | `env` | `env` 或 `name` | 要求环境变量存在且非空。 |
 | `path` | `path` | 要求文件或目录存在；相对路径基于 workspace。 |
 
+每个 preflight check 都可以设置 `condition`，语法使用 compile-time 变量写法，例如 `condition = "{{driver}} == codex"`。公式默认值先参与判断，运行时 `--var driver=...` 会覆盖默认值。
+
 示例：
 
 ```toml
@@ -176,6 +178,13 @@ type = "command"
 name = "jira"
 command = "jira"
 message = "需要安装并配置 Jira CLI。"
+
+[[preflight.checks]]
+type = "command"
+name = "codex"
+command = "codex"
+condition = "{{driver}} == codex"
+message = "driver=codex 时需要安装 Codex CLI。"
 
 [[preflight.checks]]
 type = "exec"

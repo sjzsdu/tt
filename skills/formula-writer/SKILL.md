@@ -167,6 +167,8 @@ Supported check types:
 | `env` | `env` or `name` | Require an environment variable to be set. |
 | `path` | `path` | Require a file or directory path to exist. Relative paths are resolved from the workspace. |
 
+Every preflight check may set `condition` using compile-time variable syntax, e.g. `condition = "{{driver}} == codex"`. Formula defaults apply first and `--var driver=...` overrides them at run time.
+
 Example:
 
 ```toml
@@ -177,6 +179,13 @@ type = "command"
 name = "jira"
 command = "jira"
 message = "Install and configure Jira CLI before running this formula."
+
+[[preflight.checks]]
+type = "command"
+name = "codex"
+command = "codex"
+condition = "{{driver}} == codex"
+message = "Install Codex CLI when driver=codex."
 
 [[preflight.checks]]
 type = "exec"

@@ -51,7 +51,7 @@ func (e formulaPreflightError) Error() string {
 	return b.String()
 }
 
-func runFormulaPreflight(ctx context.Context, f *formula.Formula, workspace string) error {
+func runFormulaPreflight(ctx context.Context, f *formula.Formula, workspace string, vars map[string]string) error {
 	if f == nil || f.Preflight == nil || len(f.Preflight.Checks) == 0 {
 		return nil
 	}
@@ -59,8 +59,17 @@ func runFormulaPreflight(ctx context.Context, f *formula.Formula, workspace stri
 		workspace, _ = os.Getwd()
 	}
 	var failures []formulaPreflightFailure
+	conditionVars := preflightConditionVars(f, vars)
 	for i, check := range f.Preflight.Checks {
 		if check == nil {
+			continue
+		}
+		include, err := formula.EvaluateStepCondition(check.Condition, conditionVars)
+		if err != nil {
+			failures = append(failures, formulaPreflightFailure{Check: preflightCheckLabel(check, i), Message: check.Message, Err: fmt.Errorf("invalid preflight condition %q: %w", check.Condition, err)})
+			continue
+		}
+		if !include {
 			continue
 		}
 		if err := runFormulaPreflightCheck(ctx, check, workspace); err != nil {
@@ -71,6 +80,21 @@ func runFormulaPreflight(ctx context.Context, f *formula.Formula, workspace stri
 		return formulaPreflightError{Failures: failures}
 	}
 	return nil
+}
+
+func preflightConditionVars(f *formula.Formula, overrides map[string]string) map[string]string {
+	vars := make(map[string]string)
+	if f != nil {
+		for name, def := range f.Vars {
+			if def != nil && def.Default != nil {
+				vars[name] = *def.Default
+			}
+		}
+	}
+	for k, v := range overrides {
+		vars[k] = v
+	}
+	return vars
 }
 
 func runFormulaPreflightCheck(ctx context.Context, check *formula.PreflightCheck, workspace string) error {

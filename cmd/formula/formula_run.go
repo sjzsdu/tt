@@ -52,7 +52,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	if err := runFormulaPreflight(context.Background(), resolvedFormula, projectRoot); err != nil {
+	if err := runFormulaPreflight(context.Background(), resolvedFormula, projectRoot, vars); err != nil {
 		return err
 	}
 

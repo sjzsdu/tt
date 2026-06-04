@@ -21,7 +21,36 @@ message = "需要在 git repo 中运行，以便收集当前 diff。"
 type = "command"
 name = "jcode"
 command = "jcode"
-message = "默认 driver 使用 jcode；如改用 codex/opencode/forge，请确保对应 CLI 已安装。"
+message = "driver = jcode 或 bl 时需要安装 jcode。"
+condition = "{{driver}} == jcode"
+
+[[preflight.checks]]
+type = "command"
+name = "bl"
+command = "jcode"
+message = "driver = bl 时通过 jcode --provider bl 路由，需要安装 jcode。"
+condition = "{{driver}} == bl"
+
+[[preflight.checks]]
+type = "command"
+name = "codex"
+command = "codex"
+message = "driver = codex 时需要安装 Codex CLI。"
+condition = "{{driver}} == codex"
+
+[[preflight.checks]]
+type = "command"
+name = "opencode"
+command = "opencode"
+message = "driver = opencode 时需要安装 OpenCode CLI。"
+condition = "{{driver}} == opencode"
+
+[[preflight.checks]]
+type = "command"
+name = "forge"
+command = "forge"
+message = "driver = forge 时需要安装 Forge CLI。"
+condition = "{{driver}} == forge"
 
 [[steps]]
 id = "collect-diff"

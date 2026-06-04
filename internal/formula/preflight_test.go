@@ -15,6 +15,7 @@ type = "command"
 name = "gh"
 command = "gh"
 message = "install gh"
+condition = "{{driver}} == codex"
 
 [[preflight.checks]]
 type = "git"
@@ -32,7 +33,7 @@ title = "Done"
 	if f.Preflight == nil || len(f.Preflight.Checks) != 2 {
 		t.Fatalf("expected 2 preflight checks, got %#v", f.Preflight)
 	}
-	if f.Preflight.Checks[0].Command != "gh" || f.Preflight.Checks[1].RequireRemote != true {
+	if f.Preflight.Checks[0].Command != "gh" || f.Preflight.Checks[0].Condition != "{{driver}} == codex" || f.Preflight.Checks[1].RequireRemote != true {
 		t.Fatalf("unexpected preflight checks: %#v", f.Preflight.Checks)
 	}
 }

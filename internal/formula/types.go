@@ -141,13 +141,14 @@ type PreflightSpec struct {
 
 // PreflightCheck defines one pre-run environment check.
 type PreflightCheck struct {
-	Type    string   `json:"type" toml:"type"`
-	Name    string   `json:"name,omitempty" toml:"name,omitempty"`
-	Command string   `json:"command,omitempty" toml:"command,omitempty"`
-	Args    []string `json:"args,omitempty" toml:"args,omitempty"`
-	Env     string   `json:"env,omitempty" toml:"env,omitempty"`
-	Path    string   `json:"path,omitempty" toml:"path,omitempty"`
-	Message string   `json:"message,omitempty" toml:"message,omitempty"`
+	Type      string   `json:"type" toml:"type"`
+	Name      string   `json:"name,omitempty" toml:"name,omitempty"`
+	Command   string   `json:"command,omitempty" toml:"command,omitempty"`
+	Args      []string `json:"args,omitempty" toml:"args,omitempty"`
+	Env       string   `json:"env,omitempty" toml:"env,omitempty"`
+	Path      string   `json:"path,omitempty" toml:"path,omitempty"`
+	Message   string   `json:"message,omitempty" toml:"message,omitempty"`
+	Condition string   `json:"condition,omitempty" toml:"condition,omitempty"`
 
 	RequireRepo   bool `json:"require_repo,omitempty" toml:"require_repo,omitempty"`
 	RequireRemote bool `json:"require_remote,omitempty" toml:"require_remote,omitempty"`
