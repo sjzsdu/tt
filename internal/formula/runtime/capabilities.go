@@ -336,6 +336,9 @@ func buildExternalAgentArgv(driver, provider, model, mode, resume string, extra 
 		if resume != "" {
 			argv = append(argv, "--session", resume)
 		}
+		if !hasExternalAgentArg(extra, "--format") {
+			argv = append(argv, "--format", "json")
+		}
 		argv = append(argv, extra...)
 	case "forge":
 		// forge handles single-shot execution via top-level --prompt. It does not
@@ -386,8 +389,52 @@ func extractExternalAgentText(driver, raw string) string {
 		}
 	case "forge":
 		return extractForgeText(raw)
+	case "opencode":
+		if text := extractOpenCodeText(raw); text != "" {
+			return text
+		}
 	}
 	return raw
+}
+
+func extractOpenCodeText(raw string) string {
+	var texts []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var event any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		texts = appendJSONText(texts, event)
+	}
+	return strings.TrimSpace(strings.Join(texts, ""))
+}
+
+func appendJSONText(texts []string, value any) []string {
+	switch v := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"text", "delta", "content"} {
+			if s, ok := v[key].(string); ok && s != "" {
+				return append(texts, s)
+			}
+		}
+		for _, key := range []string{"message", "part", "data", "snapshot"} {
+			if nested, ok := v[key]; ok {
+				texts = appendJSONText(texts, nested)
+			}
+		}
+		if parts, ok := v["parts"]; ok {
+			texts = appendJSONText(texts, parts)
+		}
+	case []any:
+		for _, item := range v {
+			texts = appendJSONText(texts, item)
+		}
+	}
+	return texts
 }
 
 func extractForgeText(raw string) string {
@@ -437,6 +484,9 @@ func extractExternalAgentSessionID(driver, raw string) string {
 		}
 		return ""
 	}
+	if driver == "opencode" {
+		return extractOpenCodeSessionID(raw)
+	}
 	if driver != "jcode" && driver != "bl" {
 		return ""
 	}
@@ -445,6 +495,35 @@ func extractExternalAgentSessionID(driver, raw string) string {
 	}
 	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
 		return parsed.SessionID
+	}
+	return ""
+}
+
+func extractOpenCodeSessionID(raw string) string {
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		for _, key := range []string{"session_id", "sessionID"} {
+			if s, ok := event[key].(string); ok && s != "" {
+				return s
+			}
+		}
+		if typ, _ := event["type"].(string); strings.Contains(typ, "session") {
+			if s, ok := event["id"].(string); ok && s != "" {
+				return s
+			}
+		}
+		if session, ok := event["session"].(map[string]any); ok {
+			if s, ok := session["id"].(string); ok && s != "" {
+				return s
+			}
+		}
 	}
 	return ""
 }

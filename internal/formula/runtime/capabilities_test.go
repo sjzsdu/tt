@@ -44,7 +44,8 @@ func TestBuildExternalAgentArgvAdapters(t *testing.T) {
 		{name: "codex exec subcommand", driver: "codex", model: "m", want: []string{"codex", "exec", "--model", "m"}},
 		{name: "codex resume subcommand", driver: "codex", model: "m", resume: "s", want: []string{"codex", "exec", "resume", "--model", "m", "s"}},
 		{name: "codex resume extra before session", driver: "codex", model: "m", resume: "s", extra: []string{"--json"}, want: []string{"codex", "exec", "resume", "--model", "m", "--json", "s"}},
-		{name: "opencode session", driver: "opencode", model: "m", resume: "s", want: []string{"opencode", "run", "--model", "m", "--session", "s"}},
+		{name: "opencode session", driver: "opencode", model: "m", resume: "s", want: []string{"opencode", "run", "--model", "m", "--session", "s", "--format", "json"}},
+		{name: "opencode keeps explicit format", driver: "opencode", extra: []string{"--format", "default"}, want: []string{"opencode", "run", "--format", "default"}},
 		{name: "forge conversation", driver: "forge", model: "m", resume: "s", want: []string{"forge", "--conversation-id", "s"}},
 	}
 	for _, tt := range tests {
@@ -142,6 +143,25 @@ func TestExtractForgeTextStripsSpinnerOutput(t *testing.T) {
 	spinnerOnly := "\r\x1b[2K⠋ Reasoning 00s · Ctrl+C to interrupt\r\x1b[2K⠹ Reasoning 01s · Ctrl+C to interrupt\r\x1b[2K"
 	if got := cleanExternalAgentStderr("forge", spinnerOnly); got != "" {
 		t.Fatalf("forge stderr = %q", got)
+	}
+}
+
+func TestExtractOpenCodeTextFromJSONEvents(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"session","id":"sess-1"}`,
+		`{"type":"message.part.updated","part":{"type":"text","text":"hel"}}`,
+		`{"type":"message.part.updated","part":{"type":"text","delta":"lo"}}`,
+		`{"type":"message.completed","message":{"parts":[{"type":"text","text":" ignored"}]}}`,
+	}, "\n")
+	if got := extractExternalAgentText("opencode", raw); got != "hello ignored" {
+		t.Fatalf("opencode text = %q", got)
+	}
+	if got := extractExternalAgentSessionID("opencode", raw); got != "sess-1" {
+		t.Fatalf("opencode session id = %q", got)
+	}
+	fallback := "plain formatted output"
+	if got := extractExternalAgentText("opencode", fallback); got != fallback {
+		t.Fatalf("opencode fallback = %q", got)
 	}
 }
 
