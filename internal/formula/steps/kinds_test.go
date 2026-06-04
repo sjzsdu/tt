@@ -133,18 +133,18 @@ func TestExternalAgentStepPassesTimeoutAndConfig(t *testing.T) {
 	runner := &capturingExternalAgentRunner{}
 	step := ExternalAgentStep{
 		Base:      Base{Metadata: Metadata{ID: "ask", Kind: KindExternalAgent}},
-		Driver:    "codex",
-		Model:     "gpt-5",
+		Driver:    "{{driver}}",
+		Model:     "{{model}}",
 		Mode:      "exec",
 		Resume:    "sess",
 		Cwd:       ".",
 		Timeout:   "2s",
 		Prompt:    "review {{input}}",
-		ExtraArgs: []string{"--sandbox", "read-only"},
+		ExtraArgs: []string{"--sandbox", "{{sandbox}}"},
 	}
 	res, err := step.Run(context.Background(), RunRequest{
 		NodeID:       "ask",
-		Context:      mapContextView{"input": {Raw: []byte(`"code"`)}},
+		Context:      mapContextView{"input": {Raw: []byte(`"code"`)}, "driver": {Raw: []byte(`"codex"`)}, "model": {Raw: []byte(`"gpt-5"`)}, "sandbox": {Raw: []byte(`"read-only"`)}},
 		Capabilities: Capabilities{ExternalAgents: runner},
 	})
 	if err != nil {

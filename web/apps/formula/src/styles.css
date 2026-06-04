@@ -137,6 +137,7 @@ button, input, textarea { font: inherit; }
 .graph-node-id { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .10em; text-transform: uppercase; }
 .graph-node-state, .graph-node-kind { padding: 2px 7px; border-radius: 999px; background: var(--soft-bg); font-size: 11px; text-transform: uppercase; }
 .graph-node-kind.agent { background: rgba(22, 119, 255, 0.14); color: var(--ant-color-primary); }
+.graph-node-kind.external_agent { background: rgba(235, 47, 150, 0.14); color: #eb2f96; }
 .graph-node-kind.script { background: rgba(250, 84, 28, 0.14); color: var(--ant-color-error); }
 .graph-node-kind.loop { background: rgba(168, 85, 247, 0.16); color: #a855f7; }
 .graph-node strong { font-size: 15px; }

@@ -104,11 +104,12 @@ export function attentionCopy(step: FormulaDashboardStep | null, status: string)
   return { title: statusLabel(step.status), detail: step.title, tone: step.status };
 }
 
-export type StepExecutionKind = 'agent' | 'script' | 'loop' | 'tool' | 'human_input' | 'aggregate' | 'noop' | 'step';
+export type StepExecutionKind = 'agent' | 'external_agent' | 'script' | 'loop' | 'tool' | 'human_input' | 'aggregate' | 'noop' | 'step';
 
 export function stepExecutionKind(step: Pick<FormulaDashboardStep, 'agent' | 'execution' | 'loop' | 'type'>): StepExecutionKind {
   const execution = (step.execution || step.type || '').trim();
   if (execution === 'script') return 'script';
+  if (execution === 'external_agent') return 'external_agent';
   if (execution === 'tool') return 'tool';
   if (execution === 'human_input') return 'human_input';
   if (execution === 'aggregate') return 'aggregate';
@@ -122,6 +123,8 @@ export function stepExecutionLabel(kind: StepExecutionKind) {
   switch (kind) {
     case 'agent':
       return 'Agent';
+    case 'external_agent':
+      return 'External Agent';
     case 'script':
       return 'Script';
     case 'loop':
@@ -143,6 +146,8 @@ export function stepExecutionTone(kind: StepExecutionKind) {
   switch (kind) {
     case 'agent':
       return 'geekblue';
+    case 'external_agent':
+      return 'magenta';
     case 'script':
       return 'volcano';
     case 'loop':

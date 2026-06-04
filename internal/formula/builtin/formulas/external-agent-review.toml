@@ -1,0 +1,68 @@
+formula = "external-agent-review"
+title = "外部 Agent 代码审查示例"
+description = "示例：收集当前 git diff 后，调用外部 agent CLI（jcode/codex/opencode/forge/bl）进行审查，并用内置 reporter 汇总结果。"
+version = 1
+type = "workflow"
+category = "engineering"
+tags = ["external-agent", "codex", "jcode", "review"]
+
+[vars]
+driver = { description = "外部 agent driver：jcode/codex/opencode/forge/bl。默认 jcode；运行时也可用 --ext-driver 覆盖未声明 driver 的步骤。", default = "jcode", enum = ["jcode", "codex", "opencode", "forge", "bl"] }
+model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
+
+[preflight]
+
+[[preflight.checks]]
+type = "git"
+require_repo = true
+message = "需要在 git repo 中运行，以便收集当前 diff。"
+
+[[preflight.checks]]
+type = "command"
+name = "jcode"
+command = "jcode"
+message = "默认 driver 使用 jcode；如改用 codex/opencode/forge，请确保对应 CLI 已安装。"
+
+[[steps]]
+id = "collect-diff"
+title = "收集当前 git diff"
+execution = "script"
+
+[steps.script]
+command = ["git", "diff", "--stat", "HEAD", "--", "."]
+timeout = "15s"
+
+[[steps]]
+id = "external-review"
+title = "调用外部 agent 审查"
+execution = "external_agent"
+depends_on = ["collect-diff"]
+input_context = ["collect-diff"]
+description = """
+请审查当前工作区 diff 摘要，并输出结构化风险评估。
+
+要求：
+- 用中文回答。
+- 重点关注潜在 bug、测试缺口、兼容性风险。
+- 如果 diff 信息不足以判断，请明确说明需要补充完整 diff。
+- 输出 3-7 条要点。
+"""
+
+[steps.external_agent]
+driver = "{{driver}}"
+model = "{{model}}"
+mode = "exec"
+timeout = "5m"
+
+[[steps]]
+id = "final-report"
+title = "汇总外部 agent 结论"
+depends_on = ["collect-diff", "external-review"]
+input_context = ["collect-diff", "external-review"]
+description = """
+基于 collect-diff 和 external-review，输出简短中文结论：
+1. 外部 agent 的主要风险判断；
+2. 是否需要进一步提供完整 diff 或运行测试；
+3. 建议的下一步。
+"""
+agent.name = "reporter"

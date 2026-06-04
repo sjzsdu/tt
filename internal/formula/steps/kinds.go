@@ -310,20 +310,24 @@ func (s ExternalAgentStep) Run(ctx context.Context, req RunRequest) (*RunResult,
 	prompt := renderContextTemplates(s.Prompt, req.Context)
 	prompt = appendInputContext(prompt, s.InputCtx, req.Context)
 	prompt = appendFormulaAgentExecutionGuard(prompt)
-	driver := strings.TrimSpace(s.Driver)
+	driver := strings.TrimSpace(renderContextTemplates(s.Driver, req.Context))
 	if driver == "" {
 		driver = DefaultExternalAgentDriver
+	}
+	extraArgs := make([]string, 0, len(s.ExtraArgs))
+	for _, arg := range s.ExtraArgs {
+		extraArgs = append(extraArgs, renderContextTemplates(arg, req.Context))
 	}
 	out, err := req.Capabilities.ExternalAgents.RunExternalAgent(ctx, ExternalAgentRequest{
 		NodeID:    req.NodeID,
 		Driver:    driver,
-		Provider:  s.Provider,
-		Model:     s.Model,
-		Mode:      s.Mode,
-		Resume:    s.Resume,
+		Provider:  renderContextTemplates(s.Provider, req.Context),
+		Model:     renderContextTemplates(s.Model, req.Context),
+		Mode:      renderContextTemplates(s.Mode, req.Context),
+		Resume:    renderContextTemplates(s.Resume, req.Context),
 		Workspace: renderStepCwd(s.Cwd, req.Context),
 		Prompt:    prompt,
-		ExtraArgs: append([]string(nil), s.ExtraArgs...),
+		ExtraArgs: extraArgs,
 		Timeout:   parseStepTimeout(s.Timeout),
 	})
 	if err != nil {
