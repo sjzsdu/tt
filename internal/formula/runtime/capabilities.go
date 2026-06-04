@@ -193,7 +193,9 @@ func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, bin, argv[1:]...)
-	cmd.Stdin = strings.NewReader(req.Prompt)
+	if !externalAgentPromptInArgv(driver, req.Prompt) {
+		cmd.Stdin = strings.NewReader(req.Prompt)
+	}
 	if cwd := strings.TrimSpace(req.Workspace); cwd != "" {
 		if !filepath.IsAbs(cwd) {
 			if wd, wderr := os.Getwd(); wderr == nil {
@@ -277,17 +279,17 @@ func buildExternalAgentArgv(driver, provider, model, mode, resume string, extra 
 		}
 		argv = append(argv, extra...)
 	case "codex":
-		if mode == "" {
-			mode = "exec"
+		argv = append(argv, "exec")
+		if resume != "" {
+			argv = append(argv, "resume")
 		}
-		argv = append(argv, mode)
 		if model != "" {
 			argv = append(argv, "--model", model)
 		}
-		if resume != "" {
-			argv = append(argv, "--resume", resume)
-		}
 		argv = append(argv, extra...)
+		if resume != "" {
+			argv = append(argv, resume)
+		}
 	case "opencode":
 		argv = append(argv, "run")
 		if model != "" {
@@ -298,12 +300,11 @@ func buildExternalAgentArgv(driver, provider, model, mode, resume string, extra 
 		}
 		argv = append(argv, extra...)
 	case "forge":
-		argv = append(argv, "run")
-		if model != "" {
-			argv = append(argv, "--model", model)
-		}
+		// forge handles single-shot execution via top-level --prompt. It does not
+		// expose a stable --model flag in the CLI help; model/provider selection is
+		// expected to come from forge config or extra_args supplied by the caller.
 		if resume != "" {
-			argv = append(argv, "--resume", resume)
+			argv = append(argv, "--conversation-id", resume)
 		}
 		argv = append(argv, extra...)
 	}
@@ -315,10 +316,23 @@ func appendAgentPrompt(argv []string, driver, prompt string) []string {
 		return argv
 	}
 	switch driver {
-	case "jcode", "codex", "opencode", "forge", "bl":
+	case "jcode", "codex", "opencode", "bl":
 		return append(argv, prompt)
+	case "forge":
+		return append(argv, "--prompt", prompt)
 	}
 	return argv
+}
+
+func externalAgentPromptInArgv(driver, prompt string) bool {
+	if strings.TrimSpace(prompt) == "" {
+		return false
+	}
+	switch driver {
+	case "jcode", "codex", "opencode", "forge", "bl":
+		return true
+	}
+	return false
 }
 
 func extractExternalAgentText(driver, raw string) string {

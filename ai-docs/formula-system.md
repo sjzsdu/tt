@@ -170,6 +170,8 @@ mode = "exec"
 timeout = "5m"
 ```
 
+注意：`codex` 的 resume 通过 `codex exec resume <session>`；`forge` 使用顶层 `forge --prompt` / `--conversation-id`，当前不注入 `--model`，模型选择应通过 forge 配置或显式 `extra_args` 完成。
+
 ## 运行模型
 
 核心执行器：`internal/formula/runtime/executor.go`。

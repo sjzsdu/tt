@@ -36,17 +36,20 @@ func TestBuildExternalAgentArgvAdapters(t *testing.T) {
 		driver string
 		model  string
 		resume string
+		extra  []string
 		want   []string
 	}{
 		{name: "jcode", driver: "jcode", model: "m", resume: "s", want: []string{"jcode", "run", "--json", "--model", "m", "--resume", "s"}},
 		{name: "bl routes through jcode", driver: "bl", model: "m", resume: "s", want: []string{"jcode", "run", "--json", "--provider", "bl", "--model", "m", "--resume", "s"}},
-		{name: "codex exec subcommand", driver: "codex", model: "m", resume: "s", want: []string{"codex", "exec", "--model", "m", "--resume", "s"}},
+		{name: "codex exec subcommand", driver: "codex", model: "m", want: []string{"codex", "exec", "--model", "m"}},
+		{name: "codex resume subcommand", driver: "codex", model: "m", resume: "s", want: []string{"codex", "exec", "resume", "--model", "m", "s"}},
+		{name: "codex resume extra before session", driver: "codex", model: "m", resume: "s", extra: []string{"--json"}, want: []string{"codex", "exec", "resume", "--model", "m", "--json", "s"}},
 		{name: "opencode session", driver: "opencode", model: "m", resume: "s", want: []string{"opencode", "run", "--model", "m", "--session", "s"}},
-		{name: "forge resume", driver: "forge", model: "m", resume: "s", want: []string{"forge", "run", "--model", "m", "--resume", "s"}},
+		{name: "forge conversation", driver: "forge", model: "m", resume: "s", want: []string{"forge", "--conversation-id", "s"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildExternalAgentArgv(tt.driver, "", tt.model, "", tt.resume, nil)
+			got := buildExternalAgentArgv(tt.driver, "", tt.model, "", tt.resume, tt.extra)
 			if strings.Join(got, "\x00") != strings.Join(tt.want, "\x00") {
 				t.Fatalf("argv = %#v, want %#v", got, tt.want)
 			}
@@ -82,8 +85,17 @@ func TestExternalAgentCapabilityRunsFakeBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(dumped), "args=run --json --model m --resume r hello") || !strings.Contains(string(dumped), "stdin=hello") {
+	if !strings.Contains(string(dumped), "args=run --json --model m --resume r hello") || !strings.Contains(string(dumped), "stdin=") || strings.Contains(string(dumped), "stdin=hello") {
 		t.Fatalf("dump = %s", dumped)
+	}
+}
+
+func TestAppendExternalAgentPrompt(t *testing.T) {
+	if got := appendAgentPrompt([]string{"forge", "--conversation-id", "s"}, "forge", "hello"); strings.Join(got, " ") != "forge --conversation-id s --prompt hello" {
+		t.Fatalf("forge prompt argv = %#v", got)
+	}
+	if !externalAgentPromptInArgv("codex", "hello") || !externalAgentPromptInArgv("forge", "hello") || externalAgentPromptInArgv("codex", "") {
+		t.Fatal("prompt argv detection mismatch")
 	}
 }
 
