@@ -126,11 +126,22 @@ func TestExternalAgentCapabilityCapturesCodexLastMessage(t *testing.T) {
 }
 
 func TestAppendExternalAgentPrompt(t *testing.T) {
-	if got := appendAgentPrompt([]string{"forge", "--conversation-id", "s"}, "forge", "hello"); strings.Join(got, " ") != "forge --conversation-id s --prompt hello" {
-		t.Fatalf("forge prompt argv = %#v", got)
+	if got := appendAgentPrompt([]string{"forge", "--conversation-id", "s"}, "forge", "hello"); strings.Join(got, " ") != "forge --conversation-id s" {
+		t.Fatalf("forge prompt should be stdin, argv = %#v", got)
 	}
-	if !externalAgentPromptInArgv("codex", "hello") || !externalAgentPromptInArgv("forge", "hello") || externalAgentPromptInArgv("codex", "") {
+	if !externalAgentPromptInArgv("codex", "hello") || externalAgentPromptInArgv("forge", "hello") || externalAgentPromptInArgv("codex", "") {
 		t.Fatal("prompt argv detection mismatch")
+	}
+}
+
+func TestExtractForgeTextStripsSpinnerOutput(t *testing.T) {
+	raw := "\r\x1b[2K⠋ Migrating credentials 00s · Ctrl+C to interrupt\r\x1b[2K● [14:41:42] Initialize abc\n\r\x1b[2K⠹ Synthesizing 03s · Ctrl+C to interrupt\r\x1b[2KOK\n\r\x1b[2K● [14:41:47] Finished abc\n"
+	if got := extractExternalAgentText("forge", raw); got != "OK" {
+		t.Fatalf("forge text = %q", got)
+	}
+	spinnerOnly := "\r\x1b[2K⠋ Reasoning 00s · Ctrl+C to interrupt\r\x1b[2K⠹ Reasoning 01s · Ctrl+C to interrupt\r\x1b[2K"
+	if got := cleanExternalAgentStderr("forge", spinnerOnly); got != "" {
+		t.Fatalf("forge stderr = %q", got)
 	}
 }
 

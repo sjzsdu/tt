@@ -243,7 +243,7 @@ func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps
 		Mode:      req.Mode,
 		SessionID: extractExternalAgentSessionID(driver, stdout.String()),
 		Text:      text,
-		Stderr:    strings.TrimSpace(stderr.String()),
+		Stderr:    cleanExternalAgentStderr(driver, stderr.String()),
 		ExitCode:  exitCode,
 		Duration:  time.Since(started).Milliseconds(),
 	}
@@ -252,6 +252,17 @@ func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps
 		return steps.Value{}, marshalErr
 	}
 	return steps.Value{Type: "json", Raw: data}, runErr
+}
+
+func cleanExternalAgentStderr(driver, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if driver == "forge" {
+		return extractForgeText(raw)
+	}
+	return raw
 }
 
 func hasExternalAgentArg(args []string, names ...string) bool {
@@ -345,8 +356,6 @@ func appendAgentPrompt(argv []string, driver, prompt string) []string {
 	switch driver {
 	case "jcode", "codex", "opencode", "bl":
 		return append(argv, prompt)
-	case "forge":
-		return append(argv, "--prompt", prompt)
 	}
 	return argv
 }
@@ -356,7 +365,7 @@ func externalAgentPromptInArgv(driver, prompt string) bool {
 		return false
 	}
 	switch driver {
-	case "jcode", "codex", "opencode", "forge", "bl":
+	case "jcode", "codex", "opencode", "bl":
 		return true
 	}
 	return false
@@ -375,8 +384,43 @@ func extractExternalAgentText(driver, raw string) string {
 		if err := json.Unmarshal([]byte(raw), &parsed); err == nil && parsed.Text != "" {
 			return parsed.Text
 		}
+	case "forge":
+		return extractForgeText(raw)
 	}
 	return raw
+}
+
+func extractForgeText(raw string) string {
+	clean := stripANSI(raw)
+	clean = strings.ReplaceAll(clean, "\r", "\n")
+	var lines []string
+	for _, line := range strings.Split(clean, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.Contains(line, "Ctrl+C to interrupt") || strings.Contains(line, "Synthesizing") || strings.Contains(line, "Migrating credentials") || strings.Contains(line, "Initialize ") || strings.Contains(line, "Finished ") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) {
+				c := s[i]
+				if c >= 0x40 && c <= 0x7e {
+					break
+				}
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 func extractExternalAgentSessionID(driver, raw string) string {
