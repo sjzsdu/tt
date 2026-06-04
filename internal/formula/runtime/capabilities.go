@@ -301,8 +301,8 @@ func buildExternalAgentArgv(driver, provider, model, mode, resume string, extra 
 		argv = append(argv, extra...)
 	case "forge":
 		// forge handles single-shot execution via top-level --prompt. It does not
-		// expose a stable --model flag in the CLI help; model/provider selection is
-		// expected to come from forge config or extra_args supplied by the caller.
+		// expose a stable --model flag in the CLI help; use the provider/model that
+		// forge configured during installation or setup.
 		if resume != "" {
 			argv = append(argv, "--conversation-id", resume)
 		}

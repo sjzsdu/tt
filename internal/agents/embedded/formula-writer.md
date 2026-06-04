@@ -122,7 +122,7 @@ extra_args = ["--sandbox", "read-only"]
 - `tt formula run --ext-driver <driver>` 可为未声明 driver 的 external_agent step 指定默认 driver。
 - `bl` 通过 `jcode run --provider bl` 路由。
 - 使用 `codex`、`opencode`、`forge` 等非标准 CLI 时，必须加顶层 `[preflight]` command check。
-- `codex` resume 会映射到 `codex exec resume <session>`；`forge` 映射到顶层 `forge --prompt`，不要假设有通用 `forge --model`，除非通过 `extra_args` 明确传入。
+- `codex` resume 会映射到 `codex exec resume <session>`；`forge` 映射到顶层 `forge --prompt`，默认使用 forge 安装/配置时已调配好的 provider/model，不要额外假设通用 `forge --model`。
 
 ## 基础骨架
 

@@ -170,7 +170,7 @@ mode = "exec"
 timeout = "5m"
 ```
 
-注意：`codex` 的 resume 通过 `codex exec resume <session>`；`forge` 使用顶层 `forge --prompt` / `--conversation-id`，当前不注入 `--model`，模型选择应通过 forge 配置或显式 `extra_args` 完成。
+注意：`codex` 的 resume 通过 `codex exec resume <session>`；`forge` 使用顶层 `forge --prompt` / `--conversation-id`，当前不注入 `--model`，默认使用 forge 安装/配置时已调配好的 provider 和 model。
 
 外部 CLI 依赖建议用 conditional preflight 表达，`condition` 使用 compile-time 变量语法：
 

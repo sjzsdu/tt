@@ -123,7 +123,7 @@ Notes:
 - `tt formula run --ext-driver <driver>` sets the default driver when a step omits `driver`.
 - `bl` is routed through `jcode run --provider bl`.
 - Always add a matching `[preflight]` command check for non-standard CLIs such as `codex`, `opencode`, or `forge`.
-- `codex` resume maps to `codex exec resume <session>`. `forge` maps to top-level `forge --prompt`; do not rely on a generic forge `--model` flag unless supplied deliberately via `extra_args`.
+- `codex` resume maps to `codex exec resume <session>`. `forge` maps to top-level `forge --prompt`; let forge use the provider/model configured during installation or setup; do not add a generic forge `--model` flag.
 
 ## Minimal formula skeleton
 

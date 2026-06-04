@@ -23,6 +23,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
   const defaultOpenLoopActivityKey = latestLoopIteration || loopActivityGroups.at(-1)?.iteration || 'step';
   const hiddenDuplicateOutputs = activities.filter(activity => activity.output && sameOutput(activity.output, step.output)).length;
   const outputSummary = summarizeContent(step.output);
+  const externalAgentOutput = parseExternalAgentOutput(step);
   const activityDefaultOpen = step.status === 'failed' || step.status === 'running' || step.status === 'waiting_input' ? ['activity'] : [];
 
   const statusSummary = (() => {
@@ -181,6 +182,17 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           <Collapse className="step-modal-collapse" items={[{ key: 'output', label: sectionLabel('📄', 'Output', outputSummary), children: <OutputSurface content={step.output} className="step-output-shell" /> }]} />
         )}
 
+        {externalAgentOutput && (
+          <Collapse
+            className="step-modal-collapse external-agent-details-collapse"
+            items={[{
+              key: 'external-agent-details',
+              label: sectionLabel('🤖', 'External agent details', externalAgentOutput.driver || 'external'),
+              children: <ExternalAgentDetails output={externalAgentOutput} />,
+            }]}
+          />
+        )}
+
         <Collapse
           className="step-modal-collapse step-input-section"
           items={[{
@@ -269,6 +281,70 @@ type AgentSessionView = {
   title: string;
   status?: string;
 };
+
+type ExternalAgentOutput = {
+  driver?: string;
+  provider?: string;
+  model?: string;
+  mode?: string;
+  session_id?: string;
+  exit_code?: number;
+  duration_ms?: number;
+  stderr?: string;
+  text?: string;
+};
+
+function parseExternalAgentOutput(step: FormulaDashboardStep): ExternalAgentOutput | null {
+  if (stepExecutionKind(step) !== 'external_agent' || !step.output) return null;
+  try {
+    const parsed: unknown = JSON.parse(step.output);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    return {
+      driver: stringValue(record.driver),
+      provider: stringValue(record.provider),
+      model: stringValue(record.model),
+      mode: stringValue(record.mode),
+      session_id: stringValue(record.session_id),
+      exit_code: numberValue(record.exit_code),
+      duration_ms: numberValue(record.duration_ms),
+      stderr: stringValue(record.stderr),
+      text: stringValue(record.text),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function ExternalAgentDetails({ output }: { output: ExternalAgentOutput }) {
+  return (
+    <div className="advanced-stack external-agent-details">
+      <Descriptions column={1} size="small" className="step-descriptions">
+        <Descriptions.Item label="Driver">{output.driver || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Provider">{output.provider || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Model">{output.model || 'default'}</Descriptions.Item>
+        <Descriptions.Item label="Mode">{output.mode || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Session ID">{output.session_id || '—'}</Descriptions.Item>
+        <Descriptions.Item label="Exit code">{typeof output.exit_code === 'number' ? output.exit_code : '—'}</Descriptions.Item>
+        <Descriptions.Item label="Duration">{formatDuration(output.duration_ms)}</Descriptions.Item>
+      </Descriptions>
+      {output.stderr && (
+        <div>
+          <div className="card-subtitle">stderr</div>
+          <pre className="code-block error-block">{output.stderr}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function collectAgentSessionViews(step: FormulaDashboardStep): AgentSessionView[] {
   const views: AgentSessionView[] = [];
