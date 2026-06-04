@@ -54,11 +54,11 @@ condition = "{{driver}} == forge"
 
 [[steps]]
 id = "collect-diff"
-title = "收集当前 git 状态"
+title = "收集当前 git 变更摘要"
 execution = "script"
 
 [steps.script]
-command = ["git", "status", "--short"]
+command = ["sh", "-c", "printf '## git status --short\\n'; git status --short; printf '\\n## tracked diff --stat\\n'; if git rev-parse --verify HEAD >/dev/null 2>&1; then git diff --stat HEAD -- .; else printf '(no HEAD yet; tracked diff is unavailable before the first commit)\\n'; fi; printf '\\n## staged diff --stat\\n'; git diff --cached --stat -- .; printf '\\n## untracked files\\n'; git ls-files --others --exclude-standard | while IFS= read -r f; do [ -e \"$f\" ] || continue; if [ -f \"$f\" ]; then bytes=$(wc -c < \"$f\" | tr -d ' '); printf -- '- %s (%s bytes)\\n' \"$f\" \"$bytes\"; else printf -- '- %s/\\n' \"$f\"; fi; done"]
 timeout = "15s"
 
 [[steps]]
@@ -68,12 +68,12 @@ execution = "external_agent"
 depends_on = ["collect-diff"]
 input_context = ["collect-diff"]
 description = """
-请审查当前工作区 diff 摘要，并输出结构化风险评估。
+请审查当前工作区变更摘要，并输出结构化风险评估。
 
 要求：
 - 用中文回答。
-- 重点关注潜在 bug、测试缺口、兼容性风险。
-- 如果 diff 信息不足以判断，请明确说明需要补充完整 diff。
+- 重点关注潜在 bug、测试缺口、兼容性风险、安全/隐私风险。
+- 未跟踪文件也属于本次变更，需要纳入分析；如果只有文件名/大小而缺少内容，请明确指出需要补充哪些文件内容或完整 diff。
 - 输出 3-7 条要点。
 """
 
