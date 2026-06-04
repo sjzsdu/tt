@@ -1,5 +1,7 @@
 # 命令与模块地图
 
+> 最后更新：2026-06-02
+
 这篇文档解决一个很实际的问题：**当你准备改代码时，应该先去哪个目录找？**
 
 `tt` 的能力面很宽，但代码组织并不混乱。整体上可以理解为：
@@ -14,8 +16,8 @@
 ```mermaid
 flowchart LR
     subgraph CMD[cmd/]
-        C1[agent / translate / debate]
-        C2[formula]
+        C1[agent / agent_info / agent_optimize / translate / debate]
+        C2[formula/]
         C3[markdown / json / conversation / skill]
         C4[cmd2skill / repo2skill / nvwa]
         C5[mirror / config / docs]
@@ -33,15 +35,20 @@ flowchart LR
         I9[nvwa]
         I10[dirmirror]
         I11[ttconfig]
-        I12[molecule]
+        I12[agentopt]
+        I13[formula/ast+ir+compile+steps+builtin]
+        I14[formulaui+formuladoc+formularunview]
     end
 
     C1 --> I1
     C1 --> I2
+    C1 --> I12
     C2 --> I3
     C2 --> I4
     C2 --> I5
     C2 --> I1
+    C2 --> I13
+    C2 --> I14
     C3 --> I6
     C4 --> I7
     C4 --> I8
@@ -86,8 +93,9 @@ flowchart LR
 
 | 文件 | 作用 |
 | --- | --- |
-| `cmd/agent.go` | 通用 agent 入口 |
-| `cmd/agent_info.go` | 查看解析后的 runtime 信息 |
+| `cmd/agent.go` | 通用 agent 入口（含 `--list`） |
+| `cmd/agent_info.go` | 输出已解析的 runtime 信息（JSON） |
+| `cmd/agent_optimize.go` | 用 `agent-optimizer` 把基础 agent 优化为针对目标仓库的专用 agent |
 | `cmd/translate.go` | 调用内嵌翻译 agent |
 | `cmd/debate.go` | 多 agent 股票讨论 |
 | `cmd/nvwa.go` | 生成 agent prompt / soul |
@@ -101,16 +109,27 @@ flowchart LR
 | 文件 | 作用 |
 | --- | --- |
 | `cmd/formula.go` | 根命令注册，注入 loading/browser/picoclaw/markdown 依赖 |
-| `cmd/formula/` | formula 子命令实现：list/show/compile/validate/create/optimize/run/runs/open/show/rm/resume/input，以及 dashboard glue |
+| `cmd/formula/formula.go` | 共享工具与公式默认目录/运行时基址 |
+| `cmd/formula/deps.go` | 公式命令的依赖接口与默认值 |
+| `cmd/formula/formula_commands.go` | 全部子命令定义（list / show / compile / validate / copy / create / optimize / run / runs） |
+| `cmd/formula/formula_runtime.go` | formula runtime 装配（pcwrap runtime + agent 预检 + capabilities 注入） |
+| `cmd/formula/formula_picoclaw.go` | formula 专用 picoclaw runtime 准备 |
+| `cmd/formula/formula_catalog.go` | 列出内置 + 用户 formula（含 builtin atomics） |
+| `cmd/formula/formula_create_optimize.go` | `create` / `optimize`（调用 formula-writer agent） |
+| `cmd/formula/formula_run.go` / `formula_run_records.go` / `formula_run_resume.go` | run / list / show / rm / resume / input |
+| `cmd/formula/formula_preflight.go` | preflight 检查（command / exec / git / env / path） |
+| `cmd/formula/formula_dashboard*.go` | local web dashboard（WebSocket、状态推送、路径） |
+| `cmd/formula/formula_markdown_render.go` | formula `--markdown` 渲染 glue |
+| `cmd/formula/formula_search_paths.go` | 公式搜索路径 + builtin atomics 解析 |
 
 `cmd/formula/` 是 formula 命令子包，`cmd/formula.go` 只负责注册和依赖注入。子包承担：
 
-- formula 搜索路径管理
-- 变量解析
-- compile / validate
-- create / optimize（通过 formula-writer agent）
-- run / resume / retry / input（通过 typed runtime + picoclaw + formularun）
-- Markdown 说明页预览 glue；纯渲染在 `internal/formuladoc`
+- formula 搜索路径管理（含 builtin）
+- 变量解析与运行时 preflight
+- compile / validate（走 typed `ir.Workflow`）
+- create / optimize（通过 `formula-writer` agent）
+- run / resume / input（通过 typed runtime + picoclaw + formularun）
+- 本地 Dashboard HTTP / WebSocket glue（纯渲染在 `internal/formulaui`，Markdown 渲染在 `internal/formuladoc`）
 
 ### 工程辅助命令
 
@@ -165,23 +184,25 @@ internal/agents/embedded/*.md
 
 这是 formula 语言本体。它负责：
 
-- 类型定义（`Formula`、`Step`、`LoopSpec`、`AgentConfig`、`ScriptSpec`）
+- 类型定义（`Formula`、`Step`、`LoopSpec`、`AgentConfig`、`ScriptSpec`、`ToolSpec`、`RetrySpec`、`PreflightSpec`、`WorkspaceSpec` 等）
 - 解析 TOML / JSON
 - 变量校验与默认值处理
-- extends / expand / advice / control flow 解析
+- extends / expand / advice / control flow / preflight 解析
 - compile-time 条件过滤
-- 编译成 `Workflow`
-- 自动补齐 start/end 边界步骤
+- 把 `Formula` 编译成 typed `ir.Workflow`（含 `steps.Step` 接口实例）
+- 通过 `WorkflowFromFormula` 复用 `formula` 包自身类型构造 typed step
 
 关键文件：
-- `types.go`
-- `parser.go`
-- `workflow.go`
-- `compile_vars.go`
-- `condition.go`
-- `controlflow.go`
-- `expand.go`
-- `advice.go`
+- `types.go` / `parser.go` / `workflow.go` / `compile_vars.go` / `condition.go` / `controlflow.go` / `expand.go` / `advice.go` / `embed.go` / `workspace.go`
+- `workflow_compile.go`
+
+子包：
+- `internal/formula/ast` —— 公式 AST（`Document`、`StepDecl`、`VarDecl`、`WorkspaceSpec`）
+- `internal/formula/ir` —— typed IR（`Workflow` / `Graph` / `Node` / `Edge` / `WorkspacePolicy`）
+- `internal/formula/compile` —— AST → IR 编译器，使用 `steps.Registry` 解码 step
+- `internal/formula/expr` —— 模板表达式
+- `internal/formula/schema` —— step JSON schema / 解码
+- `internal/formula/builtin` —— 内置 formulas 与 atomics（`formulas/*.toml`、`atomics/*.toml`）
 
 ## 4. `internal/formula/runtime` 与 `internal/formula/steps`
 
@@ -190,13 +211,28 @@ internal/agents/embedded/*.md
 它负责：
 - Workflow 图执行和拓扑规划
 - 运行状态、事件和 `ContextStore`
-- agent/script/human_input step 能力分发
+- 多种 step kind 能力分发（agent / script / human_input / noop / aggregate / tool / write_files / loop / retry）
+- preflight 检查
+- worktree workspace 准备 + 自动分支
+- environment context 注入（`env.cwd`、`env.git.*`、`env.os.*`）
+- runtime condition（`==` / `!=` / `=~`）
+- script step 的安全策略 + 失败时用 `coder` agent 智能修复一次
+- agent output schema 校验失败时附上 advice 自动 retry 一次
+- dynamic human input 协议（`tt-human-input` fenced block 解析）
 - resume 时跳过已完成步骤并恢复 step-id context
-- dashboard retry/advice 的 typed runtime 重跑
 
-关键目录：
-- `internal/formula/runtime/`
-- `internal/formula/steps/`
+关键文件：
+- `internal/formula/runtime/executor.go` —— 调度主循环
+- `internal/formula/runtime/state.go` —— `StateStore` / `MemoryStateStore` / `Snapshot`
+- `internal/formula/runtime/context.go` —— `ContextStore`（按路径读写 JSON 值）
+- `internal/formula/runtime/condition.go` —— runtime condition 解析
+- `internal/formula/runtime/capabilities.go` —— `ScriptCapability`（含安全策略）/ `DryRunAgentCapability` / `DryRunScriptCapability`
+- `internal/formula/runtime/environment.go` —— `EnvironmentContext`（cwd / git / os）
+- `internal/formula/runtime/workspace.go` —— worktree 创建、稀疏 checkout、分支命名
+- `internal/formula/runtime/formularun_store.go` —— 把 `Snapshot` 写入 `formularun` 持久化层
+- `internal/formula/steps/step.go` —— `Step` / `Executable` / `Capabilities` / `RunRequest` / `RunResult` / `Status`
+- `internal/formula/steps/registry.go` —— `Registry` / `Decoder` / `NewDefaultRegistry`
+- `internal/formula/steps/kinds.go` —— 所有 step 实现（Agent / Script / HumanInput / Noop / Loop / Retry / Aggregate / Tool / WriteFiles 等）
 
 ## 5. `internal/formularun`
 
@@ -223,12 +259,20 @@ internal/agents/embedded/*.md
 
 它负责把前端构建产物嵌入 Go 程序。当前能看到至少两类嵌入：
 
-- Markdown UI
-- Formula Dashboard UI
+- Markdown UI（`internal/webui/markdown.go`，构建产物在 `web/apps/markdown/dist`）
+- Formula Dashboard UI（`internal/webui/formula.go`，构建产物在 `web/apps/formula/dist`）
 
 也就是说，`web/` 是源码视角，`internal/webui` 是运行时嵌入视角。
+`internal/webui/markdown` 与 `internal/webui/formula` 目录由 `make web-build` 写入 `dist` 子目录，再被 `go:embed` 引入。
 
-## 7. `internal/cmd2skill`
+## 7. `internal/agentopt`
+
+负责把"基础 agent" + "目标仓库画像"合成为针对该仓库优化后的嵌入式 agent Markdown。
+
+- 由 `cmd/agent_optimize.go` 触发，使用 `pcwrap` 调用 `agent-optimizer` 嵌入式 agent。
+- 输出可写到源 agent 位置、`--output` 显式路径或 `--copy` 副本。
+
+## 8. `internal/cmd2skill`
 
 负责把 CLI 帮助输出转成适合 agent 使用的 skill 文档，主要包括：
 
@@ -274,16 +318,24 @@ internal/agents/embedded/*.md
 ```mermaid
 flowchart TD
     A[cmd/formula/] --> B[internal/formula]
-    B --> C[Workflow IR]
+    B --> B1[internal/formula/ast]
+    B --> B2[internal/formula/ir]
+    B2 --> C[compile/compiler.go]
     C --> D[internal/formula/runtime]
     D --> E[internal/picoclaw]
     D --> F[internal/formularun]
     D --> G[internal/formulaui + cmd/formula dashboard glue]
+    D --> H[internal/formula/steps]
+    B --> I[internal/formula/builtin]
 
-    H[cmd/agent.go / translate.go / debate.go / docs.go] --> E
-    E --> I[internal/agents]
+    J[cmd/agent.go / translate.go / debate.go / docs.go] --> E
+    E --> K[internal/agents]
 
-    J[cmd/markdown.go / json.go / conversation.go] --> K[internal/webui]
+    L[cmd/agent_optimize.go] --> E
+    L --> M[internal/agentopt]
+    M --> E
+
+    N[cmd/markdown.go / json.go / conversation.go] --> O[internal/webui]
 ```
 
 这张图说明了一个非常关键的事实：**多个命令族共享基础设施，但共享方式是“通过中间层封装”，而不是直接彼此耦合。**
@@ -321,6 +373,16 @@ flowchart TD
 - `cmd/docs.go`
 - `internal/picoclaw/*`
 
+### 我想新增一种 step kind
+先看：
+- `internal/formula/steps/step.go`（接口）
+- `internal/formula/steps/registry.go`（注册）
+- `internal/formula/steps/kinds.go`（现有实现）
+- `internal/formula/runtime/capabilities.go`（如果需要新的执行能力）
+- `internal/formula/types.go` 和 `internal/formula/ast/document.go`（如果需要新的 schema）
+- `internal/formula/compile/compiler.go`（AST → IR 编译）
+- `cmd/formula/` 子包
+
 ### 我想改本地 Web UI
 先看：
 - `web/apps/*`
@@ -331,9 +393,10 @@ flowchart TD
 
 - 根命令：`cmd/root.go`
 - docs 命令：`cmd/docs.go`
+- agent 优化：`cmd/agent_optimize.go`、`internal/agentopt/optimize.go`
 - formula 命令：`cmd/formula.go` + `cmd/formula/`
 - runtime 适配：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
-- formula 编译：`internal/formula/workflow.go`
+- formula 编译：`internal/formula/workflow.go`、`internal/formula/compile/compiler.go`
 - formula 执行：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - run 持久化：`internal/formularun/store.go`
 - embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/*.md`

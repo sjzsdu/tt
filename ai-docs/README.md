@@ -1,5 +1,7 @@
 # tt 项目导读
 
+> 最后更新：2026-06-02
+
 `tt` 是一个以 **Cobra 命令集合** 为外壳、以 **Picoclaw 运行时复用**、**Formula 工作流执行** 和 **本地开发自动化** 为核心的 Go CLI 工具箱。它一边提供面向日常文件操作的轻量命令，一边把更复杂的 agent 执行、formula 工作流、技能生成、代码分析等能力收拢到同一个可执行文件里。
 
 如果只看一句话，可以把它理解为：
@@ -15,7 +17,8 @@
 2. 再看 [架构与运行模型](./architecture.md)
 3. 然后按兴趣深入：
    - 想理解命令分布：看 [命令与模块地图](./module-map.md)
-   - 想理解 formula：看 [Formula 工作流系统](./formula-system.md)
+   - 想理解 formula：看 [Formula 工作流系统](./formula-system.md) + [Step Kinds 参考](./step-kinds-reference.md)
+   - 想看仓库自带的 formula 模板：看 [内置 Formula 与 Atomic 清单](./builtin-formulas.md)
    - 想理解 agent runtime 复用：看 [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)
 
 ### 如果你准备修改命令实现
@@ -25,8 +28,9 @@
 
 ### 如果你准备扩展 formula / workflow 能力
 1. [Formula 工作流系统](./formula-system.md)
-2. [架构与运行模型](./architecture.md)
-3. 然后重点看 `cmd/formula/`、`internal/formula/`、`internal/formula/runtime/`、`internal/formula/steps/`、`internal/formularun/`
+2. [Step Kinds 参考](./step-kinds-reference.md)
+3. [架构与运行模型](./architecture.md)
+4. 然后重点看 `cmd/formula/`、`internal/formula/`、`internal/formula/runtime/`、`internal/formula/steps/`、`internal/formularun/`
 
 ### 如果你准备接入新的嵌入式 agent 或复用 Picoclaw
 1. [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)
@@ -63,12 +67,14 @@
 ## 文档结构
 
 ```text
-ai-docs-v2/
+ai-docs/
 ├── README.md                      # 导读与阅读路径
 ├── overview.md                    # 项目概览、定位、能力边界
 ├── architecture.md                # 总体架构、分层与关键运行链路
 ├── module-map.md                  # cmd/ 与 internal/ 的职责地图
 ├── formula-system.md              # formula 编译、执行、运行记录、控制流
+├── step-kinds-reference.md        # step kind 速查与示例
+├── builtin-formulas.md            # 内置 formulas / atomics 清单与用途
 └── picoclaw-integration.md        # Picoclaw 运行时复用、嵌入式 agent、相关命令
 ```
 
@@ -92,14 +98,15 @@ README → overview → architecture → module-map
 适合要改 workflow / 自动化执行的人：
 
 ```text
-overview → architecture → formula-system
+overview → architecture → formula-system → step-kinds-reference → builtin-formulas
 ```
 
 重点关注：
 - formula 如何解析与编译
 - Workflow 与 Step 的边界是什么
-- typed runtime 如何做图执行、运行时条件判断、loop、resume/retry 与状态落盘
+- typed runtime 如何做图执行、运行时条件判断、loop、resume/retry、script repair、validation advice 与状态落盘
 - run store 如何支撑 resume 和 dashboard
+- 仓库自带哪些 formula 模板和原子步骤可作为新公式起点
 
 ### 路径 C：围绕 agent runtime 深入
 适合要改 LLM / agent 相关命令的人：
@@ -128,10 +135,16 @@ overview → architecture → picoclaw-integration → module-map
 
 ## 本次文档更新范围
 
-本次不是从零创建，而是在现有 `ai-docs-v2` 基础上按当前代码进行增量更新。重点调整包括：
+本次不是从零创建，而是在现有 `ai-docs/` 基础上按当前代码进行增量更新。重点调整包括：
 
-- 更新总览与架构文档，纳入 `docs analyze` 与更完整的 formula 执行链路
-- 新增 [命令与模块地图](./module-map.md)，补足 `cmd/` 与 `internal/` 的职责分布
-- 新增 [Formula 工作流系统](./formula-system.md)，集中解释项目中最复杂的子系统
-- 新增 [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)，解释运行时复用方式
-- README 改为真正的导读页，而不是只描述目录
+- 在概览、架构、模块地图、formula、picoclaw 五篇核心文档中同步新增能力：
+  - `tt agent optimize` / `tt agent info`
+  - 嵌入式 `agent-optimizer` / `code-research` / `tech-blog-writer` / `writer` / `reporter` 等 agent
+  - formula 的 preflight、worktree workspace、environment context、output validation advice、script repair
+  - 新的 step kind：aggregate / tool / write_files / retry / loop（parallel + max_concurrency）
+  - `internal/formula/ast` / `ir` / `compile` / `builtin` 子包
+  - `internal/agentopt` / `internal/formulaui` / `internal/formuladoc` / `internal/formularunview`
+  - 前端构建嵌入路径与 `make web-build`
+- 新增 [Step Kinds 参考](./step-kinds-reference.md)，集中解释每种 step 的字段、典型 TOML 与使用陷阱
+- 新增 [内置 Formula 与 Atomic 清单](./builtin-formulas.md)，列出仓库自带的 formulas 与 atomics
+- README 维持导读页定位，加入新文档索引

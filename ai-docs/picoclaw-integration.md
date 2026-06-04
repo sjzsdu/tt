@@ -1,6 +1,8 @@
 # Picoclaw 集成与嵌入式 Agent
 
-`tt` 的很多高价值能力——`agent`、`translate`、`debate`、`nvwa`、`repo2skill`、`docs analyze`，甚至 `formula create/optimize/run` ——本质上都依赖同一件事：**在当前进程内复用 Picoclaw runtime。**
+> 最后更新：2026-06-02
+
+`tt` 的很多高价值能力——`agent`、`agent info`、`agent optimize`、`translate`、`debate`、`nvwa`、`repo2skill`、`docs analyze`，甚至 `formula create/optimize/run` 与 `formula run` 内的 agent step ——本质上都依赖同一件事：**在当前进程内复用 Picoclaw runtime。**
 
 这篇文档专门解释这一层，因为它是理解整个项目“为什么能持续长大而不散掉”的关键。
 
@@ -137,26 +139,37 @@ flowchart TD
 
 从 `internal/agents/agents.go` 和 `embedded/` 目录看，当前至少包括：
 
-- `coder`
-- `full-stack`
-- `planner`
-- `product-manager`
-- `tester`
-- `ui`
-- `reporter`
-- `translate-master`
-- `repo2skill`
-- `formula-writer`
-- `docs-analyst`
-- `nvwa-prompt-designer`
-- `stock-*` 一组股票讨论角色
+| Agent ID | 用途 | 触发命令 |
+| --- | --- | --- |
+| `coder` | 通用编码 / 修复 / 重构 / 调研 | `tt agent`、formula agent step 默认 agent |
+| `full-stack` | 全栈视角实现 | `tt agent --agent full-stack` |
+| `planner` | 任务分解与计划 | `tt agent --agent planner` |
+| `product-manager` | 需求 / 验收条件 | `tt agent --agent product-manager` |
+| `tester` | 测试设计与补齐 | `tt agent --agent tester` |
+| `ui` | UI 实现与调整 | `tt agent --agent ui` |
+| `reporter` | 报告 / 总结 | `tt agent --agent reporter` |
+| `writer` | 长文写作 | `tt agent --agent writer` |
+| `tech-blog-writer` | 科技博客风格写作 | `tt agent --agent tech-blog-writer` |
+| `code-research` | 证据导向的代码研究 | `tt agent --agent code-research` |
+| `translate-master` | 中英 / 多语种翻译 | `tt translate` |
+| `repo2skill` | 把仓库分析成 skill | `tt repo2skill --analyzer agent` |
+| `formula-writer` | 编写 / 优化 formula | `tt formula create` / `tt formula optimize` |
+| `docs-analyst` | 代码理解与中文文档生成 | `tt docs analyze` |
+| `agent-optimizer` | 把基础 agent 优化为针对仓库的 agent | `tt agent optimize` |
+| `stock-growth-investor` / `stock-risk-investor` / `stock-discussion-host` | 股票讨论参与方 | `tt debate` |
 
 这说明 embedded agent 已经不是少量 demo，而是一个真正被多个命令复用的内部能力库。
 
 ## 不同命令如何复用这套能力
 
 ### `tt agent`
-最通用的入口，允许直接发送消息给某个 agent。
+最通用的入口，允许直接发送消息给某个 agent。可用 `--list` 列出已加载的 embedded agents 与 runtime 解析得到的 configured agents。
+
+### `tt agent info`
+以 JSON 输出已解析的 runtime 信息（home、config 路径、skills、agents、providers 摘要等）。
+
+### `tt agent optimize`
+用 `agent-optimizer` 把一个基础 agent 优化为针对目标仓库的专用 agent。优化后会写入 `internal/agents/embedded/*.md` 风格的新 Markdown 定义，默认就地更新源文件；`--copy` 创建副本，`--output` 显式指定路径。
 
 ### `tt translate`
 使用固定的 `translate-master`。
@@ -168,7 +181,7 @@ flowchart TD
 通过 `nvwa-prompt-designer` 生成角色 prompt。
 
 ### `tt repo2skill`
-可用 `repo2skill` agent 分析仓库。
+可用 `repo2skill` agent 分析仓库，缺模型或失败时回退到 `fallback_analyzer`。
 
 ### `tt docs analyze`
 通过 `docs-analyst` agent 生成中文理解文档。
@@ -176,21 +189,28 @@ flowchart TD
 ### `tt formula create/optimize`
 通过 `formula-writer` agent 生成或优化 workflow 模板。
 
+### `tt formula run`（agent step）
+默认使用 `--agent` 指定或 `coder` agent；可在 step 上用 `agent.name` / `agent.model` 覆盖。
+
 ## 命令复用图
 
 ```mermaid
 flowchart LR
     A[agent] --> P[picoclaw DirectRunner]
+    A2[agent info] --> P
+    A3[agent optimize] --> P
     B[translate] --> P
     C[debate] --> P
     D[nvwa] --> P
     E[repo2skill] --> P
     F[docs analyze] --> P
-    G[formula create/optimize/run] --> P
+    G[formula create/optimize] --> P
+    G2[formula run agent step] --> P
+    H[script step repair via coder] --> P
 
-    P --> H[embedded agents]
-    P --> I[configured agents]
-    P --> J[provider + model]
+    P --> IA[embedded agents]
+    P --> CA[configured agents]
+    P --> PM[provider + model]
 ```
 
 这张图最重要的理解是：**不同命令不是各自拥有独立的 agent 基础设施，而是复用一套共享运行模型。**

@@ -1,5 +1,7 @@
 # 架构与运行模型
 
+> 最后更新：2026-06-02
+
 ## 总体结论
 
 `tt` 的架构可以概括为三层：
@@ -94,22 +96,29 @@ sequenceDiagram
     participant User as 用户
     participant Cmd as cmd/formula/
     participant Parser as internal/formula
+    participant Compile as internal/formula/compile
     participant Exec as internal/formula/runtime
     participant Store as internal/formularun
     participant PC as internal/picoclaw
     participant Dash as Formula Dashboard
 
     User->>Cmd: tt formula run <name>
-    Cmd->>Parser: 解析 + Resolve + Compile
-    Parser-->>Cmd: Workflow
-    Cmd->>Store: 初始化 run 目录与元数据
-    Cmd->>PC: 加载 Picoclaw runtime
-    Cmd->>Exec: 以 typed Workflow 启动执行
+    Cmd->>Parser: 解析 + Resolve + extends/compose/embed/expand/advice
+    Cmd->>Parser: FilterStepsByCondition (compile-time)
+    Parser-->>Cmd: resolved Formula
+    Cmd->>Compile: AST → typed IR.Workflow (via Step Registry)
+    Compile-->>Cmd: *ir.Workflow
+    Cmd->>Cmd: 预检 preflight
+    Cmd->>Exec: prepareWorkspace(worktree)
     Exec->>Exec: 拓扑规划 / 条件判断 / 循环 / resume-retry
-    Exec->>PC: 对 agent step 调用 runner
+    Exec->>PC: 对 agent step 调用 DirectRunner
+    Exec->>Exec: 对 script step 走 ScriptCapability (含 safety policy)
+    Exec->>Exec: 对 human_input 走 await
+    Exec->>PC: script 失败时尝试 coder agent 修复
+    Exec->>Exec: 校验 agent output schema 失败 → advice retry
     Exec->>Store: 持续写入状态、事件、步骤产物
     Exec->>Dash: 推送步骤运行状态
-    Store-->>Cmd: 保存 run.json / state.json / logs.jsonl
+    Store-->>Cmd: 保存 run.json / state.json / logs.jsonl / steps/*
     Cmd-->>User: 终端输出或 dashboard
 ```
 
@@ -167,26 +176,31 @@ flowchart LR
 
 ## Formula 的内部子分层
 
-如果只看 `formula` 功能，内部又可以拆成四层：
+如果只看 `formula` 功能，内部又可以拆成多层：
 
 ```mermaid
 flowchart TD
     A[formula 定义文件\nTOML / JSON] --> B[Parser / Resolve]
     B --> C[Compile]
-    C --> D[Workflow]
-    D --> E[Typed Runtime]
+    C --> D[ir.Workflow]
+    D --> E[Typed Runtime Executor]
     E --> F[Run Store / Dashboard]
 
-    B --> B1[extends / vars / advice / expand]
-    C --> C1[compile-time 条件过滤]
-    C --> C2[start/end 边界补全]
-    E --> E1[topological planning]
-    E --> E2[agent step]
-    E --> E3[script step]
-    E --> E4[runtime condition / loop.until]
+    B --> B1[extends / vars / advice / expand / embed]
+    B --> B2[compile-time 条件过滤]
+    C --> C1[AST → IR.Workflow 编译]
+    C --> C2[Step Registry 注入 typed Step]
+    E --> E1[preflight 预检]
+    E --> E2[worktree workspace 准备]
+    E --> E3[topological planning]
+    E --> E4[agent / script / human_input step]
+    E --> E5[runtime condition / loop.until]
+    E --> E6[script repair via coder agent]
+    E --> E7[output schema validation + advice retry]
+    E --> E8[Environment context 注入]
 ```
 
-这张图最值得注意的是：**formula 不是边解析边执行，而是先编译成更稳定的 Workflow，再交给 typed runtime 运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。
+这张图最值得注意的是：**formula 不是边解析边执行，而是先解析成 Formula，再编译成 typed `ir.Workflow`（含 `steps.Step` 接口实例），再交给 typed runtime 运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。
 
 ## 代码组织上的重要边界
 
@@ -195,9 +209,11 @@ flowchart TD
 - `internal/` 才是复用点和复杂逻辑中心。
 
 ### `internal/formula` 与 typed runtime 的边界
-- `internal/formula`：定义语言、解析、继承、扩展、编译成 Workflow。
-- `internal/formula/runtime`：执行 Workflow，处理拓扑规划、状态、resume/retry 与事件。
-- `internal/formula/steps`：承载 agent/script/human_input 等 step 实现。
+- `internal/formula`：定义语言、解析、继承、扩展、把 Formula 编译成 typed `ir.Workflow`（仍在 `formula` 包中）。
+- `internal/formula/ast` / `ir` / `compile`：AST、IR 和另一条 AST→IR 编译路径，与 Step Registry 配合。
+- `internal/formula/runtime`：执行 typed Workflow，处理拓扑规划、状态、resume/retry、事件、environment、worktree、validation、repair。
+- `internal/formula/steps`：承载 agent / script / human_input / noop / loop / retry / aggregate / tool / write_files 等 Step 接口实现，由 `Registry` 管理。
+- `internal/formula/builtin`：内置 formulas 与 atomics，作为新 formula 的起点。
 
 ### `internal/picoclaw` 与 `internal/agents` 的边界
 - `picoclaw`：运行时加载、provider 创建、direct runner 包装。
@@ -211,7 +227,9 @@ flowchart TD
 - 运行快照 `state.json`
 - 事件流 `logs.jsonl`
 - 步骤级 prompt / output / error 产物
+- final report chat 历史（嵌入 snapshot，由 dashboard 渲染）
 - stale run 检测
+- 与 `internal/formularunview` 配合，把 `runtime.Snapshot` 转成 dashboard `formulaui.Snapshot`
 
 ## 为什么说这是"平台型 CLI"
 
@@ -230,8 +248,12 @@ flowchart TD
 - 根命令：`cmd/root.go`
 - 配置合并：`internal/ttconfig/config.go`
 - Picoclaw runtime：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
-- formula 编译：`internal/formula/workflow.go`
-- Typed runtime：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
+- formula 解析与编译：`internal/formula/parser.go`、`internal/formula/workflow.go`、`internal/formula/compile/compiler.go`
+- Typed runtime：`internal/formula/runtime/executor.go`、`internal/formula/runtime/environment.go`、`internal/formula/runtime/workspace.go`、`internal/formula/runtime/capabilities.go`、`internal/formula/steps/`
+- Step 注册表：`internal/formula/steps/registry.go`、`internal/formula/steps/kinds.go`
 - 运行持久化：`internal/formularun/store.go`
+- 运行视图：`internal/formularunview/snapshot.go`
+- Dashboard DTO：`internal/formulaui/state.go`
 - docs 命令：`cmd/docs.go`
+- agent optimize：`cmd/agent_optimize.go`、`internal/agentopt/optimize.go`
 - Web 资源嵌入：`internal/webui/markdown.go`、`internal/webui/formula.go`、`Makefile`
