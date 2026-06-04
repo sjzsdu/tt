@@ -181,7 +181,17 @@ func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps
 	}
 	provider := firstNonEmpty(req.Provider, c.DefaultProvider)
 	model := firstNonEmpty(req.Model, c.DefaultModel)
-	argv := buildExternalAgentArgv(driver, provider, model, req.Mode, req.Resume, req.ExtraArgs)
+	extraArgs := append([]string(nil), req.ExtraArgs...)
+	codexLastMessagePath := ""
+	if driver == "codex" && !hasExternalAgentArg(extraArgs, "--output-last-message", "-o") {
+		if f, ferr := os.CreateTemp("", "tt-codex-last-message-*.txt"); ferr == nil {
+			codexLastMessagePath = f.Name()
+			_ = f.Close()
+			defer os.Remove(codexLastMessagePath)
+			extraArgs = append(extraArgs, "--output-last-message", codexLastMessagePath)
+		}
+	}
+	argv := buildExternalAgentArgv(driver, provider, model, req.Mode, req.Resume, extraArgs)
 	argv = appendAgentPrompt(argv, driver, req.Prompt)
 	timeout := req.Timeout
 	if timeout <= 0 {
@@ -220,13 +230,19 @@ func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps
 	if runCtx.Err() == context.DeadlineExceeded {
 		runErr = fmt.Errorf("external_agent %s timed out after %s", driver, timeout)
 	}
+	text := extractExternalAgentText(driver, stdout.String())
+	if codexLastMessagePath != "" {
+		if data, rerr := os.ReadFile(codexLastMessagePath); rerr == nil && strings.TrimSpace(string(data)) != "" {
+			text = strings.TrimSpace(string(data))
+		}
+	}
 	out := externalAgentOutput{
 		Driver:    driver,
 		Provider:  provider,
 		Model:     model,
 		Mode:      req.Mode,
 		SessionID: extractExternalAgentSessionID(driver, stdout.String()),
-		Text:      extractExternalAgentText(driver, stdout.String()),
+		Text:      text,
 		Stderr:    strings.TrimSpace(stderr.String()),
 		ExitCode:  exitCode,
 		Duration:  time.Since(started).Milliseconds(),
@@ -236,6 +252,17 @@ func (c ExternalAgentCapability) RunExternalAgent(ctx context.Context, req steps
 		return steps.Value{}, marshalErr
 	}
 	return steps.Value{Type: "json", Raw: data}, runErr
+}
+
+func hasExternalAgentArg(args []string, names ...string) bool {
+	for _, arg := range args {
+		for _, name := range names {
+			if arg == name || strings.HasPrefix(arg, name+"=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c ExternalAgentCapability) lookupDriver(driver string) (string, error) {
@@ -355,6 +382,15 @@ func extractExternalAgentText(driver, raw string) string {
 func extractExternalAgentSessionID(driver, raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
+		return ""
+	}
+	if driver == "codex" {
+		for _, line := range strings.Split(raw, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "session id:") {
+				return strings.TrimSpace(strings.TrimPrefix(line, "session id:"))
+			}
+		}
 		return ""
 	}
 	if driver != "jcode" && driver != "bl" {

@@ -90,6 +90,41 @@ func TestExternalAgentCapabilityRunsFakeBinary(t *testing.T) {
 	}
 }
 
+func TestExternalAgentCapabilityCapturesCodexLastMessage(t *testing.T) {
+	tmp := t.TempDir()
+	dump := filepath.Join(tmp, "dump.txt")
+	bin := filepath.Join(tmp, "fake-codex")
+	script := "#!/bin/sh\n" +
+		"printf 'args=%s\\n' \"$*\" > " + shellQuote(dump) + "\n" +
+		"last=''\n" +
+		"prev=''\n" +
+		"for arg in \"$@\"; do if [ \"$prev\" = '--output-last-message' ]; then last=\"$arg\"; fi; prev=\"$arg\"; done\n" +
+		"if [ -n \"$last\" ]; then printf 'OK from file' > \"$last\"; fi\n" +
+		"printf 'OpenAI Codex v0.130.0\\n--------\\nsession id: sess-codex\\n--------\\ncodex\\nnoisy stdout\\n'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cap := ExternalAgentCapability{Resolver: func(string) (string, error) { return bin, nil }}
+	value, err := cap.RunExternalAgent(context.Background(), steps.ExternalAgentRequest{Driver: "codex", Model: "m", Prompt: "hello", Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out externalAgentOutput
+	if err := json.Unmarshal(value.Raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != "OK from file" || out.SessionID != "sess-codex" {
+		t.Fatalf("out = %+v", out)
+	}
+	dumped, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dumped), "--output-last-message") {
+		t.Fatalf("missing output-last-message arg: %s", dumped)
+	}
+}
+
 func TestAppendExternalAgentPrompt(t *testing.T) {
 	if got := appendAgentPrompt([]string{"forge", "--conversation-id", "s"}, "forge", "hello"); strings.Join(got, " ") != "forge --conversation-id s --prompt hello" {
 		t.Fatalf("forge prompt argv = %#v", got)
