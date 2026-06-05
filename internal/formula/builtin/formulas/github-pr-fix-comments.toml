@@ -90,33 +90,51 @@ worktree_root="$root_input"
 case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
 target="$worktree_root/pr-${number}-${safe_head}"
 pr_head_ref="refs/tt/pr-fix-comments/${number}/head"
+remote_head_ref="refs/remotes/origin/${head}"
 mkdir -p "$worktree_root"
+fetch_pr_head() {
+  source_ref="$remote_head_ref"
+  source_kind="origin_branch"
+  if fetch_out="$(git -C "$repo_root" fetch origin "+refs/heads/${head}:${remote_head_ref}" --prune 2>&1)"; then
+    return 0
+  fi
+  origin_fetch_error="$fetch_out"
+  source_ref="$pr_head_ref"
+  source_kind="pull_ref"
+  if fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" --prune 2>&1)"; then
+    return 0
+  fi
+  fetch_out="origin branch fetch failed: ${origin_fetch_error}; PR head fetch failed: ${fetch_out}"
+  return 1
+}
 if [ -d "$target/.git" ] || [ -f "$target/.git" ]; then
   if ! git -C "$target" diff --quiet || ! git -C "$target" diff --cached --quiet; then
     jq -cn --arg error "existing target worktree has uncommitted changes before PR checkout" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
     exit 0
   fi
-  if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" --prune 2>&1)"; then
+  if ! fetch_pr_head; then
     jq -cn --arg error "git fetch PR head failed: $fetch_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
     exit 0
   fi
-  if ! checkout_out="$(git -C "$target" checkout --detach "$pr_head_ref" 2>&1)"; then
+  if ! checkout_out="$(git -C "$target" checkout --detach "$source_ref" 2>&1)"; then
     jq -cn --arg error "git checkout PR head failed: $checkout_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
     exit 0
   fi
-  jq -cn --arg path "$target" --arg repo_root "$repo_root" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,repo_root:$repo_root,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:true,detached:true}'
+  source_sha="$(git -C "$repo_root" rev-parse "$source_ref" 2>/dev/null || true)"
+  jq -cn --arg path "$target" --arg repo_root "$repo_root" --arg branch "$head" --arg base "$base" --arg source_ref "$source_ref" --arg source_kind "$source_kind" --arg source_sha "$source_sha" '{ok:true,error:"",workspace_path:$path,repo_root:$repo_root,head_branch:$branch,base_branch:$base,source_ref:$source_ref,source_kind:$source_kind,source_sha:$source_sha,reused_current:false,reused_worktree:true,created:false,cleanup_required:true,detached:true}'
   exit 0
 fi
-if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" --prune 2>&1)"; then
+if ! fetch_pr_head; then
   jq -cn --arg error "git fetch PR head failed: $fetch_out" '{ok:false,error:$error,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
-if ! git -C "$repo_root" worktree add --detach "$target" "$pr_head_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
+if ! git -C "$repo_root" worktree add --detach "$target" "$source_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
   err="$(cat /tmp/tt-pr-fix-worktree.log 2>/dev/null || true)"
   jq -cn --arg error "git worktree add failed: $err" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
-jq -cn --arg path "$target" --arg repo_root "$repo_root" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,repo_root:$repo_root,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:false,created:true,cleanup_required:true,detached:true}'
+source_sha="$(git -C "$repo_root" rev-parse "$source_ref" 2>/dev/null || true)"
+jq -cn --arg path "$target" --arg repo_root "$repo_root" --arg branch "$head" --arg base "$base" --arg source_ref "$source_ref" --arg source_kind "$source_kind" --arg source_sha "$source_sha" '{ok:true,error:"",workspace_path:$path,repo_root:$repo_root,head_branch:$branch,base_branch:$base,source_ref:$source_ref,source_kind:$source_kind,source_sha:$source_sha,reused_current:false,reused_worktree:false,created:true,cleanup_required:true,detached:true}'
 """]
 format = "json"
 timeout = "90s"
@@ -453,7 +471,19 @@ if [ "$push_rc" -ne 0 ]; then
   jq -cn --arg error "git push failed: $push_out" --arg commit_sha "$commit_sha" --argjson committed "$committed" --arg status "$status_before" --arg tracked_status "$tracked_status" --arg untracked_status "$untracked_status" '{ok:false,error:$error,pushed:false,committed:$committed,commit_sha:$commit_sha,changed:($status != ""),tracked_changed:($tracked_status != ""),untracked_ignored:$untracked_status,status_before:$status,tracked_status:$tracked_status}'
   exit 0
 fi
-jq -cn --arg push_stdout "$push_out" --arg commit_stdout "$commit_out" --arg commit_sha "$commit_sha" --argjson committed "$committed" --arg status "$status_before" --arg tracked_status "$tracked_status" --arg untracked_status "$untracked_status" '{ok:true,error:"",pushed:true,committed:$committed,commit_sha:$commit_sha,changed:($status != ""),tracked_changed:($tracked_status != ""),untracked_ignored:$untracked_status,status_before:$status,tracked_status:$tracked_status,commit_stdout:$commit_stdout,push_stdout:$push_stdout}'
+local_head="$(git -C "$workspace" rev-parse HEAD 2>/dev/null || true)"
+verify_out="$(git -C "$workspace" fetch origin "+refs/heads/${head}:refs/remotes/origin/${head}" 2>&1)"
+verify_rc=$?
+remote_head="$(git -C "$workspace" rev-parse "refs/remotes/origin/${head}" 2>/dev/null || true)"
+remote_synced=false
+if [ "$verify_rc" -eq 0 ] && [ -n "$local_head" ] && [ "$local_head" = "$remote_head" ]; then
+  remote_synced=true
+fi
+if [ "$remote_synced" != true ]; then
+  jq -cn --arg error "remote branch sync verification failed" --arg push_stdout "$push_out" --arg verify_stdout "$verify_out" --arg local_head "$local_head" --arg remote_head "$remote_head" --arg commit_sha "$commit_sha" --argjson committed "$committed" --arg status "$status_before" --arg tracked_status "$tracked_status" --arg untracked_status "$untracked_status" '{ok:false,error:$error,pushed:true,remote_synced:false,local_head:$local_head,remote_head:$remote_head,committed:$committed,commit_sha:$commit_sha,changed:($status != ""),tracked_changed:($tracked_status != ""),untracked_ignored:$untracked_status,status_before:$status,tracked_status:$tracked_status,push_stdout:$push_stdout,verify_stdout:$verify_stdout}'
+  exit 0
+fi
+jq -cn --arg push_stdout "$push_out" --arg verify_stdout "$verify_out" --arg local_head "$local_head" --arg remote_head "$remote_head" --arg commit_stdout "$commit_out" --arg commit_sha "$commit_sha" --argjson committed "$committed" --arg status "$status_before" --arg tracked_status "$tracked_status" --arg untracked_status "$untracked_status" '{ok:true,error:"",pushed:true,remote_synced:true,local_head:$local_head,remote_head:$remote_head,committed:$committed,commit_sha:$commit_sha,changed:($status != ""),tracked_changed:($tracked_status != ""),untracked_ignored:$untracked_status,status_before:$status,tracked_status:$tracked_status,commit_stdout:$commit_stdout,push_stdout:$push_stdout,verify_stdout:$verify_stdout}'
 """]
 format = "json"
 timeout = "120s"
@@ -479,7 +509,7 @@ description = """
 2. worktree 使用情况：复用当前分支 / 复用已有 worktree / 新建 worktree，以及路径；
 3. `## Comments 明细`：用 Markdown 表格列出每条评论，列为 `Comment`、`文件:行`、`作者`、`处理状态`、`摘要`、`下一步`；
 4. GitHub review thread resolve 情况；
-5. push --no-verify 是否成功、是否产生 commit；
+5. push --no-verify 是否成功、是否产生 commit、push 后 `origin/<PR head branch>` 是否与本地 HEAD 同步；
 6. 需要人工继续处理的项；
 7. 如果 comment_items.total == 0，明确说明没有待处理评论且没有执行 bug-fix。
 8. 如果 worktree 准备失败，明确输出失败原因，不要声称执行了修复。
@@ -487,7 +517,7 @@ description = """
 要求：
 - 结论先行。
 - 控制在 8-12 条要点，避免冗长。
-- 不要编造未执行的测试、push 或评论处理结果。
+- 不要编造未执行的测试、push、同步校验或评论处理结果。
 - `Comments 明细` 中 `Comment` 优先使用 comment url 做 Markdown 链接；没有 url 时使用 comment_id。
 - `摘要` 必须压缩成一句话，不要粘贴完整评论正文或 diff hunk。
 """

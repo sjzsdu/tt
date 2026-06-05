@@ -199,6 +199,9 @@ try:
         'pushed': bool(push.get('pushed')),
         'committed': bool(push.get('committed')),
         'changed': bool(push.get('changed')),
+        'remote_synced': push.get('remote_synced'),
+        'local_head': push.get('local_head') or '',
+        'remote_head': push.get('remote_head') or '',
         'commit_sha': push.get('commit_sha') or '',
         'cleanup_removed': cleanup.get('removed'),
         'cleanup_attempted': cleanup.get('attempted'),
@@ -238,7 +241,7 @@ description = """
 输出中文最终报告，必须是 Markdown。严禁输出 JSON、代码块 JSON 或被引号包裹的 JSON 字符串。必须简明、结论先行，不要展开长篇过程日志。
 
 固定输出结构：
-1. `## 结论`：1-3 句话说明 PR 总数、有待处理评论的 PR 数、完成数、需要 follow-up 数、push/commit 情况。
+1. `## 结论`：1-3 句话说明 PR 总数、有待处理评论的 PR 数、完成数、需要 follow-up 数、push/commit 和远端同步情况。
 2. `## PR 明细`：必须用 Markdown 表格，且只保留这些列：
    `PR`、`标题`、`分支`、`评论`、`处理`、`Resolve`、`Push`、`清理`、`状态/下一步`。
 3. `## Comments 明细`：必须用 Markdown 表格列出所有抓到的 comment，列为：
@@ -250,7 +253,7 @@ description = """
 - `评论` 用 `待处理/已处理` 形式，例如 `3/3`；没有评论写 `0`。
 - `处理` 简写 fixed / not-confirmed / needs-followup 计数，例如 `fixed 2, follow-up 1`。
 - `Resolve` 用 ✅/❌/➖ 和 resolved 数量表达。
-- `Push` 用 ✅/❌/➖ 表达是否 push；无改动也要说明“无改动”。
+- `Push` 用 ✅/❌/➖ 表达是否 push 以及 `remote_synced` 是否为 true；无改动也要说明“无改动”。
 - `清理` 用 ✅/❌/➖ 表达临时 worktree 是否清理。
 - `状态/下一步` 只能写最关键一句：完成 / 无待处理评论 / 需要人工 follow-up / worktree 失败 / metadata 失败 / push 失败。
 - 若没有 open PR，输出一句结论和配置即可，不要输出空表格。
