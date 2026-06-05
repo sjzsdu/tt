@@ -75,7 +75,7 @@ meta="${TT_PR_META:-{}}"
 root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}"
 ok="$(jq -r '.ok // false' <<<"$meta")"
 if [ "$ok" != true ]; then
-  jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,already_on_pr_branch:false,error:$error,metadata:$meta,current_branch:"",head_branch:"",worktree_path:""}'
+  jq -cn --arg error "pr metadata unavailable" --arg metadata_raw "$meta" '{ok:false,already_on_pr_branch:false,error:$error,metadata_raw:$metadata_raw,current_branch:"",head_branch:"",worktree_path:""}'
   exit 0
 fi
 head="$(jq -r '.headRefName // empty' <<<"$meta")"
@@ -182,7 +182,7 @@ root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}"
 current_check="${TT_CURRENT_CHECK:-{}}"
 ok="$(jq -r '.ok // false' <<<"$meta")"
 if [ "$ok" != true ]; then
-  jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,worktree_path:"",base_branch:"",head_branch:""}'
+  jq -cn --arg error "pr metadata unavailable" --arg metadata_raw "$meta" '{ok:false,error:$error,metadata_raw:$metadata_raw,worktree_path:"",base_branch:"",head_branch:""}'
   exit 0
 fi
 number="$(jq -r '.number // empty' <<<"$meta")"
@@ -190,7 +190,7 @@ head="$(jq -r '.headRefName // empty' <<<"$meta")"
 base="$(jq -r '.baseRefName // empty' <<<"$meta")"
 if [ -n "$base_override" ] && [ "$base_override" != "-" ]; then base="$base_override"; fi
 if [ -z "$number" ] || [ -z "$head" ] || [ -z "$base" ]; then
-  jq -cn --arg error "missing PR number/head/base" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,worktree_path:"",base_branch:"",head_branch:""}'
+  jq -cn --arg error "missing PR number/head/base" --arg metadata_raw "$meta" '{ok:false,error:$error,metadata_raw:$metadata_raw,worktree_path:"",base_branch:"",head_branch:""}'
   exit 0
 fi
 invocation_dir="$(pwd)"

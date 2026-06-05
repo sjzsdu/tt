@@ -59,6 +59,58 @@ for attempt in 1 2 3; do
     *) break ;;
   esac
 done
+if printf '%s' "$pr" | grep -Eq '^[0-9]+$'; then
+  owner_repo="$repo"
+  if [ -z "$owner_repo" ]; then
+    origin_url="$(git config --get remote.origin.url 2>/dev/null || true)"
+    case "$origin_url" in
+      git@github.com:*) owner_repo="${origin_url#git@github.com:}" ; owner_repo="${owner_repo%.git}" ;;
+      https://github.com/*) owner_repo="${origin_url#https://github.com/}" ; owner_repo="${owner_repo%.git}" ;;
+      http://github.com/*) owner_repo="${origin_url#http://github.com/}" ; owner_repo="${owner_repo%.git}" ;;
+    esac
+  fi
+  if [ -n "$owner_repo" ] && printf '%s' "$owner_repo" | grep -q '/'; then
+    rest_out="$(gh api "repos/${owner_repo}/pulls/${pr}" 2>&1)"
+    rest_rc=$?
+    if [ "$rest_rc" -eq 0 ]; then
+      jq -c \
+        --arg pr_ref "$pr" \
+        --arg repo_hint "$repo" \
+        --arg owner_repo "$owner_repo" \
+        --arg graphql_error "$last_out" \
+        --argjson attempts 3 '
+        {
+          ok:true,
+          pr_ref:$pr_ref,
+          repo_hint:$repo_hint,
+          error:"",
+          attempts:$attempts,
+          fallback:"rest",
+          graphql_error:$graphql_error,
+          number:.number,
+          title:(.title // ""),
+          body:(.body // ""),
+          author:{login:(.user.login // "")},
+          url:(.html_url // ""),
+          state:(.state // ""),
+          isDraft:(.draft // false),
+          baseRefName:(.base.ref // ""),
+          headRefName:(.head.ref // ""),
+          headRefOid:(.head.sha // ""),
+          headRepositoryOwner:{login:(.head.repo.owner.login // "")},
+          headRepository:(.head.repo // {}),
+          reviewDecision:null,
+          changedFiles:(.changed_files // 0),
+          commits:(.commits // 0),
+          additions:(.additions // 0),
+          deletions:(.deletions // 0),
+          maintainerCanModify:(.maintainer_can_modify // false)
+        }' <<<"$rest_out"
+      exit 0
+    fi
+    last_out="$last_out; REST fallback failed: $rest_out"
+  fi
+fi
 jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$last_out" --argjson attempts 3 '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error,attempts:$attempts}'
 exit 0
 """]
