@@ -8,6 +8,7 @@ tags = ["工作流", "需求", "审批", "任务拆分", "foreach", "aggregate"]
 
 [vars]
 requirement = { description = "皇上的宏观需求", required = true }
+execute_gongbu = { description = "是否在尚书省统筹后调用 gongbu 真正执行代码类计划；默认 false，避免未经确认修改/提交代码", default = "false", enum = ["true", "false"] }
 
 [[steps]]
 id = "zhongshu-draft"
@@ -175,3 +176,66 @@ description = """
 不要声称任务已经完成，只说明已完成分派和启动文稿生成。不要复述所有 brief_markdown 正文。
 """
 agent.name = "planner"
+
+[[steps]]
+id = "gongbu-feature-request"
+title = "尚书省整理工部执行需求包"
+depends_on = ["shangshu-summary"]
+condition = "{{execute_gongbu}} == true"
+input_context = ["zhongshu-draft", "loop-improve", "loop-review", "shangshu-assign", "execution-manifest", "shangshu-summary"]
+description = """
+你是尚书省，准备把已核准的执行计划下发给 gongbu formula 执行。请将最终通过的需求、尚书省任务拆分、各部启动摘要和统筹报告，压缩成一个适合 gongbu 的 feature_request。
+
+要求：
+- 只输出 compact JSON object，不要 Markdown 代码块。
+- feature_request 要完整表达要实现的代码类目标、范围、验收标准、优先级、约束、风险和参考上下文。
+- 如果三省六部计划中包含多个任务，请明确哪些属于本次 gongbu 要执行的最小闭环；非代码/非工程任务放入 coordination_notes。
+- 不要声称已经执行，只是生成 gongbu 的输入。
+
+输出格式：
+{"feature_request":"...","execution_scope":["..."],"acceptance":["..."],"coordination_notes":["..."],"risks":["..."]}
+"""
+agent.name = "planner"
+
+[steps.validate]
+format = "json"
+required = ["feature_request", "execution_scope", "acceptance"]
+
+[[steps]]
+id = "gongbu-execute"
+title = "调用 gongbu 执行尚书省计划"
+depends_on = ["gongbu-feature-request"]
+condition = "{{execute_gongbu}} == true"
+execution = "script"
+description = "调用 tt formula run gongbu，将尚书省生成的 feature_request 交给 gongbu。保留 gongbu 自身的 worktree 隔离、验证和提交逻辑。"
+
+[steps.script]
+command = [
+  "python3",
+  "-c",
+  """
+import json, os, subprocess, sys
+feature_request = os.environ.get('GONGBU_FEATURE_REQUEST', '').strip()
+if not feature_request:
+    print(json.dumps({'ok': False, 'error': 'GONGBU_FEATURE_REQUEST is empty'}, ensure_ascii=False))
+    raise SystemExit(1)
+cmd = ['tt', 'formula', 'run', 'gongbu', '--no-web', '--verbose', '--var', 'feature_request=' + feature_request]
+p = subprocess.run(cmd, text=True, capture_output=True)
+print(json.dumps({
+    'ok': p.returncode == 0,
+    'command': cmd[:5] + ['--var', 'feature_request=<redacted>'],
+    'exit_code': p.returncode,
+    'stdout': p.stdout,
+    'stderr': p.stderr,
+}, ensure_ascii=False))
+raise SystemExit(p.returncode)
+""",
+]
+timeout = "2h"
+
+[steps.script.env]
+GONGBU_FEATURE_REQUEST = "{{gongbu-feature-request.feature_request}}"
+
+[steps.validate]
+format = "json"
+required = ["ok", "exit_code", "stdout"]
