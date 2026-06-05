@@ -1683,5 +1683,9 @@ func metadataFromDecl(decl ast.StepDecl, kind Kind) Metadata {
 	for _, dep := range decl.DependsOn {
 		deps = append(deps, ID(dep))
 	}
-	return Metadata{ID: ID(decl.ID), Kind: kind, Title: decl.Title, DependsOn: deps}
+	metadata := Metadata{ID: ID(decl.ID), Kind: kind, Title: decl.Title, DependsOn: deps, Idempotent: decl.Idempotent}
+	if !metadata.Idempotent && (kind == KindAgent || kind == KindExternalAgent) {
+		metadata.Idempotent = true
+	}
+	return metadata
 }

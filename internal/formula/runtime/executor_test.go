@@ -42,6 +42,21 @@ func (a *retryValidationAgent) RunAgent(_ context.Context, req steps.AgentReques
 	return steps.Value{Type: "json", Raw: json.RawMessage(`{"feature_summary":"ok","acceptance_criteria":["passes"],"initial_search_targets":["runtime"]}`)}, nil
 }
 
+type retryValidationAgentThreeAttempts struct {
+	calls   int
+	prompts []string
+}
+
+func (a *retryValidationAgentThreeAttempts) RunAgent(_ context.Context, req steps.AgentRequest) (steps.Value, error) {
+	a.calls++
+	a.prompts = append(a.prompts, req.Prompt)
+	if a.calls < 3 {
+		raw, _ := json.Marshal("still not JSON enough")
+		return steps.Value{Type: "json", Raw: raw}, nil
+	}
+	return steps.Value{Type: "json", Raw: json.RawMessage(`{"feature_summary":"ok","acceptance_criteria":["passes"],"initial_search_targets":["runtime"]}`)}, nil
+}
+
 type repairAgent struct {
 	prompts []string
 }
@@ -325,9 +340,41 @@ func TestExecutorRetriesAgentAfterOutputValidationFailure(t *testing.T) {
 	}
 }
 
+func TestExecutorRetriesAgentUpToThreeAttempts(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "analyze", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "analyze", Kind: steps.KindAgent}}, Prompt: "analyze", Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"feature_summary", "acceptance_criteria", "initial_search_targets"}}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &retryValidationAgentThreeAttempts{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent})
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s, want completed", result.Status)
+	}
+	if agent.calls != 3 {
+		t.Fatalf("agent calls = %d, want 3", agent.calls)
+	}
+	snapshot, snapErr := exec.Store.Snapshot(wf.ID)
+	if snapErr != nil {
+		t.Fatal(snapErr)
+	}
+	if len(snapshot.Repairs) != 2 {
+		t.Fatalf("repairs = %d, want 2", len(snapshot.Repairs))
+	}
+	if snapshot.Repairs[0].Attempt != 1 || snapshot.Repairs[1].Attempt != 2 {
+		t.Fatalf("unexpected attempts: %+v", snapshot.Repairs)
+	}
+	if snapshot.Repairs[1].Status != "succeeded" {
+		t.Fatalf("final repair status = %q, want succeeded", snapshot.Repairs[1].Status)
+	}
+}
+
 func TestExecutorRepairsFailedScriptStepWithAgentAndRetries(t *testing.T) {
 	g := ir.NewGraph()
-	g.AddNode(&ir.Node{ID: "script", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "script", Kind: steps.KindScript}}, Command: []string{"bad"}}})
+	g.AddNode(&ir.Node{ID: "script", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "script", Kind: steps.KindScript, Idempotent: true}}, Command: []string{"bad"}}})
 	wf := &ir.Workflow{ID: "demo", Graph: g}
 	agent := &repairAgent{}
 	scripts := &repairScript{}
@@ -351,6 +398,42 @@ func TestExecutorRepairsFailedScriptStepWithAgentAndRetries(t *testing.T) {
 	}
 	if _, ok := exec.Context.Get("formula_repairs.script"); !ok {
 		t.Fatal("missing formula repair context")
+	}
+}
+
+func TestExecutorSkipsFixForNonIdempotentScript(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "script", Step: steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "script", Kind: steps.KindScript}}, Command: []string{"bad"}}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	agent := &repairAgent{}
+	scripts := &repairScript{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent, Scripts: scripts})
+
+	result, err := exec.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected run to fail for non-idempotent script")
+	}
+	if result == nil || result.Status != steps.StatusFailed {
+		t.Fatalf("status = %v, want failed", result)
+	}
+	if len(agent.prompts) != 0 {
+		t.Fatalf("repair agent should not run, got prompts %#v", agent.prompts)
+	}
+	if len(scripts.commands) != 1 {
+		t.Fatalf("script calls = %d, want 1", len(scripts.commands))
+	}
+	if _, ok := exec.Context.Get("formula_repairs.script"); ok {
+		t.Fatal("unexpected formula repair context for non-idempotent script")
+	}
+	state, ok, getErr := exec.Store.GetStep(wf.ID, ir.NodeID("script"))
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if !ok {
+		t.Fatal("missing step state")
+	}
+	if state.Status != steps.StatusFailed {
+		t.Fatalf("step status = %s, want failed", state.Status)
 	}
 }
 

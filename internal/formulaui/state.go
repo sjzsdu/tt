@@ -22,6 +22,7 @@ type Snapshot struct {
 	Status          string           `json:"status"`
 	FinalOutput     string           `json:"final_output,omitempty"`
 	FinalReportChat *FinalReportChat `json:"final_report_chat,omitempty"`
+	Repairs         []RepairRecord   `json:"repairs,omitempty"`
 	Error           string           `json:"error,omitempty"`
 	Steps           []Step           `json:"steps"`
 	Edges           []Edge           `json:"edges,omitempty"`
@@ -43,6 +44,23 @@ type FinalReportChatMessage struct {
 	Content string `json:"content"`
 	At      string `json:"at,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+type RepairRecord struct {
+	StepID             string   `json:"step_id"`
+	Kind               string   `json:"kind,omitempty"`
+	Attempt            int      `json:"attempt,omitempty"`
+	Status             string   `json:"status,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
+	FormulaUpdateHint  string   `json:"formula_update_hint,omitempty"`
+	NextAttemptHint    string   `json:"next_attempt_hint,omitempty"`
+	Advice             string   `json:"advice,omitempty"`
+	OriginalCommand    []string `json:"original_command,omitempty"`
+	FixedCommand       []string `json:"fixed_command,omitempty"`
+	Error              string   `json:"error,omitempty"`
+	RecordedAt         string   `json:"recorded_at,omitempty"`
+	ConfirmedAt        string   `json:"confirmed_at,omitempty"`
+	ConfirmationStatus string   `json:"confirmation_status,omitempty"`
 }
 
 type Step struct {
@@ -194,6 +212,11 @@ func CloneSnapshot(s Snapshot) Snapshot {
 	}
 	cp.Edges = append([]Edge(nil), s.Edges...)
 	cp.Logs = append([]LogEntry(nil), s.Logs...)
+	cp.Repairs = append([]RepairRecord(nil), s.Repairs...)
+	for i := range cp.Repairs {
+		cp.Repairs[i].OriginalCommand = append([]string(nil), s.Repairs[i].OriginalCommand...)
+		cp.Repairs[i].FixedCommand = append([]string(nil), s.Repairs[i].FixedCommand...)
+	}
 	if s.FinalReportChat != nil {
 		chat := *s.FinalReportChat
 		chat.Messages = append([]FinalReportChatMessage(nil), s.FinalReportChat.Messages...)

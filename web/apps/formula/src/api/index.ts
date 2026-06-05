@@ -31,6 +31,7 @@ export function normalizeSnapshot(snapshot: FormulaDashboardSnapshot): FormulaDa
       ...snapshot.final_report_chat,
       messages: Array.isArray(snapshot.final_report_chat.messages) ? snapshot.final_report_chat.messages : [],
     } : undefined,
+    repairs: Array.isArray(snapshot.repairs) ? snapshot.repairs : [],
     steps: Array.isArray(snapshot.steps) ? snapshot.steps.map(normalizeStep) : [],
     edges: Array.isArray(snapshot.edges) ? snapshot.edges : [],
     logs: Array.isArray(snapshot.logs) ? snapshot.logs : [],
@@ -57,6 +58,14 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ step_id: stepID, advice: advice || '' }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
+  async confirmRepair(stepID: string, attempt: number): Promise<void> {
+    const r = await fetch('/api/repairs/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step_id: stepID, attempt }),
     });
     if (!r.ok) throw new Error(await r.text());
   },

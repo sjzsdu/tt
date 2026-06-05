@@ -114,11 +114,12 @@ func normalizeStep(index int, raw map[string]any) (ast.StepDecl, error) {
 	if len(depends) == 0 {
 		depends = stringSlice(raw["needs"])
 	}
+	idempotent, _ := raw["idempotent"].(bool)
 	data, err := json.Marshal(raw)
 	if err != nil {
 		return ast.StepDecl{}, fmt.Errorf("steps[%d]: %w", index, err)
 	}
-	return ast.StepDecl{ID: id, Kind: kind, Title: title, DependsOn: depends, Raw: data}, nil
+	return ast.StepDecl{ID: id, Kind: kind, Title: title, DependsOn: depends, Raw: data, Idempotent: idempotent}, nil
 }
 
 func stringSlice(value any) []string {

@@ -92,3 +92,45 @@ func TestFormulaRunStateStoreMirrorsWaitingInput(t *testing.T) {
 		t.Fatalf("await reason = %q", got.Reason)
 	}
 }
+
+func TestFormulaRunStateStorePersistsRepairsArtifact(t *testing.T) {
+	root := t.TempDir()
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	store, err := formularun.New(root, workflow, nil, "main", "", "session", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewFormulaRunStateStore(store)
+	if err := bridge.StartWorkflow("demo"); err != nil {
+		t.Fatal(err)
+	}
+	repair := RepairRecord{StepID: "script", Kind: string(steps.KindScript), Attempt: 1, Status: "succeeded", FormulaUpdateHint: "replace bad with fixed", FixedCommand: []string{"fixed"}}
+	if err := bridge.SaveRepair("demo", repair); err != nil {
+		t.Fatal(err)
+	}
+	var snapshot Snapshot
+	if err := formularun.LoadState(store.Dir, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Repairs) != 1 || snapshot.Repairs[0].StepID != "script" {
+		t.Fatalf("snapshot repairs = %+v", snapshot.Repairs)
+	}
+	matches, err := filepath.Glob(filepath.Join(store.Dir, "patches", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("patch artifacts = %v, want 1 file", matches)
+	}
+	data, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []RepairRecord
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].FormulaUpdateHint != "replace bad with fixed" {
+		t.Fatalf("persisted repairs = %+v", got)
+	}
+}

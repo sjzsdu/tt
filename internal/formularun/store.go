@@ -192,6 +192,17 @@ func (s *Store) SaveState(state any) error {
 	return writeJSON(filepath.Join(s.Dir, "state.json"), state)
 }
 
+func (s *Store) SaveRepairs(repairs any) error {
+	if s == nil {
+		return nil
+	}
+	name := strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "-").Replace(strings.TrimSpace(s.Meta.RunID))
+	if name == "" {
+		name = "repairs"
+	}
+	return writeJSON(filepath.Join(s.Dir, "patches", name+".json"), repairs)
+}
+
 func (s *Store) Finish(status, errMsg string) error {
 	s.Meta.Status = status
 	s.Meta.Error = strings.TrimSpace(errMsg)

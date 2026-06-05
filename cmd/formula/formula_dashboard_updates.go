@@ -224,6 +224,46 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 	s.broadcast()
 }
 
+func (s *formulaDashboardServer) recordRepair(repair formulaui.RepairRecord) {
+	if strings.TrimSpace(repair.StepID) == "" {
+		return
+	}
+	s.mu.Lock()
+	updated := false
+	for i := range s.state.Repairs {
+		if s.state.Repairs[i].StepID == repair.StepID && s.state.Repairs[i].Attempt == repair.Attempt {
+			s.state.Repairs[i] = repair
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		s.state.Repairs = append(s.state.Repairs, repair)
+	}
+	msg := fmt.Sprintf("Repair %s for %s attempt %d", repair.Status, repair.StepID, repair.Attempt)
+	if strings.TrimSpace(repair.Reason) != "" {
+		msg += ": " + repair.Reason
+	}
+	s.appendLogLocked(msg)
+	s.mu.Unlock()
+	s.broadcast()
+}
+
+func (s *formulaDashboardServer) confirmRepair(stepID string, attempt int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.state.Repairs {
+		if s.state.Repairs[i].StepID != stepID || s.state.Repairs[i].Attempt != attempt {
+			continue
+		}
+		s.state.Repairs[i].ConfirmedAt = time.Now().Format(time.RFC3339)
+		s.state.Repairs[i].ConfirmationStatus = "confirmed"
+		s.appendLogLocked(fmt.Sprintf("Repair confirmed for %s attempt %d", stepID, attempt))
+		return true
+	}
+	return false
+}
+
 func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, session, detail, output, errMsg string, durationMS int64) {
 	parentID := formulaui.LoopParentStepID(stepID)
 	if parentID == "" {

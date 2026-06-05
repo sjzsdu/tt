@@ -57,6 +57,10 @@ func runtimeSnapshotToDashboardSnapshot(workflow *ir.Workflow, snapshot formular
 		}
 		applyRuntimeStepStateToDashboardStep(&out.Steps[i], state)
 	}
+	out.Repairs = make([]formulaui.RepairRecord, 0, len(snapshot.Repairs))
+	for _, repair := range snapshot.Repairs {
+		out.Repairs = append(out.Repairs, runtimeRepairToDashboardRepair(repair))
+	}
 	return out
 }
 
@@ -455,6 +459,8 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 		s.dashboard.markStepFailed(string(event.NodeID), runtimeEventError(event.Payload), runtimeEventOutput(event.Payload))
 	case "step.waiting":
 		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
+	case "step.repair.recorded":
+		s.dashboard.recordRepair(runtimeRepairPayload(event.Payload))
 	}
 }
 
@@ -485,6 +491,39 @@ func runtimeWorkspacePath(payload any) string {
 		return ""
 	}
 	return strings.TrimSpace(values["path"])
+}
+
+func runtimeRepairToDashboardRepair(repair formularuntime.RepairRecord) formulaui.RepairRecord {
+	return formulaui.RepairRecord{
+		StepID:             repair.StepID,
+		Kind:               repair.Kind,
+		Attempt:            repair.Attempt,
+		Status:             repair.Status,
+		Reason:             repair.Reason,
+		FormulaUpdateHint:  repair.FormulaUpdateHint,
+		NextAttemptHint:    repair.NextAttemptHint,
+		Advice:             repair.Advice,
+		OriginalCommand:    append([]string(nil), repair.OriginalCommand...),
+		FixedCommand:       append([]string(nil), repair.FixedCommand...),
+		Error:              repair.Error,
+		RecordedAt:         repair.RecordedAt,
+		ConfirmedAt:        repair.ConfirmedAt,
+		ConfirmationStatus: repair.ConfirmationStatus,
+	}
+}
+
+func runtimeRepairPayload(payload any) formulaui.RepairRecord {
+	switch value := payload.(type) {
+	case formulaui.RepairRecord:
+		return value
+	case formularuntime.RepairRecord:
+		return runtimeRepairToDashboardRepair(value)
+	case *formularuntime.RepairRecord:
+		if value != nil {
+			return runtimeRepairToDashboardRepair(*value)
+		}
+	}
+	return formulaui.RepairRecord{}
 }
 
 func finalOutputFromRunResult(workflow *ir.Workflow, result *formularuntime.RunResult) string {

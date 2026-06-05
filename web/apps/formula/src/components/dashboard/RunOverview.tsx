@@ -8,6 +8,7 @@ export type RunSummary = {
   running: number;
   failed: number;
   logs: number;
+  repairs: number;
 };
 
 export function RunOverview({ summary, progress, runningStep, status }: { summary: RunSummary; progress: number; runningStep?: FormulaDashboardStep; status: string }) {
@@ -29,6 +30,7 @@ export function RunOverview({ summary, progress, runningStep, status }: { summar
             <Col xs={12} sm={8} xl={4}><Statistic title="Running" value={summary.running} /></Col>
             <Col xs={12} sm={8} xl={4}><Statistic title="Skipped" value={summary.skipped} /></Col>
             <Col xs={12} sm={8} xl={4}><Statistic title="Failed" value={summary.failed} valueStyle={summary.failed ? { color: 'var(--ant-color-error)' } : undefined} /></Col>
+            <Col xs={12} sm={8} xl={4}><Statistic title="Repairs" value={summary.repairs} /></Col>
             <Col xs={12} sm={8} xl={4}><Statistic title="Logs" value={summary.logs} /></Col>
           </Row>
         </Col>

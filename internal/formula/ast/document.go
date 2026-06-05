@@ -39,10 +39,11 @@ type VarDecl struct {
 }
 
 type StepDecl struct {
-	ID        string
-	Kind      string
-	Title     string
-	DependsOn []string
-	Raw       json.RawMessage
-	Source    SourcePos
+	ID         string
+	Kind       string
+	Title      string
+	DependsOn  []string
+	Raw        json.RawMessage
+	Source     SourcePos
+	Idempotent bool `json:"idempotent,omitempty"`
 }

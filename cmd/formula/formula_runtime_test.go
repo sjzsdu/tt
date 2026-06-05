@@ -220,6 +220,19 @@ func TestFormulaRuntimeDashboardEventSinkCompletesWorkflow(t *testing.T) {
 	}
 }
 
+func TestFormulaRuntimeDashboardEventSinkRecordsRepairs(t *testing.T) {
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
+	dashboard := newFormulaDashboardServer(workflow)
+	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
+	sink.Emit(formularuntime.Event{Type: "step.repair.recorded", NodeID: "demo.work", Payload: formularuntime.RepairRecord{StepID: "demo.work", Attempt: 1, Status: "succeeded", FormulaUpdateHint: "tighten prompt"}})
+	if len(dashboard.state.Repairs) != 1 {
+		t.Fatalf("repairs = %+v", dashboard.state.Repairs)
+	}
+	if dashboard.state.Repairs[0].FormulaUpdateHint != "tighten prompt" {
+		t.Fatalf("repair = %+v", dashboard.state.Repairs[0])
+	}
+}
+
 func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
 	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
 	raw, _ := json.Marshal("saved output")

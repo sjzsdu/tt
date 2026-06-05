@@ -11,17 +11,17 @@ import (
 type Kind string
 
 const (
-	KindNoop       Kind = "noop"
-	KindAgent      Kind = "agent"
-	KindScript     Kind = "script"
-	KindHumanInput Kind = "human_input"
-	KindLoop       Kind = "loop"
-	KindCondition  Kind = "condition"
-	KindGate       Kind = "gate"
-	KindRetry      Kind = "retry"
-	KindEmbed      Kind = "embed"
-	KindExpand     Kind = "expand"
-	KindTool       Kind = "tool"
+	KindNoop          Kind = "noop"
+	KindAgent         Kind = "agent"
+	KindScript        Kind = "script"
+	KindHumanInput    Kind = "human_input"
+	KindLoop          Kind = "loop"
+	KindCondition     Kind = "condition"
+	KindGate          Kind = "gate"
+	KindRetry         Kind = "retry"
+	KindEmbed         Kind = "embed"
+	KindExpand        Kind = "expand"
+	KindTool          Kind = "tool"
 	KindAggregate     Kind = "aggregate"
 	KindWriteFiles    Kind = "write_files"
 	KindExternalAgent Kind = "external_agent"
@@ -30,12 +30,13 @@ const (
 type ID string
 
 type Metadata struct {
-	ID        ID
-	Kind      Kind
-	Title     string
-	DependsOn []ID
-	Labels    []string
-	Condition string
+	ID         ID
+	Kind       Kind
+	Title      string
+	DependsOn  []ID
+	Labels     []string
+	Condition  string
+	Idempotent bool
 }
 
 type Step interface {
@@ -215,16 +216,16 @@ type ExternalAgentRunner interface {
 // the driver supports them. Resume continues an existing session; Mode is a
 // runner-specific mode hint such as "ambient", "plan", or "normal".
 type ExternalAgentRequest struct {
-	NodeID     string
-	Driver     string
-	Provider   string
-	Model      string
-	Mode       string
-	Resume     string
-	Workspace  string
-	Prompt     string
-	ExtraArgs  []string
-	Timeout    time.Duration
+	NodeID    string
+	Driver    string
+	Provider  string
+	Model     string
+	Mode      string
+	Resume    string
+	Workspace string
+	Prompt    string
+	ExtraArgs []string
+	Timeout   time.Duration
 }
 
 var (

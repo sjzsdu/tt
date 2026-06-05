@@ -136,7 +136,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		}
 		out.Nodes[nodeID] = res
 		if err != nil || res.Status == steps.StatusFailed {
-			if repairedRes, repairedErr, ok := e.tryRepairFailedScriptStep(ctx, nodeID, node.Step, res, err); ok {
+			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, err, nil); ok {
 				res, err = repairedRes, repairedErr
 				out.Nodes[nodeID] = res
 				if err == nil && res != nil && res.Status != steps.StatusFailed {
@@ -170,10 +170,8 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			return out, nil
 		}
 		if validationErr := validateStepOutput(node.Step, res.Output); validationErr != nil {
-			if retryStep, ok := retryableAgentStepWithValidationAdvice(node.Step, validationErr, res.Output); ok {
-				e.emit(nodeID, "step.retry", map[string]any{"reason": "output_validation_failed", "error": validationErr.Error()})
-				retryExec := retryStep.(steps.Executable)
-				res, err = retryExec.Run(ctx, e.stepRunRequest(nodeID, retryStep))
+			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, nil, validationErr); ok {
+				res, err = repairedRes, repairedErr
 				if res == nil {
 					res = &steps.RunResult{}
 				}
@@ -222,54 +220,6 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	return out, nil
 }
 
-type scriptRepairPlan struct {
-	FixedCommand      []string `json:"fixed_command"`
-	Reason            string   `json:"reason"`
-	FormulaUpdateHint string   `json:"formula_update_hint"`
-}
-
-func (e *Executor) tryRepairFailedScriptStep(ctx context.Context, nodeID ir.NodeID, step steps.Step, failed *steps.RunResult, runErr error) (*steps.RunResult, error, bool) {
-	script, ok := scriptStepValue(step)
-	if !ok || e.Capabilities.Agents == nil || e.Capabilities.Scripts == nil {
-		return nil, nil, false
-	}
-	if len(script.Command) == 0 {
-		return nil, nil, false
-	}
-	e.emit(nodeID, "step.repair.started", map[string]any{"reason": "script_failed", "error": errorString(runErr, failed)})
-	agentOut, agentErr := e.Capabilities.Agents.RunAgent(ctx, steps.AgentRequest{
-		NodeID: string(nodeID) + ".repair",
-		Agent:  "coder",
-		Prompt: scriptRepairPrompt(script, failed, runErr),
-	})
-	if agentErr != nil {
-		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "agent", "error": agentErr.Error()})
-		return nil, nil, false
-	}
-	plan, err := decodeScriptRepairPlan(agentOut)
-	if err != nil {
-		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "decode", "error": err.Error()})
-		return nil, nil, false
-	}
-	if len(plan.FixedCommand) == 0 {
-		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "plan", "error": "fixed_command is empty"})
-		return nil, nil, false
-	}
-	repaired := script
-	repaired.Command = plan.FixedCommand
-	repairedRes, repairedErr := repaired.Run(ctx, e.stepRunRequest(nodeID, repaired))
-	if repairedRes == nil {
-		repairedRes = &steps.RunResult{}
-	}
-	if repairedErr == nil && repairedRes.Status != steps.StatusFailed {
-		e.recordFormulaRepair(nodeID, script.Command, plan)
-		e.emit(nodeID, "step.repair.completed", map[string]any{"reason": plan.Reason, "formula_update_hint": plan.FormulaUpdateHint})
-	} else {
-		e.emit(nodeID, "step.repair.failed", map[string]any{"stage": "rerun", "error": errorString(repairedErr, repairedRes)})
-	}
-	return repairedRes, repairedErr, true
-}
-
 func scriptStepValue(step steps.Step) (steps.ScriptStep, bool) {
 	switch s := step.(type) {
 	case steps.ScriptStep:
@@ -284,113 +234,141 @@ func scriptStepValue(step steps.Step) (steps.ScriptStep, bool) {
 	}
 }
 
-func scriptRepairPrompt(script steps.ScriptStep, failed *steps.RunResult, runErr error) string {
-	commandJSON, _ := json.Marshal(script.Command)
-	envJSON, _ := json.Marshal(script.Env)
-	return strings.TrimSpace(fmt.Sprintf(`A formula script step failed. Diagnose the script/command and return a corrected command to retry once.
-
-Return ONLY compact JSON with this shape:
-{"fixed_command":["..."],"reason":"what was wrong","formula_update_hint":"what should be changed in the formula file"}
-
-Rules:
-- Preserve the original step intent.
-- Prefer the smallest safe command fix.
-- Do not ask the user questions.
-- Do not include Markdown fences or prose outside JSON.
-- Formula step execution guard: do not merely acknowledge project rules or system constraints; perform this repair task and return the JSON now.
-
-Original command JSON:
-%s
-
-Original cwd: %s
-Original env JSON:
-%s
-
-Failure: %s
-Output preview:
-%s`, string(commandJSON), script.Cwd, string(envJSON), errorString(runErr, failed), truncateValidationOutputPreview(outputRaw(failed), 3000)))
-}
-
-func decodeScriptRepairPlan(out steps.Value) (scriptRepairPlan, error) {
-	var plan scriptRepairPlan
-	candidates, err := decodedOutputCandidates(out.Raw, &steps.OutputValidationSpec{Format: "json", Required: []string{"fixed_command", "reason", "formula_update_hint"}})
-	if err != nil {
-		return plan, err
-	}
-	for _, candidate := range candidates {
-		raw, _ := json.Marshal(candidate)
-		if err := json.Unmarshal(raw, &plan); err == nil && len(plan.FixedCommand) > 0 {
-			return plan, nil
-		}
-	}
-	return plan, fmt.Errorf("repair agent output did not include fixed_command")
-}
-
-func (e *Executor) recordFormulaRepair(nodeID ir.NodeID, original []string, plan scriptRepairPlan) {
-	if e.Context == nil {
-		return
-	}
-	payload := map[string]any{"step_id": string(nodeID), "original_command": original, "fixed_command": plan.FixedCommand, "reason": plan.Reason, "formula_update_hint": plan.FormulaUpdateHint, "user_notice": "A formula script was repaired at runtime. Please update the formula document with the fixed command."}
-	raw, _ := json.Marshal(payload)
-	_ = e.Context.Set("formula_repairs."+string(nodeID), steps.Value{Type: "json", Raw: raw})
-}
-
-func errorString(err error, res *steps.RunResult) string {
-	if err != nil {
-		return err.Error()
-	}
-	if res != nil && res.Error != nil {
-		return res.Error.Error()
-	}
-	return "script failed"
-}
-
-func outputRaw(res *steps.RunResult) []byte {
-	if res == nil {
-		return nil
-	}
-	return res.Output.Raw
-}
-
 func (e *Executor) stepRunRequest(nodeID ir.NodeID, step steps.Step) steps.RunRequest {
 	return steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities, Emit: func(childNodeID string, eventType string, payload any) {
 		e.emit(ir.NodeID(childNodeID), eventType, payload)
 	}}
 }
 
-func retryableAgentStepWithValidationAdvice(step steps.Step, validationErr error, output steps.Value) (steps.Step, bool) {
-	advice := validationRetryAdvice(validationErr, output)
-	switch s := step.(type) {
-	case steps.AgentStep:
-		s.Prompt = strings.TrimSpace(s.Prompt) + advice
-		return s, true
-	case *steps.AgentStep:
-		cp := *s
-		cp.Prompt = strings.TrimSpace(cp.Prompt) + advice
-		return &cp, true
+func stepAllowsFix(step steps.Step) bool {
+	meta := step.Meta()
+	if meta.Idempotent {
+		return true
+	}
+	switch meta.Kind {
+	case steps.KindAgent, steps.KindExternalAgent:
+		return true
 	default:
-		return nil, false
+		return false
 	}
 }
 
-func validationRetryAdvice(validationErr error, output steps.Value) string {
-	return "\n\n## Previous output validation failed\n" +
-		"Your previous answer did not match this step's required output schema. Retry the task now.\n" +
-		"Return ONLY the required final output, with no explanation, no Markdown fences, and no extra prose.\n\n" +
-		"Validation error: " + validationErr.Error() + "\n\n" +
-		"Previous output preview:\n" + truncateValidationOutputPreview(output.Raw, 2000)
+const maxFixAttempts = 3
+
+func (e *Executor) tryFixAndRerun(ctx context.Context, nodeID ir.NodeID, step steps.Step, res *steps.RunResult, runErr error, validationErr error) (*steps.RunResult, error, bool) {
+	if !stepAllowsFix(step) {
+		e.recordRepair(nodeID, RepairRecord{
+			StepID:            string(nodeID),
+			Kind:              string(step.Meta().Kind),
+			Attempt:           0,
+			Status:            "skipped_non_idempotent",
+			Reason:            "step is not marked idempotent",
+			FormulaUpdateHint: "If this step is safe to retry automatically, mark it idempotent so the formula fixer can retry it.",
+		})
+		e.emit(nodeID, "fix.skipped", map[string]any{
+			"reason": "non_idempotent",
+			"kind":   string(step.Meta().Kind),
+		})
+		return res, runErr, false
+	}
+	fixer, ok := defaultFixers.Lookup(step.Meta().Kind)
+	if !ok {
+		return res, runErr, false
+	}
+	currentStep := step
+	currentRes := res
+	currentRunErr := runErr
+	currentValidationErr := validationErr
+	tried := false
+	for attempt := 1; attempt <= maxFixAttempts; attempt++ {
+		emit := e.stepRunRequest(nodeID, currentStep).Emit
+		fixedStep, report, fixErr := fixer.Fix(ctx, FixContext{
+			NodeID:        nodeID,
+			Step:          currentStep,
+			Attempt:       attempt,
+			RunErr:        currentRunErr,
+			ValidationErr: currentValidationErr,
+			Output:        currentRes.Output,
+			Capabilities:  e.Capabilities,
+			Context:       e.Context,
+			Emit:          emit,
+		})
+		if fixErr != nil {
+			e.recordRepair(nodeID, buildRepairRecord(currentStep, attempt, "fix_error", report, fixErr))
+			e.emit(nodeID, "fix.failed", map[string]any{"error": fixErr.Error()})
+			return currentRes, currentRunErr, tried
+		}
+		if fixedStep == nil {
+			e.recordRepair(nodeID, buildRepairRecord(currentStep, attempt, "no_fix", report, currentRunErr))
+			return currentRes, currentRunErr, tried
+		}
+		retryExec, ok := fixedStep.(steps.Executable)
+		if !ok {
+			e.recordRepair(nodeID, buildRepairRecord(currentStep, attempt, "invalid_fix", report, nil))
+			return currentRes, currentRunErr, tried
+		}
+		tried = true
+		retryRes, retryErr := retryExec.Run(ctx, e.stepRunRequest(nodeID, fixedStep))
+		if retryRes == nil {
+			retryRes = &steps.RunResult{}
+		}
+		if retryRes.Status == steps.StatusWaiting {
+			e.recordRepair(nodeID, buildRepairRecord(fixedStep, attempt, "waiting", report, retryErr))
+			return retryRes, retryErr, true
+		}
+		validationAfterRetry := error(nil)
+		if retryErr == nil && retryRes.Status != steps.StatusFailed {
+			validationAfterRetry = validateStepOutput(step, retryRes.Output)
+		}
+		if retryErr == nil && retryRes.Status != steps.StatusFailed && validationAfterRetry == nil {
+			e.recordRepair(nodeID, buildRepairRecord(fixedStep, attempt, "succeeded", report, nil))
+			return retryRes, retryErr, true
+		}
+		status := "attempt_failed"
+		if attempt == maxFixAttempts {
+			status = "exhausted"
+		}
+		attemptErr := retryErr
+		if attemptErr == nil && validationAfterRetry != nil {
+			attemptErr = validationAfterRetry
+		}
+		currentStep = fixedStep
+		currentRes = retryRes
+		currentRunErr = retryErr
+		currentValidationErr = validationAfterRetry
+		e.recordRepair(nodeID, buildRepairRecord(fixedStep, attempt, status, report, attemptErr))
+	}
+	return currentRes, currentRunErr, tried
 }
 
-func truncateValidationOutputPreview(raw []byte, limit int) string {
-	text := strings.TrimSpace(string(raw))
-	var decoded string
-	if err := json.Unmarshal(raw, &decoded); err == nil {
-		text = strings.TrimSpace(decoded)
+func buildRepairRecord(step steps.Step, attempt int, status string, report FixReport, err error) RepairRecord {
+	record := RepairRecord{
+		StepID:            string(step.Meta().ID),
+		Kind:              string(step.Meta().Kind),
+		Attempt:           attempt,
+		Status:            status,
+		Reason:            report.Reason,
+		FormulaUpdateHint: report.FormulaUpdateHint,
+		NextAttemptHint:   report.NextAttemptHint,
+		Advice:            report.Advice,
+		OriginalCommand:   append([]string(nil), report.OriginalCommand...),
+		FixedCommand:      append([]string(nil), report.FixedCommand...),
 	}
-	if len(text) <= limit {
-		return text
+	if err != nil {
+		record.Error = err.Error()
 	}
-	return text[:limit] + "\n...(truncated)"
+	return record
+}
+
+func (e *Executor) recordRepair(nodeID ir.NodeID, record RepairRecord) {
+	if e == nil || e.Store == nil || e.Workflow == nil {
+		return
+	}
+	if strings.TrimSpace(record.StepID) == "" {
+		record.StepID = string(nodeID)
+	}
+	_ = e.Store.SaveRepair(e.Workflow.ID, record)
+	e.emit(nodeID, "step.repair.recorded", record)
 }
 
 func normalizeStepOutputForContext(step steps.Step, res *steps.RunResult) {

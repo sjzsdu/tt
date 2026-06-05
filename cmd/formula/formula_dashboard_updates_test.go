@@ -57,6 +57,18 @@ func TestDashboardWorkspaceReadyUpdatesSnapshot(t *testing.T) {
 	}
 }
 
+func TestDashboardConfirmRepairMarksRecord(t *testing.T) {
+	dashboard := newFormulaDashboardServer(nil)
+	dashboard.state.Repairs = []formulaui.RepairRecord{{StepID: "script", Attempt: 1, Status: "succeeded"}}
+	if !dashboard.confirmRepair("script", 1) {
+		t.Fatal("confirmRepair should succeed")
+	}
+	repair := dashboard.state.Repairs[0]
+	if repair.ConfirmationStatus != "confirmed" || repair.ConfirmedAt == "" {
+		t.Fatalf("repair = %+v", repair)
+	}
+}
+
 func structStepForTest(id, title string) formulaui.Step {
 	return formulaui.Step{ID: id, Title: title, Status: "pending"}
 }

@@ -35,3 +35,23 @@ command = ["go", "test", "./..."]
 		t.Fatalf("depends = %#v", got)
 	}
 }
+
+func TestDecodeStepIdempotent(t *testing.T) {
+	data := []byte(`formula = "demo"
+version = 1
+
+[[steps]]
+id = "x"
+idempotent = true
+`)
+	doc, err := Decode("demo.toml", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Steps) != 1 {
+		t.Fatalf("steps = %d", len(doc.Steps))
+	}
+	if !doc.Steps[0].Idempotent {
+		t.Fatal("idempotent = false, want true")
+	}
+}

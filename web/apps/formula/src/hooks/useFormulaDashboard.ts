@@ -60,6 +60,7 @@ export function useFormulaDashboard(onError: (error: unknown) => void) {
       skipped: counts.skipped || 0,
       failed: counts.failed || 0,
       logs: snapshot.logs.length,
+      repairs: (snapshot.repairs || []).length,
     };
   }, [snapshot]);
 

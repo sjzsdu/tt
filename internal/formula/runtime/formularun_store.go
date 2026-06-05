@@ -76,6 +76,13 @@ func (s *FormulaRunStateStore) SaveStep(state StepState) error {
 	return s.persistSnapshot(state.WorkflowID)
 }
 
+func (s *FormulaRunStateStore) SaveRepair(workflowID ir.WorkflowID, record RepairRecord) error {
+	if err := s.memory().SaveRepair(workflowID, record); err != nil {
+		return err
+	}
+	return s.persistSnapshot(workflowID)
+}
+
 func (s *FormulaRunStateStore) GetStep(workflowID ir.WorkflowID, nodeID ir.NodeID) (StepState, bool, error) {
 	return s.memory().GetStep(workflowID, nodeID)
 }
@@ -108,6 +115,9 @@ func (s *FormulaRunStateStore) persistSnapshot(id ir.WorkflowID) error {
 	}
 	snapshot, err := s.memory().Snapshot(id)
 	if err != nil {
+		return err
+	}
+	if err := s.Store.SaveRepairs(snapshot.Repairs); err != nil {
 		return err
 	}
 	return s.Store.SaveState(snapshot)

@@ -183,6 +183,11 @@ type finalReportChatMessageRequest struct {
 	Message string `json:"message"`
 }
 
+type formulaConfirmRepairRequest struct {
+	StepID  string `json:"step_id"`
+	Attempt int    `json:"attempt"`
+}
+
 func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -248,6 +253,43 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 			s.logf("retry step %s failed: %v", resolvedStepID, err)
 		}
 	}()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		OK bool `json:"ok"`
+	}{OK: true})
+}
+
+func (s *formulaDashboardServer) handleConfirmRepair(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.store == nil {
+		http.Error(w, "dashboard is not attached to a run store", http.StatusBadRequest)
+		return
+	}
+	var req formulaConfirmRepairRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.StepID) == "" || req.Attempt <= 0 {
+		http.Error(w, "step_id and positive attempt are required", http.StatusBadRequest)
+		return
+	}
+	if !s.confirmRepair(req.StepID, req.Attempt) {
+		http.Error(w, "repair record not found", http.StatusNotFound)
+		return
+	}
+	if err := s.persistSnapshot(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.SaveRepairs(s.snapshot().Repairs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.broadcast()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(struct {
 		OK bool `json:"ok"`

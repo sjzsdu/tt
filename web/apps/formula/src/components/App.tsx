@@ -6,6 +6,7 @@ import { useFormulaDashboard } from '../hooks/useFormulaDashboard';
 import { currentView, persistDashboardView } from '../store/dashboardView';
 import { attentionStep } from '../utils/steps';
 import { DashboardHeader } from './dashboard/DashboardHeader';
+import { RepairsPanel } from './dashboard/RepairsPanel';
 import { RunActionAlert } from './dashboard/RunActionAlert';
 import { RunOverview } from './dashboard/RunOverview';
 import { Workspace } from './dashboard/Workspace';
@@ -25,6 +26,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   const [finalOutputOpen, setFinalOutputOpen] = useState(false);
   const [finalReportChatBusy, setFinalReportChatBusy] = useState(false);
   const [finalReportChatError, setFinalReportChatError] = useState('');
+  const [confirmRepairKey, setConfirmRepairKey] = useState('');
 
   const handleLoadError = useCallback((err: unknown) => {
     message.error(`Failed to load formula dashboard: ${String(err)}`);
@@ -131,6 +133,19 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
     }
   };
 
+  const confirmRepair = async (stepID: string, attempt: number) => {
+    const key = `${stepID}:${attempt}`;
+    setConfirmRepairKey(key);
+    try {
+      await api.confirmRepair(stepID, attempt);
+      message.success('Repair review confirmed');
+    } catch (err) {
+      message.error(`Repair confirm failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setConfirmRepairKey('');
+    }
+  };
+
   if (error && !snapshot) {
     return <main className="formula-app empty-screen"><Empty description={error} /></main>;
   }
@@ -164,6 +179,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
             onOpenFinalReport={() => setFinalOutputOpen(true)}
           />
           <RunOverview summary={summary} progress={progress} runningStep={runningStep} status={snapshot.status} />
+          <RepairsPanel repairs={snapshot.repairs || []} onConfirm={confirmRepair} busyKey={confirmRepairKey} />
           <Workspace view={view} snapshot={snapshot} orderedSteps={orderedSteps} theme={theme} onSelectStep={setSelectedStep} />
         </Space>
 

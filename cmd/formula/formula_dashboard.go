@@ -96,6 +96,7 @@ func (s *formulaDashboardServer) start(port int) error {
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/human-input", s.handleHumanInput)
 	mux.HandleFunc("/api/retry-step", s.handleRetryStep)
+	mux.HandleFunc("/api/repairs/confirm", s.handleConfirmRepair)
 	mux.HandleFunc("/api/agent-session", s.handleAgentSession)
 	mux.HandleFunc("/api/final-report-chat", s.handleFinalReportChat)
 	mux.HandleFunc("/api/final-report-chat/message", s.handleFinalReportChatMessage)

@@ -120,6 +120,23 @@ export type FinalReportChat = {
   messages?: FinalReportChatMessage[];
 };
 
+export type FormulaRepairRecord = {
+  step_id: string;
+  kind?: string;
+  attempt?: number;
+  status?: string;
+  reason?: string;
+  formula_update_hint?: string;
+  next_attempt_hint?: string;
+  advice?: string;
+  original_command?: string[];
+  fixed_command?: string[];
+  error?: string;
+  recorded_at?: string;
+  confirmed_at?: string;
+  confirmation_status?: string;
+};
+
 export type FormulaDashboardSnapshot = {
   recipe_name: string;
   description?: string;
@@ -127,6 +144,7 @@ export type FormulaDashboardSnapshot = {
   status: string;
   final_output?: string;
   final_report_chat?: FinalReportChat;
+  repairs?: FormulaRepairRecord[];
   error?: string;
   steps: FormulaDashboardStep[];
   edges: FormulaDashboardEdge[];
