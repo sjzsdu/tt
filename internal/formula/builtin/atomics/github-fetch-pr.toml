@@ -43,16 +43,27 @@ repo="${TT_REPO_HINT:-}"
 fields='number,title,body,author,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify'
 cmd=(gh pr view "$pr" --json "$fields")
 if [ -n "$repo" ]; then cmd+=(--repo "$repo"); fi
-out="$("${cmd[@]}" 2>&1)"
-rc=$?
-if [ "$rc" -ne 0 ]; then
-  jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$out" '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error}'
-  exit 0
-fi
-jq -c --arg pr_ref "$pr" --arg repo_hint "$repo" '. + {ok:true,pr_ref:$pr_ref,repo_hint:$repo_hint,error:""}' <<<"$out"
+last_out=""
+last_rc=0
+for attempt in 1 2 3; do
+  out="$("${cmd[@]}" 2>&1)"
+  rc=$?
+  last_out="$out"
+  last_rc=$rc
+  if [ "$rc" -eq 0 ]; then
+    jq -c --arg pr_ref "$pr" --arg repo_hint "$repo" --argjson attempts "$attempt" '. + {ok:true,pr_ref:$pr_ref,repo_hint:$repo_hint,error:"",attempts:$attempts}' <<<"$out"
+    exit 0
+  fi
+  case "$out" in
+    *EOF*|*timeout*|*Timeout*|*TLS*|*tls*|*connection*|*Connection*|*network*|*Network*) sleep "$attempt" ;;
+    *) break ;;
+  esac
+done
+jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$last_out" --argjson attempts 3 '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error,attempts:$attempts}'
+exit 0
 """]
 format = "json"
-timeout = "30s"
+timeout = "60s"
 
 [steps.script.env]
 TT_PR_REF = "{{pr_ref}}"

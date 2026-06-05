@@ -239,11 +239,13 @@ safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
 worktree_root="$root_input"
 case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
 worktree_path="$worktree_root/pr-${number}-${safe_head}"
-local_branch="tt/pr-${number}-rebase-${base}"
+local_branch="$head"
+pr_head_ref="refs/tt/pr-rebase/${number}/head"
 mkdir -p "$worktree_root"
 reused=false
 created=false
 reused_current=false
+fetch_out=""
 if [ -d "$worktree_path/.git" ] || [ -f "$worktree_path/.git" ]; then
   if git -C "$worktree_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     reused=true
@@ -252,9 +254,12 @@ if [ -d "$worktree_path/.git" ] || [ -f "$worktree_path/.git" ]; then
     exit 0
   fi
 else
+  if ! fetch_out="$(git fetch origin "+refs/pull/${number}/head:${pr_head_ref}" "$base" --prune 2>&1)"; then
+    jq -cn --arg error "$fetch_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
+    exit 0
+  fi
   git branch -D "$local_branch" >/dev/null 2>&1 || true
-  git fetch origin "$base" --prune >/dev/null 2>&1
-  if ! git worktree add -B "$local_branch" "$worktree_path" HEAD >/tmp/tt-pr-rebase-worktree.log 2>&1; then
+  if ! git worktree add -B "$local_branch" "$worktree_path" "$pr_head_ref" >/tmp/tt-pr-rebase-worktree.log 2>&1; then
     err="$(cat /tmp/tt-pr-rebase-worktree.log)"
     jq -cn --arg error "$err" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
     exit 0
@@ -262,16 +267,35 @@ else
   created=true
 fi
 cd "$worktree_path"
-cmd=(gh pr checkout "$number" --force)
-if [ -n "$repo_hint" ]; then cmd+=(--repo "$repo_hint"); fi
-checkout_out="$(${cmd[@]} 2>&1)"
-checkout_rc=$?
-if [ "$checkout_rc" -ne 0 ]; then
-  jq -cn --arg error "$checkout_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" --argjson reused "$reused" --argjson created "$created" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:$reused,created:$created}'
+if [ "$reused" = true ]; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    jq -cn --arg error "existing target worktree has uncommitted changes before PR checkout" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:true,created:false}'
+    exit 0
+  fi
+  if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" "$base" --prune 2>&1)"; then
+    jq -cn --arg error "$fetch_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:true,created:false}'
+    exit 0
+  fi
+  current_branch_before="$(git branch --show-current 2>/dev/null || true)"
+  if [ "$current_branch_before" != "$head" ]; then
+    checkout_out="$(git checkout -B "$local_branch" "$pr_head_ref" 2>&1)"
+    checkout_rc=$?
+    if [ "$checkout_rc" -ne 0 ]; then
+      jq -cn --arg error "$checkout_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:true,created:false}'
+      exit 0
+    fi
+  else
+    checkout_out="target worktree already on PR head branch; fetched ${pr_head_ref}"
+  fi
+else
+  checkout_out="$fetch_out"
+fi
+current_branch="$(git branch --show-current)"
+if [ "$current_branch" != "$head" ]; then
+  jq -cn --arg error "target worktree is on unexpected branch: $current_branch" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
   exit 0
 fi
 git fetch origin "$base" --prune >/dev/null 2>&1
-current_branch="$(git branch --show-current)"
 upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
 head_sha="$(git rev-parse HEAD)"
 base_sha="$(git rev-parse "origin/$base" 2>/dev/null || true)"
@@ -331,7 +355,7 @@ git fetch origin "$base" --prune >/dev/null 2>&1
 out="$(git rebase "origin/$base" 2>&1)"
 rc=$?
 if [ "$rc" -eq 0 ]; then
-  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,conflict:false,error:"",stdout:$output,head:$head,conflict_files:[]}'
+  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,conflict:false,in_rebase:false,needs_resolution:false,error:"",stdout:$output,head:$head,conflict_files:[]}'
   exit 0
 fi
 files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
@@ -339,7 +363,7 @@ in_rebase=false
 if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then
   in_rebase=true
 fi
-jq -cn --arg output "$out" --argjson conflict_files "$files" --argjson in_rebase "$in_rebase" '{attempted:true,success:false,conflict:($conflict_files|length>0),in_rebase:$in_rebase,error:$output,stdout:$output,conflict_files:$conflict_files}'
+jq -cn --arg output "$out" --argjson conflict_files "$files" --argjson in_rebase "$in_rebase" '{attempted:true,success:false,conflict:($conflict_files|length>0),in_rebase:$in_rebase,needs_resolution:(($conflict_files|length>0) or $in_rebase),error:$output,stdout:$output,conflict_files:$conflict_files}'
 """]
 format = "json"
 timeout = "120s"
@@ -356,11 +380,13 @@ required = ["stdout"]
 id = "resolve-conflicts"
 title = "冲突时修复 rebase conflicts"
 depends_on = ["attempt-rebase"]
-condition = "attempt-rebase.stdout.conflict == true"
+condition = "attempt-rebase.stdout.needs_resolution == true"
 input_context = ["fetch-pr-metadata.pr.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout"]
 cwd = "{{prepare-rebase-worktree.stdout.worktree_path}}"
 description = """
 在隔离 worktree 中完整修复 rebase 冲突并推进 rebase，直到 rebase 完成或遇到明确 blocker。你必须实际读取冲突文件、解决冲突、git add，并在每一轮冲突解决后执行 git rebase --continue。不要 push。
+
+即使 attempt-rebase.stdout.conflict_files 为空，只要 attempt-rebase.stdout.in_rebase == true，也必须运行 git status / git diff 检查 rebase 停在哪一步，并尝试完成 rebase 或报告明确 blocker。
 
 要求：
 1. 先运行 git status --short 和 git diff --name-only --diff-filter=U 确认当前冲突文件。
@@ -440,21 +466,36 @@ description = "统一判断 rebase 是否完成、是否仍被冲突阻塞。"
 command = ["bash", "-lc", """
 set -euo pipefail
 jq -cn \
+  --arg metadata "${TT_METADATA:-}" \
+  --arg prepare "${TT_PREPARE:-}" \
   --arg attempt "${TT_ATTEMPT:-}" \
   --arg resolve "${TT_RESOLVE:-}" \
   --arg cont "${TT_CONTINUE:-}" '
-  def obj($s): if ($s|length)==0 then {} else (($s|fromjson?) // {}) end;
+  def obj($s): if $s == null or ($s|length)==0 then {} else (($s|fromjson?) // {}) end;
+  obj($metadata) as $m |
+  obj($prepare) as $p |
   obj($attempt) as $a |
   obj($resolve) as $r |
   obj($cont) as $c |
   (($a.success == true) or ($c.success == true)) as $done |
+  (($m.ok == false) and (($m.error // "") != "")) as $metadata_failed |
+  (($p.ok == false) and (($p.error // "") != "")) as $prepare_failed |
   (($r.blocker // "") != "") as $resolver_blocked |
+  (($a.conflict == true) or ($a.in_rebase == true)) as $rebase_interrupted |
   {
     rebase_done:$done,
-    conflict_seen:($a.conflict == true),
-    blocked:(($done|not) and (($a.conflict == true) or $resolver_blocked or (($a.error // "") != "") or (($c.error // "") != ""))),
-    blocker:(if $done then "" elif $resolver_blocked then ($r.blocker // "") elif ($c.error // "") != "" then $c.error elif ($a.error // "") != "" then $a.error else "rebase did not complete" end),
-    head:($c.head // $a.head // ""),
+    conflict_seen:$rebase_interrupted,
+    blocked:(($done|not) and ($metadata_failed or $prepare_failed or $rebase_interrupted or $resolver_blocked or (($a.error // "") != "") or (($c.error // "") != ""))),
+    blocker:(
+      if $done then ""
+      elif $metadata_failed then ("PR metadata unavailable: " + ($m.error // ""))
+      elif $prepare_failed then ("prepare rebase worktree failed: " + ($p.error // ""))
+      elif $resolver_blocked then ($r.blocker // "")
+      elif ($c.error // "") != "" then $c.error
+      elif ($a.error // "") != "" then $a.error
+      else "rebase did not complete" end
+    ),
+    head:($c.head // $a.head // $p.head_sha // ""),
     conflict_files:($c.conflict_files // $r.remaining_conflicts // $a.conflict_files // [])
   }'
 """]
@@ -462,6 +503,8 @@ format = "json"
 timeout = "30s"
 
 [steps.script.env]
+TT_METADATA = "{{fetch-pr-metadata.pr.stdout}}"
+TT_PREPARE = "{{prepare-rebase-worktree.stdout}}"
 TT_ATTEMPT = "{{attempt-rebase.stdout}}"
 TT_RESOLVE = "{{resolve-conflicts}}"
 TT_CONTINUE = "{{continue-rebase.stdout}}"
