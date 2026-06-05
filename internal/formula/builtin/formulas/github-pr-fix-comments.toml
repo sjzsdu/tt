@@ -472,12 +472,12 @@ title = "输出 PR 评论处理总报告"
 depends_on = ["commit-and-push"]
 input_context = ["fetch-pr-metadata.pr.stdout", "prepare-fix-worktree.stdout", "fetch-review-comments.stdout", "normalize-comment-items.stdout", "fix-each-comment", "resolve-review-threads.stdout", "commit-and-push.stdout"]
 description = """
-输出最终中文总结。
+输出最终中文总结，必须是 Markdown。严禁输出 JSON、代码块 JSON 或被引号包裹的 JSON 字符串。
 
 必须包含：
 1. 总评论数与实际处理数；
 2. worktree 使用情况：复用当前分支 / 复用已有 worktree / 新建 worktree，以及路径；
-3. 每条评论的结论摘要（fixed / not-confirmed / needs-followup）；
+3. `## Comments 明细`：用 Markdown 表格列出每条评论，列为 `Comment`、`文件:行`、`作者`、`处理状态`、`摘要`、`下一步`；
 4. GitHub review thread resolve 情况；
 5. push --no-verify 是否成功、是否产生 commit；
 6. 需要人工继续处理的项；
@@ -488,6 +488,8 @@ description = """
 - 结论先行。
 - 控制在 8-12 条要点，避免冗长。
 - 不要编造未执行的测试、push 或评论处理结果。
+- `Comments 明细` 中 `Comment` 优先使用 comment url 做 Markdown 链接；没有 url 时使用 comment_id。
+- `摘要` 必须压缩成一句话，不要粘贴完整评论正文或 diff hunk。
 """
 agent.name = "reporter"
 agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"
