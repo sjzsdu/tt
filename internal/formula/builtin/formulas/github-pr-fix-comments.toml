@@ -72,14 +72,14 @@ repo_hint="${TT_REPO_HINT:-}"
 root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-fix-comments}"
 ok="$(jq -r '.ok // false' <<<"$meta")"
 if [ "$ok" != true ]; then
-  jq -cn --arg error "pr metadata unavailable" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
+  jq -cn --arg error "pr metadata unavailable" --arg metadata_raw "$meta" '{ok:false,error:$error,metadata_raw:$metadata_raw,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
 number="$(jq -r '.number // empty' <<<"$meta")"
 head="$(jq -r '.headRefName // empty' <<<"$meta")"
 base="$(jq -r '.baseRefName // empty' <<<"$meta")"
 if [ -z "$number" ] || [ -z "$head" ]; then
-  jq -cn --arg error "missing PR number/head branch" --argjson meta "$meta" '{ok:false,error:$error,metadata:$meta,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
+  jq -cn --arg error "missing PR number/head branch" --arg metadata_raw "$meta" '{ok:false,error:$error,metadata_raw:$metadata_raw,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -94,6 +94,7 @@ safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
 worktree_root="$root_input"
 case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
 target="$worktree_root/pr-${number}-${safe_head}"
+pr_head_ref="refs/tt/pr-fix-comments/${number}/head"
 mkdir -p "$worktree_root"
 match_path=""
 current_path=""
@@ -115,35 +116,37 @@ if [ -n "$match_path" ]; then
   fi
 fi
 if [ -d "$target/.git" ] || [ -f "$target/.git" ]; then
-  git -C "$target" fetch origin --prune >/dev/null 2>&1 || true
-  if ! git -C "$target" checkout "$head" >/dev/null 2>&1; then
-    if [ -n "$repo_hint" ]; then
-      (cd "$target" && gh pr checkout "$number" --repo "$repo_hint" >/dev/null 2>&1) || true
-    else
-      (cd "$target" && gh pr checkout "$number" >/dev/null 2>&1) || true
+  if ! git -C "$target" diff --quiet || ! git -C "$target" diff --cached --quiet; then
+    jq -cn --arg error "existing target worktree has uncommitted changes before PR checkout" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
+    exit 0
+  fi
+  if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" --prune 2>&1)"; then
+    jq -cn --arg error "git fetch PR head failed: $fetch_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
+    exit 0
+  fi
+  current_target_branch="$(git -C "$target" branch --show-current 2>/dev/null || true)"
+  if [ "$current_target_branch" != "$head" ]; then
+    if ! checkout_out="$(git -C "$target" checkout -B "$head" "$pr_head_ref" 2>&1)"; then
+      jq -cn --arg error "git checkout PR head failed: $checkout_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
+      exit 0
     fi
   fi
   jq -cn --arg path "$target" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:false}'
   exit 0
 fi
-if ! git -C "$repo_root" fetch origin --prune >/dev/null 2>&1; then
-  jq -cn --arg error "git fetch origin failed" '{ok:false,error:$error,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
+if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" --prune 2>&1)"; then
+  jq -cn --arg error "git fetch PR head failed: $fetch_out" '{ok:false,error:$error,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
-base_ref="origin/${base:-main}"
-if ! git -C "$repo_root" worktree add "$target" "$base_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
+git -C "$repo_root" branch -D "$head" >/dev/null 2>&1 || true
+if ! git -C "$repo_root" worktree add -B "$head" "$target" "$pr_head_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
   err="$(cat /tmp/tt-pr-fix-worktree.log 2>/dev/null || true)"
   jq -cn --arg error "git worktree add failed: $err" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
-if [ -n "$repo_hint" ]; then
-  checkout_out="$(cd "$target" && gh pr checkout "$number" --repo "$repo_hint" 2>&1)"
-else
-  checkout_out="$(cd "$target" && gh pr checkout "$number" 2>&1)"
-fi
-checkout_rc=$?
-if [ "$checkout_rc" -ne 0 ]; then
-  jq -cn --arg error "gh pr checkout failed: $checkout_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:true}'
+current_target_branch="$(git -C "$target" branch --show-current 2>/dev/null || true)"
+if [ "$current_target_branch" != "$head" ]; then
+  jq -cn --arg error "target worktree is on unexpected branch: $current_target_branch" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:true}'
   exit 0
 fi
 jq -cn --arg path "$target" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:false,created:true,cleanup_required:false}'
@@ -218,9 +221,19 @@ while True:
     cmd=['gh','api','graphql','-f',f'owner={owner}','-f',f'name={name}','-F',f'number={number}','-f',f'query={query}']
     if cursor:
         cmd += ['-f', f'cursor={cursor}']
-    p=run(cmd)
-    if p.returncode != 0:
-        emit({'ok': False, 'error': (p.stderr or p.stdout or 'gh api graphql failed').strip(), 'comment_items': items, 'pending_count': len(items), 'total_threads': total_threads})
+    last_err = ''
+    for attempt in range(1, 4):
+        p=run(cmd)
+        if p.returncode == 0:
+            break
+        last_err = (p.stderr or p.stdout or 'gh api graphql failed').strip()
+        if any(token in last_err.lower() for token in ('eof', 'timeout', 'tls', 'connection', 'network')) and attempt < 3:
+            import time; time.sleep(attempt)
+            continue
+        emit({'ok': False, 'error': last_err, 'attempts': attempt, 'comment_items': items, 'pending_count': len(items), 'total_threads': total_threads})
+        raise SystemExit(0)
+    else:
+        emit({'ok': False, 'error': last_err or 'gh api graphql failed', 'attempts': 3, 'comment_items': items, 'pending_count': len(items), 'total_threads': total_threads})
         raise SystemExit(0)
     data=json.loads(p.stdout or '{}')
     pr=((data.get('data') or {}).get('repository') or {}).get('pullRequest') or {}
@@ -397,11 +410,18 @@ mutation = 'mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadI
 resolved = []
 failed = []
 for target in targets:
-    p = subprocess.run(['gh', 'api', 'graphql', '-f', 'threadId=' + target['thread_id'], '-f', 'query=' + mutation], text=True, capture_output=True)
-    if p.returncode == 0:
-        resolved.append(target)
+    last_err = ''
+    for attempt in range(1, 4):
+        p = subprocess.run(['gh', 'api', 'graphql', '-f', 'threadId=' + target['thread_id'], '-f', 'query=' + mutation], text=True, capture_output=True)
+        if p.returncode == 0:
+            resolved.append({**target, 'attempts': attempt})
+            break
+        last_err = (p.stderr or p.stdout or 'resolveReviewThread failed').strip()
+        if any(token in last_err.lower() for token in ('eof', 'timeout', 'tls', 'connection', 'network')) and attempt < 3:
+            import time; time.sleep(attempt)
+            continue
     else:
-        failed.append({**target, 'error': (p.stderr or p.stdout or 'resolveReviewThread failed').strip()})
+        failed.append({**target, 'error': last_err or 'resolveReviewThread failed', 'attempts': 3})
 emit({'requested': bool(targets), 'resolved_count': len(resolved), 'failed_count': len(failed), 'resolved': resolved, 'failed': failed, 'skipped': skipped, 'ok': len(failed) == 0})
 """]
 format = "json"
