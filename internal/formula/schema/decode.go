@@ -8,6 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/sjzsdu/tt/internal/formula/ast"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 type documentFile struct {
@@ -78,11 +79,11 @@ func normalize(raw documentFile) (*ast.Document, error) {
 		doc.Vars[name] = ast.VarDecl{Description: v.Description, Default: v.Default, Required: v.Required, Enum: v.Enum, Pattern: v.Pattern, Type: v.Type}
 	}
 	if raw.Workspace != nil {
-		doc.Workspace = &ast.WorkspaceSpec{Kind: strings.TrimSpace(raw.Workspace.Kind), Path: strings.TrimSpace(raw.Workspace.Path), Cleanup: raw.Workspace.Cleanup, Branch: strings.TrimSpace(raw.Workspace.Branch), Base: strings.TrimSpace(raw.Workspace.Base), BranchSlugFrom: strings.TrimSpace(raw.Workspace.BranchSlugFrom), BranchPrefix: strings.TrimSpace(raw.Workspace.BranchPrefix)}
+		doc.Workspace = &spec.WorkspaceSpec{Kind: strings.TrimSpace(raw.Workspace.Kind), Path: strings.TrimSpace(raw.Workspace.Path), Cleanup: raw.Workspace.Cleanup, Branch: strings.TrimSpace(raw.Workspace.Branch), Base: strings.TrimSpace(raw.Workspace.Base), BranchSlugFrom: strings.TrimSpace(raw.Workspace.BranchSlugFrom), BranchPrefix: strings.TrimSpace(raw.Workspace.BranchPrefix)}
 	}
 	doc.Worktree = raw.Worktree
 	if doc.Workspace == nil && doc.Worktree {
-		doc.Workspace = &ast.WorkspaceSpec{Kind: "worktree"}
+		doc.Workspace = &spec.WorkspaceSpec{Kind: "worktree"}
 	}
 	if doc.Workspace != nil && strings.TrimSpace(doc.Workspace.Kind) == "" {
 		doc.Workspace.Kind = "worktree"

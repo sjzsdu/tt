@@ -14,9 +14,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/agents"
-	"github.com/sjzsdu/tt/internal/formularun"
-	"github.com/sjzsdu/tt/internal/formularunview"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/run"
+	"github.com/sjzsdu/tt/internal/formula/runview"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
@@ -39,8 +39,8 @@ func (s *formulaDashboardServer) handleIndex(w http.ResponseWriter, r *http.Requ
 func (s *formulaDashboardServer) handleState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(struct {
-		Type  string             `json:"type"`
-		State formulaui.Snapshot `json:"state"`
+		Type  string      `json:"type"`
+		State ui.Snapshot `json:"state"`
 	}{Type: "state", State: s.snapshot()})
 }
 
@@ -207,12 +207,12 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		return
 	}
 	snapshot := s.snapshot()
-	resolvedStepID, err := formularunview.ResolveStepID(snapshot, req.StepID)
+	resolvedStepID, err := runview.ResolveStepID(snapshot, req.StepID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var target *formulaui.Step
+	var target *ui.Step
 	for i := range snapshot.Steps {
 		if snapshot.Steps[i].ID == resolvedStepID {
 			target = &snapshot.Steps[i]
@@ -223,7 +223,7 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		http.Error(w, fmt.Sprintf("step %q not found", resolvedStepID), http.StatusBadRequest)
 		return
 	}
-	if target.Status != formulaui.StatusFailed {
+	if target.Status != ui.StatusFailed {
 		http.Error(w, "only failed steps can be retried", http.StatusBadRequest)
 		return
 	}
@@ -231,19 +231,19 @@ func (s *formulaDashboardServer) handleRetryStep(w http.ResponseWriter, r *http.
 		http.Error(w, "run is already active", http.StatusConflict)
 		return
 	}
-	initialResults, initialContext := formularunview.BuildResumeStateExcluding(snapshot, map[string]bool{resolvedStepID: true})
-	formularunview.ResetStepForRetry(&snapshot, resolvedStepID)
+	initialResults, initialContext := runview.BuildResumeStateExcluding(snapshot, map[string]bool{resolvedStepID: true})
+	runview.ResetStepForRetry(&snapshot, resolvedStepID)
 	snapshot.Status = "running"
 	snapshot.Error = ""
-	s.store.Meta.Status = formularun.StatusRunning
+	s.store.Meta.Status = run.StatusRunning
 	s.store.Meta.Error = ""
 	s.store.Meta.FinishedAt = ""
 	s.store.Meta.PID = os.Getpid()
 	s.store.Meta.TTVersion = version
 	_ = s.store.SaveMetadata()
-	_ = s.store.AppendEvent(formularun.Event{Type: "step_retry_requested", StepID: resolvedStepID, Status: formularun.StatusRunning})
+	_ = s.store.AppendEvent(run.Event{Type: "step_retry_requested", StepID: resolvedStepID, Status: run.StatusRunning})
 	s.mu.Lock()
-	s.state = formulaui.CloneSnapshot(snapshot)
+	s.state = ui.CloneSnapshot(snapshot)
 	s.readonly = false
 	s.mu.Unlock()
 	s.broadcast()
@@ -307,8 +307,8 @@ func (s *formulaDashboardServer) handleFinalReportChat(w http.ResponseWriter, r 
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(struct {
-		OK   bool                       `json:"ok"`
-		Chat *formulaui.FinalReportChat `json:"chat,omitempty"`
+		OK   bool                `json:"ok"`
+		Chat *ui.FinalReportChat `json:"chat,omitempty"`
 	}{OK: true, Chat: s.snapshot().FinalReportChat})
 }
 
@@ -332,7 +332,7 @@ func (s *formulaDashboardServer) handleFinalReportChatMessage(w http.ResponseWri
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	userMsg := formulaui.FinalReportChatMessage{Role: "user", Content: prompt, At: time.Now().Format(time.RFC3339)}
+	userMsg := ui.FinalReportChatMessage{Role: "user", Content: prompt, At: time.Now().Format(time.RFC3339)}
 	s.mu.Lock()
 	if s.state.FinalReportChat != nil && strings.EqualFold(strings.TrimSpace(s.state.FinalReportChat.Status), "running") {
 		s.mu.Unlock()
@@ -375,7 +375,7 @@ func (s *formulaDashboardServer) processFinalReportChatMessage(sessionID, prompt
 		s.broadcast()
 		return
 	}
-	assistantMsg := formulaui.FinalReportChatMessage{Role: "assistant", Content: strings.TrimSpace(response), At: time.Now().Format(time.RFC3339)}
+	assistantMsg := ui.FinalReportChatMessage{Role: "assistant", Content: strings.TrimSpace(response), At: time.Now().Format(time.RFC3339)}
 	s.mu.Lock()
 	if s.state.FinalReportChat == nil {
 		s.mu.Unlock()
@@ -413,7 +413,7 @@ func (s *formulaDashboardServer) handleFinalReportChatPromote(w http.ResponseWri
 		return
 	}
 	s.state.FinalOutput = promoted
-	s.state.FinalReportChat.Messages = append(s.state.FinalReportChat.Messages, formulaui.FinalReportChatMessage{Role: "system", Content: "Promoted latest assistant response to final report.", At: time.Now().Format(time.RFC3339)})
+	s.state.FinalReportChat.Messages = append(s.state.FinalReportChat.Messages, ui.FinalReportChatMessage{Role: "system", Content: "Promoted latest assistant response to final report.", At: time.Now().Format(time.RFC3339)})
 	s.state.FinalReportChat.Status = "idle"
 	s.state.FinalReportChat.Error = ""
 	s.appendLogLocked("Final report updated from chat")
@@ -438,7 +438,7 @@ func (s *formulaDashboardServer) failFinalReportChat(err error) {
 	s.state.FinalReportChat.Error = err.Error()
 }
 
-func (s *formulaDashboardServer) ensureFinalReportChat() (*formulaui.FinalReportChat, error) {
+func (s *formulaDashboardServer) ensureFinalReportChat() (*ui.FinalReportChat, error) {
 	needsBroadcast := false
 	s.mu.Lock()
 	if strings.TrimSpace(s.state.FinalOutput) == "" {
@@ -453,16 +453,16 @@ func (s *formulaDashboardServer) ensureFinalReportChat() (*formulaui.FinalReport
 		if runID == "" {
 			runID = "formula"
 		}
-		s.state.FinalReportChat = &formulaui.FinalReportChat{
+		s.state.FinalReportChat = &ui.FinalReportChat{
 			SessionID: runID + ":final-report-chat",
 			Agent:     finalReportChatAgent,
 			Status:    "idle",
-			Messages:  []formulaui.FinalReportChatMessage{},
+			Messages:  []ui.FinalReportChatMessage{},
 		}
 		needsBroadcast = true
 	}
 	chat := *s.state.FinalReportChat
-	chat.Messages = append([]formulaui.FinalReportChatMessage(nil), s.state.FinalReportChat.Messages...)
+	chat.Messages = append([]ui.FinalReportChatMessage(nil), s.state.FinalReportChat.Messages...)
 	s.mu.Unlock()
 	if needsBroadcast {
 		s.broadcast()
@@ -555,12 +555,12 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		return
 	}
 	snapshot := s.snapshot()
-	resolvedStepID, err := formularunview.ResolveWaitingInputStepID(snapshot, req.StepID)
+	resolvedStepID, err := runview.ResolveWaitingInputStepID(snapshot, req.StepID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var request formulaui.HumanInputRequest
+	var request ui.HumanInputRequest
 	if err := s.store.LoadStepHumanInputRequest(resolvedStepID, &request); err != nil {
 		http.Error(w, fmt.Sprintf("load human input request failed: %v", err), http.StatusInternalServerError)
 		return
@@ -583,7 +583,7 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := formularunview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
+	if err := runview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -593,18 +593,18 @@ func (s *formulaDashboardServer) handleHumanInput(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = s.store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"})
-	initialResults, initialContext := formularunview.BuildResumeState(snapshot)
-	s.store.Meta.Status = formularun.StatusRunning
+	_ = s.store.AppendEvent(run.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"})
+	initialResults, initialContext := runview.BuildResumeState(snapshot)
+	s.store.Meta.Status = run.StatusRunning
 	s.store.Meta.Error = ""
 	s.store.Meta.FinishedAt = ""
 	s.store.Meta.PID = os.Getpid()
 	s.store.Meta.TTVersion = version
 	_ = s.store.SaveMetadata()
-	_ = s.store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
-	formularunview.ResetForResume(&snapshot)
+	_ = s.store.AppendEvent(run.Event{Type: "run_resumed", Status: run.StatusRunning})
+	runview.ResetForResume(&snapshot)
 	s.mu.Lock()
-	s.state = formulaui.CloneSnapshot(snapshot)
+	s.state = ui.CloneSnapshot(snapshot)
 	s.readonly = false
 	s.mu.Unlock()
 	s.broadcast()

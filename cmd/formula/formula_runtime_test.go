@@ -14,7 +14,7 @@ import (
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -271,7 +271,7 @@ func TestResumeDependencyExclusionsRerunsLoopAncestorOfFailedStep(t *testing.T) 
 	)
 	workflow.Graph.AddEdge("plan", "write-articles", "blocks")
 	workflow.Graph.AddEdge("write-articles", "write-doc-files", "blocks")
-	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
+	snapshot := ui.Snapshot{Steps: []ui.Step{
 		{ID: "plan", Status: "completed"},
 		{ID: "write-articles", Status: "completed"},
 		{ID: "write-doc-files", Status: "failed"},
@@ -366,7 +366,7 @@ func TestFinalReportChatMessageHandlerReturnsWhileProcessorRuns(t *testing.T) {
 func TestFinalReportChatPromoteHandler(t *testing.T) {
 	dashboard := newFormulaDashboardServer(nil)
 	dashboard.state.FinalOutput = "old report"
-	dashboard.state.FinalReportChat = &formulaui.FinalReportChat{Messages: []formulaui.FinalReportChatMessage{
+	dashboard.state.FinalReportChat = &ui.FinalReportChat{Messages: []ui.FinalReportChatMessage{
 		{Role: "user", Content: "please revise"},
 		{Role: "assistant", Content: "new report"},
 	}}

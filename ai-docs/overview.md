@@ -141,10 +141,10 @@ flowchart TD
 - `internal/formula/runtime`（typed runtime 调度、ContextStore、StateStore、Capabilities、Environment、Worktree、Condition）
 - `internal/formula/compile`（AST → IR 编译器）
 - `internal/formula/builtin`（内置 formulas + atomics）
-- `internal/formularun`（运行记录持久化）
-- `internal/formulaui`（Dashboard UI DTO）
-- `internal/formuladoc`（formula Markdown 渲染）
-- `internal/formularunview`（运行快照视图）
+- `internal/formula/run`（运行记录持久化）
+- `internal/formula/ui`（Dashboard UI DTO）
+- `internal/formula/doc`（formula Markdown 渲染）
+- `internal/formula/runview`（运行快照视图）
 - `internal/ttconfig`
 - `internal/webui`（前端嵌入 + 静态资源 handler）
 - `internal/agents`（嵌入式 agent 注册）

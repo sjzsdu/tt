@@ -6,6 +6,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula/ast"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -56,22 +57,22 @@ func workspacePolicyFromDocument(doc *ast.Document) *ir.WorkspacePolicy {
 	if doc == nil {
 		return nil
 	}
-	spec := doc.Workspace
-	if spec == nil && doc.Worktree {
-		spec = &ast.WorkspaceSpec{Kind: "worktree"}
+	ws := doc.Workspace
+	if ws == nil && doc.Worktree {
+		ws = &spec.WorkspaceSpec{Kind: "worktree"}
 	}
-	if spec == nil {
+	if ws == nil {
 		return nil
 	}
-	kind := strings.TrimSpace(spec.Kind)
+	kind := strings.TrimSpace(ws.Kind)
 	if kind == "" {
 		kind = "worktree"
 	}
 	cleanup := true
-	if spec.Cleanup != nil {
-		cleanup = *spec.Cleanup
+	if ws.Cleanup != nil {
+		cleanup = *ws.Cleanup
 	}
-	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(spec.Path), Cleanup: cleanup, Branch: strings.TrimSpace(spec.Branch), Base: strings.TrimSpace(spec.Base), BranchSlugFrom: strings.TrimSpace(spec.BranchSlugFrom), BranchPrefix: strings.TrimSpace(spec.BranchPrefix)}
+	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(ws.Path), Cleanup: cleanup, Branch: strings.TrimSpace(ws.Branch), Base: strings.TrimSpace(ws.Base), BranchSlugFrom: strings.TrimSpace(ws.BranchSlugFrom), BranchPrefix: strings.TrimSpace(ws.BranchPrefix)}
 }
 
 func validateAcyclic(graph ir.Graph) ([]ir.NodeID, error) {

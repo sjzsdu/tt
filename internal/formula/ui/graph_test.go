@@ -1,4 +1,4 @@
-package formulaui
+package ui
 
 import (
 	"testing"

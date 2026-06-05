@@ -12,12 +12,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/run"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
-	"github.com/sjzsdu/tt/internal/formularun"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -29,23 +29,23 @@ type formulaContextDirectProcessor interface {
 	ProcessDirectContext(context.Context, pcwrap.RunOptions) (string, error)
 }
 
-func loadFormulaRunSnapshot(dir string, workflow *ir.Workflow) (formulaui.Snapshot, error) {
-	var dashboardSnapshot formulaui.Snapshot
-	if err := formularun.LoadState(dir, &dashboardSnapshot); err == nil {
+func loadFormulaRunSnapshot(dir string, workflow *ir.Workflow) (ui.Snapshot, error) {
+	var dashboardSnapshot ui.Snapshot
+	if err := run.LoadState(dir, &dashboardSnapshot); err == nil {
 		if dashboardSnapshot.RecipeName != "" || len(dashboardSnapshot.Steps) > 0 {
 			return dashboardSnapshot, nil
 		}
 	}
 	var runtimeSnapshot formularuntime.Snapshot
-	if err := formularun.LoadState(dir, &runtimeSnapshot); err != nil {
+	if err := run.LoadState(dir, &runtimeSnapshot); err != nil {
 		return dashboardSnapshot, err
 	}
 	return runtimeSnapshotToDashboardSnapshot(workflow, runtimeSnapshot), nil
 }
 
-func runtimeSnapshotToDashboardSnapshot(workflow *ir.Workflow, snapshot formularuntime.Snapshot) formulaui.Snapshot {
+func runtimeSnapshotToDashboardSnapshot(workflow *ir.Workflow, snapshot formularuntime.Snapshot) ui.Snapshot {
 	if workflow == nil {
-		return formulaui.Snapshot{RecipeName: string(snapshot.WorkflowID), Status: string(snapshot.Status)}
+		return ui.Snapshot{RecipeName: string(snapshot.WorkflowID), Status: string(snapshot.Status)}
 	}
 	dashboard := newFormulaDashboardServer(workflow)
 	out := dashboard.state
@@ -57,14 +57,14 @@ func runtimeSnapshotToDashboardSnapshot(workflow *ir.Workflow, snapshot formular
 		}
 		applyRuntimeStepStateToDashboardStep(&out.Steps[i], state)
 	}
-	out.Repairs = make([]formulaui.RepairRecord, 0, len(snapshot.Repairs))
+	out.Repairs = make([]ui.RepairRecord, 0, len(snapshot.Repairs))
 	for _, repair := range snapshot.Repairs {
 		out.Repairs = append(out.Repairs, runtimeRepairToDashboardRepair(repair))
 	}
 	return out
 }
 
-func applyRuntimeStepStateToDashboardStep(step *formulaui.Step, state formularuntime.StepState) {
+func applyRuntimeStepStateToDashboardStep(step *ui.Step, state formularuntime.StepState) {
 	if step == nil {
 		return
 	}
@@ -86,7 +86,7 @@ func applyRuntimeStepStateToDashboardStep(step *formulaui.Step, state formularun
 
 func runtimeStatusToDashboardStatus(status steps.Status) string {
 	if status == steps.StatusWaiting {
-		return formulaui.StatusWaitingInput
+		return ui.StatusWaitingInput
 	}
 	return string(status)
 }
@@ -221,7 +221,7 @@ func sanitizeAgentSessionSuffix(value string) string {
 
 type formulaRuntimeRunOptions struct {
 	Workflow            *ir.Workflow
-	RunStore            *formularun.Store
+	RunStore            *run.Store
 	AgentRunner         steps.AgentRunner
 	ExternalAgentDriver string
 	Workspace           string
@@ -264,7 +264,7 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 
 type executeFormulaRuntimeOptions struct {
 	Workflow            *ir.Workflow
-	RunStore            *formularun.Store
+	RunStore            *run.Store
 	Processor           formulaDirectProcessor
 	DefaultAgent        string
 	DefaultModel        string
@@ -320,20 +320,20 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 		fmt.Fprintf(opt.Out, "Runtime steps: %d\n", len(result.Nodes))
 	}
 	if opt.RunStore != nil {
-		status := formularun.StatusCompleted
+		status := run.StatusCompleted
 		errMsg := ""
 		if ctx.Err() != nil {
-			status = formularun.StatusInterrupted
+			status = run.StatusInterrupted
 			errMsg = ctx.Err().Error()
 		} else if result != nil && result.Status == steps.StatusWaiting {
-			status = formularun.StatusWaitingInput
+			status = run.StatusWaitingInput
 		} else if err != nil || (result != nil && result.Status == steps.StatusFailed) {
-			status = formularun.StatusFailed
+			status = run.StatusFailed
 			if err != nil {
 				errMsg = err.Error()
 			}
 		}
-		if status != formularun.StatusWaitingInput {
+		if status != run.StatusWaitingInput {
 			_ = opt.RunStore.Finish(status, errMsg)
 		}
 	}
@@ -343,7 +343,7 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 	return nil
 }
 
-func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults []formulaui.ResumeStepResult, initialContext map[string]string) {
+func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults []ui.ResumeStepResult, initialContext map[string]string) {
 	if exec == nil || exec.Workflow == nil || exec.Store == nil {
 		return
 	}
@@ -354,7 +354,7 @@ func seedFormulaRuntimeResumeState(exec *formularuntime.Executor, initialResults
 		_ = exec.Context.Set(key, resumeOutputValue(value))
 	}
 	for _, result := range initialResults {
-		if result.Status != formulaui.StatusCompleted || strings.TrimSpace(result.StepID) == "" {
+		if result.Status != ui.StatusCompleted || strings.TrimSpace(result.StepID) == "" {
 			continue
 		}
 		runtimeResult := &steps.RunResult{Status: steps.StatusCompleted, Output: resumeOutputValue(result.Output)}
@@ -493,8 +493,8 @@ func runtimeWorkspacePath(payload any) string {
 	return strings.TrimSpace(values["path"])
 }
 
-func runtimeRepairToDashboardRepair(repair formularuntime.RepairRecord) formulaui.RepairRecord {
-	return formulaui.RepairRecord{
+func runtimeRepairToDashboardRepair(repair formularuntime.RepairRecord) ui.RepairRecord {
+	return ui.RepairRecord{
 		StepID:             repair.StepID,
 		Kind:               repair.Kind,
 		Attempt:            repair.Attempt,
@@ -512,9 +512,9 @@ func runtimeRepairToDashboardRepair(repair formularuntime.RepairRecord) formulau
 	}
 }
 
-func runtimeRepairPayload(payload any) formulaui.RepairRecord {
+func runtimeRepairPayload(payload any) ui.RepairRecord {
 	switch value := payload.(type) {
-	case formulaui.RepairRecord:
+	case ui.RepairRecord:
 		return value
 	case formularuntime.RepairRecord:
 		return runtimeRepairToDashboardRepair(value)
@@ -523,7 +523,7 @@ func runtimeRepairPayload(payload any) formulaui.RepairRecord {
 			return runtimeRepairToDashboardRepair(*value)
 		}
 	}
-	return formulaui.RepairRecord{}
+	return ui.RepairRecord{}
 }
 
 func finalOutputFromRunResult(workflow *ir.Workflow, result *formularuntime.RunResult) string {
@@ -545,7 +545,7 @@ func finalOutputFromRunResult(workflow *ir.Workflow, result *formularuntime.RunR
 }
 
 func loopBodyEventDetails(workflow *ir.Workflow, nodeID string) (title, agent, model string) {
-	parentID := formulaui.LoopParentStepID(nodeID)
+	parentID := ui.LoopParentStepID(nodeID)
 	if workflow == nil || parentID == "" {
 		return "", "", ""
 	}
@@ -603,18 +603,18 @@ func runtimeEventSkipReason(payload any) string {
 	return result.Error.Error()
 }
 
-func runtimeEventHumanInputRequest(payload any) *formulaui.HumanInputRequest {
+func runtimeEventHumanInputRequest(payload any) *ui.HumanInputRequest {
 	await, ok := payload.(*steps.AwaitRequest)
 	if !ok || await == nil {
 		return nil
 	}
-	req := &formulaui.HumanInputRequest{Reason: await.Reason}
-	if form, ok := await.Form.(*formula.FormSpec); ok {
+	req := &ui.HumanInputRequest{Reason: await.Reason}
+	if form, ok := await.Form.(*spec.FormSpec); ok {
 		req.Form = form
 	} else if await.Form != nil {
 		data, err := json.Marshal(await.Form)
 		if err == nil {
-			var form formula.FormSpec
+			var form spec.FormSpec
 			if err := json.Unmarshal(data, &form); err == nil {
 				req.Form = &form
 			}

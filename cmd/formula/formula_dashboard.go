@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
-	"github.com/sjzsdu/tt/internal/formularun"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/run"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/sjzsdu/tt/internal/webui"
 	"nhooyr.io/websocket"
@@ -25,8 +25,8 @@ type formulaDashboardServer struct {
 	port            int
 	started         time.Time
 	recipe          string
-	state           formulaui.Snapshot
-	store           *formularun.Store
+	state           ui.Snapshot
+	store           *run.Store
 	readonly        bool
 	clients         map[*websocket.Conn]struct{}
 	shutdown        chan struct{}
@@ -37,18 +37,18 @@ type formulaDashboardDirectProcessor interface {
 	ProcessDirectContext(ctx context.Context, opt pcwrap.RunOptions) (string, error)
 }
 
-func newFormulaDashboardServerFromSnapshot(snapshot formulaui.Snapshot) *formulaDashboardServer {
+func newFormulaDashboardServerFromSnapshot(snapshot ui.Snapshot) *formulaDashboardServer {
 	return &formulaDashboardServer{
 		started:  time.Now(),
 		recipe:   snapshot.RecipeName,
-		state:    formulaui.CloneSnapshot(snapshot),
+		state:    ui.CloneSnapshot(snapshot),
 		clients:  map[*websocket.Conn]struct{}{},
 		shutdown: make(chan struct{}),
 		readonly: true,
 	}
 }
 
-func (s *formulaDashboardServer) attachStore(store *formularun.Store) {
+func (s *formulaDashboardServer) attachStore(store *run.Store) {
 	if s == nil {
 		return
 	}
@@ -60,7 +60,7 @@ func (s *formulaDashboardServer) attachStore(store *formularun.Store) {
 }
 
 func newFormulaDashboardServer(workflow *ir.Workflow) *formulaDashboardServer {
-	steps, edges := formulaui.BuildWorkflowGraph(workflow)
+	steps, edges := ui.BuildWorkflowGraph(workflow)
 	name := ""
 	description := ""
 	if workflow != nil {
@@ -70,13 +70,13 @@ func newFormulaDashboardServer(workflow *ir.Workflow) *formulaDashboardServer {
 	return &formulaDashboardServer{
 		started: time.Now(),
 		recipe:  name,
-		state: formulaui.Snapshot{
+		state: ui.Snapshot{
 			RecipeName:  name,
 			Description: description,
 			Status:      "running",
 			Steps:       steps,
 			Edges:       edges,
-			Logs:        []formulaui.LogEntry{},
+			Logs:        []ui.LogEntry{},
 		},
 		clients:  map[*websocket.Conn]struct{}{},
 		shutdown: make(chan struct{}),
@@ -156,14 +156,14 @@ func (s *formulaDashboardServer) waitForInterrupt() {
 	s.close()
 }
 
-func (s *formulaDashboardServer) snapshot() formulaui.Snapshot {
+func (s *formulaDashboardServer) snapshot() ui.Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return formulaui.CloneSnapshot(s.state)
+	return ui.CloneSnapshot(s.state)
 }
 
 func (s *formulaDashboardServer) snapshotMessageLocked() []byte {
-	msg := formulaui.Message{Type: "state", State: formulaui.CloneSnapshot(s.state)}
+	msg := ui.Message{Type: "state", State: ui.CloneSnapshot(s.state)}
 	b, _ := json.Marshal(msg)
 	return b
 }
@@ -193,7 +193,7 @@ func (s *formulaDashboardServer) persistSnapshot() error {
 		return nil
 	}
 	s.mu.Lock()
-	snapshot := formulaui.CloneSnapshot(s.state)
+	snapshot := ui.CloneSnapshot(s.state)
 	s.mu.Unlock()
 	return s.store.SaveState(snapshot)
 }

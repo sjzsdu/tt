@@ -1,10 +1,10 @@
-package formulaui
+package ui
 
 import (
 	"fmt"
 
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -50,7 +50,7 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 			uiStep.Execution = string(steps.KindHumanInput)
 			uiStep.Description = typed.Reason
 			request := &HumanInputRequest{Reason: typed.Reason}
-			if form, ok := typed.Form.(*formula.FormSpec); ok {
+			if form, ok := typed.Form.(*spec.FormSpec); ok {
 				request.Form = form
 			}
 			uiStep.HumanInputRequest = request
@@ -216,7 +216,7 @@ func CloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func BuildLoop(loop *formula.LoopSpec) *Loop {
+func BuildLoop(loop *spec.LoopSpec) *Loop {
 	if loop == nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func BuildLoop(loop *formula.LoopSpec) *Loop {
 	return dashboardLoop
 }
 
-func loopSummary(loop *formula.LoopSpec) string {
+func loopSummary(loop *spec.LoopSpec) string {
 	if loop == nil {
 		return ""
 	}

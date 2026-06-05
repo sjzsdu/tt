@@ -30,7 +30,7 @@
 1. [Formula 工作流系统](./formula-system.md)
 2. [Step Kinds 参考](./step-kinds-reference.md)
 3. [架构与运行模型](./architecture.md)
-4. 然后重点看 `cmd/formula/`、`internal/formula/`、`internal/formula/runtime/`、`internal/formula/steps/`、`internal/formularun/`
+4. 然后重点看 `cmd/formula/`、`internal/formula/`、`internal/formula/runtime/`、`internal/formula/steps/`、`internal/formula/run/`
 
 ### 如果你准备接入新的嵌入式 agent 或复用 Picoclaw
 1. [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)
@@ -142,8 +142,9 @@ overview → architecture → picoclaw-integration → module-map
   - 嵌入式 `agent-optimizer` / `code-research` / `tech-blog-writer` / `writer` / `reporter` 等 agent
   - formula 的 preflight、worktree workspace、environment context、output validation advice、script repair
   - 新的 step kind：aggregate / tool / write_files / retry / loop（parallel + max_concurrency）
-  - `internal/formula/ast` / `ir` / `compile` / `builtin` 子包
-  - `internal/agentopt` / `internal/formulaui` / `internal/formuladoc` / `internal/formularunview`
+  - `internal/formula/ast` / `ir` / `compile` / `builtin` / `doc` / `ui` / `run` / `runview` 子包
+  - `internal/agentopt` 包
+  - 重构为子包：原 `formuladoc` / `formulaui` / `formularun` / `formularunview` 四个平级包归并为 `internal/formula/{doc,ui,run,runview}`，新增 `internal/formula/spec` 叶子数据契约子包
   - 前端构建嵌入路径与 `make web-build`
 - **自我修复（Self-Repair）专题**：
   - `StepFixer` 抽象（`agentFixer` / `scriptFixer` + `DefaultFixerRegistry`），`tryFixAndRerun` 最多 3 次 attempt

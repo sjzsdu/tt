@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 )
 
 func (s *formulaDashboardServer) logf(format string, args ...any) {
@@ -16,9 +16,9 @@ func (s *formulaDashboardServer) logf(format string, args ...any) {
 }
 
 func (s *formulaDashboardServer) appendLogLocked(text string) {
-	s.state.Logs = append(s.state.Logs, formulaui.LogEntry{At: time.Now().Format("15:04:05"), Text: text})
+	s.state.Logs = append(s.state.Logs, ui.LogEntry{At: time.Now().Format("15:04:05"), Text: text})
 	if len(s.state.Logs) > 200 {
-		s.state.Logs = append([]formulaui.LogEntry(nil), s.state.Logs[len(s.state.Logs)-200:]...)
+		s.state.Logs = append([]ui.LogEntry(nil), s.state.Logs[len(s.state.Logs)-200:]...)
 	}
 }
 
@@ -84,7 +84,7 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 		s.state.Steps[i].DurationMS = 0
 		s.state.Steps[i].Error = ""
 		s.state.Steps[i].Output = ""
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Session: session, Detail: fmt.Sprintf("Agent %s started this step", agent)})
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Session: session, Detail: fmt.Sprintf("Agent %s started this step", agent)})
 		s.appendLogLocked(fmt.Sprintf("Step %s started", stepID))
 		break
 	}
@@ -115,7 +115,7 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
 			}
 		}
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "completed", Detail: fmt.Sprintf("Completed with %d chars of output", len(output)), Output: output, DurationMS: s.state.Steps[i].DurationMS})
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "completed", Detail: fmt.Sprintf("Completed with %d chars of output", len(output)), Output: output, DurationMS: s.state.Steps[i].DurationMS})
 		s.appendLogLocked(fmt.Sprintf("Step %s completed", stepID))
 		break
 	}
@@ -147,7 +147,7 @@ func (s *formulaDashboardServer) markStepSkipped(stepID, reason string) {
 		if detail == "" {
 			detail = "Step condition evaluated to false"
 		}
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "skipped", Detail: detail})
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "skipped", Detail: detail})
 		s.appendLogLocked(fmt.Sprintf("Step %s skipped", stepID))
 		break
 	}
@@ -180,7 +180,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
 			}
 		}
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "failed", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "failed", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
 		s.appendLogLocked(fmt.Sprintf("Step %s failed: %s", stepID, errMsg))
 		break
 	}
@@ -194,7 +194,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.broadcast()
 }
 
-func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, request *formulaui.HumanInputRequest) {
+func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, request *ui.HumanInputRequest) {
 	s.mu.Lock()
 	found := false
 	for i := range s.state.Steps {
@@ -210,7 +210,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 			s.state.Steps[i].HumanInputRequest = request
 		}
 		s.state.Steps[i].FinishedAt = ""
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
 		s.appendLogLocked(fmt.Sprintf("Step %s waiting for human input", stepID))
 		break
 	}
@@ -224,7 +224,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 	s.broadcast()
 }
 
-func (s *formulaDashboardServer) recordRepair(repair formulaui.RepairRecord) {
+func (s *formulaDashboardServer) recordRepair(repair ui.RepairRecord) {
 	if strings.TrimSpace(repair.StepID) == "" {
 		return
 	}
@@ -265,7 +265,7 @@ func (s *formulaDashboardServer) confirmRepair(stepID string, attempt int) bool 
 }
 
 func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, session, detail, output, errMsg string, durationMS int64) {
-	parentID := formulaui.LoopParentStepID(stepID)
+	parentID := ui.LoopParentStepID(stepID)
 	if parentID == "" {
 		return
 	}
@@ -277,7 +277,7 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, s
 			s.state.Steps[i].Status = "running"
 			s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
 		}
-		formulaui.AppendStepActivity(&s.state.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Session: session, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Session: session, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
 		return
 	}
 }

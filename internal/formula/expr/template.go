@@ -1,6 +1,8 @@
 package expr
 
-import "regexp"
+import (
+	"regexp"
+)
 
 var templatePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_-]*(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)*)\s*\}\}`)
 

@@ -7,11 +7,12 @@ import (
 	"path/filepath"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/doc"
 	"github.com/sjzsdu/tt/internal/formula/ir"
-	"github.com/sjzsdu/tt/internal/formuladoc"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
-func runFormulaShowMarkdown(resolved *formula.Formula) error {
+func runFormulaShowMarkdown(resolved *spec.Formula) error {
 	workflow, err := formula.CompileWorkflowByName(context.Background(), resolved.Formula, getSearchPaths(), nil)
 	if err != nil {
 		return err
@@ -67,10 +68,10 @@ func runFormulaShowAllMarkdown() error {
 	return runMarkdownPreview(MarkdownPreviewOptions{Root: tmpDir, Port: formulaPort})
 }
 
-func collectFormulaShowAllMarkdownFormulas() []*formula.Formula {
+func collectFormulaShowAllMarkdownFormulas() []*spec.Formula {
 	paths := getSearchPaths()
 
-	var formulas []*formula.Formula
+	var formulas []*spec.Formula
 	seen := make(map[string]bool)
 	p := formula.NewParser(paths...)
 
@@ -120,10 +121,10 @@ func collectFormulaShowAllMarkdownFormulas() []*formula.Formula {
 	return formulas
 }
 
-func generateFormulaMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
-	return formuladoc.GenerateMarkdown(f, workflow)
+func generateFormulaMarkdown(f *spec.Formula, workflow *ir.Workflow) string {
+	return doc.GenerateMarkdown(f, workflow)
 }
 
 func generateMermaidGraph(workflow *ir.Workflow) string {
-	return formuladoc.GenerateMermaidGraph(workflow)
+	return doc.GenerateMermaidGraph(workflow)
 }

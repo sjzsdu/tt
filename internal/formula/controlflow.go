@@ -3,10 +3,11 @@ package formula
 import (
 	"encoding/json"
 	"fmt"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"strings"
 )
 
-func ApplyControlFlowWithVars(steps []*Step, compose *ComposeRules, vars map[string]string) ([]*Step, error) {
+func ApplyControlFlowWithVars(steps []*spec.Step, compose *spec.ComposeRules, vars map[string]string) ([]*spec.Step, error) {
 	var err error
 
 	steps, err = ApplyLoopsWithVars(steps, vars)
@@ -27,8 +28,8 @@ func ApplyControlFlowWithVars(steps []*Step, compose *ComposeRules, vars map[str
 	return steps, nil
 }
 
-func ApplyLoopsWithVars(steps []*Step, vars map[string]string) ([]*Step, error) {
-	result := make([]*Step, 0, len(steps))
+func ApplyLoopsWithVars(steps []*spec.Step, vars map[string]string) ([]*spec.Step, error) {
+	result := make([]*spec.Step, 0, len(steps))
 
 	for _, step := range steps {
 		if step.Loop == nil {
@@ -64,7 +65,7 @@ func ApplyLoopsWithVars(steps []*Step, vars map[string]string) ([]*Step, error) 
 	return result, nil
 }
 
-func validateLoopSpec(loop *LoopSpec, stepID string) error {
+func validateLoopSpec(loop *spec.LoopSpec, stepID string) error {
 	if len(loop.Body) == 0 {
 		return fmt.Errorf("loop %q: body is required", stepID)
 	}
@@ -123,8 +124,8 @@ func validateLoopSpec(loop *LoopSpec, stepID string) error {
 	return nil
 }
 
-func expandLoopWithVars(step *Step, vars map[string]string) ([]*Step, error) {
-	var result []*Step
+func expandLoopWithVars(step *spec.Step, vars map[string]string) ([]*spec.Step, error) {
+	var result []*spec.Step
 
 	switch {
 	case step.Loop.Count > 0:
@@ -206,12 +207,12 @@ func expandLoopWithVars(step *Step, vars map[string]string) ([]*Step, error) {
 	return result, nil
 }
 
-func ApplyLoops(steps []*Step) ([]*Step, error) {
+func ApplyLoops(steps []*spec.Step) ([]*spec.Step, error) {
 	return ApplyLoopsWithVars(steps, nil)
 }
 
-func expandLoopIteration(step *Step, iteration int, iterVars map[string]string) ([]*Step, error) {
-	result := make([]*Step, 0, len(step.Loop.Body))
+func expandLoopIteration(step *spec.Step, iteration int, iterVars map[string]string) ([]*spec.Step, error) {
+	result := make([]*spec.Step, 0, len(step.Loop.Body))
 
 	bodyStepIDs := collectBodyStepIDs(step.Loop.Body)
 
@@ -261,10 +262,10 @@ func substituteLoopVars(s string, vars map[string]string) string {
 	return s
 }
 
-func collectBodyStepIDs(body []*Step) map[string]bool {
+func collectBodyStepIDs(body []*spec.Step) map[string]bool {
 	ids := make(map[string]bool)
-	var collect func([]*Step)
-	collect = func(steps []*Step) {
+	var collect func([]*spec.Step)
+	collect = func(steps []*spec.Step) {
 		for _, s := range steps {
 			ids[s.ID] = true
 			if len(s.Children) > 0 {
@@ -292,8 +293,8 @@ func rewriteLoopDependencies(deps []string, loopID string, iteration int, bodySt
 	return result
 }
 
-func expandLoopChildren(children []*Step, loopID string, iteration int, bodyStepIDs map[string]bool, iterVars map[string]string) []*Step {
-	result := make([]*Step, len(children))
+func expandLoopChildren(children []*spec.Step, loopID string, iteration int, bodyStepIDs map[string]bool, iterVars map[string]string) []*spec.Step {
+	result := make([]*spec.Step, len(children))
 	for i, child := range children {
 		clone := cloneStepDeep(child)
 		clone.ID = fmt.Sprintf("%s.iter%d.%s", loopID, iteration, child.ID)
@@ -311,7 +312,7 @@ func expandLoopChildren(children []*Step, loopID string, iteration int, bodyStep
 	return result
 }
 
-func substituteLoopVarsInTimeouts(step *Step, iterVars map[string]string) {
+func substituteLoopVarsInTimeouts(step *spec.Step, iterVars map[string]string) {
 	if step == nil {
 		return
 	}
@@ -327,7 +328,7 @@ func substituteLoopVarsInTimeouts(step *Step, iterVars map[string]string) {
 	}
 }
 
-func loopBodyTimeoutVars(iterVars map[string]string, loop *LoopSpec) map[string]string {
+func loopBodyTimeoutVars(iterVars map[string]string, loop *spec.LoopSpec) map[string]string {
 	if len(iterVars) == 0 || loop == nil || loop.Var == "" {
 		return iterVars
 	}
@@ -346,7 +347,7 @@ func loopBodyTimeoutVars(iterVars map[string]string, loop *LoopSpec) map[string]
 	return nestedVars
 }
 
-func chainExpandedIterations(steps []*Step, loopID string, count int) []*Step {
+func chainExpandedIterations(steps []*spec.Step, loopID string, count int) []*spec.Step {
 	if len(steps) == 0 || count < 2 {
 		return steps
 	}
@@ -380,7 +381,7 @@ func chainExpandedIterations(steps []*Step, loopID string, count int) []*Step {
 	return steps
 }
 
-func ApplyBranches(steps []*Step, compose *ComposeRules) ([]*Step, error) {
+func ApplyBranches(steps []*spec.Step, compose *spec.ComposeRules) ([]*spec.Step, error) {
 	if compose == nil || len(compose.Branch) == 0 {
 		return steps, nil
 	}
@@ -395,7 +396,7 @@ func ApplyBranches(steps []*Step, compose *ComposeRules) ([]*Step, error) {
 	return cloned, nil
 }
 
-func applyBranchesWithMap(stepMap map[string]*Step, compose *ComposeRules) error {
+func applyBranchesWithMap(stepMap map[string]*spec.Step, compose *spec.ComposeRules) error {
 	if compose == nil || len(compose.Branch) == 0 {
 		return nil
 	}
@@ -437,7 +438,7 @@ func applyBranchesWithMap(stepMap map[string]*Step, compose *ComposeRules) error
 	return nil
 }
 
-func ApplyGates(steps []*Step, compose *ComposeRules) ([]*Step, error) {
+func ApplyGates(steps []*spec.Step, compose *spec.ComposeRules) ([]*spec.Step, error) {
 	if compose == nil || len(compose.Gate) == 0 {
 		return steps, nil
 	}
@@ -452,7 +453,7 @@ func ApplyGates(steps []*Step, compose *ComposeRules) ([]*Step, error) {
 	return cloned, nil
 }
 
-func applyGatesWithMap(stepMap map[string]*Step, compose *ComposeRules) error {
+func applyGatesWithMap(stepMap map[string]*spec.Step, compose *spec.ComposeRules) error {
 	if compose == nil || len(compose.Gate) == 0 {
 		return nil
 	}
@@ -483,10 +484,10 @@ func applyGatesWithMap(stepMap map[string]*Step, compose *ComposeRules) error {
 	return nil
 }
 
-func buildStepMap(steps []*Step) map[string]*Step {
-	result := make(map[string]*Step)
-	var walk func([]*Step)
-	walk = func(s []*Step) {
+func buildStepMap(steps []*spec.Step) map[string]*spec.Step {
+	result := make(map[string]*spec.Step)
+	var walk func([]*spec.Step)
+	walk = func(s []*spec.Step) {
 		for _, step := range s {
 			result[step.ID] = step
 			if len(step.Children) > 0 {
@@ -498,7 +499,7 @@ func buildStepMap(steps []*Step) map[string]*Step {
 	return result
 }
 
-func cloneStep(s *Step) *Step {
+func cloneStep(s *spec.Step) *spec.Step {
 	if s == nil {
 		return nil
 	}
@@ -543,10 +544,10 @@ func cloneStep(s *Step) *Step {
 	return &clone
 }
 
-func cloneStepDeep(s *Step) *Step {
+func cloneStepDeep(s *spec.Step) *spec.Step {
 	clone := cloneStep(s)
 	if len(s.Children) > 0 {
-		clone.Children = make([]*Step, len(s.Children))
+		clone.Children = make([]*spec.Step, len(s.Children))
 		for i, child := range s.Children {
 			clone.Children[i] = cloneStepDeep(child)
 		}
@@ -554,8 +555,8 @@ func cloneStepDeep(s *Step) *Step {
 	return clone
 }
 
-func cloneStepsRecursive(steps []*Step) []*Step {
-	result := make([]*Step, len(steps))
+func cloneStepsRecursive(steps []*spec.Step) []*spec.Step {
+	result := make([]*spec.Step, len(steps))
 	for i, step := range steps {
 		result[i] = cloneStepDeep(step)
 	}

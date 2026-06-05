@@ -6,7 +6,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 )
 
 func TestDashboardStepUpdatesPopulateTimelineLogs(t *testing.T) {
@@ -59,7 +59,7 @@ func TestDashboardWorkspaceReadyUpdatesSnapshot(t *testing.T) {
 
 func TestDashboardConfirmRepairMarksRecord(t *testing.T) {
 	dashboard := newFormulaDashboardServer(nil)
-	dashboard.state.Repairs = []formulaui.RepairRecord{{StepID: "script", Attempt: 1, Status: "succeeded"}}
+	dashboard.state.Repairs = []ui.RepairRecord{{StepID: "script", Attempt: 1, Status: "succeeded"}}
 	if !dashboard.confirmRepair("script", 1) {
 		t.Fatal("confirmRepair should succeed")
 	}
@@ -69,6 +69,6 @@ func TestDashboardConfirmRepairMarksRecord(t *testing.T) {
 	}
 }
 
-func structStepForTest(id, title string) formulaui.Step {
-	return formulaui.Step{ID: id, Title: title, Status: "pending"}
+func structStepForTest(id, title string) ui.Step {
+	return ui.Step{ID: id, Title: title, Status: "pending"}
 }

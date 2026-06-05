@@ -1,6 +1,9 @@
 package formula
 
-import "testing"
+import (
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
+	"testing"
+)
 
 func TestParserDecodesPreflightChecks(t *testing.T) {
 	p := NewParser()
@@ -39,7 +42,7 @@ title = "Done"
 }
 
 func TestFormulaValidatePreflight(t *testing.T) {
-	f := &Formula{Formula: "demo", Version: 1, Type: TypeWorkflow, Preflight: &PreflightSpec{Checks: []*PreflightCheck{{Type: "command"}}}}
+	f := &spec.Formula{Formula: "demo", Version: 1, Type: spec.TypeWorkflow, Preflight: &spec.PreflightSpec{Checks: []*spec.PreflightCheck{{Type: "command"}}}}
 	if err := f.Validate(); err == nil {
 		t.Fatal("expected invalid command preflight")
 	}

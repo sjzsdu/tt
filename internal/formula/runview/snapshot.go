@@ -1,27 +1,27 @@
-package formularunview
+package runview
 
 import (
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 )
 
-func ResolveWaitingInputStepID(snapshot formulaui.Snapshot, stepID string) (string, error) {
+func ResolveWaitingInputStepID(snapshot ui.Snapshot, stepID string) (string, error) {
 	resolvedStepID, err := ResolveStepID(snapshot, stepID)
 	if err != nil {
 		return "", err
 	}
 	for _, step := range snapshot.Steps {
-		if step.ID == resolvedStepID && step.Status != formulaui.StatusWaitingInput {
+		if step.ID == resolvedStepID && step.Status != ui.StatusWaitingInput {
 			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", resolvedStepID, step.Status)
 		}
 	}
 	return resolvedStepID, nil
 }
 
-func ResolveStepID(snapshot formulaui.Snapshot, stepID string) (string, error) {
+func ResolveStepID(snapshot ui.Snapshot, stepID string) (string, error) {
 	stepID = strings.TrimSpace(stepID)
 	if stepID == "" {
 		return "", fmt.Errorf("step id is required")
@@ -41,7 +41,7 @@ func ResolveStepID(snapshot formulaui.Snapshot, stepID string) (string, error) {
 	return matches[0], nil
 }
 
-func MarkStepCompletedWithOutput(snapshot *formulaui.Snapshot, stepID, output string) error {
+func MarkStepCompletedWithOutput(snapshot *ui.Snapshot, stepID, output string) error {
 	if snapshot == nil {
 		return fmt.Errorf("snapshot is required")
 	}
@@ -49,32 +49,32 @@ func MarkStepCompletedWithOutput(snapshot *formulaui.Snapshot, stepID, output st
 		if snapshot.Steps[i].ID != stepID {
 			continue
 		}
-		snapshot.Steps[i].Status = formulaui.StatusCompleted
+		snapshot.Steps[i].Status = ui.StatusCompleted
 		snapshot.Steps[i].Output = output
 		snapshot.Steps[i].Error = ""
 		snapshot.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
-		formulaui.AppendStepActivity(&snapshot.Steps[i], formulaui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: snapshot.Steps[i].Title, Status: formulaui.StatusCompleted, Detail: "Human input submitted", Output: output})
+		ui.AppendStepActivity(&snapshot.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: snapshot.Steps[i].Title, Status: ui.StatusCompleted, Detail: "Human input submitted", Output: output})
 		return nil
 	}
 	return fmt.Errorf("step %q not found in snapshot", stepID)
 }
 
-func BuildResumeState(snapshot formulaui.Snapshot) ([]formulaui.ResumeStepResult, map[string]string) {
+func BuildResumeState(snapshot ui.Snapshot) ([]ui.ResumeStepResult, map[string]string) {
 	return BuildResumeStateExcluding(snapshot, nil)
 }
 
-func BuildResumeStateExcluding(snapshot formulaui.Snapshot, exclude map[string]bool) ([]formulaui.ResumeStepResult, map[string]string) {
-	var results []formulaui.ResumeStepResult
+func BuildResumeStateExcluding(snapshot ui.Snapshot, exclude map[string]bool) ([]ui.ResumeStepResult, map[string]string) {
+	var results []ui.ResumeStepResult
 	ctx := map[string]string{}
 	for _, step := range snapshot.Steps {
 		if exclude != nil && exclude[step.ID] {
 			continue
 		}
 		status := step.Status
-		if status != formulaui.StatusCompleted && status != formulaui.StatusSkipped {
+		if status != ui.StatusCompleted && status != ui.StatusSkipped {
 			continue
 		}
-		results = append(results, formulaui.ResumeStepResult{StepID: step.ID, Title: step.Title, Status: status, Output: step.Output, Error: step.Error})
+		results = append(results, ui.ResumeStepResult{StepID: step.ID, Title: step.Title, Status: status, Output: step.Output, Error: step.Error})
 		if step.Output != "" {
 			ctx[step.ID] = step.Output
 		}
@@ -82,7 +82,7 @@ func BuildResumeStateExcluding(snapshot formulaui.Snapshot, exclude map[string]b
 	return results, ctx
 }
 
-func ResetStepForRetry(snapshot *formulaui.Snapshot, stepID string) {
+func ResetStepForRetry(snapshot *ui.Snapshot, stepID string) {
 	if snapshot == nil {
 		return
 	}
@@ -100,7 +100,7 @@ func ResetStepForRetry(snapshot *formulaui.Snapshot, stepID string) {
 	}
 }
 
-func ResetForResume(snapshot *formulaui.Snapshot) {
+func ResetForResume(snapshot *ui.Snapshot) {
 	if snapshot == nil {
 		return
 	}

@@ -5,20 +5,20 @@ import (
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/run"
 	"github.com/sjzsdu/tt/internal/formula/steps"
-	"github.com/sjzsdu/tt/internal/formularun"
 )
 
 // FormulaRunStateStore mirrors typed runtime state/events into the existing
-// formularun.Store artifact layout. It embeds a MemoryStateStore for efficient
+// run.Store artifact layout. It embeds a MemoryStateStore for efficient
 // snapshots while preserving the current on-disk run.json/state.json/logs.jsonl
 // and per-step artifact files used by dashboard/resume commands.
 type FormulaRunStateStore struct {
 	Memory *MemoryStateStore
-	Store  *formularun.Store
+	Store  *run.Store
 }
 
-func NewFormulaRunStateStore(store *formularun.Store) *FormulaRunStateStore {
+func NewFormulaRunStateStore(store *run.Store) *FormulaRunStateStore {
 	return &FormulaRunStateStore{Memory: NewMemoryStateStore(), Store: store}
 }
 
@@ -42,7 +42,7 @@ func (s *FormulaRunStateStore) FinishWorkflow(id ir.WorkflowID, status steps.Sta
 	}
 	if s.Store != nil {
 		mapped := mapRuntimeStatus(status)
-		if mapped == formularun.StatusWaitingInput {
+		if mapped == run.StatusWaitingInput {
 			// The specific waiting step is recorded when SaveStep sees StatusWaiting.
 			if err := s.Store.SaveMetadata(); err != nil {
 				return err
@@ -92,7 +92,7 @@ func (s *FormulaRunStateStore) AppendEvent(event Event) error {
 		return err
 	}
 	if s.Store != nil {
-		_ = s.Store.AppendEvent(formularun.Event{
+		_ = s.Store.AppendEvent(run.Event{
 			Type:   normalizeRuntimeEventType(event.Type),
 			At:     event.Time.Format(formularunTimeFormat),
 			StepID: string(event.NodeID),
@@ -126,16 +126,16 @@ func (s *FormulaRunStateStore) persistSnapshot(id ir.WorkflowID) error {
 func mapRuntimeStatus(status steps.Status) string {
 	switch status {
 	case steps.StatusCompleted:
-		return formularun.StatusCompleted
+		return run.StatusCompleted
 	case steps.StatusFailed:
-		return formularun.StatusFailed
+		return run.StatusFailed
 	case steps.StatusWaiting:
-		return formularun.StatusWaitingInput
+		return run.StatusWaitingInput
 	case steps.StatusSkipped:
 		return "skipped"
 	default:
 		if strings.TrimSpace(string(status)) == "running" {
-			return formularun.StatusRunning
+			return run.StatusRunning
 		}
 		return string(status)
 	}
@@ -163,13 +163,13 @@ func normalizeRuntimeEventType(value string) string {
 func eventStatus(event Event) string {
 	switch event.Type {
 	case "workflow.started", "step.started":
-		return formularun.StatusRunning
+		return run.StatusRunning
 	case "workflow.completed", "step.completed":
-		return formularun.StatusCompleted
+		return run.StatusCompleted
 	case "step.failed":
-		return formularun.StatusFailed
+		return run.StatusFailed
 	case "step.waiting":
-		return formularun.StatusWaitingInput
+		return run.StatusWaitingInput
 	default:
 		return fmt.Sprint(event.Type)
 	}

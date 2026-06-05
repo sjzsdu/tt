@@ -1,11 +1,11 @@
-package formuladoc
+package doc
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -50,11 +50,11 @@ func TestGenerateMermaidGraphEscapesMustacheLabels(t *testing.T) {
 }
 
 func TestGenerateMarkdownUsesExecutionOrderAndFoldsScripts(t *testing.T) {
-	f := &formula.Formula{
+	f := &spec.Formula{
 		Formula: "demo",
 		Version: 1,
-		Type:    formula.TypeWorkflow,
-		Steps: []*formula.Step{
+		Type:    spec.TypeWorkflow,
+		Steps: []*spec.Step{
 			{ID: "first", Title: "First"},
 			{ID: "second", Title: "Second", DependsOn: []string{"first"}},
 			{ID: "third", Title: "Third", DependsOn: []string{"second"}},

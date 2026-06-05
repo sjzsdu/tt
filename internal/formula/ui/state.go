@@ -1,9 +1,9 @@
-package formulaui
+package ui
 
 import (
 	"strings"
 
-	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 const (
@@ -188,6 +188,9 @@ func AppendStepActivity(step *Step, activity StepActivity) {
 		return
 	}
 	step.Activities = append(step.Activities, activity)
+	// Cap activities at 80 to prevent unbounded growth in snapshot size
+	// (each activity carries session output; long-running steps can generate
+	// hundreds of activity entries). Keep the most recent 80.
 	if len(step.Activities) > 80 {
 		step.Activities = append([]StepActivity(nil), step.Activities[len(step.Activities)-80:]...)
 	}
@@ -232,7 +235,7 @@ func CloneHumanInputRequest(src *HumanInputRequest) *HumanInputRequest {
 	cp := *src
 	if src.Form != nil {
 		form := *src.Form
-		form.Fields = make([]*formula.FormField, len(src.Form.Fields))
+		form.Fields = make([]*spec.FormField, len(src.Form.Fields))
 		for i, field := range src.Form.Fields {
 			if field == nil {
 				continue

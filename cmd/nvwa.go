@@ -56,10 +56,10 @@ var nvwaCreateCmd = &cobra.Command{
 }
 
 var nvwaOptimizeCmd = &cobra.Command{
-	Use:   "optimize <name> <suggestion>",
+	Use:     "optimize <name> <suggestion>",
 	Aliases: []string{"optmize"},
-	Short: "Optimize an existing embedded agent markdown file from suggestion",
-	Args:  cobra.MinimumNArgs(2),
+	Short:   "Optimize an existing embedded agent markdown file from suggestion",
+	Args:    cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := strings.TrimSpace(args[0])
 		suggestion := strings.TrimSpace(strings.Join(args[1:], " "))
@@ -316,7 +316,7 @@ func generateNvwaFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		return nvwa.Files{}, err
 	}
 
-		rt, err := pcwrap.Load(pcwrap.Options{
+	rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
 		Config:    merged.Picoclaw.Config,
 		TTConfig:  merged,

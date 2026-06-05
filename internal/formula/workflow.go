@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -21,11 +22,11 @@ func CompileWorkflowByName(_ context.Context, name string, searchPaths []string,
 
 // ResolveFormulaByName loads and resolves a workflow formula using the same
 // compile-time expansion path as CompileWorkflowByName.
-func ResolveFormulaByName(_ context.Context, name string, searchPaths []string, vars map[string]string) (*Formula, error) {
+func ResolveFormulaByName(_ context.Context, name string, searchPaths []string, vars map[string]string) (*spec.Formula, error) {
 	return resolveFormulaForWorkflow(name, searchPaths, vars, true)
 }
 
-func resolveFormulaForWorkflow(name string, searchPaths []string, vars map[string]string, validateRuntimeVars bool) (*Formula, error) {
+func resolveFormulaForWorkflow(name string, searchPaths []string, vars map[string]string, validateRuntimeVars bool) (*spec.Formula, error) {
 	parser := NewParser(searchPaths...)
 	f, err := parser.LoadByName(name)
 	if err != nil {
@@ -36,7 +37,7 @@ func resolveFormulaForWorkflow(name string, searchPaths []string, vars map[strin
 		return nil, fmt.Errorf("resolving formula %q: %w", name, err)
 	}
 	if validateRuntimeVars && len(vars) > 0 {
-		if err := ValidateVars(resolved, vars); err != nil {
+		if err := spec.ValidateVars(resolved, vars); err != nil {
 			return nil, err
 		}
 	}
@@ -85,7 +86,7 @@ func resolveFormulaForWorkflow(name string, searchPaths []string, vars map[strin
 	return resolved, nil
 }
 
-func WorkflowFromFormula(f *Formula) *ir.Workflow {
+func WorkflowFromFormula(f *spec.Formula) *ir.Workflow {
 	if f == nil {
 		return nil
 	}
@@ -102,7 +103,7 @@ func WorkflowFromFormula(f *Formula) *ir.Workflow {
 	return wf
 }
 
-func addFormulaStepToWorkflow(wf *ir.Workflow, step *Step) {
+func addFormulaStepToWorkflow(wf *ir.Workflow, step *spec.Step) {
 	if wf == nil || step == nil {
 		return
 	}
@@ -119,7 +120,7 @@ func addFormulaStepToWorkflow(wf *ir.Workflow, step *Step) {
 	}
 }
 
-func typedStepFromFormulaStep(step *Step) steps.Step {
+func typedStepFromFormulaStep(step *spec.Step) steps.Step {
 	dependsOn := make([]steps.ID, 0, len(step.DependsOn)+len(step.Needs))
 	for _, dep := range append(append([]string(nil), step.DependsOn...), step.Needs...) {
 		if strings.TrimSpace(dep) != "" {
@@ -187,21 +188,21 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 		meta.Kind = steps.KindAggregate
 		agg := step.Aggregate
 		if agg == nil {
-			agg = &AggregateSpec{}
+			agg = &spec.AggregateSpec{}
 		}
 		return steps.AggregateStep{Base: steps.Base{Metadata: meta}, Source: agg.Source, As: agg.As, Require: append([]string(nil), agg.Require...), Include: append([]string(nil), agg.Include...), Exclude: append([]string(nil), agg.Exclude...), Flatten: agg.Flatten, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "tool":
 		meta.Kind = steps.KindTool
 		tool := step.Tool
 		if tool == nil {
-			tool = &ToolSpec{}
+			tool = &spec.ToolSpec{}
 		}
 		return steps.ToolStep{Base: steps.Base{Metadata: meta}, Name: tool.Name, WriteFiles: writeFilesToolStep(tool.WriteFiles), Sleep: sleepToolStep(tool.Sleep), GitFetch: gitFetchToolStep(tool.GitFetch), GitPush: gitPushToolStep(tool.GitPush), GitBranch: gitBranchToolStep(tool.GitBranch), GitCheckout: gitCheckoutToolStep(tool.GitCheckout), GitWorktree: gitWorktreeToolStep(tool.GitWorktree), OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "write_files":
 		meta.Kind = steps.KindWriteFiles
 		writeFiles := step.WriteFiles
 		if writeFiles == nil {
-			writeFiles = &WriteFilesSpec{}
+			writeFiles = &spec.WriteFilesSpec{}
 		}
 		return steps.WriteFilesStep{Base: steps.Base{Metadata: meta}, Source: writeFiles.Source, Root: writeFiles.Root, DirName: writeFiles.DirName, FilenameKey: writeFiles.FilenameKey, TitleKey: writeFiles.TitleKey, SummaryKey: writeFiles.SummaryKey, ContentKey: writeFiles.ContentKey, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "human_input":
@@ -221,56 +222,56 @@ func typedStepFromFormulaStep(step *Step) steps.Step {
 	}
 }
 
-func writeFilesToolStep(spec *WriteFilesSpec) *steps.WriteFilesStep {
+func writeFilesToolStep(spec *spec.WriteFilesSpec) *steps.WriteFilesStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.WriteFilesStep{Source: spec.Source, Root: spec.Root, DirName: spec.DirName, FilenameKey: spec.FilenameKey, TitleKey: spec.TitleKey, SummaryKey: spec.SummaryKey, ContentKey: spec.ContentKey}
 }
 
-func sleepToolStep(spec *SleepSpec) *steps.SleepStep {
+func sleepToolStep(spec *spec.SleepSpec) *steps.SleepStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.SleepStep{Duration: spec.Duration, Seconds: spec.Seconds}
 }
 
-func gitFetchToolStep(spec *GitFetchSpec) *steps.GitFetchStep {
+func gitFetchToolStep(spec *spec.GitFetchSpec) *steps.GitFetchStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.GitFetchStep{Remote: spec.Remote, Prune: spec.Prune, Tags: spec.Tags, All: spec.All}
 }
 
-func gitPushToolStep(spec *GitPushSpec) *steps.GitPushStep {
+func gitPushToolStep(spec *spec.GitPushSpec) *steps.GitPushStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.GitPushStep{Remote: spec.Remote, Branch: spec.Branch, Refspec: spec.Refspec, SetUpstream: spec.SetUpstream, ForceWithLease: spec.ForceWithLease, Tags: spec.Tags}
 }
 
-func gitBranchToolStep(spec *GitBranchSpec) *steps.GitBranchStep {
+func gitBranchToolStep(spec *spec.GitBranchSpec) *steps.GitBranchStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.GitBranchStep{Name: spec.Name, StartPoint: spec.StartPoint, All: spec.All, Delete: spec.Delete, ForceDelete: spec.ForceDelete}
 }
 
-func gitCheckoutToolStep(spec *GitCheckoutSpec) *steps.GitCheckoutStep {
+func gitCheckoutToolStep(spec *spec.GitCheckoutSpec) *steps.GitCheckoutStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.GitCheckoutStep{Branch: spec.Branch, Create: spec.Create, StartPoint: spec.StartPoint}
 }
 
-func gitWorktreeToolStep(spec *GitWorktreeSpec) *steps.GitWorktreeStep {
+func gitWorktreeToolStep(spec *spec.GitWorktreeSpec) *steps.GitWorktreeStep {
 	if spec == nil {
 		return nil
 	}
 	return &steps.GitWorktreeStep{Path: spec.Path, Branch: spec.Branch, StartPoint: spec.StartPoint, SparseMode: spec.SparseMode, Create: spec.Create, Detach: spec.Detach, Force: spec.Force, List: spec.List, Porcelain: spec.Porcelain, Remove: spec.Remove, Prune: spec.Prune, SparsePaths: append([]string(nil), spec.SparsePaths...)}
 }
 
-func outputValidationSpec(step *Step) *steps.OutputValidationSpec {
+func outputValidationSpec(step *spec.Step) *steps.OutputValidationSpec {
 	if step == nil || step.Validate == nil {
 		return nil
 	}

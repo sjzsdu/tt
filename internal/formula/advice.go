@@ -1,6 +1,7 @@
 package formula
 
 import (
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"path/filepath"
 	"strings"
 )
@@ -28,7 +29,7 @@ func MatchGlob(pattern, stepID string) bool {
 	return pattern == stepID
 }
 
-func ApplyAdvice(steps []*Step, advice []*AdviceRule) []*Step {
+func ApplyAdvice(steps []*spec.Step, advice []*spec.AdviceRule) []*spec.Step {
 	if len(advice) == 0 {
 		return steps
 	}
@@ -37,8 +38,8 @@ func ApplyAdvice(steps []*Step, advice []*AdviceRule) []*Step {
 	return applyAdviceWithGuard(steps, advice, originalIDs)
 }
 
-func applyAdviceWithGuard(steps []*Step, advice []*AdviceRule, originalIDs map[string]bool) []*Step {
-	result := make([]*Step, 0, len(steps)*2)
+func applyAdviceWithGuard(steps []*spec.Step, advice []*spec.AdviceRule, originalIDs map[string]bool) []*spec.Step {
+	result := make([]*spec.Step, 0, len(steps)*2)
 
 	for _, step := range steps {
 		if !originalIDs[step.ID] {
@@ -46,8 +47,8 @@ func applyAdviceWithGuard(steps []*Step, advice []*AdviceRule, originalIDs map[s
 			continue
 		}
 
-		var beforeSteps []*Step
-		var afterSteps []*Step
+		var beforeSteps []*spec.Step
+		var afterSteps []*spec.Step
 
 		for _, rule := range advice {
 			if !MatchGlob(rule.Target, step.ID) {
@@ -105,7 +106,7 @@ func applyAdviceWithGuard(steps []*Step, advice []*AdviceRule, originalIDs map[s
 	return result
 }
 
-func adviceStepToStep(as *AdviceStep, target *Step) *Step {
+func adviceStepToStep(as *spec.AdviceStep, target *spec.Step) *spec.Step {
 	id := substituteStepRef(as.ID, target)
 	title := substituteStepRef(as.Title, target)
 	if title == "" {
@@ -113,7 +114,7 @@ func adviceStepToStep(as *AdviceStep, target *Step) *Step {
 	}
 	desc := substituteStepRef(as.Description, target)
 
-	return &Step{
+	return &spec.Step{
 		ID:             id,
 		Title:          title,
 		Description:    desc,
@@ -123,16 +124,16 @@ func adviceStepToStep(as *AdviceStep, target *Step) *Step {
 	}
 }
 
-func substituteStepRef(s string, target *Step) string {
+func substituteStepRef(s string, target *spec.Step) string {
 	s = strings.ReplaceAll(s, "{step.id}", target.ID)
 	s = strings.ReplaceAll(s, "{step.title}", target.Title)
 	return s
 }
 
-func collectStepIDs(steps []*Step) map[string]bool {
+func collectStepIDs(steps []*spec.Step) map[string]bool {
 	ids := make(map[string]bool)
-	var collect func([]*Step)
-	collect = func(s []*Step) {
+	var collect func([]*spec.Step)
+	collect = func(s []*spec.Step) {
 		for _, step := range s {
 			ids[step.ID] = true
 			if len(step.Children) > 0 {
@@ -144,7 +145,7 @@ func collectStepIDs(steps []*Step) map[string]bool {
 	return ids
 }
 
-func MatchPointcut(pc *Pointcut, step *Step) bool {
+func MatchPointcut(pc *spec.Pointcut, step *spec.Step) bool {
 	if pc.Glob != "" && !MatchGlob(pc.Glob, step.ID) {
 		return false
 	}
@@ -166,7 +167,7 @@ func MatchPointcut(pc *Pointcut, step *Step) bool {
 	return true
 }
 
-func MatchAnyPointcut(pointcuts []*Pointcut, step *Step) bool {
+func MatchAnyPointcut(pointcuts []*spec.Pointcut, step *spec.Step) bool {
 	if len(pointcuts) == 0 {
 		return true
 	}

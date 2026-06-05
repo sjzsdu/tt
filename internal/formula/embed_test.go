@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 func TestEmbedDownstreamDependsOnEmbeddedExits(t *testing.T) {
@@ -414,7 +415,7 @@ embed = "child"
 		t.Fatalf("ApplyEmbedsWithVars error = %v", err)
 	}
 
-	var use *Step
+	var use *spec.Step
 	for _, step := range expanded {
 		if step.ID == "embedded.use" {
 			use = step

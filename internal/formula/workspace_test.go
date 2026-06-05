@@ -1,6 +1,8 @@
 package formula
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestParserNormalizesWorktreeAlias(t *testing.T) {
 	p := NewParser()

@@ -1,6 +1,10 @@
 package ast
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/sjzsdu/tt/internal/formula/spec"
+)
 
 type SourcePos struct {
 	File   string
@@ -16,18 +20,9 @@ type Document struct {
 	Contract    string
 	Vars        map[string]VarDecl
 	Steps       []StepDecl
-	Workspace   *WorkspaceSpec
+	Workspace   *spec.WorkspaceSpec
 	Worktree    bool
 	Source      SourcePos
-}
-type WorkspaceSpec struct {
-	Kind           string
-	Path           string
-	Cleanup        *bool
-	Branch         string
-	Base           string
-	BranchSlugFrom string
-	BranchPrefix   string
 }
 type VarDecl struct {
 	Description string

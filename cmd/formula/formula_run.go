@@ -11,8 +11,8 @@ import (
 
 	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/formula"
-	"github.com/sjzsdu/tt/internal/formularun"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/run"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -56,7 +56,7 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
+	if err := run.EnsureWorkspaceState(projectRoot); err != nil {
 		return err
 	}
 	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
@@ -94,9 +94,9 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 
-	var runStore *formularun.Store
+	var runStore *run.Store
 	if !formulaNoSave {
-		runStore, err = formularun.NewWithMetadata(formulaDefaultRunDir(loaded), workflow, vars, runAgent, formulaModel, runSession, projectRoot, version)
+		runStore, err = run.NewWithMetadata(formulaDefaultRunDir(loaded), workflow, vars, runAgent, formulaModel, runSession, projectRoot, version)
 		if err != nil {
 			return err
 		}
@@ -152,23 +152,23 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func executeFormulaResume(cmd *cobra.Command, workflowName string, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []formulaui.ResumeStepResult, initialContext map[string]string) error {
+func executeFormulaResume(cmd *cobra.Command, workflowName string, runStore *run.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []ui.ResumeStepResult, initialContext map[string]string) error {
 	return executeFormulaResumeWithAdvice(cmd, workflowName, runStore, dashboard, vars, initialResults, initialContext, nil)
 }
 
-func executeFormulaResumeWithAdvice(cmd *cobra.Command, workflowName string, runStore *formularun.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []formulaui.ResumeStepResult, initialContext map[string]string, stepAdvice map[string]string) error {
+func executeFormulaResumeWithAdvice(cmd *cobra.Command, workflowName string, runStore *run.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []ui.ResumeStepResult, initialContext map[string]string, stepAdvice map[string]string) error {
 	if len(stepAdvice) == 0 {
 		return executeFormulaResumeRuntime(cmd, workflowName, runStore, dashboard, initialResults, initialContext, nil)
 	}
 	return executeFormulaResumeRuntime(cmd, workflowName, runStore, dashboard, initialResults, initialContext, stepAdvice)
 
 }
-func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runStore *formularun.Store, dashboard *formulaDashboardServer, initialResults []formulaui.ResumeStepResult, initialContext map[string]string, stepAdvice map[string]string) error {
+func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runStore *run.Store, dashboard *formulaDashboardServer, initialResults []ui.ResumeStepResult, initialContext map[string]string, stepAdvice map[string]string) error {
 	projectRoot := strings.TrimSpace(runStore.Meta.WorkspaceDir)
 	if projectRoot == "" {
 		projectRoot, _ = os.Getwd()
 	}
-	if err := formularun.EnsureWorkspaceState(projectRoot); err != nil {
+	if err := run.EnsureWorkspaceState(projectRoot); err != nil {
 		return err
 	}
 	formulaRT, err := newFormulaPicoclawRuntime(projectRoot)
@@ -231,25 +231,25 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 		err = runCtx.Err()
 	}
 	renderFormulaRuntimeResult(cmd, workflow, result, err != nil)
-	status := formularun.StatusCompleted
+	status := run.StatusCompleted
 	errMsg := ""
 	if result != nil && result.Status == "waiting" {
-		status = formularun.StatusWaitingInput
+		status = run.StatusWaitingInput
 		fmt.Fprintln(out, "Formula paused: waiting for human input")
 	} else if runCtx.Err() != nil {
-		status = formularun.StatusInterrupted
+		status = run.StatusInterrupted
 		errMsg = runCtx.Err().Error()
 	} else if err != nil {
-		status = formularun.StatusFailed
+		status = run.StatusFailed
 		errMsg = err.Error()
 	}
-	if status != formularun.StatusWaitingInput {
+	if status != run.StatusWaitingInput {
 		_ = runStore.Finish(status, errMsg)
 	}
 	if dashboard != nil {
 		_ = dashboard.persistSnapshot()
 	}
-	if status == formularun.StatusWaitingInput {
+	if status == run.StatusWaitingInput {
 		return nil
 	}
 	return err

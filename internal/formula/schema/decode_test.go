@@ -1,6 +1,8 @@
 package schema
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestDecodeKindDiscriminatedFormula(t *testing.T) {
 	data := []byte(`formula = "demo"

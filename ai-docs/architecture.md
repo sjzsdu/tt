@@ -23,7 +23,7 @@ flowchart TD
     CMD1 --> PC[internal/picoclaw\nPicoclaw 适配层]
     CMD1 --> FORMULA[internal/formula\n模板解析与编译]
     CMD1 --> FRUNTIME[internal/formula/runtime\ntyped workflow runtime]
-    CMD1 --> RUNSTORE[internal/formularun\n运行状态持久化]
+    CMD1 --> RUNSTORE[internal/formula/run\n运行状态持久化]
     CMD1 --> AGENTS[internal/agents\n嵌入式 agent 注册]
     CMD1 --> TOOL1[internal/cmd2skill]
     CMD1 --> TOOL2[internal/repo2skill]
@@ -98,7 +98,7 @@ sequenceDiagram
     participant Parser as internal/formula
     participant Compile as internal/formula/compile
     participant Exec as internal/formula/runtime
-    participant Store as internal/formularun
+    participant Store as internal/formula/run
     participant PC as internal/picoclaw
     participant Dash as Formula Dashboard
 
@@ -124,7 +124,7 @@ sequenceDiagram
     Cmd-->>User: 终端输出或 dashboard（含 Repairs 面板 + Confirm reviewed）
 ```
 
-这个链路体现了项目里最复杂的协作关系：formula 提供"声明式定义"，typed runtime 提供"执行语义"，Picoclaw 提供"智能步骤执行能力"，formularun 提供"可恢复的运行痕迹"。
+这个链路体现了项目里最复杂的协作关系：formula 提供"声明式定义"，typed runtime 提供"执行语义"，Picoclaw 提供"智能步骤执行能力"，formula/run 提供"可恢复的运行痕迹"。
 
 ### 4. docs 分析路径
 例如 `tt docs analyze`。
@@ -213,17 +213,19 @@ flowchart TD
 - `internal/` 才是复用点和复杂逻辑中心。
 
 ### `internal/formula` 与 typed runtime 的边界
-- `internal/formula`：定义语言、解析、继承、扩展、把 Formula 编译成 typed `ir.Workflow`（仍在 `formula` 包中）。
+- `internal/formula/spec`：**叶子数据契约子包**——Formula / Step / VarDef / PreflightSpec / BondPoint / Hook / WaitsForSpec / Type 等所有数据结构的唯一来源，供 doc / ui / run / runview / cmd 共用。
+- `internal/formula`：定义语言、解析、继承、扩展、把 Formula 编译成 typed `ir.Workflow`（仍在 `formula` 包中），所有数据契约都引用 `spec` 子包。
 - `internal/formula/ast` / `ir` / `compile`：AST、IR 和另一条 AST→IR 编译路径，与 Step Registry 配合。
 - `internal/formula/runtime`：执行 typed Workflow，处理拓扑规划、状态、resume/retry、事件、environment、worktree、validation、repair。
 - `internal/formula/steps`：承载 agent / script / human_input / noop / loop / retry / aggregate / tool / write_files 等 Step 接口实现，由 `Registry` 管理。
 - `internal/formula/builtin`：内置 formulas 与 atomics，作为新 formula 的起点。
+- `internal/formula/doc` / `ui` / `run` / `runview`：分别承担 markdown 渲染、dashboard DTO + graph、运行记录持久化、运行时 snapshot → dashboard snapshot 投影；这四个子包原本是 `internal/formuladoc|formulaui|formularun|formularunview` 平级包，2026-06 重构后归并为 `formula` 的子包，彻底打破与父包的导入环。
 
 ### `internal/picoclaw` 与 `internal/agents` 的边界
 - `picoclaw`：运行时加载、provider 创建、direct runner 包装。
 - `agents`：嵌入式 agent 定义的发现、解析与注册。
 
-### `internal/formularun` 的独立价值
+### `internal/formula/run` 的独立价值
 它不是执行器的附属小工具，而是一个专门负责"运行状态持久化"的层，负责：
 
 - 运行元数据 `run.json`
@@ -233,7 +235,7 @@ flowchart TD
 - 步骤级 prompt / output / error 产物
 - final report chat 历史（嵌入 snapshot，由 dashboard 渲染）
 - stale run 检测
-- 与 `internal/formularunview` 配合，把 `runtime.Snapshot` 转成 dashboard `formulaui.Snapshot`
+- 与 `internal/formula/runview` 配合，把 `runtime.Snapshot` 转成 dashboard `formula/ui.Snapshot`
 
 ## 为什么说这是"平台型 CLI"
 
@@ -255,9 +257,9 @@ flowchart TD
 - formula 解析与编译：`internal/formula/parser.go`、`internal/formula/workflow.go`、`internal/formula/compile/compiler.go`
 - Typed runtime：`internal/formula/runtime/executor.go`、`internal/formula/runtime/environment.go`、`internal/formula/runtime/workspace.go`、`internal/formula/runtime/capabilities.go`、`internal/formula/steps/`
 - Step 注册表：`internal/formula/steps/registry.go`、`internal/formula/steps/kinds.go`
-- 运行持久化：`internal/formularun/store.go`
-- 运行视图：`internal/formularunview/snapshot.go`
-- Dashboard DTO：`internal/formulaui/state.go`
+- 运行持久化：`internal/formula/run/store.go`
+- 运行视图：`internal/formula/runview/snapshot.go`
+- Dashboard DTO：`internal/formula/ui/state.go`
 - docs 命令：`cmd/docs.go`
 - agent optimize：`cmd/agent_optimize.go`、`internal/agentopt/optimize.go`
 - Web 资源嵌入：`internal/webui/markdown.go`、`internal/webui/formula.go`、`Makefile`

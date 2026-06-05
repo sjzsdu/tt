@@ -335,7 +335,7 @@ return exhausted
 
 ### RepairRecord 持久化
 
-每次 attempt 都生成一条 `RepairRecord`，结构（`internal/formula/runtime/state.go` + `internal/formulaui/state.go`）：
+每次 attempt 都生成一条 `RepairRecord`，结构（`internal/formula/runtime/state.go` + `internal/formula/ui/state.go`）：
 
 ```text
 StepID / Kind / Attempt / Status / Reason
@@ -359,7 +359,7 @@ Status 枚举：
 ```text
 executor.recordRepair → runtime.Snapshot.Repairs
                 ↓
-formularun.Store.SaveRepairs  →  patches/<run-id>.json
+formula/run.Store.SaveRepairs  →  patches/<run-id>.json
                 ↓
 cmd/formula dashboard event sink (step.repair.recorded) →  websocket
                 ↓
@@ -467,7 +467,7 @@ options = ["safe", "fast", "complete"]
 
 ## Dashboard
 
-Dashboard 使用 `internal/formulaui` 的 UI DTO，从 `Workflow` 构建图展示。它负责：
+Dashboard 使用 `internal/formula/ui` 的 UI DTO，从 `Workflow` 构建图展示。它负责：
 
 - 展示步骤状态。
 - 展示 prompt/output/error。
@@ -504,8 +504,8 @@ Dashboard 使用 `internal/formulaui` 的 UI DTO，从 `Workflow` 构建图展�
 6. `internal/formula/steps/step.go` + `registry.go` + `kinds.go`，Step 接口、注册表与所有 step 实现。
 7. `internal/formula/runtime/executor.go`，运行时调度。
 8. `internal/formula/runtime/environment.go` / `workspace.go` / `capabilities.go`，env / worktree / script safety。
-9. `internal/formularun/store.go`，运行持久化。
-10. `internal/formulaui/` / `internal/formuladoc/` / `internal/formularunview/`，展示和文档 DTO。
+9. `internal/formula/run/store.go`，运行持久化。
+10. `internal/formula/ui/` / `internal/formula/doc/` / `internal/formula/runview/`，展示和文档 DTO。
 11. `cmd/formula/`，CLI 编排和 dashboard glue。
 
 ## 当前设计原则

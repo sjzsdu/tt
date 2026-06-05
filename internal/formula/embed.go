@@ -2,25 +2,26 @@ package formula
 
 import (
 	"fmt"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"sort"
 	"strings"
 )
 
 const DefaultMaxEmbedDepth = 10
 
-func ApplyEmbedsWithVars(steps []*Step, parser *Parser, parentVars map[string]string, stack []string) ([]*Step, error) {
+func ApplyEmbedsWithVars(steps []*spec.Step, parser *Parser, parentVars map[string]string, stack []string) ([]*spec.Step, error) {
 	if parser == nil {
 		return steps, nil
 	}
 	return applyEmbedsRecursive(steps, parser, parentVars, stack, 0)
 }
 
-func applyEmbedsRecursive(steps []*Step, parser *Parser, parentVars map[string]string, stack []string, depth int) ([]*Step, error) {
+func applyEmbedsRecursive(steps []*spec.Step, parser *Parser, parentVars map[string]string, stack []string, depth int) ([]*spec.Step, error) {
 	if depth > DefaultMaxEmbedDepth {
 		return nil, fmt.Errorf("max embed depth (%d) exceeded", DefaultMaxEmbedDepth)
 	}
 
-	result := make([]*Step, 0, len(steps))
+	result := make([]*spec.Step, 0, len(steps))
 	for _, step := range steps {
 		if step == nil {
 			continue
@@ -57,7 +58,7 @@ func applyEmbedsRecursive(steps []*Step, parser *Parser, parentVars map[string]s
 	return result, nil
 }
 
-func rewriteDepsFromEmbedBoundaries(steps []*Step) {
+func rewriteDepsFromEmbedBoundaries(steps []*spec.Step) {
 	exitsByBoundary := map[string][]string{}
 	for _, step := range steps {
 		if step == nil || step.Metadata["step_kind"] != "embed_boundary" {
@@ -90,8 +91,8 @@ func rewriteDepsFromEmbedBoundaries(steps []*Step) {
 	}
 }
 
-func embeddedStepsForBoundary(steps []*Step, boundaryID string) []*Step {
-	var out []*Step
+func embeddedStepsForBoundary(steps []*spec.Step, boundaryID string) []*spec.Step {
+	var out []*spec.Step
 	for _, step := range steps {
 		if step != nil && step.Metadata["embedded_by"] == boundaryID {
 			out = append(out, step)
@@ -122,10 +123,10 @@ func replaceRefWithRefs(in []string, target string, replacements []string) []str
 	return out
 }
 
-func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string, stack []string, depth int) ([]*Step, error) {
+func expandEmbeddedStep(step *spec.Step, parser *Parser, parentVars map[string]string, stack []string, depth int) ([]*spec.Step, error) {
 	name := strings.TrimSpace(step.Embed)
 	if name == "" {
-		return []*Step{cloneStep(step)}, nil
+		return []*spec.Step{cloneStep(step)}, nil
 	}
 	if containsString(stack, name) {
 		cycle := append(append([]string(nil), stack...), name)
@@ -140,7 +141,7 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 	if err != nil {
 		return nil, fmt.Errorf("embed %q on step %q: resolving formula %q: %w", step.ID, step.ID, name, err)
 	}
-	if resolved.Type != TypeWorkflow && resolved.Type != TypeAtomic {
+	if resolved.Type != spec.TypeWorkflow && resolved.Type != spec.TypeAtomic {
 		return nil, fmt.Errorf("embed %q on step %q: %q is not an embeddable formula (type=%s)", step.ID, step.ID, name, resolved.Type)
 	}
 
@@ -154,9 +155,9 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 		childVars[k] = v
 	}
 	for k, v := range step.EmbedVars {
-		childVars[k] = Substitute(v, parentVars)
+		childVars[k] = spec.Substitute(v, parentVars)
 	}
-	if err := ValidateVars(resolved, childVars); err != nil {
+	if err := spec.ValidateVars(resolved, childVars); err != nil {
 		return nil, fmt.Errorf("embed %q on step %q: %w", name, step.ID, err)
 	}
 	if err := validateCompileTimeVars(resolved, childVars); err != nil {
@@ -257,27 +258,27 @@ func expandEmbeddedStep(step *Step, parser *Parser, parentVars map[string]string
 		}
 	}
 
-	result := make([]*Step, 0, 1+len(namespaced))
+	result := make([]*spec.Step, 0, 1+len(namespaced))
 	result = append(result, boundary)
 	result = append(result, namespaced...)
 	return result, nil
 }
 
-func substituteStepTemplateVars(steps []*Step, vars map[string]string) []*Step {
+func substituteStepTemplateVars(steps []*spec.Step, vars map[string]string) []*spec.Step {
 	if len(steps) == 0 || len(vars) == 0 {
 		return steps
 	}
-	result := make([]*Step, 0, len(steps))
+	result := make([]*spec.Step, 0, len(steps))
 	for _, step := range steps {
 		if step == nil {
 			continue
 		}
 		clone := cloneStep(step)
-		clone.Title = Substitute(clone.Title, vars)
-		clone.Description = Substitute(clone.Description, vars)
-		clone.Condition = Substitute(clone.Condition, vars)
-		clone.Timeout = Substitute(clone.Timeout, vars)
-		clone.OutputKey = Substitute(clone.OutputKey, vars)
+		clone.Title = spec.Substitute(clone.Title, vars)
+		clone.Description = spec.Substitute(clone.Description, vars)
+		clone.Condition = spec.Substitute(clone.Condition, vars)
+		clone.Timeout = spec.Substitute(clone.Timeout, vars)
+		clone.OutputKey = spec.Substitute(clone.OutputKey, vars)
 		clone.InputCtx = substituteStringSliceVars(clone.InputCtx, vars)
 		clone.DependsOn = substituteStringSliceVars(clone.DependsOn, vars)
 		clone.Needs = substituteStringSliceVars(clone.Needs, vars)
@@ -285,21 +286,21 @@ func substituteStepTemplateVars(steps []*Step, vars map[string]string) []*Step {
 		clone.Metadata = substituteStringMapVars(clone.Metadata, vars)
 		if clone.Agent != nil {
 			agent := *clone.Agent
-			agent.Name = Substitute(agent.Name, vars)
-			agent.Model = Substitute(agent.Model, vars)
-			agent.Cwd = Substitute(agent.Cwd, vars)
+			agent.Name = spec.Substitute(agent.Name, vars)
+			agent.Model = spec.Substitute(agent.Model, vars)
+			agent.Cwd = spec.Substitute(agent.Cwd, vars)
 			clone.Agent = &agent
 		}
 		if clone.Script != nil {
 			script := *clone.Script
 			script.Command = substituteStringSliceVars(script.Command, vars)
-			script.Cwd = Substitute(script.Cwd, vars)
+			script.Cwd = spec.Substitute(script.Cwd, vars)
 			script.Env = substituteStringMapVars(script.Env, vars)
 			clone.Script = &script
 		}
 		if clone.Tool != nil {
 			tool := *clone.Tool
-			tool.Name = Substitute(tool.Name, vars)
+			tool.Name = spec.Substitute(tool.Name, vars)
 			clone.Tool = &tool
 		}
 		if len(clone.Children) > 0 {
@@ -307,10 +308,10 @@ func substituteStepTemplateVars(steps []*Step, vars map[string]string) []*Step {
 		}
 		if clone.Loop != nil && len(clone.Loop.Body) > 0 {
 			loop := *clone.Loop
-			loop.ForEach = Substitute(loop.ForEach, vars)
-			loop.Var = Substitute(loop.Var, vars)
-			loop.Until = Substitute(loop.Until, vars)
-			loop.Range = Substitute(loop.Range, vars)
+			loop.ForEach = spec.Substitute(loop.ForEach, vars)
+			loop.Var = spec.Substitute(loop.Var, vars)
+			loop.Until = spec.Substitute(loop.Until, vars)
+			loop.Range = spec.Substitute(loop.Range, vars)
 			loop.Body = substituteStepTemplateVars(loop.Body, vars)
 			clone.Loop = &loop
 		}
@@ -325,7 +326,7 @@ func substituteStringSliceVars(values []string, vars map[string]string) []string
 	}
 	out := make([]string, len(values))
 	for i, value := range values {
-		out[i] = Substitute(value, vars)
+		out[i] = spec.Substitute(value, vars)
 	}
 	return out
 }
@@ -336,22 +337,22 @@ func substituteStringMapVars(values map[string]string, vars map[string]string) m
 	}
 	out := make(map[string]string, len(values))
 	for key, value := range values {
-		out[key] = Substitute(value, vars)
+		out[key] = spec.Substitute(value, vars)
 	}
 	return out
 }
 
-func namespaceEmbeddedSteps(steps []*Step, prefix, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) []*Step {
+func namespaceEmbeddedSteps(steps []*spec.Step, prefix, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) []*spec.Step {
 	mapping := make(map[string]string)
 	collectStepNamespaceMapping(steps, prefix, mapping)
-	result := make([]*Step, 0, len(steps))
+	result := make([]*spec.Step, 0, len(steps))
 	for _, step := range steps {
 		result = append(result, rewriteEmbeddedStep(step, mapping, sourceFormula, embeddedBy, protectedTemplateRoots))
 	}
 	return result
 }
 
-func collectStepNamespaceMapping(steps []*Step, prefix string, mapping map[string]string) {
+func collectStepNamespaceMapping(steps []*spec.Step, prefix string, mapping map[string]string) {
 	for _, step := range steps {
 		if step == nil {
 			continue
@@ -366,7 +367,7 @@ func collectStepNamespaceMapping(steps []*Step, prefix string, mapping map[strin
 	}
 }
 
-func rewriteEmbeddedStep(step *Step, mapping map[string]string, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) *Step {
+func rewriteEmbeddedStep(step *spec.Step, mapping map[string]string, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) *spec.Step {
 	clone := cloneStep(step)
 	origID := step.ID
 	if mapped, ok := mapping[origID]; ok {
@@ -387,7 +388,7 @@ func rewriteEmbeddedStep(step *Step, mapping map[string]string, sourceFormula, e
 	clone.Metadata["source_formula"] = sourceFormula
 	clone.Metadata["source_step_id"] = origID
 	if len(step.Children) > 0 {
-		clone.Children = make([]*Step, len(step.Children))
+		clone.Children = make([]*spec.Step, len(step.Children))
 		for i, child := range step.Children {
 			clone.Children[i] = rewriteEmbeddedStep(child, mapping, sourceFormula, embeddedBy, protectedTemplateRoots)
 		}
@@ -437,7 +438,7 @@ func rewriteContextKey(v string, mapping map[string]string, prefix string) strin
 	return prefix + "." + v
 }
 
-func rewriteEmbeddedStepTemplates(step *Step, mapping map[string]string, protectedTemplateRoots map[string]bool) {
+func rewriteEmbeddedStepTemplates(step *spec.Step, mapping map[string]string, protectedTemplateRoots map[string]bool) {
 	step.Title = rewriteContextRefsInString(step.Title, mapping, protectedTemplateRoots)
 	step.Description = rewriteContextRefsInString(step.Description, mapping, protectedTemplateRoots)
 	step.Timeout = rewriteContextRefsInString(step.Timeout, mapping, protectedTemplateRoots)
@@ -553,7 +554,7 @@ func rewriteContextRef(value string, mapping map[string]string) (string, bool) {
 	return "", false
 }
 
-func embeddedBoundaryIDs(steps []*Step) (entries []string, exits []string) {
+func embeddedBoundaryIDs(steps []*spec.Step) (entries []string, exits []string) {
 	inDegree := map[string]int{}
 	outDegree := map[string]int{}
 	ids := map[string]struct{}{}
@@ -587,7 +588,7 @@ func embeddedBoundaryIDs(steps []*Step) (entries []string, exits []string) {
 	return entries, exits
 }
 
-func cloneLoopSpec(loop *LoopSpec, mapping map[string]string, sourceFormula, prefix string, protectedTemplateRoots map[string]bool) *LoopSpec {
+func cloneLoopSpec(loop *spec.LoopSpec, mapping map[string]string, sourceFormula, prefix string, protectedTemplateRoots map[string]bool) *spec.LoopSpec {
 	if loop == nil {
 		return nil
 	}
@@ -595,7 +596,7 @@ func cloneLoopSpec(loop *LoopSpec, mapping map[string]string, sourceFormula, pre
 	cp.ForEach = rewriteContextRefsInString(cp.ForEach, mapping, nil)
 	cp.Until = rewriteContextRefsInString(cp.Until, mapping, nil)
 	if len(loop.Body) > 0 {
-		cp.Body = make([]*Step, len(loop.Body))
+		cp.Body = make([]*spec.Step, len(loop.Body))
 		for i, step := range loop.Body {
 			cp.Body[i] = rewriteEmbeddedStep(step, mapping, sourceFormula, prefix, protectedTemplateRoots)
 		}

@@ -1,6 +1,8 @@
 package formula
 
-import "path/filepath"
+import (
+	"path/filepath"
+)
 
 const (
 	CanonicalTOMLExt = ".toml"

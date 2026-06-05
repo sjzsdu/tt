@@ -9,11 +9,12 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 type Parser struct {
 	searchPaths    []string
-	cache          map[string]*Formula
+	cache          map[string]*spec.Formula
 	resolvingSet   map[string]bool
 	resolvingChain []string
 }
@@ -25,7 +26,7 @@ func NewParser(searchPaths ...string) *Parser {
 	}
 	return &Parser{
 		searchPaths:    paths,
-		cache:          make(map[string]*Formula),
+		cache:          make(map[string]*spec.Formula),
 		resolvingSet:   make(map[string]bool),
 		resolvingChain: nil,
 	}
@@ -42,7 +43,7 @@ func defaultSearchPaths() []string {
 	return paths
 }
 
-func (p *Parser) ParseFile(path string) (*Formula, error) {
+func (p *Parser) ParseFile(path string) (*spec.Formula, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -57,7 +58,7 @@ func (p *Parser) ParseFile(path string) (*Formula, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var formula *Formula
+	var formula *spec.Formula
 	if IsTOMLFilename(path) {
 		formula, err = p.ParseTOML(data)
 	} else {
@@ -68,11 +69,11 @@ func (p *Parser) ParseFile(path string) (*Formula, error) {
 	}
 
 	formula.Source = absPath
-	SetSourceInfo(formula)
+	spec.SetSourceInfo(formula)
 
 	formulaDir := filepath.Dir(absPath)
-	ResolveDescriptionFiles(formula.Steps, formulaDir)
-	ResolveDescriptionFiles(formula.Template, formulaDir)
+	spec.ResolveDescriptionFiles(formula.Steps, formulaDir)
+	spec.ResolveDescriptionFiles(formula.Template, formulaDir)
 
 	p.cache[absPath] = formula
 	p.cache[formula.Formula] = formula
@@ -80,8 +81,8 @@ func (p *Parser) ParseFile(path string) (*Formula, error) {
 	return formula, nil
 }
 
-func (p *Parser) Parse(data []byte) (*Formula, error) {
-	var formula Formula
+func (p *Parser) Parse(data []byte) (*spec.Formula, error) {
+	var formula spec.Formula
 	if err := json.Unmarshal(data, &formula); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
@@ -90,15 +91,15 @@ func (p *Parser) Parse(data []byte) (*Formula, error) {
 		formula.Version = 1
 	}
 	if formula.Type == "" {
-		formula.Type = TypeWorkflow
+		formula.Type = spec.TypeWorkflow
 	}
 	normalizeFormulaWorkspace(&formula)
 
 	return &formula, nil
 }
 
-func (p *Parser) ParseTOML(data []byte) (*Formula, error) {
-	var formula Formula
+func (p *Parser) ParseTOML(data []byte) (*spec.Formula, error) {
+	var formula spec.Formula
 	if err := toml.Unmarshal(data, &formula); err != nil {
 		return nil, fmt.Errorf("toml: %w", err)
 	}
@@ -107,14 +108,14 @@ func (p *Parser) ParseTOML(data []byte) (*Formula, error) {
 		formula.Version = 1
 	}
 	if formula.Type == "" {
-		formula.Type = TypeWorkflow
+		formula.Type = spec.TypeWorkflow
 	}
 	normalizeFormulaWorkspace(&formula)
 
 	return &formula, nil
 }
 
-func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
+func (p *Parser) Resolve(formula *spec.Formula) (*spec.Formula, error) {
 	if p.resolvingSet[formula.Formula] {
 		chain := append(slices.Clone(p.resolvingChain), formula.Formula)
 		return nil, fmt.Errorf("circular extends detected: %s", strings.Join(chain, " -> "))
@@ -133,7 +134,7 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 		return formula, nil
 	}
 
-	merged := &Formula{
+	merged := &spec.Formula{
 		Formula:     formula.Formula,
 		Description: formula.Description,
 		Version:     formula.Version,
@@ -144,7 +145,7 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 		Pour:        formula.Pour,
 		Worktree:    formula.Worktree,
 		Workspace:   formula.Workspace,
-		Vars:        make(map[string]*VarDef),
+		Vars:        make(map[string]*spec.VarDef),
 		Steps:       nil,
 		Template:    nil,
 		Compose:     nil,
@@ -196,7 +197,7 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 	merged.Preflight = mergePreflightSpec(merged.Preflight, formula.Preflight)
 
 	if merged.Workspace == nil && merged.Worktree {
-		merged.Workspace = &WorkspaceSpec{Kind: "worktree"}
+		merged.Workspace = &spec.WorkspaceSpec{Kind: "worktree"}
 	}
 
 	if formula.Description != "" {
@@ -210,17 +211,17 @@ func (p *Parser) Resolve(formula *Formula) (*Formula, error) {
 	return merged, nil
 }
 
-func mergePreflightSpec(base, overlay *PreflightSpec) *PreflightSpec {
+func mergePreflightSpec(base, overlay *spec.PreflightSpec) *spec.PreflightSpec {
 	if overlay == nil || len(overlay.Checks) == 0 {
 		return base
 	}
 	if base == nil || len(base.Checks) == 0 {
-		return &PreflightSpec{Checks: append([]*PreflightCheck{}, overlay.Checks...)}
+		return &spec.PreflightSpec{Checks: append([]*spec.PreflightCheck{}, overlay.Checks...)}
 	}
-	return &PreflightSpec{Checks: append(append([]*PreflightCheck{}, base.Checks...), overlay.Checks...)}
+	return &spec.PreflightSpec{Checks: append(append([]*spec.PreflightCheck{}, base.Checks...), overlay.Checks...)}
 }
 
-func (p *Parser) loadFormula(name string) (*Formula, error) {
+func (p *Parser) loadFormula(name string) (*spec.Formula, error) {
 	if cached, ok := p.cache[name]; ok {
 		return cached, nil
 	}
@@ -244,17 +245,17 @@ func (p *Parser) loadFormula(name string) (*Formula, error) {
 	return nil, fmt.Errorf("formula %q not found in search paths", name)
 }
 
-func (p *Parser) LoadByName(name string) (*Formula, error) {
+func (p *Parser) LoadByName(name string) (*spec.Formula, error) {
 	return p.loadFormula(name)
 }
 
-func mergeSteps(parent, child []*Step) []*Step {
+func mergeSteps(parent, child []*spec.Step) []*spec.Step {
 	parentIdx := make(map[string]int, len(parent))
 	for i, s := range parent {
 		parentIdx[s.ID] = i
 	}
 
-	result := make([]*Step, len(parent))
+	result := make([]*spec.Step, len(parent))
 	copy(result, parent)
 
 	for _, cs := range child {
@@ -268,7 +269,7 @@ func mergeSteps(parent, child []*Step) []*Step {
 	return result
 }
 
-func mergeComposeRules(base, overlay *ComposeRules) *ComposeRules {
+func mergeComposeRules(base, overlay *spec.ComposeRules) *spec.ComposeRules {
 	if overlay == nil {
 		return base
 	}
@@ -276,11 +277,11 @@ func mergeComposeRules(base, overlay *ComposeRules) *ComposeRules {
 		return overlay
 	}
 
-	result := &ComposeRules{
-		BondPoints: append([]*BondPoint{}, base.BondPoints...),
-		Hooks:      append([]*Hook{}, base.Hooks...),
-		Expand:     append([]*ExpandRule{}, base.Expand...),
-		Map:        append([]*MapRule{}, base.Map...),
+	result := &spec.ComposeRules{
+		BondPoints: append([]*spec.BondPoint{}, base.BondPoints...),
+		Hooks:      append([]*spec.Hook{}, base.Hooks...),
+		Expand:     append([]*spec.ExpandRule{}, base.Expand...),
+		Map:        append([]*spec.MapRule{}, base.Map...),
 	}
 
 	existingBP := make(map[string]int)

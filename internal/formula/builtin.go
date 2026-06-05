@@ -3,6 +3,7 @@ package formula
 import (
 	"embed"
 	"fmt"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -107,7 +108,7 @@ func allBuiltinEntries() ([]BuiltinEntry, error) {
 	return append(regular, atomics...), nil
 }
 
-func (p *Parser) ParseBuiltin(name string) (*Formula, error) {
+func (p *Parser) ParseBuiltin(name string) (*spec.Formula, error) {
 	data, ok, err := BuiltinFormulaContent(name)
 	if err != nil {
 		return nil, err
@@ -120,7 +121,7 @@ func (p *Parser) ParseBuiltin(name string) (*Formula, error) {
 		return nil, err
 	}
 	f.Source = "builtin:" + f.Formula
-	SetSourceInfo(f)
+	spec.SetSourceInfo(f)
 	p.cache[f.Formula] = f
 	p.cache[f.Source] = f
 	return f, nil

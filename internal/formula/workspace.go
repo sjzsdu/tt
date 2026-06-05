@@ -4,25 +4,15 @@ import (
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/spec"
 )
 
-// WorkspaceSpec declares a formula-level execution workspace policy.
-type WorkspaceSpec struct {
-	Kind           string `json:"kind,omitempty" toml:"kind,omitempty"`
-	Path           string `json:"path,omitempty" toml:"path,omitempty"`
-	Cleanup        *bool  `json:"cleanup,omitempty" toml:"cleanup,omitempty"`
-	Branch         string `json:"branch,omitempty" toml:"branch,omitempty"`
-	Base           string `json:"base,omitempty" toml:"base,omitempty"`
-	BranchSlugFrom string `json:"branch_slug_from,omitempty" toml:"branch_slug_from,omitempty"`
-	BranchPrefix   string `json:"branch_prefix,omitempty" toml:"branch_prefix,omitempty"`
-}
-
-func normalizeFormulaWorkspace(f *Formula) {
+func normalizeFormulaWorkspace(f *spec.Formula) {
 	if f == nil {
 		return
 	}
 	if f.Workspace == nil && f.Worktree {
-		f.Workspace = &WorkspaceSpec{Kind: "worktree"}
+		f.Workspace = &spec.WorkspaceSpec{Kind: "worktree"}
 	}
 	if f.Workspace == nil {
 		return
@@ -38,24 +28,24 @@ func normalizeFormulaWorkspace(f *Formula) {
 	f.Workspace.BranchPrefix = strings.TrimSpace(f.Workspace.BranchPrefix)
 }
 
-func formulaWorkspacePolicy(f *Formula) *ir.WorkspacePolicy {
+func formulaWorkspacePolicy(f *spec.Formula) *ir.WorkspacePolicy {
 	if f == nil {
 		return nil
 	}
-	spec := f.Workspace
-	if spec == nil && f.Worktree {
-		spec = &WorkspaceSpec{Kind: "worktree"}
+	ws := f.Workspace
+	if ws == nil && f.Worktree {
+		ws = &spec.WorkspaceSpec{Kind: "worktree"}
 	}
-	if spec == nil {
+	if ws == nil {
 		return nil
 	}
-	kind := strings.TrimSpace(spec.Kind)
+	kind := strings.TrimSpace(ws.Kind)
 	if kind == "" {
 		kind = "worktree"
 	}
 	cleanup := true
-	if spec.Cleanup != nil {
-		cleanup = *spec.Cleanup
+	if ws.Cleanup != nil {
+		cleanup = *ws.Cleanup
 	}
-	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(spec.Path), Cleanup: cleanup, Branch: strings.TrimSpace(spec.Branch), Base: strings.TrimSpace(spec.Base), BranchSlugFrom: strings.TrimSpace(spec.BranchSlugFrom), BranchPrefix: strings.TrimSpace(spec.BranchPrefix)}
+	return &ir.WorkspacePolicy{Kind: kind, Path: strings.TrimSpace(ws.Path), Cleanup: cleanup, Branch: strings.TrimSpace(ws.Branch), Base: strings.TrimSpace(ws.Base), BranchSlugFrom: strings.TrimSpace(ws.BranchSlugFrom), BranchPrefix: strings.TrimSpace(ws.BranchPrefix)}
 }

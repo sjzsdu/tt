@@ -3,7 +3,7 @@ package formulacmd
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,9 +14,10 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/run"
+	"github.com/sjzsdu/tt/internal/formula/runview"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
-	"github.com/sjzsdu/tt/internal/formularun"
-	"github.com/sjzsdu/tt/internal/formularunview"
 )
 
 func runFormulaRunResume(cmd *cobra.Command, args []string) error {
@@ -24,7 +25,7 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		id = args[0]
 	}
-	record, err := formularun.Resolve("", id)
+	record, err := run.Resolve("", id)
 	if err != nil {
 		return err
 	}
@@ -37,16 +38,16 @@ func runFormulaRunResume(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
 	exclude := resumeDependencyExclusions(workflow, snapshot)
-	initialResults, initialContext := formularunview.BuildResumeStateExcluding(snapshot, exclude)
-	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
-	store.Meta.Status = formularun.StatusRunning
+	initialResults, initialContext := runview.BuildResumeStateExcluding(snapshot, exclude)
+	store := &run.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
+	store.Meta.Status = run.StatusRunning
 	store.Meta.Error = ""
 	store.Meta.FinishedAt = ""
 	store.Meta.PID = os.Getpid()
 	store.Meta.TTVersion = version
 	_ = store.SaveMetadata()
-	_ = store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
-	formularunview.ResetForResume(&snapshot)
+	_ = store.AppendEvent(run.Event{Type: "run_resumed", Status: run.StatusRunning})
+	runview.ResetForResume(&snapshot)
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
@@ -65,11 +66,11 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 		id = args[0]
 		stepID = args[1]
 	}
-	record, err := formularun.Resolve("", id)
+	record, err := run.Resolve("", id)
 	if err != nil {
 		return err
 	}
-	if record.Metadata.Status != formularun.StatusWaitingInput {
+	if record.Metadata.Status != run.StatusWaitingInput {
 		return fmt.Errorf("formula run %s is not waiting for input (status: %s)", record.ID, record.Metadata.Status)
 	}
 	workflow, err := formula.CompileWorkflowByName(cmd.Context(), record.Metadata.Formula, getSearchPaths(), record.Metadata.Vars)
@@ -80,12 +81,12 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load formula run state failed: %w", err)
 	}
-	resolvedStepID, err := formularunview.ResolveWaitingInputStepID(snapshot, stepID)
+	resolvedStepID, err := runview.ResolveWaitingInputStepID(snapshot, stepID)
 	if err != nil {
 		return err
 	}
-	store := &formularun.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
-	var request formulaui.HumanInputRequest
+	store := &run.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
+	var request ui.HumanInputRequest
 	if err := store.LoadStepHumanInputRequest(resolvedStepID, &request); err != nil {
 		return fmt.Errorf("load human input request for step %s failed: %w", resolvedStepID, err)
 	}
@@ -107,7 +108,7 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err := store.SaveStepOutput(resolvedStepID, output); err != nil {
 		return err
 	}
-	if err := formularunview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
+	if err := runview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, output); err != nil {
 		return err
 	}
 	snapshot.Status = "running"
@@ -115,19 +116,19 @@ func runFormulaRunInput(cmd *cobra.Command, args []string) error {
 	if err := store.SaveState(snapshot); err != nil {
 		return err
 	}
-	if err := store.AppendEvent(formularun.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"}); err != nil {
+	if err := store.AppendEvent(run.Event{Type: "human_input_submitted", StepID: resolvedStepID, Status: "completed"}); err != nil {
 		return err
 	}
 	exclude := resumeDependencyExclusions(workflow, snapshot)
-	initialResults, initialContext := formularunview.BuildResumeStateExcluding(snapshot, exclude)
-	store.Meta.Status = formularun.StatusRunning
+	initialResults, initialContext := runview.BuildResumeStateExcluding(snapshot, exclude)
+	store.Meta.Status = run.StatusRunning
 	store.Meta.Error = ""
 	store.Meta.FinishedAt = ""
 	store.Meta.PID = os.Getpid()
 	store.Meta.TTVersion = version
 	_ = store.SaveMetadata()
-	_ = store.AppendEvent(formularun.Event{Type: "run_resumed", Status: formularun.StatusRunning})
-	formularunview.ResetForResume(&snapshot)
+	_ = store.AppendEvent(run.Event{Type: "run_resumed", Status: run.StatusRunning})
+	runview.ResetForResume(&snapshot)
 	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
 	dashboard.readonly = false
 	dashboard.attachStore(store)
@@ -176,11 +177,11 @@ func parseHumanInputFields(fields []string) (map[string]any, error) {
 	return response, nil
 }
 
-func validateHumanInputResponse(request *formulaui.HumanInputRequest, response map[string]any) error {
+func validateHumanInputResponse(request *ui.HumanInputRequest, response map[string]any) error {
 	if request == nil || request.Form == nil {
 		return nil
 	}
-	fields := map[string]*formula.FormField{}
+	fields := map[string]*spec.FormField{}
 	for _, field := range request.Form.Fields {
 		if field == nil || strings.TrimSpace(field.Name) == "" {
 			continue
@@ -212,7 +213,7 @@ func isEmptyHumanInputValue(value any) bool {
 	}
 }
 
-func resumeDependencyExclusions(workflow *ir.Workflow, snapshot formulaui.Snapshot) map[string]bool {
+func resumeDependencyExclusions(workflow *ir.Workflow, snapshot ui.Snapshot) map[string]bool {
 	if workflow == nil {
 		return nil
 	}
@@ -256,7 +257,7 @@ func resumeDependencyExclusions(workflow *ir.Workflow, snapshot formulaui.Snapsh
 	return exclude
 }
 
-func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot formulaui.Snapshot, stepID string) error {
+func renderFormulaRunStep(out io.Writer, record run.Record, snapshot ui.Snapshot, stepID string) error {
 	for _, step := range snapshot.Steps {
 		if step.ID != stepID {
 			continue
@@ -265,9 +266,9 @@ func renderFormulaRunStep(out io.Writer, record formularun.Record, snapshot form
 		if step.Error != "" {
 			fmt.Fprintf(out, "Error: %s\n", step.Error)
 		}
-		printArtifactPath(out, "Prompt", formularun.StepArtifactPath(record.Dir, step.ID, "prompt.md"))
-		printArtifactPath(out, "Output file", formularun.StepArtifactPath(record.Dir, step.ID, "output.md"))
-		printArtifactPath(out, "Error file", formularun.StepArtifactPath(record.Dir, step.ID, "error.txt"))
+		printArtifactPath(out, "Prompt", run.StepArtifactPath(record.Dir, step.ID, "prompt.md"))
+		printArtifactPath(out, "Output file", run.StepArtifactPath(record.Dir, step.ID, "output.md"))
+		printArtifactPath(out, "Error file", run.StepArtifactPath(record.Dir, step.ID, "error.txt"))
 		if step.Output != "" {
 			fmt.Fprintf(out, "\n--- Output ---\n\n%s\n", step.Output)
 		}

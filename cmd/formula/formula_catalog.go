@@ -12,6 +12,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 func runFormulaList(cmd *cobra.Command, args []string) error {
@@ -215,7 +216,7 @@ func runFormulaShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func sortedVarNames(vars map[string]*formula.VarDef) []string {
+func sortedVarNames(vars map[string]*spec.VarDef) []string {
 	names := make([]string, 0, len(vars))
 	for name := range vars {
 		names = append(names, name)

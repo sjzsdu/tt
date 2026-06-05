@@ -2,6 +2,7 @@ package formula
 
 import (
 	"fmt"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"regexp"
 	"strings"
 )
@@ -76,12 +77,12 @@ func unquoteValue(s string) string {
 	return s
 }
 
-func FilterStepsByCondition(steps []*Step, vars map[string]string) ([]*Step, error) {
+func FilterStepsByCondition(steps []*spec.Step, vars map[string]string) ([]*spec.Step, error) {
 	if vars == nil {
 		vars = make(map[string]string)
 	}
 
-	result := make([]*Step, 0, len(steps))
+	result := make([]*spec.Step, 0, len(steps))
 
 	for _, step := range steps {
 		include, err := EvaluateStepCondition(step.Condition, vars)

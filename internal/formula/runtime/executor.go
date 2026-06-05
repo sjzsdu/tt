@@ -420,25 +420,25 @@ func normalizeScriptJSONStdout(raw []byte) ([]byte, bool) {
 }
 
 func validateStepOutput(step steps.Step, out steps.Value) error {
-	spec := outputValidationForStep(step)
-	if spec == nil {
+	validationSpec := outputValidationForStep(step)
+	if validationSpec == nil {
 		return nil
 	}
-	format := strings.ToLower(strings.TrimSpace(spec.Format))
-	if format == "" && (len(spec.Required) > 0 || len(spec.ItemRequired) > 0 || spec.MinItems > 0) {
+	format := strings.ToLower(strings.TrimSpace(validationSpec.Format))
+	if format == "" && (len(validationSpec.Required) > 0 || len(validationSpec.ItemRequired) > 0 || validationSpec.MinItems > 0) {
 		format = "json"
 	}
 	if format != "json" {
 		return nil
 	}
 
-	decodedValues, err := decodedOutputCandidates(out.Raw, spec)
+	decodedValues, err := decodedOutputCandidates(out.Raw, validationSpec)
 	if err != nil {
 		return fmt.Errorf("output must be valid JSON: %w", err)
 	}
 	var validationErr error
 	for _, decoded := range decodedValues {
-		if err := validateDecodedStepOutput(decoded, spec); err == nil {
+		if err := validateDecodedStepOutput(decoded, validationSpec); err == nil {
 			return nil
 		} else if validationErr == nil {
 			validationErr = err
@@ -447,30 +447,30 @@ func validateStepOutput(step steps.Step, out steps.Value) error {
 	return validationErr
 }
 
-func validateDecodedStepOutput(decoded any, spec *steps.OutputValidationSpec) error {
-	if len(spec.Required) > 0 {
+func validateDecodedStepOutput(decoded any, validationSpec *steps.OutputValidationSpec) error {
+	if len(validationSpec.Required) > 0 {
 		obj, ok := decoded.(map[string]any)
 		if !ok {
-			return fmt.Errorf("output must be a JSON object with required fields %v", spec.Required)
+			return fmt.Errorf("output must be a JSON object with required fields %v", validationSpec.Required)
 		}
-		if err := validateRequiredFields(obj, spec.Required, "output"); err != nil {
+		if err := validateRequiredFields(obj, validationSpec.Required, "output"); err != nil {
 			return err
 		}
 	}
-	if spec.MinItems > 0 || len(spec.ItemRequired) > 0 {
+	if validationSpec.MinItems > 0 || len(validationSpec.ItemRequired) > 0 {
 		items, ok := decoded.([]any)
 		if !ok {
 			return fmt.Errorf("output must be a JSON array")
 		}
-		if len(items) < spec.MinItems {
-			return fmt.Errorf("output array must contain at least %d item(s), got %d", spec.MinItems, len(items))
+		if len(items) < validationSpec.MinItems {
+			return fmt.Errorf("output array must contain at least %d item(s), got %d", validationSpec.MinItems, len(items))
 		}
 		for i, item := range items {
 			obj, ok := item.(map[string]any)
 			if !ok {
 				return fmt.Errorf("output[%d] must be a JSON object", i)
 			}
-			if err := validateRequiredFields(obj, spec.ItemRequired, fmt.Sprintf("output[%d]", i)); err != nil {
+			if err := validateRequiredFields(obj, validationSpec.ItemRequired, fmt.Sprintf("output[%d]", i)); err != nil {
 				return err
 			}
 		}
@@ -478,7 +478,7 @@ func validateDecodedStepOutput(decoded any, spec *steps.OutputValidationSpec) er
 	return nil
 }
 
-func decodedOutputCandidates(raw []byte, spec *steps.OutputValidationSpec) ([]any, error) {
+func decodedOutputCandidates(raw []byte, validationSpec *steps.OutputValidationSpec) ([]any, error) {
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, err
@@ -491,7 +491,7 @@ func decodedOutputCandidates(raw []byte, spec *steps.OutputValidationSpec) ([]an
 	if text == "" {
 		return []any{decoded}, nil
 	}
-	candidates := jsonTextCandidatesForSpec(text, spec)
+	candidates := jsonTextCandidatesForSpec(text, validationSpec)
 	out := make([]any, 0, len(candidates)+1)
 	seen := map[string]bool{}
 	for _, candidate := range candidates {
@@ -533,13 +533,13 @@ func jsonTextCandidates(text string) []string {
 	return jsonTextCandidatesForSpec(text, nil)
 }
 
-func jsonTextCandidatesForSpec(text string, spec *steps.OutputValidationSpec) []string {
+func jsonTextCandidatesForSpec(text string, validationSpec *steps.OutputValidationSpec) []string {
 	candidates := []string{text}
 	candidates = append(candidates, extractFencedJSONBlocks(text)...)
-	if spec != nil && len(spec.Required) > 0 {
+	if validationSpec != nil && len(validationSpec.Required) > 0 {
 		candidates = append(candidates, extractBalancedJSONContainers(text, '{', '}')...)
 	}
-	if spec != nil && (spec.MinItems > 0 || len(spec.ItemRequired) > 0) {
+	if validationSpec != nil && (validationSpec.MinItems > 0 || len(validationSpec.ItemRequired) > 0) {
 		candidates = append(candidates, extractBalancedJSONContainers(text, '[', ']')...)
 	}
 	candidates = append(candidates, extractBalancedJSONContainers(text, '{', '}')...)

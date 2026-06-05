@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -63,7 +64,7 @@ input_context = ["profile"]
 	if !ok {
 		t.Fatalf("step type = %T, want HumanInputStep", node.Step)
 	}
-	form, ok := step.Form.(*FormSpec)
+	form, ok := step.Form.(*spec.FormSpec)
 	if !ok || form.Title != "请补充背景" || len(form.Fields) != 2 {
 		t.Fatalf("compiled form mismatch: %+v", step.Form)
 	}
@@ -73,11 +74,11 @@ input_context = ["profile"]
 }
 
 func TestFormValidationRejectsInvalidFields(t *testing.T) {
-	f := &Formula{Formula: "bad", Version: 1, Type: TypeWorkflow, Steps: []*Step{{
+	f := &spec.Formula{Formula: "bad", Version: 1, Type: spec.TypeWorkflow, Steps: []*spec.Step{{
 		ID:        "input",
 		Title:     "Input",
 		Execution: "human_input",
-		Form: &FormSpec{Fields: []*FormField{{
+		Form: &spec.FormSpec{Fields: []*spec.FormField{{
 			Name:  "choice",
 			Label: "Choice",
 			Type:  "select",

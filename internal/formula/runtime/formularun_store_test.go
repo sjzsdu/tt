@@ -8,14 +8,14 @@ import (
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/run"
 	"github.com/sjzsdu/tt/internal/formula/steps"
-	"github.com/sjzsdu/tt/internal/formularun"
 )
 
 func TestFormulaRunStateStoreMirrorsRuntimeArtifacts(t *testing.T) {
 	root := t.TempDir()
 	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
-	store, err := formularun.New(root, workflow, nil, "main", "", "session", root)
+	store, err := run.New(root, workflow, nil, "main", "", "session", root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,15 +32,15 @@ func TestFormulaRunStateStoreMirrorsRuntimeArtifacts(t *testing.T) {
 	if result.Status != steps.StatusCompleted {
 		t.Fatalf("status = %s", result.Status)
 	}
-	meta, err := formularun.LoadMetadata(store.Dir)
+	meta, err := run.LoadMetadata(store.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Status != formularun.StatusCompleted {
+	if meta.Status != run.StatusCompleted {
 		t.Fatalf("metadata status = %s", meta.Status)
 	}
 	var snapshot Snapshot
-	if err := formularun.LoadState(store.Dir, &snapshot); err != nil {
+	if err := run.LoadState(store.Dir, &snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.Status != steps.StatusCompleted {
@@ -61,7 +61,7 @@ func TestFormulaRunStateStoreMirrorsRuntimeArtifacts(t *testing.T) {
 func TestFormulaRunStateStoreMirrorsWaitingInput(t *testing.T) {
 	root := t.TempDir()
 	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
-	store, err := formularun.New(root, workflow, nil, "main", "", "session", root)
+	store, err := run.New(root, workflow, nil, "main", "", "session", root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestFormulaRunStateStoreMirrorsWaitingInput(t *testing.T) {
 	if err := bridge.FinishWorkflow("demo", steps.StatusWaiting); err != nil {
 		t.Fatal(err)
 	}
-	meta, err := formularun.LoadMetadata(store.Dir)
+	meta, err := run.LoadMetadata(store.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Status != formularun.StatusWaitingInput {
+	if meta.Status != run.StatusWaitingInput {
 		t.Fatalf("metadata status = %s", meta.Status)
 	}
 	var got steps.AwaitRequest
@@ -96,7 +96,7 @@ func TestFormulaRunStateStoreMirrorsWaitingInput(t *testing.T) {
 func TestFormulaRunStateStorePersistsRepairsArtifact(t *testing.T) {
 	root := t.TempDir()
 	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
-	store, err := formularun.New(root, workflow, nil, "main", "", "session", root)
+	store, err := run.New(root, workflow, nil, "main", "", "session", root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestFormulaRunStateStorePersistsRepairsArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	var snapshot Snapshot
-	if err := formularun.LoadState(store.Dir, &snapshot); err != nil {
+	if err := run.LoadState(store.Dir, &snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if len(snapshot.Repairs) != 1 || snapshot.Repairs[0].StepID != "script" {

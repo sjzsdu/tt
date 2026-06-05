@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sjzsdu/tt/internal/formula"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 type formulaPreflightFailure struct {
@@ -51,7 +52,7 @@ func (e formulaPreflightError) Error() string {
 	return b.String()
 }
 
-func runFormulaPreflight(ctx context.Context, f *formula.Formula, workspace string, vars map[string]string) error {
+func runFormulaPreflight(ctx context.Context, f *spec.Formula, workspace string, vars map[string]string) error {
 	if f == nil || f.Preflight == nil || len(f.Preflight.Checks) == 0 {
 		return nil
 	}
@@ -82,7 +83,7 @@ func runFormulaPreflight(ctx context.Context, f *formula.Formula, workspace stri
 	return nil
 }
 
-func preflightConditionVars(f *formula.Formula, overrides map[string]string) map[string]string {
+func preflightConditionVars(f *spec.Formula, overrides map[string]string) map[string]string {
 	vars := make(map[string]string)
 	if f != nil {
 		for name, def := range f.Vars {
@@ -97,7 +98,7 @@ func preflightConditionVars(f *formula.Formula, overrides map[string]string) map
 	return vars
 }
 
-func runFormulaPreflightCheck(ctx context.Context, check *formula.PreflightCheck, workspace string) error {
+func runFormulaPreflightCheck(ctx context.Context, check *spec.PreflightCheck, workspace string) error {
 	switch strings.ToLower(strings.TrimSpace(check.Type)) {
 	case "command":
 		cmd := strings.TrimSpace(check.Command)
@@ -169,7 +170,7 @@ func runPreflightExec(ctx context.Context, workspace, command string, args []str
 	return nil
 }
 
-func runPreflightGit(ctx context.Context, workspace string, check *formula.PreflightCheck) error {
+func runPreflightGit(ctx context.Context, workspace string, check *spec.PreflightCheck) error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return fmt.Errorf("command %q not found in PATH", "git")
 	}
@@ -186,7 +187,7 @@ func runPreflightGit(ctx context.Context, workspace string, check *formula.Prefl
 	return nil
 }
 
-func preflightCheckLabel(check *formula.PreflightCheck, index int) string {
+func preflightCheckLabel(check *spec.PreflightCheck, index int) string {
 	if strings.TrimSpace(check.Name) != "" {
 		return strings.TrimSpace(check.Name)
 	}

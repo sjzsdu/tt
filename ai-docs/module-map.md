@@ -27,28 +27,30 @@ flowchart LR
         I1[picoclaw]
         I2[agents]
         I3[formula]
-        I4[formula/runtime]
-        I5[formularun]
-        I6[webui]
-        I7[cmd2skill]
-        I8[repo2skill]
-        I9[nvwa]
-        I10[dirmirror]
-        I11[ttconfig]
-        I12[agentopt]
-        I13[formula/ast+ir+compile+steps+builtin]
-        I14[formulaui+formuladoc+formularunview]
+        I4[formula/spec]
+        I5[formula/runtime]
+        I6[formula/run]
+        I7[formula/runview]
+        I8[webui]
+        I9[cmd2skill]
+        I10[repo2skill]
+        I11[nvwa]
+        I12[dirmirror]
+        I13[ttconfig]
+        I14[agentopt]
+        I15[formula/ast+ir+compile+steps+builtin+doc+ui]
     end
 
     C1 --> I1
     C1 --> I2
-    C1 --> I12
+    C1 --> I14
     C2 --> I3
     C2 --> I4
     C2 --> I5
+    C2 --> I6
     C2 --> I1
-    C2 --> I13
-    C2 --> I14
+    C2 --> I15
+    C2 --> I7
     C3 --> I6
     C4 --> I7
     C4 --> I8
@@ -128,8 +130,8 @@ flowchart LR
 - 变量解析与运行时 preflight
 - compile / validate（走 typed `ir.Workflow`）
 - create / optimize（通过 `formula-writer` agent）
-- run / resume / input（通过 typed runtime + picoclaw + formularun）
-- 本地 Dashboard HTTP / WebSocket glue（纯渲染在 `internal/formulaui`，Markdown 渲染在 `internal/formuladoc`）
+- run / resume / input（通过 typed runtime + picoclaw + formula/run）
+- 本地 Dashboard HTTP / WebSocket glue（纯渲染在 `internal/formula/ui`，Markdown 渲染在 `internal/formula/doc`，运行记录在 `internal/formula/run` + `internal/formula/runview`）
 
 ### 工程辅助命令
 
@@ -233,14 +235,14 @@ internal/agents/embedded/*.md
 - `internal/formula/runtime/capabilities.go` —— `ScriptCapability`（含安全策略）/ `DryRunAgentCapability` / `DryRunScriptCapability`
 - `internal/formula/runtime/environment.go` —— `EnvironmentContext`（cwd / git / os）
 - `internal/formula/runtime/workspace.go` —— worktree 创建、稀疏 checkout、分支命名
-- `internal/formula/runtime/formularun_store.go` —— 把 `Snapshot` 与 `Repairs` 写入 `formularun` 持久化层（`patches/<run-id>.json`）
+- `internal/formula/runtime/formularun_store.go` —— 把 `Snapshot` 与 `Repairs` 写入 `internal/formula/run` 持久化层（`patches/<run-id>.json`）
 - `internal/formula/steps/step.go` —— `Step` / `Executable` / `Capabilities` / `RunRequest` / `RunResult` / `Status` / `Metadata.Idempotent`
 - `internal/formula/steps/registry.go` —— `Registry` / `Decoder` / `NewDefaultRegistry`
 - `internal/formula/steps/kinds.go` —— 所有 step 实现（Agent / Script / HumanInput / Noop / Loop / Retry / Aggregate / Tool / WriteFiles 等）
 - `internal/formula/ast/document.go` —— `StepDecl.Idempotent` typed schema 字段
 - `internal/formula/schema/decode.go` —— typed schema → `StepDecl` 解码时透传 `idempotent`
 
-## 5. `internal/formularun`
+## 5. `internal/formula/run`
 
 这是 formula 执行的持久化层。它负责把一次运行变成一个可追踪目录：
 
@@ -329,10 +331,12 @@ flowchart TD
     B2 --> C[compile/compiler.go]
     C --> D[internal/formula/runtime]
     D --> E[internal/picoclaw]
-    D --> F[internal/formularun]
-    D --> G[internal/formulaui + cmd/formula dashboard glue]
+    D --> F[internal/formula/run]
+    D --> G[internal/formula/ui + cmd/formula dashboard glue]
     D --> H[internal/formula/steps]
     B --> I[internal/formula/builtin]
+    B --> S[internal/formula/spec]
+    D --> R[internal/formula/runview]
 
     J[cmd/agent.go / translate.go / debate.go / docs.go] --> E
     E --> K[internal/agents]
@@ -350,7 +354,7 @@ flowchart TD
 
 ### 我想改 formula 语法
 先看：
-- `internal/formula/types.go`
+- `internal/formula/spec/`（数据契约，Formula / Step / VarDef / Pre* / WaitsFor 等）
 - `internal/formula/parser.go`
 - `internal/formula/workflow.go`
 
@@ -362,9 +366,10 @@ flowchart TD
 
 ### 我想让 formula 的运行结果保存更多信息
 先看：
-- `internal/formularun/store.go`
+- `internal/formula/run/store.go`
 - `cmd/formula/`
-- `internal/formulaui/`
+- `internal/formula/ui/`
+- `internal/formula/runview/snapshot.go`
 
 ### 我想新增一个嵌入式 agent
 先看：
@@ -385,7 +390,7 @@ flowchart TD
 - `internal/formula/steps/registry.go`（注册）
 - `internal/formula/steps/kinds.go`（现有实现）
 - `internal/formula/runtime/capabilities.go`（如果需要新的执行能力）
-- `internal/formula/types.go` 和 `internal/formula/ast/document.go`（如果需要新的 schema）
+- `internal/formula/spec/types.go`（数据契约）和 `internal/formula/ast/document.go`（如果需要新的 schema）
 - `internal/formula/compile/compiler.go`（AST → IR 编译）
 - `cmd/formula/` 子包
 
@@ -402,7 +407,9 @@ flowchart TD
 - agent 优化：`cmd/agent_optimize.go`、`internal/agentopt/optimize.go`
 - formula 命令：`cmd/formula.go` + `cmd/formula/`
 - runtime 适配：`internal/picoclaw/runtime.go`、`internal/picoclaw/direct.go`
+- formula 数据契约：`internal/formula/spec/`
 - formula 编译：`internal/formula/workflow.go`、`internal/formula/compile/compiler.go`
 - formula 执行：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
-- run 持久化：`internal/formularun/store.go`
+- run 持久化：`internal/formula/run/store.go`
+- 渲染与快照：`internal/formula/ui/`、`internal/formula/runview/snapshot.go`、`internal/formula/doc/markdown.go`
 - embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/*.md`

@@ -13,13 +13,13 @@ import (
 )
 
 type initRuntimeResult struct {
-	cfg              *pcconfig.Config
-	modelOverride    string
-	defaultAgent     string
-	msgBus           *pcbus.MessageBus
-	loop             *pcagent.AgentLoop
-	closeProvider    func()
-	embeddedAgents   []EmbeddedAgent
+	cfg            *pcconfig.Config
+	modelOverride  string
+	defaultAgent   string
+	msgBus         *pcbus.MessageBus
+	loop           *pcagent.AgentLoop
+	closeProvider  func()
+	embeddedAgents []EmbeddedAgent
 }
 
 func (rt *Runtime) initRuntime(opt RunOptions) (*initRuntimeResult, error) {
@@ -75,7 +75,7 @@ func (rt *Runtime) initRuntime(opt RunOptions) (*initRuntimeResult, error) {
 
 	return &initRuntimeResult{
 		cfg:            cfg,
-		modelOverride:   str(opt.Model),
+		modelOverride:  str(opt.Model),
 		defaultAgent:   DefaultAgent(cfg),
 		msgBus:         msgBus,
 		loop:           loop,

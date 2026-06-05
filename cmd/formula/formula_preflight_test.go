@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/formula"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 func TestRunFormulaPreflightCommandMissing(t *testing.T) {
-	f := &formula.Formula{Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{{Type: "command", Name: "missing-tool", Command: "tt-definitely-missing-tool", Message: "install missing tool"}}}}
+	f := &spec.Formula{Preflight: &spec.PreflightSpec{Checks: []*spec.PreflightCheck{{Type: "command", Name: "missing-tool", Command: "tt-definitely-missing-tool", Message: "install missing tool"}}}}
 	err := runFormulaPreflight(context.Background(), f, t.TempDir(), nil)
 	if err == nil {
 		t.Fatal("expected preflight error")
@@ -27,7 +27,7 @@ func TestRunFormulaPreflightExecAndPathPass(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "marker.txt"), []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f := &formula.Formula{Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{
+	f := &spec.Formula{Preflight: &spec.PreflightSpec{Checks: []*spec.PreflightCheck{
 		{Type: "exec", Name: "shell", Command: "test -f marker.txt"},
 		{Type: "path", Name: "marker", Path: "marker.txt"},
 	}}}
@@ -38,14 +38,14 @@ func TestRunFormulaPreflightExecAndPathPass(t *testing.T) {
 
 func TestRunFormulaPreflightEnv(t *testing.T) {
 	t.Setenv("TT_PREFLIGHT_TEST_ENV", "ok")
-	f := &formula.Formula{Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{{Type: "env", Env: "TT_PREFLIGHT_TEST_ENV"}}}}
+	f := &spec.Formula{Preflight: &spec.PreflightSpec{Checks: []*spec.PreflightCheck{{Type: "env", Env: "TT_PREFLIGHT_TEST_ENV"}}}}
 	if err := runFormulaPreflight(context.Background(), f, t.TempDir(), nil); err != nil {
 		t.Fatalf("preflight should pass: %v", err)
 	}
 }
 
 func TestRunFormulaPreflightSkipsFalseCondition(t *testing.T) {
-	f := &formula.Formula{Vars: map[string]*formula.VarDef{"driver": &formula.VarDef{Default: stringPtr("jcode")}}, Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{
+	f := &spec.Formula{Vars: map[string]*spec.VarDef{"driver": &spec.VarDef{Default: stringPtr("jcode")}}, Preflight: &spec.PreflightSpec{Checks: []*spec.PreflightCheck{
 		{Type: "command", Name: "codex", Command: "tt-definitely-missing-tool", Condition: "{{driver}} == codex"},
 	}}}
 	if err := runFormulaPreflight(context.Background(), f, t.TempDir(), nil); err != nil {
@@ -54,7 +54,7 @@ func TestRunFormulaPreflightSkipsFalseCondition(t *testing.T) {
 }
 
 func TestRunFormulaPreflightRunsTrueConditionWithOverride(t *testing.T) {
-	f := &formula.Formula{Vars: map[string]*formula.VarDef{"driver": &formula.VarDef{Default: stringPtr("jcode")}}, Preflight: &formula.PreflightSpec{Checks: []*formula.PreflightCheck{
+	f := &spec.Formula{Vars: map[string]*spec.VarDef{"driver": &spec.VarDef{Default: stringPtr("jcode")}}, Preflight: &spec.PreflightSpec{Checks: []*spec.PreflightCheck{
 		{Type: "command", Name: "codex", Command: "tt-definitely-missing-tool", Condition: "{{driver}} == codex"},
 	}}}
 	err := runFormulaPreflight(context.Background(), f, t.TempDir(), map[string]string{"driver": "codex"})

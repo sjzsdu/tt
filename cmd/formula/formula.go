@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/sjzsdu/tt/internal/agents"
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
@@ -238,7 +238,7 @@ func parseVars() map[string]string {
 	return vars
 }
 
-func applyFormulaRunPositionalVars(f *formula.Formula, values []string, vars map[string]string) error {
+func applyFormulaRunPositionalVars(f *spec.Formula, values []string, vars map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}

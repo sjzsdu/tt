@@ -9,12 +9,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/formula"
-	"github.com/sjzsdu/tt/internal/formularun"
+	"github.com/sjzsdu/tt/internal/formula/run"
 )
 
 func runFormulaRuns(cmd *cobra.Command, args []string) error {
 	_ = args
-	records, err := formularun.List("")
+	records, err := run.List("")
 	if err != nil {
 		return err
 	}
@@ -41,13 +41,13 @@ func runFormulaRuns(cmd *cobra.Command, args []string) error {
 	return w.Flush()
 }
 
-func filterFormulaRunRecords(records []formularun.Record) []formularun.Record {
+func filterFormulaRunRecords(records []run.Record) []run.Record {
 	formulaFilter := strings.TrimSpace(formulaRunsFormula)
 	statusFilter := strings.TrimSpace(formulaRunsStatus)
 	if formulaFilter == "" && statusFilter == "" {
 		return records
 	}
-	out := make([]formularun.Record, 0, len(records))
+	out := make([]run.Record, 0, len(records))
 	for _, record := range records {
 		if formulaFilter != "" && !strings.EqualFold(record.Metadata.Formula, formulaFilter) {
 			continue
@@ -65,7 +65,7 @@ func runFormulaRunOpen(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		id = args[0]
 	}
-	record, err := formularun.Resolve("", id)
+	record, err := run.Resolve("", id)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func runFormulaRunShow(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		id = args[0]
 	}
-	record, err := formularun.Resolve("", id)
+	record, err := run.Resolve("", id)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func runFormulaRunRm(cmd *cobra.Command, args []string) error {
 	if !formulaRunRmYes {
 		return fmt.Errorf("refusing to delete formula run %q without --yes", args[0])
 	}
-	record, err := formularun.Delete("", args[0])
+	record, err := run.Delete("", args[0])
 	if err != nil {
 		return err
 	}

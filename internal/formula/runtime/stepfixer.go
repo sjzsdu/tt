@@ -347,25 +347,25 @@ func fixerScriptNextAttemptHint(attempt int) string {
 	return "If this command still fails, run another repair pass and validate the revised command before reusing it in the formula."
 }
 
-func fixerAgentValidationShape(spec *steps.OutputValidationSpec) string {
-	if spec == nil {
+func fixerAgentValidationShape(validationSpec *steps.OutputValidationSpec) string {
+	if validationSpec == nil {
 		return ""
 	}
-	if len(spec.Required) > 0 {
-		parts := make([]string, 0, len(spec.Required))
-		for _, key := range spec.Required {
+	if len(validationSpec.Required) > 0 {
+		parts := make([]string, 0, len(validationSpec.Required))
+		for _, key := range validationSpec.Required {
 			parts = append(parts, fmt.Sprintf("\"%s\": \"\"", key))
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
 	}
-	if spec.MinItems > 0 || len(spec.ItemRequired) > 0 {
-		parts := make([]string, 0, len(spec.ItemRequired))
-		for _, key := range spec.ItemRequired {
+	if validationSpec.MinItems > 0 || len(validationSpec.ItemRequired) > 0 {
+		parts := make([]string, 0, len(validationSpec.ItemRequired))
+		for _, key := range validationSpec.ItemRequired {
 			parts = append(parts, fmt.Sprintf("\"%s\": \"\"", key))
 		}
 		return "[{" + strings.Join(parts, ", ") + "}]"
 	}
-	if strings.EqualFold(strings.TrimSpace(spec.Format), "json") {
+	if strings.EqualFold(strings.TrimSpace(validationSpec.Format), "json") {
 		return "{}"
 	}
 	return ""

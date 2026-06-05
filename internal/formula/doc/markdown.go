@@ -1,16 +1,16 @@
-package formuladoc
+package doc
 
 import (
 	"fmt"
 	"sort"
 	"strings"
 
-	"github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
-func GenerateMarkdown(f *formula.Formula, workflow *ir.Workflow) string {
+func GenerateMarkdown(f *spec.Formula, workflow *ir.Workflow) string {
 	if f == nil {
 		return ""
 	}
@@ -297,7 +297,7 @@ func firstLoopBodyID(loop steps.LoopStep) string {
 	return ""
 }
 
-func sortedVarNames(vars map[string]*formula.VarDef) []string {
+func sortedVarNames(vars map[string]*spec.VarDef) []string {
 	names := make([]string, 0, len(vars))
 	for name := range vars {
 		names = append(names, name)
@@ -306,11 +306,11 @@ func sortedVarNames(vars map[string]*formula.VarDef) []string {
 	return names
 }
 
-func formulaAuthoredStepCounts(items []*formula.Step) (int, int) {
+func formulaAuthoredStepCounts(items []*spec.Step) (int, int) {
 	stepCount := 0
 	loopBodyCount := 0
-	var walk func([]*formula.Step)
-	walk = func(items []*formula.Step) {
+	var walk func([]*spec.Step)
+	walk = func(items []*spec.Step) {
 		for _, step := range items {
 			if step == nil {
 				continue
@@ -393,11 +393,11 @@ func orderedWorkflowSteps(workflow *ir.Workflow, order map[string]int) []steps.S
 	return fallback
 }
 
-func authoredStepOrder(items []*formula.Step) map[string]int {
+func authoredStepOrder(items []*spec.Step) map[string]int {
 	order := map[string]int{}
 	var index int
-	var walk func([]*formula.Step)
-	walk = func(items []*formula.Step) {
+	var walk func([]*spec.Step)
+	walk = func(items []*spec.Step) {
 		for _, item := range items {
 			if item == nil {
 				continue
@@ -471,7 +471,7 @@ func workflowDepsForStep(workflow *ir.Workflow, id ir.NodeID) []string {
 	return deps
 }
 
-func generateQuickStart(f *formula.Formula) string {
+func generateQuickStart(f *spec.Formula) string {
 	var b strings.Builder
 	b.WriteString("```bash\n")
 	b.WriteString(fmt.Sprintf("tt formula show %s\n", f.Formula))

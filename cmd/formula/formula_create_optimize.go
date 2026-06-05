@@ -10,6 +10,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/formula"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
 
@@ -273,7 +274,7 @@ Hard requirements:
 `, name, suggestion, validationErr, invalidTOML, name)
 }
 
-func validateFormulaTOMLContent(content string) (*formula.Formula, error) {
+func validateFormulaTOMLContent(content string) (*spec.Formula, error) {
 	p := formula.NewParser()
 	f, err := p.ParseTOML([]byte(content))
 	if err != nil {

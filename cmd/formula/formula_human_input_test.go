@@ -1,12 +1,12 @@
 package formulacmd
 
 import (
-	"github.com/sjzsdu/tt/internal/formulaui"
+	"github.com/sjzsdu/tt/internal/formula/ui"
 	"reflect"
 	"testing"
 
-	"github.com/sjzsdu/tt/internal/formula"
-	"github.com/sjzsdu/tt/internal/formularunview"
+	"github.com/sjzsdu/tt/internal/formula/runview"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 )
 
 func TestParseHumanInputFieldsDuplicatesBecomeArrays(t *testing.T) {
@@ -21,7 +21,7 @@ func TestParseHumanInputFieldsDuplicatesBecomeArrays(t *testing.T) {
 }
 
 func TestValidateHumanInputResponse(t *testing.T) {
-	request := &formulaui.HumanInputRequest{Form: &formula.FormSpec{Fields: []*formula.FormField{
+	request := &ui.HumanInputRequest{Form: &spec.FormSpec{Fields: []*spec.FormField{
 		{Name: "level", Label: "水平", Type: "radio", Required: true, Options: []string{"新手", "熟练"}},
 		{Name: "goal", Label: "目标", Type: "textarea"},
 	}}}
@@ -37,18 +37,18 @@ func TestValidateHumanInputResponse(t *testing.T) {
 }
 
 func TestResolveFormulaRunStepIDRequiresWaitingStep(t *testing.T) {
-	snapshot := formulaui.Snapshot{Steps: []formulaui.Step{
-		{ID: "demo.profile", Status: formulaui.StatusWaitingInput},
-		{ID: "demo.plan", Status: formulaui.StatusPending},
+	snapshot := ui.Snapshot{Steps: []ui.Step{
+		{ID: "demo.profile", Status: ui.StatusWaitingInput},
+		{ID: "demo.plan", Status: ui.StatusPending},
 	}}
-	got, err := formularunview.ResolveWaitingInputStepID(snapshot, "profile")
+	got, err := runview.ResolveWaitingInputStepID(snapshot, "profile")
 	if err != nil {
-		t.Fatalf("formularunview.ResolveWaitingInputStepID() error = %v", err)
+		t.Fatalf("runview.ResolveWaitingInputStepID() error = %v", err)
 	}
 	if got != "demo.profile" {
 		t.Fatalf("step id = %q", got)
 	}
-	if _, err := formularunview.ResolveWaitingInputStepID(snapshot, "plan"); err == nil {
+	if _, err := runview.ResolveWaitingInputStepID(snapshot, "plan"); err == nil {
 		t.Fatal("expected non-waiting step error")
 	}
 }

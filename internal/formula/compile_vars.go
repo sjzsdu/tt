@@ -1,8 +1,11 @@
 package formula
 
-import "regexp"
+import (
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
+	"regexp"
+)
 
-func validateCompileTimeVars(f *Formula, values map[string]string) error {
+func validateCompileTimeVars(f *spec.Formula, values map[string]string) error {
 	if f == nil || len(f.Vars) == 0 {
 		return nil
 	}
@@ -12,17 +15,17 @@ func validateCompileTimeVars(f *Formula, values map[string]string) error {
 	if len(refs) == 0 {
 		return nil
 	}
-	defs := make(map[string]*VarDef)
+	defs := make(map[string]*spec.VarDef)
 	for name := range refs {
 		def := f.Vars[name]
 		if def != nil {
 			defs[name] = def
 		}
 	}
-	return ValidateVarDefs(defs, ApplyDefaults(f, values))
+	return spec.ValidateVarDefs(defs, spec.ApplyDefaults(f, values))
 }
 
-func collectCompileTimeVarRefs(steps []*Step, refs map[string]bool) {
+func collectCompileTimeVarRefs(steps []*spec.Step, refs map[string]bool) {
 	for _, step := range steps {
 		if step == nil {
 			continue

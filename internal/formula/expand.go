@@ -2,12 +2,13 @@ package formula
 
 import (
 	"fmt"
+	spec "github.com/sjzsdu/tt/internal/formula/spec"
 	"strings"
 )
 
 const DefaultMaxExpansionDepth = 5
 
-func ApplyExpansionsWithVars(steps []*Step, compose *ComposeRules, parser *Parser, parentVars map[string]string) ([]*Step, error) {
+func ApplyExpansionsWithVars(steps []*spec.Step, compose *spec.ComposeRules, parser *Parser, parentVars map[string]string) ([]*spec.Step, error) {
 	if compose == nil || parser == nil {
 		return steps, nil
 	}
@@ -35,7 +36,7 @@ func ApplyExpansionsWithVars(steps []*Step, compose *ComposeRules, parser *Parse
 			return nil, fmt.Errorf("expand: loading formula %q: %w", rule.With, err)
 		}
 
-		if expFormula.Type != TypeExpansion {
+		if expFormula.Type != spec.TypeExpansion {
 			return nil, fmt.Errorf("expand: %q is not an expansion formula (type=%s)", rule.With, expFormula.Type)
 		}
 
@@ -77,7 +78,7 @@ func ApplyExpansionsWithVars(steps []*Step, compose *ComposeRules, parser *Parse
 				return nil, fmt.Errorf("map: loading formula %q: %w", rule.With, err)
 			}
 
-			if expFormula.Type != TypeExpansion {
+			if expFormula.Type != spec.TypeExpansion {
 				return nil, fmt.Errorf("map: %q is not an expansion formula (type=%s)", rule.With, expFormula.Type)
 			}
 
@@ -106,16 +107,16 @@ func ApplyExpansionsWithVars(steps []*Step, compose *ComposeRules, parser *Parse
 	return result, nil
 }
 
-func ApplyExpansions(steps []*Step, compose *ComposeRules, parser *Parser) ([]*Step, error) {
+func ApplyExpansions(steps []*spec.Step, compose *spec.ComposeRules, parser *Parser) ([]*spec.Step, error) {
 	return ApplyExpansionsWithVars(steps, compose, parser, nil)
 }
 
-func ApplyInlineExpansionsWithVars(steps []*Step, parser *Parser, vars map[string]string) ([]*Step, error) {
+func ApplyInlineExpansionsWithVars(steps []*spec.Step, parser *Parser, vars map[string]string) ([]*spec.Step, error) {
 	if parser == nil {
 		return steps, nil
 	}
 
-	result := make([]*Step, 0, len(steps))
+	result := make([]*spec.Step, 0, len(steps))
 	for _, step := range steps {
 		if step.Expand == "" {
 			clone := cloneStep(step)
@@ -135,7 +136,7 @@ func ApplyInlineExpansionsWithVars(steps []*Step, parser *Parser, vars map[strin
 			return nil, fmt.Errorf("inline expand %q: %w", step.Expand, err)
 		}
 
-		if expFormula.Type != TypeExpansion {
+		if expFormula.Type != spec.TypeExpansion {
 			return nil, fmt.Errorf("inline expand: %q is not an expansion formula", step.Expand)
 		}
 
@@ -151,16 +152,16 @@ func ApplyInlineExpansionsWithVars(steps []*Step, parser *Parser, vars map[strin
 	return result, nil
 }
 
-func ApplyInlineExpansions(steps []*Step, parser *Parser) ([]*Step, error) {
+func ApplyInlineExpansions(steps []*spec.Step, parser *Parser) ([]*spec.Step, error) {
 	return ApplyInlineExpansionsWithVars(steps, parser, nil)
 }
 
-func expandStep(target *Step, template []*Step, depth int, vars map[string]string) ([]*Step, error) {
+func expandStep(target *spec.Step, template []*spec.Step, depth int, vars map[string]string) ([]*spec.Step, error) {
 	if depth > DefaultMaxExpansionDepth {
 		return nil, fmt.Errorf("max expansion depth (%d) exceeded", DefaultMaxExpansionDepth)
 	}
 
-	result := make([]*Step, 0, len(template))
+	result := make([]*spec.Step, 0, len(template))
 	for _, t := range template {
 		expanded := expandTemplateStep(t, target, vars)
 
@@ -178,7 +179,7 @@ func expandStep(target *Step, template []*Step, depth int, vars map[string]strin
 	return result, nil
 }
 
-func expandTemplateStep(t *Step, target *Step, vars map[string]string) *Step {
+func expandTemplateStep(t *spec.Step, target *spec.Step, vars map[string]string) *spec.Step {
 	clone := cloneStep(t)
 
 	clone.ID = substituteTemplateRef(t.ID, target)
@@ -210,20 +211,20 @@ func expandTemplateStep(t *Step, target *Step, vars map[string]string) *Step {
 	return clone
 }
 
-func substituteTemplateRef(s string, target *Step) string {
+func substituteTemplateRef(s string, target *spec.Step) string {
 	s = strings.ReplaceAll(s, "{target}", target.ID)
 	s = strings.ReplaceAll(s, "{target.id}", target.ID)
 	s = strings.ReplaceAll(s, "{target.title}", target.Title)
 	return s
 }
 
-func substituteTemplateVars(s string, target *Step, vars map[string]string) string {
+func substituteTemplateVars(s string, target *spec.Step, vars map[string]string) string {
 	s = substituteTemplateRef(s, target)
-	s = Substitute(s, vars)
+	s = spec.Substitute(s, vars)
 	return s
 }
 
-func substituteDeps(deps []string, target *Step, vars map[string]string) []string {
+func substituteDeps(deps []string, target *spec.Step, vars map[string]string) []string {
 	if len(deps) == 0 {
 		return nil
 	}
@@ -234,7 +235,7 @@ func substituteDeps(deps []string, target *Step, vars map[string]string) []strin
 	return result
 }
 
-func propagateTargetDeps(target *Step, expanded []*Step) {
+func propagateTargetDeps(target *spec.Step, expanded []*spec.Step) {
 	if len(expanded) == 0 {
 		return
 	}
@@ -252,8 +253,8 @@ func propagateTargetDeps(target *Step, expanded []*Step) {
 	}
 }
 
-func replaceStep(steps []*Step, targetID string, replacement []*Step) []*Step {
-	result := make([]*Step, 0, len(steps)+len(replacement))
+func replaceStep(steps []*spec.Step, targetID string, replacement []*spec.Step) []*spec.Step {
+	result := make([]*spec.Step, 0, len(steps)+len(replacement))
 	for _, s := range steps {
 		if s.ID == targetID {
 			result = append(result, replacement...)
@@ -264,7 +265,7 @@ func replaceStep(steps []*Step, targetID string, replacement []*Step) []*Step {
 	return result
 }
 
-func updateDownstreamDeps(steps []*Step, oldID, newID string) []*Step {
+func updateDownstreamDeps(steps []*spec.Step, oldID, newID string) []*spec.Step {
 	for _, s := range steps {
 		for i, dep := range s.DependsOn {
 			if dep == oldID {
@@ -280,7 +281,7 @@ func updateDownstreamDeps(steps []*Step, oldID, newID string) []*Step {
 	return steps
 }
 
-func matchStepsByGlob(steps []*Step, pattern string) []string {
+func matchStepsByGlob(steps []*spec.Step, pattern string) []string {
 	var matched []string
 	for _, s := range steps {
 		if MatchGlob(pattern, s.ID) {
@@ -290,7 +291,7 @@ func matchStepsByGlob(steps []*Step, pattern string) []string {
 	return matched
 }
 
-func findStepInList(steps []*Step, id string) *Step {
+func findStepInList(steps []*spec.Step, id string) *spec.Step {
 	for _, s := range steps {
 		if s.ID == id {
 			return s
@@ -299,7 +300,7 @@ func findStepInList(steps []*Step, id string) *Step {
 	return nil
 }
 
-func applyVarDefaults(overrides map[string]string, varDefs map[string]*VarDef) map[string]string {
+func applyVarDefaults(overrides map[string]string, varDefs map[string]*spec.VarDef) map[string]string {
 	result := make(map[string]string)
 	for name, def := range varDefs {
 		if def == nil {
@@ -334,7 +335,7 @@ func resolveOverrideVars(overrides, parentVars map[string]string) map[string]str
 		result[k] = v
 	}
 	for k, v := range overrides {
-		result[k] = Substitute(v, parentVars)
+		result[k] = spec.Substitute(v, parentVars)
 	}
 	return result
 }
@@ -350,7 +351,7 @@ func mergeConditionVars(parentVars, vars map[string]string) map[string]string {
 	return result
 }
 
-func validateExpandedStepTimeouts(steps []*Step, context string) error {
+func validateExpandedStepTimeouts(steps []*spec.Step, context string) error {
 	for _, step := range steps {
 		if step.Timeout != "" {
 			if _, err := ParseCondition(step.Timeout); err != nil {
@@ -361,6 +362,6 @@ func validateExpandedStepTimeouts(steps []*Step, context string) error {
 	return nil
 }
 
-func materializeExpandedStepConditions(steps []*Step, vars map[string]string) ([]*Step, error) {
+func materializeExpandedStepConditions(steps []*spec.Step, vars map[string]string) ([]*spec.Step, error) {
 	return FilterStepsByCondition(steps, vars)
 }
