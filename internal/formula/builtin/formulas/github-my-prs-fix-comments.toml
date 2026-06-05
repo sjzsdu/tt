@@ -114,6 +114,7 @@ try:
     fix_results = parse('TT_FIX_RESULTS', [])
     resolve = parse('TT_RESOLVE', {})
     push = parse('TT_PUSH', {})
+    cleanup = parse('TT_CLEANUP', {})
     report = os.environ.get('TT_FINAL_REPORT', '').strip()
 
     total_comments = int(normalized.get('total') if normalized.get('total') is not None else comments.get('pending_count') or 0)
@@ -180,6 +181,9 @@ try:
         'committed': bool(push.get('committed')),
         'changed': bool(push.get('changed')),
         'commit_sha': push.get('commit_sha') or '',
+        'cleanup_removed': cleanup.get('removed'),
+        'cleanup_attempted': cleanup.get('attempted'),
+        'cleanup_error': cleanup.get('stderr') or '',
         'final_report_excerpt': report[:500],
     }
 except Exception as exc:
@@ -198,6 +202,7 @@ print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
   TT_FIX_RESULTS = "{{run-pr-fix-comments.fix-each-comment}}"
   TT_RESOLVE = "{{run-pr-fix-comments.resolve-review-threads.stdout}}"
   TT_PUSH = "{{run-pr-fix-comments.commit-and-push.stdout}}"
+  TT_CLEANUP = "{{run-pr-fix-comments.cleanup-worktree.stdout}}"
   TT_FINAL_REPORT = "{{run-pr-fix-comments.final-report}}"
 
   [steps.loop.body.validate]
@@ -215,7 +220,7 @@ description = """
 固定输出结构：
 1. `## 结论`：1-3 句话说明 PR 总数、有待处理评论的 PR 数、完成数、需要 follow-up 数、push/commit 情况。
 2. `## PR 明细`：必须用 Markdown 表格，且只保留这些列：
-   `PR`、`标题`、`分支`、`评论`、`处理`、`Resolve`、`Push`、`状态/下一步`。
+   `PR`、`标题`、`分支`、`评论`、`处理`、`Resolve`、`Push`、`清理`、`状态/下一步`。
 3. `## 配置`：一行说明 author、state=open、repo_hint、base_branch、并发上限 3、review_focus、worktree_root。
 
 表格规则：
@@ -224,6 +229,7 @@ description = """
 - `处理` 简写 fixed / not-confirmed / needs-followup 计数，例如 `fixed 2, follow-up 1`。
 - `Resolve` 用 ✅/❌/➖ 和 resolved 数量表达。
 - `Push` 用 ✅/❌/➖ 表达是否 push；无改动也要说明“无改动”。
+- `清理` 用 ✅/❌/➖ 表达临时 worktree 是否清理。
 - `状态/下一步` 只能写最关键一句：完成 / 无待处理评论 / 需要人工 follow-up / worktree 失败 / metadata 失败 / push 失败。
 - 若没有 open PR，输出一句结论和配置即可，不要输出空表格。
 - 不要编造子流程输出中没有出现的测试、push、commit 或评论处理结果。

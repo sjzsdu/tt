@@ -83,38 +83,14 @@ if [ -z "$number" ] || [ -z "$head" ]; then
   exit 0
 fi
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-repo_root_real="$(cd "$repo_root" && pwd -P)"
 invocation_dir="$(pwd)"
 current_branch="$(git -C "$repo_root" branch --show-current 2>/dev/null || true)"
-if [ "$current_branch" = "$head" ]; then
-  jq -cn --arg path "$repo_root" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:true,reused_worktree:false,created:false,cleanup_required:false}'
-  exit 0
-fi
 safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
 worktree_root="$root_input"
 case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
 target="$worktree_root/pr-${number}-${safe_head}"
 pr_head_ref="refs/tt/pr-fix-comments/${number}/head"
 mkdir -p "$worktree_root"
-match_path=""
-current_path=""
-while IFS= read -r line; do
-  case "$line" in
-    worktree' '*) current_path="${line#worktree }" ;;
-    branch' 'refs/heads/*)
-      branch="${line#branch refs/heads/}"
-      if [ "$branch" = "$head" ]; then match_path="$current_path"; fi
-      ;;
-    "") if [ -n "$match_path" ]; then break; fi; current_path="" ;;
-  esac
-done < <(git -C "$repo_root" worktree list --porcelain)
-if [ -n "$match_path" ]; then
-  match_real="$(cd "$match_path" 2>/dev/null && pwd -P || printf '%s' "$match_path")"
-  if [ "$match_real" != "$repo_root_real" ]; then
-    jq -cn --arg path "$match_path" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:false}'
-    exit 0
-  fi
-fi
 if [ -d "$target/.git" ] || [ -f "$target/.git" ]; then
   if ! git -C "$target" diff --quiet || ! git -C "$target" diff --cached --quiet; then
     jq -cn --arg error "existing target worktree has uncommitted changes before PR checkout" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
@@ -124,32 +100,23 @@ if [ -d "$target/.git" ] || [ -f "$target/.git" ]; then
     jq -cn --arg error "git fetch PR head failed: $fetch_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
     exit 0
   fi
-  current_target_branch="$(git -C "$target" branch --show-current 2>/dev/null || true)"
-  if [ "$current_target_branch" != "$head" ]; then
-    if ! checkout_out="$(git -C "$target" checkout -B "$head" "$pr_head_ref" 2>&1)"; then
-      jq -cn --arg error "git checkout PR head failed: $checkout_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
-      exit 0
-    fi
+  if ! checkout_out="$(git -C "$target" checkout --detach "$pr_head_ref" 2>&1)"; then
+    jq -cn --arg error "git checkout PR head failed: $checkout_out" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:true,created:false}'
+    exit 0
   fi
-  jq -cn --arg path "$target" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:false}'
+  jq -cn --arg path "$target" --arg repo_root "$repo_root" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,repo_root:$repo_root,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:true,created:false,cleanup_required:true,detached:true}'
   exit 0
 fi
 if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" --prune 2>&1)"; then
   jq -cn --arg error "git fetch PR head failed: $fetch_out" '{ok:false,error:$error,workspace_path:"",reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
-git -C "$repo_root" branch -D "$head" >/dev/null 2>&1 || true
-if ! git -C "$repo_root" worktree add -B "$head" "$target" "$pr_head_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
+if ! git -C "$repo_root" worktree add --detach "$target" "$pr_head_ref" >/tmp/tt-pr-fix-worktree.log 2>&1; then
   err="$(cat /tmp/tt-pr-fix-worktree.log 2>/dev/null || true)"
   jq -cn --arg error "git worktree add failed: $err" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:false}'
   exit 0
 fi
-current_target_branch="$(git -C "$target" branch --show-current 2>/dev/null || true)"
-if [ "$current_target_branch" != "$head" ]; then
-  jq -cn --arg error "target worktree is on unexpected branch: $current_target_branch" --arg path "$target" '{ok:false,error:$error,workspace_path:$path,reused_current:false,reused_worktree:false,created:true}'
-  exit 0
-fi
-jq -cn --arg path "$target" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:false,created:true,cleanup_required:false}'
+jq -cn --arg path "$target" --arg repo_root "$repo_root" --arg branch "$head" --arg base "$base" '{ok:true,error:"",workspace_path:$path,repo_root:$repo_root,head_branch:$branch,base_branch:$base,reused_current:false,reused_worktree:false,created:true,cleanup_required:true,detached:true}'
 """]
 format = "json"
 timeout = "90s"
@@ -309,7 +276,7 @@ for c in comments.get('comment_items') or []:
     item = dict(c)
     item['issue_summary'] = summary
     items.append(item)
-print(json.dumps({'items': items, 'total': len(items), 'workspace_path': worktree.get('workspace_path') or '', 'worktree_ok': bool(worktree.get('ok')), 'worktree': worktree}, ensure_ascii=False, separators=(',', ':')))
+print(json.dumps({'items': items, 'total': len(items), 'should_process': (len(items) != 0 and bool(worktree.get('ok'))), 'workspace_path': worktree.get('workspace_path') or '', 'worktree_ok': bool(worktree.get('ok')), 'worktree': worktree}, ensure_ascii=False, separators=(',', ':')))
 """]
 format = "json"
 timeout = "30s"
@@ -328,7 +295,7 @@ id = "fix-each-comment"
 title = "逐条在 PR worktree 中执行 bug-fix"
 depends_on = ["normalize-comment-items"]
 input_context = ["normalize-comment-items.stdout"]
-condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-items.stdout.worktree_ok == true"
+condition = "normalize-comment-items.stdout.should_process == true"
 
   [steps.loop]
   for_each = "normalize-comment-items.stdout.items"
@@ -369,7 +336,7 @@ condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-item
 id = "resolve-review-threads"
 title = "resolve 已处理的 GitHub review threads"
 depends_on = ["fix-each-comment"]
-condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-items.stdout.worktree_ok == true"
+condition = "normalize-comment-items.stdout.should_process == true"
 execution = "script"
 description = "对已确认 fixed 或 not-confirmed 的评论线程调用 GitHub GraphQL resolveReviewThread；needs-followup 不自动 resolve。"
 
@@ -446,7 +413,7 @@ required = ["stdout"]
 id = "commit-and-push"
 title = "提交并 push PR 分支"
 depends_on = ["resolve-review-threads"]
-condition = "normalize-comment-items.stdout.total != 0 && normalize-comment-items.stdout.worktree_ok == true"
+condition = "normalize-comment-items.stdout.should_process == true"
 execution = "script"
 description = "若 worktree 有改动，则自动 git add/commit --no-verify，然后 git push --no-verify origin HEAD:<PR head branch>。"
 
@@ -522,3 +489,45 @@ description = """
 """
 agent.name = "reporter"
 agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"
+
+[[steps]]
+id = "cleanup-worktree"
+title = "清理临时评论修复 worktree"
+depends_on = ["final-report"]
+condition = "prepare-fix-worktree.stdout.cleanup_required == true"
+execution = "script"
+description = "移除本流程创建或复用的 .tt 隔离 worktree；不清理当前工作区或外部 worktree。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -u
+workspace="${TT_WORKSPACE_PATH:-}"
+repo_root="${TT_REPO_ROOT:-}"
+if [ -z "$workspace" ]; then
+  jq -cn '{attempted:false,removed:false,workspace_path:"",stderr:"missing workspace_path"}'
+  exit 0
+fi
+if [ -z "$repo_root" ] || [ ! -d "$repo_root/.git" ]; then
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
+if [ ! -e "$workspace" ]; then
+  git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
+  jq -cn --arg workspace_path "$workspace" '{attempted:true,removed:true,already_absent:true,workspace_path:$workspace_path,stdout:"",stderr:""}'
+  exit 0
+fi
+out="$(git -C "$repo_root" worktree remove --force --force "$workspace" 2>&1)"
+rc=$?
+git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
+jq -cn --arg workspace_path "$workspace" --arg output "$out" --argjson removed "$([ "$rc" -eq 0 ] && echo true || echo false)" '{attempted:true,removed:$removed,already_absent:false,workspace_path:$workspace_path,stdout:(if $removed then $output else "" end),stderr:(if $removed then "" else $output end)}'
+"""]
+format = "json"
+timeout = "60s"
+continue_on_error = true
+
+[steps.script.env]
+TT_WORKSPACE_PATH = "{{prepare-fix-worktree.stdout.workspace_path}}"
+TT_REPO_ROOT = "{{prepare-fix-worktree.stdout.repo_root}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
