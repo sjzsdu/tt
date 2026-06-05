@@ -1,0 +1,234 @@
+formula = "github-my-prs-fix-comments"
+description = "获取当前 GitHub 仓库中当前用户仍 open 的所有 PR，并并发复用 github-pr-fix-comments 处理每个 PR 的未解决 review comments。"
+version = 1
+type = "workflow"
+category = "github"
+tags = ["github", "pr", "review", "comments", "batch", "parallel"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "gh"
+command = "gh"
+message = "需要安装 GitHub CLI: https://cli.github.com/"
+
+[[preflight.checks]]
+type = "exec"
+name = "gh-auth"
+command = "gh auth status"
+message = "GitHub CLI 未登录或不可用，请先执行 gh auth login"
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = true
+message = "当前目录必须是带 origin remote 的 git 仓库"
+
+[vars]
+repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+author = { description = "PR 作者筛选，默认 @me 表示当前 gh 登录用户", default = "@me" }
+base_branch = { description = "目标 base 分支筛选，默认 main；为空或 - 表示不过滤 base", default = "main" }
+review_focus = { description = "处理评论时重点关注方面，会传给每个单 PR 评论修复流程", default = "正确性、风险与可维护性" }
+worktree_root = { description = "隔离 worktree 根目录，默认 .tt/worktrees/github-pr-fix-comments；相对路径按执行命令时的目录解析", default = ".tt/worktrees/github-pr-fix-comments" }
+
+[[steps]]
+id = "fetch-open-prs"
+title = "获取当前用户 open PR 列表"
+embed = "github-list-my-prs"
+
+[steps.embed_vars]
+repo_hint = "{{repo_hint}}"
+author = "{{author}}"
+state = "open"
+limit = "200"
+base_branch = "{{base_branch}}"
+
+[[steps]]
+id = "fix-comments-each-pr"
+title = "并发处理每个 open PR 的 review comments"
+depends_on = ["fetch-open-prs"]
+condition = "fetch-open-prs.prs.stdout.total != 0"
+
+  [steps.loop]
+  for_each = "fetch-open-prs.prs.stdout.items"
+  var = "pr"
+  parallel = true
+  max_concurrency = 3
+
+  [[steps.loop.body]]
+  id = "run-pr-fix-comments"
+  title = "处理 PR #{{pr.number}} review comments"
+  embed = "github-pr-fix-comments"
+
+  [steps.loop.body.embed_vars]
+  pr_ref = "{{pr.pr_ref}}"
+  repo_hint = "{{repo_hint}}"
+  review_focus = "{{review_focus}}"
+  worktree_root = "{{worktree_root}}"
+
+  [[steps.loop.body]]
+  id = "collect-pr-result"
+  title = "汇总 PR #{{pr.number}} 评论处理结果"
+  execution = "script"
+  depends_on = ["run-pr-fix-comments"]
+
+  [steps.loop.body.script]
+  command = ["python3", "-c", """
+import json, os, traceback
+
+def parse(name, default=None):
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default if default is not None else {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {'_raw': raw}
+
+try:
+    pr = parse('TT_PR', {})
+    meta = parse('TT_META', {})
+    prepare = parse('TT_PREPARE', {})
+    comments = parse('TT_COMMENTS', {})
+    normalized = parse('TT_NORMALIZED', {})
+    fix_results = parse('TT_FIX_RESULTS', [])
+    resolve = parse('TT_RESOLVE', {})
+    push = parse('TT_PUSH', {})
+    report = os.environ.get('TT_FINAL_REPORT', '').strip()
+
+    total_comments = int(normalized.get('total') if normalized.get('total') is not None else comments.get('pending_count') or 0)
+    worktree_ok = bool(normalized.get('worktree_ok') if 'worktree_ok' in normalized else prepare.get('ok'))
+    fixed = not_confirmed = needs_followup = result_count = 0
+    for row in fix_results if isinstance(fix_results, list) else []:
+        obj = row.get('stdout') if isinstance(row, dict) and isinstance(row.get('stdout'), dict) else row
+        if not isinstance(obj, dict):
+            continue
+        status = obj.get('status') or ''
+        if status:
+            result_count += 1
+        if status == 'fixed':
+            fixed += 1
+        elif status == 'not-confirmed':
+            not_confirmed += 1
+        elif status == 'needs-followup':
+            needs_followup += 1
+
+    if meta.get('ok') is False:
+        status = 'metadata_failed'
+        blocker = meta.get('error') or 'PR metadata unavailable'
+    elif prepare.get('ok') is False:
+        status = 'worktree_failed'
+        blocker = prepare.get('error') or 'worktree preparation failed'
+    elif total_comments == 0:
+        status = 'no_comments'
+        blocker = ''
+    elif not worktree_ok:
+        status = 'worktree_failed'
+        blocker = prepare.get('error') or 'worktree unavailable'
+    elif needs_followup:
+        status = 'needs_followup'
+        blocker = f'{needs_followup} comment(s) need follow-up'
+    elif push.get('ok') is False:
+        status = 'push_failed'
+        blocker = push.get('error') or 'push failed'
+    else:
+        status = 'completed'
+        blocker = ''
+
+    result = {
+        'pr_number': pr.get('number') or meta.get('number'),
+        'title': pr.get('title') or meta.get('title') or '',
+        'url': pr.get('url') or meta.get('url') or '',
+        'head_branch': pr.get('headRefName') or meta.get('headRefName') or '',
+        'base_branch': pr.get('baseRefName') or meta.get('baseRefName') or '',
+        'status': status,
+        'blocker': blocker,
+        'pending_comments': total_comments,
+        'processed_comments': result_count,
+        'fixed': fixed,
+        'not_confirmed': not_confirmed,
+        'needs_followup': needs_followup,
+        'worktree_ok': worktree_ok,
+        'workspace_path': normalized.get('workspace_path') or prepare.get('workspace_path') or '',
+        'reused_current': bool(prepare.get('reused_current')),
+        'reused_worktree': bool(prepare.get('reused_worktree')),
+        'created': bool(prepare.get('created')),
+        'resolved_threads': resolve.get('resolved_count'),
+        'resolve_failed': resolve.get('failed_count'),
+        'push_ok': push.get('ok'),
+        'pushed': bool(push.get('pushed')),
+        'committed': bool(push.get('committed')),
+        'changed': bool(push.get('changed')),
+        'commit_sha': push.get('commit_sha') or '',
+        'final_report_excerpt': report[:500],
+    }
+except Exception as exc:
+    result = {'status': 'failed', 'error': f'collect result failed: {exc}', 'traceback': traceback.format_exc()[-2000:]}
+print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
+"""]
+  format = "json"
+  timeout = "30s"
+
+  [steps.loop.body.script.env]
+  TT_PR = "{{pr}}"
+  TT_META = "{{run-pr-fix-comments.fetch-pr-metadata.pr.stdout}}"
+  TT_PREPARE = "{{run-pr-fix-comments.prepare-fix-worktree.stdout}}"
+  TT_COMMENTS = "{{run-pr-fix-comments.fetch-review-comments.stdout}}"
+  TT_NORMALIZED = "{{run-pr-fix-comments.normalize-comment-items.stdout}}"
+  TT_FIX_RESULTS = "{{run-pr-fix-comments.fix-each-comment}}"
+  TT_RESOLVE = "{{run-pr-fix-comments.resolve-review-threads.stdout}}"
+  TT_PUSH = "{{run-pr-fix-comments.commit-and-push.stdout}}"
+  TT_FINAL_REPORT = "{{run-pr-fix-comments.final-report}}"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["stdout"]
+
+[[steps]]
+id = "final-report"
+title = "输出批量 PR review comments 修复报告"
+depends_on = ["fetch-open-prs", "fix-comments-each-pr"]
+input_context = ["fetch-open-prs.prs.stdout", "fix-comments-each-pr"]
+description = """
+输出中文最终报告，必须简明、结论先行，不要展开长篇过程日志。
+
+固定输出结构：
+1. `## 结论`：1-3 句话说明 PR 总数、有待处理评论的 PR 数、完成数、需要 follow-up 数、push/commit 情况。
+2. `## PR 明细`：必须用 Markdown 表格，且只保留这些列：
+   `PR`、`标题`、`分支`、`评论`、`处理`、`Resolve`、`Push`、`状态/下一步`。
+3. `## 配置`：一行说明 author、state=open、repo_hint、base_branch、并发上限 3、review_focus、worktree_root。
+
+表格规则：
+- `PR` 列使用 `#编号`，有 URL 时做成链接。
+- `评论` 用 `待处理/已处理` 形式，例如 `3/3`；没有评论写 `0`。
+- `处理` 简写 fixed / not-confirmed / needs-followup 计数，例如 `fixed 2, follow-up 1`。
+- `Resolve` 用 ✅/❌/➖ 和 resolved 数量表达。
+- `Push` 用 ✅/❌/➖ 表达是否 push；无改动也要说明“无改动”。
+- `状态/下一步` 只能写最关键一句：完成 / 无待处理评论 / 需要人工 follow-up / worktree 失败 / metadata 失败 / push 失败。
+- 若没有 open PR，输出一句结论和配置即可，不要输出空表格。
+- 不要编造子流程输出中没有出现的测试、push、commit 或评论处理结果。
+- 不要粘贴每个子流程的完整 final_report，只能基于结构化字段总结。
+"""
+
+[steps.agent]
+name = "reporter"
