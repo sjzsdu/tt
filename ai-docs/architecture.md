@@ -1,6 +1,6 @@
 # 架构与运行模型
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 ## 总体结论
 
@@ -114,12 +114,14 @@ sequenceDiagram
     Exec->>PC: 对 agent step 调用 DirectRunner
     Exec->>Exec: 对 script step 走 ScriptCapability (含 safety policy)
     Exec->>Exec: 对 human_input 走 await
-    Exec->>PC: script 失败时尝试 coder agent 修复
-    Exec->>Exec: 校验 agent output schema 失败 → advice retry
+    Exec->>Exec: failed/校验失败 → StepFixer 抽象（agentFixer/scriptFixer）
+    Exec->>Exec:  按 idempotent 决定是否重试；最多 3 次 attempt
+    Exec->>Exec:  写 RepairRecord → state + patches/<run-id>.json
+    Exec->>Dash: 推送 step.repair.recorded → Repairs 面板
     Exec->>Store: 持续写入状态、事件、步骤产物
     Exec->>Dash: 推送步骤运行状态
-    Store-->>Cmd: 保存 run.json / state.json / logs.jsonl / steps/*
-    Cmd-->>User: 终端输出或 dashboard
+    Store-->>Cmd: 保存 run.json / state.json / logs.jsonl / steps/* / patches/<run-id>.json
+    Cmd-->>User: 终端输出或 dashboard（含 Repairs 面板 + Confirm reviewed）
 ```
 
 这个链路体现了项目里最复杂的协作关系：formula 提供"声明式定义"，typed runtime 提供"执行语义"，Picoclaw 提供"智能步骤执行能力"，formularun 提供"可恢复的运行痕迹"。
@@ -195,9 +197,11 @@ flowchart TD
     E --> E3[topological planning]
     E --> E4[agent / script / human_input step]
     E --> E5[runtime condition / loop.until]
-    E --> E6[script repair via coder agent]
-    E --> E7[output schema validation + advice retry]
-    E --> E8[Environment context 注入]
+    E --> E6[StepFixer 抽象<br/>agentFixer / scriptFixer]
+    E --> E7[idempotent gate + 最多 3 次 attempt]
+    E --> E8[output schema validation + advice retry]
+    E --> E9[Environment context 注入]
+    E --> E10[RepairRecord → patches/<run-id>.json<br/>+ dashboard Repairs 面板 + 人工 confirm]
 ```
 
 这张图最值得注意的是：**formula 不是边解析边执行，而是先解析成 Formula，再编译成 typed `ir.Workflow`（含 `steps.Step` 接口实例），再交给 typed runtime 运行**。这让编译和执行两个阶段职责更清晰，也更利于 resume、可视化和落盘。

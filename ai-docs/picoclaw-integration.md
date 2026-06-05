@@ -1,6 +1,6 @@
 # Picoclaw 集成与嵌入式 Agent
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 `tt` 的很多高价值能力——`agent`、`agent info`、`agent optimize`、`translate`、`debate`、`nvwa`、`repo2skill`、`docs analyze`，甚至 `formula create/optimize/run` 与 `formula run` 内的 agent step ——本质上都依赖同一件事：**在当前进程内复用 Picoclaw runtime。**
 
@@ -206,7 +206,8 @@ flowchart LR
     F[docs analyze] --> P
     G[formula create/optimize] --> P
     G2[formula run agent step] --> P
-    H[script step repair via coder] --> P
+    H[StepFixer · scriptFixer 修命令] --> P
+    H2[StepFixer · agentFixer advice retry] --> P
 
     P --> IA[embedded agents]
     P --> CA[configured agents]

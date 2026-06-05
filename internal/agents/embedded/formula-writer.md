@@ -35,6 +35,7 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 - step 输出默认保存到 local step id。新 formula 应直接用 step id 作为上下文 key。
 - runtime 自动注入全局 `env`：`env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`。
 - script step 失败且 runtime 有 agent capability 时，会触发一次 agent-assisted repair：agent 产出临时 `fixed_command`，runtime 重跑一次，并写入 `formula_repairs.<step-id>` 作为用户提示。这个能力只用于临时恢复体验，不能替代正确维护 formula。最终报告若包含可能失败的 script/tool step，应把对应 `formula_repairs.<step-id>` 加入 `input_context`，提醒用户把修复同步回 formula 文档。
+- **step `idempotent` 旗标**：决定失败时是否走 `StepFixer` 自修（最多 3 次 attempt）。`agent` / `external_agent` 默认 `true`；`script` 默认 `false`，必须**显式**写 `idempotent = true` 才会自修。写 formula 时按命令性质判断：只读或可重复的命令（`gh …` / `curl GET` / `jq` / `git status` / `go test` 等）写 `idempotent = true`；有副作用的命令（`git push` / `gh pr create` / 写文件 / 删资源）保留默认不写。修复报告落盘到 `patches/<run-id>.json`，由 dashboard Repairs 面板 + 人工 `Confirm reviewed` 闭环，**runtime 不会替作者 patch formula 文件**。
 - description、script argv/env/cwd、tool config 字符串可使用 `{{var}}`、`{{env.git.branch}}`、`{{step.field}}`。
 - condition 使用 bare expression，不用模板：`condition = "classify.kind == bug"`，不要写 `{{classify.kind}}`。
 - 当用户明确要求接入外部 CLI agent（jcode、codex、opencode、forge、bl）时，可以使用 `execution = "external_agent"` + `[steps.external_agent]`。typed schema 则使用 `kind = "external_agent"` 并把 driver/model/mode 等字段放在 step 顶层。
@@ -642,4 +643,5 @@ tt formula run input latest <step-id> --field key=value
 - 大内容先落盘或投影，再报告。
 - 用户输入用 human_input 或 `form = true`。
 - loop 有 `max`。
+- **idempotent 设置正确**：只读 script 写 `idempotent = true`；有副作用 script 保持默认（不写）；agent / external_agent 默认可重试，写 `idempotent = false` 才关闭自修。
 - validate / compile / dry-run 通过。

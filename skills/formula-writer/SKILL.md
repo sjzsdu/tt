@@ -21,6 +21,11 @@ The core rule is:
 - Runtime templates such as `{{topic}}`, `{{env.cwd}}`, and `{{some-step.field}}` can be used in descriptions, script argv/env/cwd, and tool config strings.
 - Conditions use bare expressions, not templates: `condition = "classify.kind == bug"`, not `condition = "{{classify.kind}} == bug"`.
 - External agent steps are available when a workflow should delegate to an installed CLI agent such as jcode, codex, opencode, forge, or bl. In recipe TOML use `execution = "external_agent"` plus `[steps.external_agent]`; in typed schema use `kind = "external_agent"` and top-level driver fields.
+- **Self-Repair**: failed / validation-failed steps go through a `StepFixer` abstraction (`agentFixer` / `scriptFixer`) and may be retried up to 3 attempts. Whether a step may be retried is controlled by the `idempotent` flag (recipe TOML: top-level `idempotent = true|false`; typed schema: `StepDecl.Idempotent`). Defaults by kind:
+  - `agent` / `external_agent` → `true` (LLM call, no persistent side effect)
+  - `script` → `false` (shell may have side effects; must opt-in explicitly)
+  - `tool` / `aggregate` / `write_files` / `noop` / `human_input` / `loop` / `retry` → not in the fix path
+  - Repair reports are persisted to `patches/<run-id>.json` and surfaced in the dashboard `Repairs` panel with a `Confirm reviewed` flow; the runtime never auto-patches the formula file.
 
 ## Delivery contract
 
@@ -124,6 +129,7 @@ Notes:
 - `bl` is routed through `jcode run --provider bl`.
 - Always add a matching `[preflight]` command check for non-standard CLIs such as `codex`, `opencode`, or `forge`.
 - `codex` resume maps to `codex exec resume <session>`. `forge` maps to top-level `forge --prompt`; let forge use the provider/model configured during installation or setup; do not add a generic forge `--model` flag.
+- `external_agent` defaults to `idempotent = true`; opt out with `idempotent = false` only if a particular driver/install has side effects (rare).
 
 ## Minimal formula skeleton
 
@@ -447,6 +453,7 @@ Script rules:
 - Always set `timeout` for non-trivial commands.
 - Use `continue_on_error = true` when failure should become report data.
 - Avoid destructive commands: `rm -rf`, `sudo`, `chmod`, `chown`, `dd`, `mkfs`, shutdown/reboot, pipe-to-shell.
+- **Idempotency**: `script` defaults to `idempotent = false`. For commands that are safe to re-run (read-only commands like `gh`, `curl GET`, `jq`, `git status`/`git diff`/`git fetch`, `go test`), add `idempotent = true` to enable the runtime's `scriptFixer` self-repair (up to 3 attempts, persisted as `RepairRecord`). Leave the default for side-effecting commands (`git push`, `gh pr create`, anything that writes).
 
 ### 5. Static human input step, for known gates
 
@@ -663,3 +670,57 @@ Before handing off:
 8. Human input uses `human_input` or `form = true`, not “ask the user” prose.
 9. Loops have `max` and inspectable bodies.
 10. Validation/compile/dry-run commands pass.
+11. Side-effecting `script` steps are left at the default (`idempotent = false`); safe read-only scripts opt in with `idempotent = true` so the runtime's `StepFixer` can retry them.
+
+## Self-Repair (StepFixer)
+
+When a step fails or its `validate` schema fails, the typed runtime can automatically retry it. The mechanism is a `StepFixer` registry, the retry loop lives in `executor.tryFixAndRerun`, and it caps at `maxFixAttempts = 3` (compile-time constant; per-step override is a future feature).
+
+### Opt-in / opt-out
+
+| Kind | Default `idempotent` | To enable Self-Repair |
+| --- | --- | --- |
+| `agent` | `true` | nothing required; set `idempotent = false` to opt out |
+| `external_agent` | `true` | same as `agent` |
+| `script` | `false` | add `idempotent = true` explicitly |
+| `tool` / `aggregate` / `write_files` / `noop` / `human_input` / `loop` / `retry` | n/a (not in the fix path) | n/a |
+
+Examples:
+
+```toml
+# Read-only script — opt in to self-repair
+[[steps]]
+id = "fetch-pr"
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title,state"]
+timeout = "30s"
+
+# Side-effecting script — keep default (no self-repair)
+[[steps]]
+id = "push-branch"
+execution = "script"
+# idempotent = false   ← implicit; explicit write is also fine
+
+[steps.script]
+command = ["git", "push", "--force-with-lease", "origin", "HEAD"]
+```
+
+### What gets written
+
+Each attempt produces a `RepairRecord` (fields: `StepID / Kind / Attempt / Status / Reason / Advice / FormulaUpdateHint / NextAttemptHint / OriginalCommand / FixedCommand / Error / RecordedAt / ConfirmedAt / ConfirmationStatus`). The list is:
+
+- kept in `runtime.Snapshot.Repairs` for the dashboard;
+- persisted to `patches/<run-id>.json` via `formularun.Store.SaveRepairs`;
+- broadcast over the dashboard WebSocket as `step.repair.recorded` events.
+
+### Author workflow after a run
+
+1. Open the run, look at the dashboard `Repairs` panel.
+2. Click `Confirm reviewed` on each entry once you have read the `FormulaUpdateHint` (or for `script` entries, the `OriginalCommand` → `FixedCommand` diff).
+3. Manually apply the patch to the formula file (the runtime never writes the formula file). `tt formula create` / `optimize` can be used to regenerate cleanly.
+4. Re-run the formula to confirm the fix.
+
+Never declare `idempotent = true` for steps whose retry could corrupt state (writes, deletes, force pushes, stateful API calls). When in doubt, keep the default.

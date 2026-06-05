@@ -1,6 +1,6 @@
 # 项目概览
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 ## 这是什么
 
@@ -105,6 +105,7 @@ flowchart TD
 - workspace 策略（`worktree`，自动建分支、稀疏 checkout、cleanup）
 - agent step 输出 schema 校验失败 → 自动 retry with advice
 - script step 失败 → 用 `coder` agent 智能修复一次
+- **StepFixer 自我修复抽象**（agent / script 走统一接口），`idempotent` 旗标按 kind 默认决定是否重试（agent 默认 true、script 默认 false），最多 3 次 attempt，attempt-aware advice 升级，修复报告 `RepairRecord` 落盘 `patches/<run-id>.json` 并通过 dashboard `Repairs` 面板 + 人工 `Confirm reviewed` 闭环
 - 运行记录持久化与 Web Dashboard（`tt formula runs` / `tt formula run open`）
 - 支持 resume（从中断处继续执行，含 step-id context 恢复）
 - 支持 create/optimize（用嵌入式 `formula-writer` agent 生成和优化 formula）

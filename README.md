@@ -161,6 +161,15 @@ Final report chat behavior:
 - Chat history is persisted inside the formula snapshot, so it can reappear after dashboard refresh or reconnect.
 - If no final report exists, the report view still opens, but the chat panel shows an unavailable state instead of blocking report access.
 
+Self-repair (StepFixer) behavior:
+
+- Failed or validation-failed steps go through a `StepFixer` abstraction (`agentFixer` / `scriptFixer`) and may be retried up to 3 attempts.
+- Whether a step may be retried is controlled by the `idempotent` flag on the step. `agent` and `external_agent` default to `true`; `script` defaults to `false` and must opt in with `idempotent = true`. `tool` / `aggregate` / `write_files` / `noop` / `human_input` / `loop` / `retry` are not in the fix path.
+- Each attempt writes a `RepairRecord` (step, kind, attempt, status, reason, advice, formula update hint, original/fixed command, error, confirmation status) to the run store.
+- Repair reports are persisted to `patches/<run-id>.json` (separate from `state.json` so they can be `git diff`-ed or applied later) and surfaced in the dashboard `Repairs` panel.
+- The dashboard exposes a `Confirm reviewed` button for each repair; the runtime never auto-patches the formula file. The `FormulaUpdateHint` is a suggestion; the author decides when to apply changes.
+- For a step-level overview see the `Self-Repair` section in `ai-docs/formula-system.md` and the `Self-Repair (StepFixer)` section in the `formula-writer` skill.
+
 Current limitation:
 
 - Because chat messages are stored in the snapshot and broadcast through the dashboard state, very long follow-up chats increase snapshot size and websocket payload size.

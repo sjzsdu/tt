@@ -1,6 +1,6 @@
 # 内置 Formula 与 Atomic 清单
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 `tt` 仓库自带一组 `tt formula run` 即可直接使用的 workflow 模板（`formulas/`）和可被 inline include / `embed` / `expand` 复用的原子步骤（`atomics/`）。本目录列出现在仓库里实际打包的内容，帮助：
 
@@ -117,3 +117,7 @@ Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[
 
 - 用户目录中的 `.toml` 优先于 builtin 同名公式（[推测]）—— 这与 `internal/formula/builtin/load.go` 把 builtin 注入到下层 namespace 的常见做法一致；同名时本地覆盖，便于就地修改而无需升级 `tt`。
 - 想临时回到 builtin：`tt formula run --builtin <name>` 形式未在当前 CLI 中暴露（[推测]）；如需使用，复制到本地再 `tt formula copy`。
+
+## 自我修复与 builtin
+
+builtin / atomic 中的 `script` step 默认 `idempotent = false`，runtime 不会自动重试。要让某个 command（如 `gh pr view`、`git status`、`jq …` 这类只读命令）参与 `StepFixer` 自我修复，必须在 fork 后显式写 `idempotent = true`。详见 [Step Kinds 参考 · 通用字段](./step-kinds-reference.md#通用字段) 与 [Formula 系统 · 自我修复](./formula-system.md#自我修复self-repair)。

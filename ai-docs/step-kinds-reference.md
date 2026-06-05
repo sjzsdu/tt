@@ -1,6 +1,6 @@
 # Step Kinds 参考
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 本文档是 `tt formula` typed runtime 所有 step kind 的速查与示例参考。kind 枚举与默认值以 `internal/formula/steps/step.go` 和 `internal/formula/steps/kinds.go` 为准。
 
@@ -11,6 +11,7 @@
 - 想在执行前拦截 → 写 `[preflight]`；想在执行时过滤 → 用 `condition`；想在多分支中选一条 → 用 `gate`。
 - 想做并发迭代 → 用 `loop` + `for_each` / `parallel` / `max_concurrency`。
 - 想保留兼容性 → 优先用 `agent` / `script` / `human_input` / `noop`，它们在 `NewDefaultRegistry` 中默认注册；其它 kind 仅在自定义 registry 下可用。
+- 想让 step **失败时自动修复** → 看 [自我修复](./formula-system.md#自我修复self-repair)：agent 默认 idempotent、script 必须显式写 `idempotent = true` 才会走 `StepFixer` 重试路径。
 
 ## 通用字段
 
@@ -26,6 +27,7 @@
 | `needs` / `waits_for` | 额外数据/事件依赖 |
 | `condition` | 表达式，runtime 评估；为 false 时该 step 被跳过（仍计入 run） |
 | `validate` | 输出 schema 校验；失败时对 agent step 会自动 advice retry 一次 |
+| `idempotent` | 布尔（typed schema: `StepDecl.Idempotent`；recipe TOML: 顶层 `idempotent = true`）；决定失败时是否能被 `StepFixer` 重新执行。`agent` / `external_agent` 默认可重试；`script` 默认**非幂等**，必须显式写 `idempotent = true` 才走自修路径 |
 | `output_key` | 可选覆盖默认输出 key；新公式不要写 |
 | `execution` | `agent` / `script` / `human_input` / `aggregate` / `tool` / `write_files` / `noop` |
 
@@ -66,7 +68,12 @@ types = { conclusion = "string" }
 - `input_context` 中的每个 key 会被附加为"## Input context"段到 prompt 末尾。
 - `dynamic_form = true` 时，agent 若输出包含 `tt-human-input` 的 fenced 块，会被解析为 `AwaitRequest`，step 状态变 `waiting_input`，run 进入暂停。
 - `cwd` 为空时回退到 `env.workspace_cwd`，再回退到 `env.invocation_cwd`。
-- `validate` 失败时，runtime 会追加 advice（指出缺失字段）后自动重试一次。
+- **自我修复**：`agent` 默认 `idempotent = true`，失败或 `validate` 校验失败时走 `StepFixer` 抽象里的 `agentFixer` 重试，**最多 3 次 attempt**。每次 attempt 的 advice 会升级：
+  - `attempt = 1` —— 基础 validation feedback
+  - `attempt >= 2` —— 追加 required JSON shape + self-check
+  - `attempt >= 3` —— 进一步收紧到 "只输出一个紧凑 JSON 值"
+- 修复过程会写 `RepairRecord`（含 `Advice` / `FormulaUpdateHint` / `NextAttemptHint`）到 `patches/<run-id>.json`，dashboard `Repairs` 面板可见。
+- 如果想关闭自动重试（比如在跑大模型时希望一次失败就停），显式写 `idempotent = false`。
 
 ### `script` —— 确定性脚本步骤
 
@@ -94,7 +101,17 @@ env = { MY_VAR = "{{issue_summary}}" }
   - 这条策略在 `--allow-shell-script` 之外总是生效；若确实需要 `rm`，请用 `git worktree remove` / 显式 move 到 `.tt/tmp/`。
 - 默认注入环境变量：`TT_INVOCATION_CWD` / `TT_WORKSPACE_CWD` / `TT_FORMULA_RUN_DIR`。
 - `format` 影响 output value 的 `Type` 字段（影响后续 `aggregate` / `condition` 的 JSON 解析）。
-- 失败时会触发 **script repair**：runtime 用嵌入式 `coder` agent 修一次命令并把 patch 写到 `formula_repairs.<step-id>`，然后重跑。修复次数超过 1 会终止。
+- **自我修复**（`scriptFixer`）：script step 默认 `idempotent = false`，失败时 runtime **不会自动重试**，而是直接终止。要让 runtime 走 `StepFixer` 自动修命令 + 重跑，必须显式写：
+
+  ```toml
+  [[steps]]
+  id = "fetch-pr"
+  title = "Fetch PR metadata"
+  execution = "script"
+  idempotent = true   # ← 显式声明可重试；script 默认 false
+  ```
+
+  修复最多 3 次 attempt，每次 attempt 都会生成 `RepairRecord`（含 `OriginalCommand` / `FixedCommand` / `NextAttemptHint`），落盘到 `patches/<run-id>.json`，推到 dashboard `Repairs` 面板。runtime 不会替作者 patch formula —— `FormulaUpdateHint` 仅作为建议，等用户 `Confirm reviewed` 后再用 `tt formula create` / `optimize` 改回源文件。
 
 ### `human_input` —— 静态澄清表单
 

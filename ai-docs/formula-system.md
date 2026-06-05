@@ -1,6 +1,6 @@
 # Formula 工作流系统
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 `tt formula` 现在是一个 graph-first typed workflow 引擎。它不再通过旧的 task tree 中间模型执行，而是把声明式 TOML 直接解析、展开并编译成 `internal/formula/ir.Workflow`，再由 typed runtime 执行具体的 `steps.Step` 实现。
 
@@ -42,8 +42,8 @@ flowchart TD
 1. **定义阶段**：作者写 formula TOML（用户目录或 `internal/formula/builtin/`）。
 2. **编译阶段**：解析继承、组合、扩展、嵌入、advice、compile-time condition；用 `internal/formula/compile/compiler.go` 把 AST 编译成 `ir.Workflow`，节点上挂 typed `steps.Step`。
 3. **预检与 workspace 准备**：`preflight` 检查 + `prepareWorkspace`（按 `WorkspaceSpec` 创建 worktree/分支/sparse checkout）。
-4. **执行阶段**：typed runtime 按依赖图运行具体 Step 实现。包含 runtime condition、loop/until、output validation advice、script repair。
-5. **观察阶段**：run store + dashboard 持续展示、恢复、提交人工输入。
+4. **执行阶段**：typed runtime 按依赖图运行具体 Step 实现。包含 runtime condition、loop/until、output validation advice、**StepFixer 自我修复**（agent / script 走统一抽象，最多 3 次 attempt，按 kind 默认 `idempotent` 决定是否重试）。
+5. **观察阶段**：run store + dashboard 持续展示、恢复、提交人工输入；自我修复产生的 `RepairRecord` 持久化到 `patches/<run-id>.json`，dashboard `Repairs` 面板提供人工 `Confirm reviewed` 流。
 
 ## 定义模型
 
@@ -229,8 +229,7 @@ const (
 4. 对每个 node：先恢复上次已完成 step 的结果；用 `shouldRunStep` 评估 runtime condition；用对应 `Step` 实现执行；按 status 处理：
    - `completed` → 把输出写入 `ContextStore`（key = step id 或 `output_key`）+ `SaveStep` + `step.completed`
    - `waiting` → 标记 `waiting_input` 并停机
-   - `failed` → 先尝试 `tryRepairFailedScriptStep`（用 `coder` agent 修一次）；否则终止
-   - output 校验失败 → 若是 agent step，附加 advice retry 一次
+   - `failed` / output 校验失败 → 调用 `tryFixAndRerun` 走 **StepFixer 抽象**：按 step kind 选 `agentFixer` / `scriptFixer`（agent 默认 idempotent,script 默认非幂等），最多 `maxFixAttempts = 3` 次 attempt，attempt-aware advice 升级 prompt；写 `RepairRecord` 到 state，再落盘到 `patches/<run-id>.json`，并通过 `step.repair.recorded` 事件推到 dashboard
 5. 结束时 `FinishWorkflow` + `workflow.completed`/`failed` 事件；并 `finalizeWorkspace`（按 cleanup 策略删除临时 worktree）。
 
 ```mermaid
@@ -246,12 +245,142 @@ flowchart TD
     E -->|noop| J[completed]
     F --> K[ContextStore key = step id]
     G --> K
-    G -. script 失败 .-> R[coder agent 修一次]
-    F -. 校验失败 .-> Adv[advice retry]
+    G -. failed / 校验失败 .-> R[StepFixer 抽象<br/>agentFixer / scriptFixer]
+    F -. failed / 校验失败 .-> R
+    R -. idempotent? .-> S{Idempotent<br/>(agent 默认 true<br/>script 默认 false)}
+    S -->|yes| T[最多 3 次 attempt<br/>attempt-aware advice]
+    S -->|no| Sk[skipped_non_idempotent]
+    T --> F
+    T --> G
+    T --> Rep[RepairRecord → state +<br/>patches/<run-id>.json]
+    Rep --> Dash[Dashboard Repairs 面板]
     H --> L[waiting_input]
     K --> M[FormulaRunStateStore]
-    Adv --> F
 ```
+
+## 自我修复（Self-Repair）
+
+失败不应止于一条错误日志。typed runtime 把"agent / script step 失败 → 自动调整 → 再跑"作为一等公民能力。
+
+### StepFixer 抽象
+
+`internal/formula/runtime/stepfixer.go` 定义了一个 `StepFixer` 注册表：
+
+```go
+type StepFixer interface {
+    Kind() string                  // agent / script
+    AllowFix(step) bool            // 是否可重试（受 idempotent 约束）
+    Fix(ctx, fixerContext) (FixReport, error)
+}
+
+type FixReport struct {
+    Advice            string // 注入到下一次 attempt prompt 的建议
+    FormulaUpdateHint string // 持久化到 RepairRecord，给作者回写 formula
+    NextAttemptHint   string // 给执行器的下一步提示
+    OriginalCommand   string // script 专用
+    FixedCommand      string // script 专用
+}
+```
+
+实现：
+
+- `agentFixer` —— agent step 失败或 validation 失败时使用，让 agent 用更新后的 prompt（含 Advice + 自检要点）再生成。`attempt >= 2` 会附加 schema shape + self-check；`attempt >= 3` 进一步收紧到 "只输出一个紧凑 JSON 值"。
+- `scriptFixer` —— script step 失败时使用，让 `coder` agent 产出 `fixed_command` 并重跑；产出 `OriginalCommand` / `FixedCommand` / `NextAttemptHint`。
+
+注册表按 step kind 派发，未来加 `toolFixer` / `externalAgentFixer` 只需注册到 `DefaultFixerRegistry`，无需改 executor。
+
+### Idempotent 旗标
+
+每个 step 都可声明 `idempotent = true|false`（typed schema `StepDecl.Idempotent` + recipe TOML 的 step-level 字段）。runtime 把它透传到 `steps.Metadata.Idempotent`，executor 在 `stepAllowsFix` 中按 kind 决定默认值：
+
+| Step kind | 默认 `idempotent` | 含义 |
+| --- | --- | --- |
+| `agent` | `true` | LLM 调用可重复，不会留下持久副作用 |
+| `external_agent` | `true` | 同样为外部 LLM 调用，视为可重试 |
+| `script` | `false` | shell / 子进程可能产生副作用（写文件、push、删资源），必须**显式**写 `idempotent = true` 才允许自动重试 |
+| `tool` / `aggregate` / `write_files` / `noop` / `human_input` / `loop` / `retry` | 不走 fix 路径 | —— |
+
+设置示例：
+
+```toml
+# 显式声明可重试
+[[steps]]
+id = "fetch-pr"
+execution = "script"
+idempotent = true        # script 默认 false；只有写在这里才会自修
+
+[steps.script]
+command = ["gh", "pr", "view", "{{pr}}", "--json", "number,title"]
+```
+
+> 写法提示：凡 `gh`、`curl`、`jq`、`go test`、`git fetch` / `git status` / `git diff` 这类**只读或幂等写**的命令，写 `idempotent = true`；发 push / 写产物 / 删资源等**有副作用**的命令保持默认（不写），失败时 runtime **直接终止**而不是自修。
+
+### 重试循环：最多 3 次 attempt
+
+`executor.tryFixAndRerun` 是核心循环：
+
+```text
+for attempt in 1..maxFixAttempts:        // maxFixAttempts = 3
+    if not stepAllowsFix(step):          // 非幂等 → 终止
+        return skipped_non_idempotent
+    report = fixer.Fix(ctx, lastError, lastResult, attempt)
+    if report is invalid: return invalid_fix
+    res, err = rerun(step, advice=report.Advice)
+    recordRepair(...)                    // 写 RepairRecord
+    if res is completed / waiting: return succeeded
+return exhausted
+```
+
+`maxFixAttempts` 当前是编译期常量（`internal/formula/runtime/executor.go`），后续 phase 会做成可配 `StepDecl.MaxFixAttempts`。
+
+### RepairRecord 持久化
+
+每次 attempt 都生成一条 `RepairRecord`，结构（`internal/formula/runtime/state.go` + `internal/formulaui/state.go`）：
+
+```text
+StepID / Kind / Attempt / Status / Reason
+Advice / FormulaUpdateHint / NextAttemptHint
+OriginalCommand / FixedCommand
+Error
+RecordedAt / ConfirmedAt / ConfirmationStatus
+```
+
+Status 枚举：
+
+- `skipped_non_idempotent` —— step 默认非幂等，未走 fix
+- `fix_error` / `no_fix` / `invalid_fix` —— fixer 失败
+- `waiting` —— 等待下一次 attempt
+- `succeeded` —— fix 后重跑成功
+- `attempt_failed` —— fix 后重跑仍失败
+- `exhausted` —— 3 次 attempt 全部失败
+
+记录流向：
+
+```text
+executor.recordRepair → runtime.Snapshot.Repairs
+                ↓
+formularun.Store.SaveRepairs  →  patches/<run-id>.json
+                ↓
+cmd/formula dashboard event sink (step.repair.recorded) →  websocket
+                ↓
+frontend RepairsPanel.tsx  →  /api/repairs/confirm POST → 标记 ConfirmedAt
+```
+
+`patches/<run-id>.json` 与 `state.json` 解耦：状态可读，patch artifact 可被 git diff / code review / 自动 apply 单独消费。
+
+### Dashboard 接入
+
+- `RunOverview` 新增 `Repairs` 计数。
+- `RepairsPanel` 列出每条 repair：reason / hint / fixed command / attempt。
+- 每条 panel 可点击 `Confirm reviewed` 调 `POST /api/repairs/confirm`，服务端把 `ConfirmationStatus = "confirmed"` + `ConfirmedAt` 写回 `patches/<run-id>.json`。
+- **runtime 不会自动 patch formula 文件**。`FormulaUpdateHint` 提示作者该改哪段 TOML / schema，由人审阅后用 `tt formula create` / `optimize` 重新生成。
+
+### 选型决策（2026-06-05）
+
+- 走"**抽象 + 升级现有机制**"而不是新建独立 `formula-fix` agent：executor 内部已存在两套修复（agent validation retry + script command repair），抽象成 `StepFixer` 注册表后，未来加新 fixer 不会影响执行路径。
+- **Idempotent 默认值按 kind 决定**：agent 默认 true（LLM 可重试），script 默认 false（命令可能产生副作用），与 `tryRepairFailedScriptStep` 行为一致，但更严格。
+- **`patches/<run-id>.json` 独立文件**：避免污染 `state.json`，让 patch artifact 可被 `git diff` / 后续自动 apply 工具消费。
+- **人工 confirm 必经**：`ConfirmationStatus` 由 dashboard API 写入，runtime / executor 不会替作者确认。
 
 ## 数据流：step id 就是输出 key
 
@@ -387,6 +516,5 @@ Dashboard 使用 `internal/formulaui` 的 UI DTO，从 `Workflow` 构建图展�
 - 动态澄清优先于预设静态澄清表单。
 - run store 保存 `workflow.json` 作为执行快照。
 - agent step 强制注入 `Formula step execution guard`，避免 agent 只承认规则而不真做任务。
-- script step 失败时自动用 `coder` agent 修一次，并把 `formula_repairs.<step-id>` 写入 context。
-- output schema 校验失败时，对 agent step 自动追加 advice 重试一次。
+- **自我修复**走 `StepFixer` 抽象 + `idempotent` 旗标：agent 默认可重试、script 默认非幂等；失败 → 最多 3 次 attempt → attempt-aware advice 升级 → `RepairRecord` 落盘 `patches/<run-id>.json` → dashboard `Repairs` 面板 + 人工 `Confirm reviewed`。
 - script step 永远走 `exec.CommandContext`，并默认拒绝 `rm -rf`、`shutdown`、`sudo` 等危险命令。

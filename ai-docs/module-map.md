@@ -1,6 +1,6 @@
 # 命令与模块地图
 
-> 最后更新：2026-06-02
+> 最后更新：2026-06-05
 
 这篇文档解决一个很实际的问题：**当你准备改代码时，应该先去哪个目录找？**
 
@@ -209,6 +209,7 @@ internal/agents/embedded/*.md
 这是 formula 当前的 typed runtime 执行层。`internal/formula` 负责语言和 Workflow，typed runtime 负责直接执行 Workflow 图。
 
 它负责：
+
 - Workflow 图执行和拓扑规划
 - 运行状态、事件和 `ContextStore`
 - 多种 step kind 能力分发（agent / script / human_input / noop / aggregate / tool / write_files / loop / retry）
@@ -216,23 +217,28 @@ internal/agents/embedded/*.md
 - worktree workspace 准备 + 自动分支
 - environment context 注入（`env.cwd`、`env.git.*`、`env.os.*`）
 - runtime condition（`==` / `!=` / `=~`）
-- script step 的安全策略 + 失败时用 `coder` agent 智能修复一次
-- agent output schema 校验失败时附上 advice 自动 retry 一次
+- **StepFixer 自我修复抽象**（`agentFixer` / `scriptFixer`） + `idempotent` 旗标 + 最多 3 次 attempt + `RepairRecord` 落盘 `patches/<run-id>.json`
+- script step 的安全策略 + 失败时按 `idempotent` 决定是否走 `scriptFixer`（script 默认非幂等，需显式 `idempotent = true`）
+- agent output schema 校验失败时按 `idempotent` 决定是否走 `agentFixer`（agent 默认可重试）
 - dynamic human input 协议（`tt-human-input` fenced block 解析）
 - resume 时跳过已完成步骤并恢复 step-id context
 
 关键文件：
-- `internal/formula/runtime/executor.go` —— 调度主循环
-- `internal/formula/runtime/state.go` —— `StateStore` / `MemoryStateStore` / `Snapshot`
+
+- `internal/formula/runtime/executor.go` —— 调度主循环，含 `tryFixAndRerun` 3 次 attempt 循环
+- `internal/formula/runtime/stepfixer.go` —— `StepFixer` 抽象 + `agentFixer` / `scriptFixer` + `DefaultFixerRegistry` + `FixReport` 辅助
+- `internal/formula/runtime/state.go` —— `StateStore` / `MemoryStateStore` / `Snapshot` / `RepairRecord`
 - `internal/formula/runtime/context.go` —— `ContextStore`（按路径读写 JSON 值）
 - `internal/formula/runtime/condition.go` —— runtime condition 解析
 - `internal/formula/runtime/capabilities.go` —— `ScriptCapability`（含安全策略）/ `DryRunAgentCapability` / `DryRunScriptCapability`
 - `internal/formula/runtime/environment.go` —— `EnvironmentContext`（cwd / git / os）
 - `internal/formula/runtime/workspace.go` —— worktree 创建、稀疏 checkout、分支命名
-- `internal/formula/runtime/formularun_store.go` —— 把 `Snapshot` 写入 `formularun` 持久化层
-- `internal/formula/steps/step.go` —— `Step` / `Executable` / `Capabilities` / `RunRequest` / `RunResult` / `Status`
+- `internal/formula/runtime/formularun_store.go` —— 把 `Snapshot` 与 `Repairs` 写入 `formularun` 持久化层（`patches/<run-id>.json`）
+- `internal/formula/steps/step.go` —— `Step` / `Executable` / `Capabilities` / `RunRequest` / `RunResult` / `Status` / `Metadata.Idempotent`
 - `internal/formula/steps/registry.go` —— `Registry` / `Decoder` / `NewDefaultRegistry`
 - `internal/formula/steps/kinds.go` —— 所有 step 实现（Agent / Script / HumanInput / Noop / Loop / Retry / Aggregate / Tool / WriteFiles 等）
+- `internal/formula/ast/document.go` —— `StepDecl.Idempotent` typed schema 字段
+- `internal/formula/schema/decode.go` —— typed schema → `StepDecl` 解码时透传 `idempotent`
 
 ## 5. `internal/formularun`
 

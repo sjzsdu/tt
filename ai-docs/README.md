@@ -145,6 +145,12 @@ overview → architecture → picoclaw-integration → module-map
   - `internal/formula/ast` / `ir` / `compile` / `builtin` 子包
   - `internal/agentopt` / `internal/formulaui` / `internal/formuladoc` / `internal/formularunview`
   - 前端构建嵌入路径与 `make web-build`
+- **自我修复（Self-Repair）专题**：
+  - `StepFixer` 抽象（`agentFixer` / `scriptFixer` + `DefaultFixerRegistry`），`tryFixAndRerun` 最多 3 次 attempt
+  - `idempotent` 旗标（typed schema `StepDecl.Idempotent` + recipe TOML 顶层 `idempotent = true`），按 kind 默认：agent/external_agent `true`、script `false`
+  - `RepairRecord` 落盘到 `patches/<run-id>.json`，与 `state.json` 解耦
+  - Dashboard `Repairs` 面板 + `POST /api/repairs/confirm` 人工 `Confirm reviewed` 流程
+  - 同步在 architecture / overview / module-map / step-kinds-reference / builtin-formulas / picoclaw-integration 中增加对应章节
 - 新增 [Step Kinds 参考](./step-kinds-reference.md)，集中解释每种 step 的字段、典型 TOML 与使用陷阱
 - 新增 [内置 Formula 与 Atomic 清单](./builtin-formulas.md)，列出仓库自带的 formulas 与 atomics
 - README 维持导读页定位，加入新文档索引
