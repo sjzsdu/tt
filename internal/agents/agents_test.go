@@ -41,10 +41,18 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	}
 
 	stock := StockDiscussion()
-	if len(stock) != 3 {
-		t.Fatalf("StockDiscussion len = %d, want 3", len(stock))
+	if len(stock) != 7 {
+		t.Fatalf("StockDiscussion len = %d, want 7", len(stock))
 	}
-	wantIDs := []string{StockBeginnerID, StockOldHandID, StockDiscussionHostID}
+	wantIDs := []string{
+		StockBeginnerID,
+		StockOldHandID,
+		StockDiscussionHostID,
+		StockMacroStrategistID,
+		StockQuantTechnicianID,
+		StockNewsEventAnalystID,
+		StockSectorSpecialistID,
+	}
 	for i, want := range wantIDs {
 		if stock[i].ID != want {
 			t.Fatalf("StockDiscussion[%d] ID = %q, want %q", i, stock[i].ID, want)

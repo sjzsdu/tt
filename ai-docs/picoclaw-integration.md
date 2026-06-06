@@ -156,7 +156,7 @@ flowchart TD
 | `formula-writer` | 编写 / 优化 formula | `tt formula create` / `tt formula optimize` |
 | `docs-analyst` | 代码理解与中文文档生成 | `tt docs analyze` |
 | `agent-optimizer` | 把基础 agent 优化为针对仓库的 agent | `tt agent optimize` |
-| `stock-growth-investor` / `stock-risk-investor` / `stock-discussion-host` | 股票讨论参与方 | `tt debate` |
+| `stock-growth-investor` / `stock-risk-investor` / `stock-macro-strategist` / `stock-quant-technician` / `stock-news-event-analyst` / `stock-sector-specialist` / `stock-discussion-host` | 专业股票投研讨论参与方 | `tt debate` |
 
 这说明 embedded agent 已经不是少量 demo，而是一个真正被多个命令复用的内部能力库。
 

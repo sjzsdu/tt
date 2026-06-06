@@ -13,22 +13,26 @@ import (
 )
 
 const (
-	AgentOptimizerID      = "agent-optimizer"
-	TranslateMasterID     = "translate-master"
-	CoderID               = "coder"
-	ReporterID            = "reporter"
-	legacyReporterID      = "nvwa-agent"
-	FullStackID           = "full-stack"
-	PlannerID             = "planner"
-	ProductManagerID      = "product-manager"
-	TesterID              = "tester"
-	UIID                  = "ui"
-	StockBeginnerID       = "stock-growth-investor"
-	StockOldHandID        = "stock-risk-investor"
-	StockDiscussionHostID = "stock-discussion-host"
-	Repo2SkillID          = "repo2skill"
-	FormulaWriterID       = "formula-writer"
-	DocsAnalystID         = "docs-analyst"
+	AgentOptimizerID        = "agent-optimizer"
+	TranslateMasterID       = "translate-master"
+	CoderID                 = "coder"
+	ReporterID              = "reporter"
+	legacyReporterID        = "nvwa-agent"
+	FullStackID             = "full-stack"
+	PlannerID               = "planner"
+	ProductManagerID        = "product-manager"
+	TesterID                = "tester"
+	UIID                    = "ui"
+	StockBeginnerID         = "stock-growth-investor"
+	StockOldHandID          = "stock-risk-investor"
+	StockMacroStrategistID  = "stock-macro-strategist"
+	StockQuantTechnicianID  = "stock-quant-technician"
+	StockNewsEventAnalystID = "stock-news-event-analyst"
+	StockSectorSpecialistID = "stock-sector-specialist"
+	StockDiscussionHostID   = "stock-discussion-host"
+	Repo2SkillID            = "repo2skill"
+	FormulaWriterID         = "formula-writer"
+	DocsAnalystID           = "docs-analyst"
 )
 
 //go:embed embedded/*.md
@@ -104,7 +108,15 @@ func All() []pcwrap.EmbeddedAgent {
 }
 
 func StockDiscussion() []pcwrap.EmbeddedAgent {
-	return mustGetMany(StockBeginnerID, StockOldHandID, StockDiscussionHostID)
+	return mustGetMany(
+		StockBeginnerID,
+		StockOldHandID,
+		StockDiscussionHostID,
+		StockMacroStrategistID,
+		StockQuantTechnicianID,
+		StockNewsEventAnalystID,
+		StockSectorSpecialistID,
+	)
 }
 
 func Get(id string) (pcwrap.EmbeddedAgent, error) {

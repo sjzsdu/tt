@@ -10,7 +10,7 @@
 - Formula dashboard final report view with a dedicated follow-up coder chat.
 - Light/dark theme switching for the formula dashboard and markdown web UI, with local preference persistence.
 - Embedded Picoclaw agent runtime command.
-- Embedded casual stock investor chat command with streamed turns and JSON archive.
+- Embedded professional stock research discussion command with streamed turns and JSON archive.
 - CLI command to skill file conversion.
 - Directory mirroring for config sharing.
 - LLM-backed commands show an elapsed loading status on terminal stderr while waiting for model responses.
@@ -71,7 +71,7 @@ Available commands:
 | `repo2skill` | Convert repositories into agent-oriented library skills. |
 | `config` | Inspect and initialize `tt` configuration. |
 | `conversation` | Browse conversation-like JSON in a local web UI. |
-| `debate` | Run a casual stock chat between an investing beginner and a market old hand, then save the full JSON transcript. |
+| `debate` | Run a professional stock research discussion between embedded investor agents, then save the full JSON transcript. |
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
 | `mirror` | Mirror selected files from a source directory. |
@@ -266,7 +266,7 @@ Flags:
 
 ### `tt debate`
 
-Run a stock-focused casual chat between embedded investor agents. The default participants are an optimistic investing beginner and an experienced market old hand. Their turns are printed as soon as each model call completes, while the full structured result is always saved as JSON under `./debates` unless `--out` is provided.
+Run a stock-focused professional research discussion between embedded investor agents. The default participants are a fundamental analyst and a risk controller, with a stock research host coordinating the discussion. Additional embedded roles include macro strategy, quantitative technical analysis, news/event analysis, and sector research. Turns are printed as soon as each model call completes, while the full structured result is always saved as JSON under `./debates` unless `--out` is provided.
 
 ```bash
 tt debate "贵州茅台接下来半年怎么看"
@@ -281,7 +281,7 @@ The embedded stock agents are configured with `tongstock-cli` and `agent-browser
 Flags:
 
 - `-t, --topic string`: stock discussion topic. Positional args are also supported.
-- `--agents strings`: optional two investor agent ids or names. Defaults to embedded investing beginner / market old hand agents.
+- `--agents strings`: optional two stock research agent ids or names. Defaults to embedded fundamental analyst / risk controller agents. Other available embedded roles include `stock-macro-strategist`, `stock-quant-technician`, `stock-news-event-analyst`, and `stock-sector-specialist`.
 - `--judge string`: optional host agent id or name. Defaults to embedded stock discussion host for structured archival metadata.
 - `-r, --rounds int`: maximum number of visible investor turns, default `3`.
 - `-o, --output string`: output format, `text` or `json`, default `text`. Text mode streams visible investor turns; JSON mode also prints the final JSON.

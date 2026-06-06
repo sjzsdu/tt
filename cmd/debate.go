@@ -99,8 +99,8 @@ type DebateResult struct {
 
 var debateCmd = &cobra.Command{
 	Use:   "debate [topic]",
-	Short: "Run a casual stock chat between two investor personas",
-	Long:  "Run an embedded stock discussion as a casual chat between an optimistic investing beginner and an experienced market old hand. Turns stream immediately and the full transcript is saved as JSON.",
+	Short: "Run a professional stock research discussion between embedded investor agents",
+	Long:  "Run an embedded stock research discussion between professional investor agents such as fundamental analysis, risk control, macro strategy, quantitative technical analysis, event analysis, and sector research. Turns stream immediately and the full transcript is saved as JSON.",
 	Args:  cobra.ArbitraryArgs,
 	Example: `tt debate "贵州茅台接下来半年怎么看"
 	tt debate --topic "英伟达估值是否还能支撑上涨" --rounds 4
@@ -113,7 +113,7 @@ var debateCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(debateCmd)
 	debateCmd.Flags().StringVarP(&debateTopic, "topic", "t", "", "debate topic; positional args are also supported")
-	debateCmd.Flags().StringSliceVar(&debateAgents, "agents", nil, "two investor agent ids or names; defaults to embedded growth and risk investors")
+	debateCmd.Flags().StringSliceVar(&debateAgents, "agents", nil, "two stock research agent ids or names; defaults to embedded fundamental analyst and risk controller")
 	debateCmd.Flags().StringVar(&debateJudge, "judge", "", "host agent id or name; defaults to embedded stock discussion host")
 	debateCmd.Flags().IntVarP(&debateRounds, "rounds", "r", debateDefaultRounds, "maximum number of discussion turns")
 	debateCmd.Flags().StringVarP(&debateOutput, "output", "o", debateDefaultOutput, "output format: text or json")
