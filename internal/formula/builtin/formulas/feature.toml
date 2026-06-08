@@ -1,0 +1,279 @@
+formula = "feature"
+description = "完成代码类 feature：理解需求、必要时动态澄清，使用 code-context 调研现有实现，制定实施计划，修改代码，给出测试方式、影响评估和最终报告。"
+version = 1
+type = "workflow"
+
+[vars]
+feature_request = { description = "本次 feature 的目标、背景、验收标准或用户需求描述", required = true }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
+
+[[steps]]
+id = "understand-requirement"
+title = "理解 feature 需求，必要时动态澄清"
+form = true
+description = """
+基于 '{{feature_request}}' 理解本次 feature 的目标、用户价值、边界和交付口径。
+
+如果当前信息不足以制定后续代码调研任务，可以动态澄清；只询问阻塞调研或实现决策的必要信息，不要预设固定字段，也不要让用户重复输入已经给出的 feature_request。
+
+当信息足够时，输出 ONLY compact JSON，格式必须严格如下：
+{
+  "feature_summary":"...",
+  "user_goal":"...",
+  "acceptance_criteria":["..."],
+  "in_scope":["..."],
+  "out_of_scope":["..."],
+  "assumptions":["..."],
+  "research_brief":"...",
+  "initial_search_targets":["..."]
+}
+
+约束：
+- research_brief 必须足够支撑后续 code-context / code-research 调研；
+- acceptance_criteria 必须可验证；
+- assumptions 只记录不阻塞调研的假设。
+"""
+agent.name = "product-manager"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["feature_summary", "acceptance_criteria", "research_brief", "initial_search_targets"]
+
+[[steps]]
+id = "prepare-research-brief"
+title = "整合需求与澄清信息，生成代码调研摘要"
+depends_on = ["understand-requirement"]
+input_context = ["understand-requirement"]
+description = """
+基于 understand-requirement 的 JSON 生成后续 code-research 使用的统一摘要。
+
+输出 ONLY compact JSON：
+{
+  "research_task":"...",
+  "feature_summary":"...",
+  "search_targets":["..."],
+  "acceptance_criteria":["..."],
+  "constraints":["..."],
+  "notes":["..."]
+}
+
+要求：
+- research_task 用 1-3 句写清楚要调研的现有功能、集成点和期望变化；
+- search_targets 优先放模块名、功能点、命令名、API、UI 页面、配置名、测试名或关键词；
+- acceptance_criteria 用于后续制定实施计划和验收。
+"""
+agent.name = "coder"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["research_task", "search_targets", "acceptance_criteria"]
+
+[[steps]]
+id = "code-research"
+title = "使用 code-context 调研现有实现与 feature 落点"
+depends_on = ["prepare-research-brief"]
+input_context = ["prepare-research-brief"]
+description = """
+你是 code-research agent。基于 research_brief 调研当前代码库，重点使用 code-context、grep、符号命名、调用链、配置入口、测试结构和文档来理解现有相关功能是怎么写的。
+
+任务：
+1. 找出现有相关功能的入口、模块、函数、配置、数据流和测试；
+2. 说明现有行为与用户期望的差距；
+3. 定位最小修改范围和可能受影响的现有功能；
+4. 给出 1-3 个可行实现方案，并推荐一个；
+5. 给出后续验证重点。
+
+输出 ONLY compact JSON：
+{
+  "existing_behavior":"...",
+  "evidence":["..."],
+  "code_scope":["..."],
+  "related_tests":["..."],
+  "impact_candidates":["..."],
+  "implementation_options":[{"id":"option-a","summary":"...","pros":["..."],"cons":["..."],"recommended":true}],
+  "recommended_scope":["..."],
+  "verification_focus":["..."]
+}
+
+约束：
+- evidence 优先引用文件、符号、命令、测试或配置；
+- 不要直接开始修代码，先给出研究结论；
+- 如果代码上下文不足，要明确指出缺失信息和下一步。
+"""
+agent.name = "code-research"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["existing_behavior", "evidence", "code_scope", "implementation_options", "verification_focus"]
+
+[[steps]]
+id = "implementation-plan"
+title = "制定 feature 实施与开发计划"
+depends_on = ["code-research"]
+input_context = ["understand-requirement", "prepare-research-brief", "code-research"]
+description = """
+基于需求理解和 code-context 调研结果，制定可执行的 feature 实施计划。
+
+输出 ONLY compact JSON：
+{
+  "implementation_goal":"...",
+  "selected_option_id":"option-a",
+  "plan_steps":[{"id":"step-1","title":"...","details":"...","files_or_modules":["..."]}],
+  "files_to_touch":["..."],
+  "do_not_touch":["..."],
+  "test_plan":["..."],
+  "impact_assessment_plan":["..."],
+  "rollback_or_mitigation":["..."],
+  "definition_of_done":["..."]
+}
+
+要求：
+- 计划必须覆盖编码、验证和影响评估；
+- files_to_touch 是预期最小范围，不要鼓励无关重构；
+- test_plan 必须具体到命令、测试文件或手动验证路径；
+- impact_assessment_plan 要说明对现有功能如何评估影响。
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["implementation_goal", "plan_steps", "files_to_touch", "test_plan", "impact_assessment_plan", "definition_of_done"]
+
+[[steps]]
+id = "implement-feature"
+title = "按照计划完成编码工作"
+depends_on = ["implementation-plan"]
+input_context = ["understand-requirement", "code-research", "implementation-plan"]
+description = """
+按照 implementation-plan 修改代码，完成 feature 编码工作。
+
+要求：
+1. 优先遵循 plan_steps 和 files_to_touch；
+2. 不顺手大改无关模块；
+3. 保持实现与 acceptance_criteria / definition_of_done 对齐；
+4. 如果发现计划不合理，可以做必要调整，但必须在输出中解释原因；
+5. 尽量补充或更新相关测试；
+6. 不要编造已执行的测试结果。
+
+输出 ONLY compact JSON：
+{
+  "implemented":true,
+  "files_changed":["..."],
+  "change_summary":"...",
+  "plan_adjustments":["..."],
+  "tests_added_or_updated":["..."],
+  "blocked_items":["..."],
+  "notes":["..."]
+}
+
+约束：
+- implemented 必须是布尔值；
+- 如果无法完整实现，implemented=false 并明确 blocked_items。
+"""
+agent.name = "full-stack"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["implemented", "files_changed", "change_summary", "blocked_items"]
+
+[[steps]]
+id = "run-validation"
+title = "执行测试与基础验证"
+depends_on = ["implement-feature"]
+embed = "git-auto-detect-validation"
+
+[steps.embed_vars]
+command = "{{validation_command}}"
+
+[[steps]]
+id = "impact-assessment"
+title = "评估对现有功能的影响"
+depends_on = ["implement-feature", "run-validation"]
+input_context = ["understand-requirement", "code-research", "implementation-plan", "implement-feature", "run-validation.validation.stdout"]
+description = """
+基于代码调研、实际改动和验证输出，评估本次 feature 对现有功能的影响。不要编造测试结果。
+
+输出 ONLY compact JSON：
+{
+  "impact_level":"low|medium|high",
+  "affected_existing_features":[{"feature":"...","impact":"none|low|medium|high","why":"..."}],
+  "compatibility_risks":["..."],
+  "regression_risks":["..."],
+  "mitigations":["..."],
+  "additional_tests_recommended":["..."],
+  "safe_to_ship":true
+}
+
+要求：
+- affected_existing_features 必须结合 code-research.impact_candidates 和 files_changed；
+- safe_to_ship 必须基于实现完整度与验证结果判断；
+- 如果验证未运行或失败，要明确降低 safe_to_ship。
+"""
+agent.name = "tester"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["impact_level", "affected_existing_features", "regression_risks", "safe_to_ship"]
+
+[[steps]]
+id = "test-instructions"
+title = "给出用户可复现的测试方式"
+depends_on = ["impact-assessment"]
+input_context = ["implementation-plan", "implement-feature", "run-validation.validation.stdout", "impact-assessment"]
+description = """
+整理用户可复现的测试方式，区分已执行验证与建议补充验证。
+
+输出 ONLY compact JSON：
+{
+  "executed_validations":["..."],
+  "manual_test_steps":["..."],
+  "automated_test_commands":["..."],
+  "expected_results":["..."],
+  "not_run_but_recommended":["..."]
+}
+
+要求：
+- executed_validations 只能写 run-validation 或 implement-feature 中确实执行过的内容；
+- manual_test_steps 要让用户能一步步复现；
+- expected_results 要能判断 feature 是否生效。
+"""
+agent.name = "tester"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["executed_validations", "manual_test_steps", "automated_test_commands", "expected_results"]
+
+[[steps]]
+id = "final-report"
+title = "输出 feature 交付报告"
+depends_on = ["test-instructions"]
+input_context = ["understand-requirement", "code-research", "implementation-plan", "implement-feature", "run-validation.validation.stdout", "impact-assessment", "test-instructions"]
+description = """
+面向用户输出最终 feature 交付报告。
+
+报告必须结论先行，并回答：
+1. 需求如何理解，是否做过动态澄清；
+2. code-context 调研发现现有相关功能是怎么写的；
+3. 最终实施计划是什么；
+4. 实际完成了哪些编码改动，涉及哪些文件；
+5. 已执行哪些测试/验证，结果如何；
+6. 用户还可以如何复现测试；
+7. 对现有功能的影响评估和回归风险；
+8. 是否达到交付标准，剩余风险或后续建议。
+
+要求：
+- 使用 Markdown；
+- 控制在 8 条以内要点，优先写可执行结论；
+- 不要把未执行测试写成已执行；
+- 如果未完整实现或不安全上线，必须明确写出原因与下一步。
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"

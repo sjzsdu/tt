@@ -1,6 +1,6 @@
 # 内置 Formula 与 Atomic 清单
 
-> 最后更新：2026-06-05
+> 最后更新：2026-06-08
 
 `tt` 仓库自带一组 `tt formula run` 即可直接使用的 workflow 模板（`formulas/`）和可被 inline include / `embed` / `expand` 复用的原子步骤（`atomics/`）。本目录列出现在仓库里实际打包的内容，帮助：
 
@@ -10,7 +10,7 @@
 
 源代码位置：
 
-- `internal/formula/builtin/formulas/*.toml`（11 个）
+- `internal/formula/builtin/formulas/*.toml`（12 个）
 - `internal/formula/builtin/atomics/*.toml`（12 个）
 
 加载与展示：
@@ -20,7 +20,7 @@
 - 查看：`tt formula show <name>` / `tt formula show <name> --markdown`。
 - 复制为本地工作副本：`tt formula copy <name> [output.toml]`。
 
-## Formulas（11 个）
+## Formulas（12 个）
 
 按 `category` 分组，描述均来自对应 toml 的 `description` 字段。
 
@@ -40,6 +40,7 @@
 | --- | --- | --- |
 | `san-sheng-liu-bu` | 三省六部工作流：起草 → 审核 → 拆任务 → 并发生成 → 汇总 | `zhongshu-draft` / `menxia-review` loop / `shangshu-decompose` 拆 `tasks` 数组 / `foreach parallel` 生成各部启动文稿 / `aggregate` 汇总 |
 | `shan-yi-zhe` | 善易者风格的多层动态决策与建议 | 必要时 typed runtime 显式澄清，展示卦序、卦象、上下卦、卦辞、彖传、爻辞，最终落到现实行动建议 |
+| `feature` | 通用代码 feature 端到端实现：需求理解/动态澄清 → code-context 调研 → 计划 → 编码 → 测试方式 → 影响评估 → 报告 | 不自动 commit；适合作为默认 feature 开发入口，`validation_command` 可覆盖自动验证命令 |
 | `gongbu` | 代码 feature 的端到端实现：理解需求 → 调研 → 方案 → 实现 → 验证 → 按需提交 | 使用 `[workspace] kind = "worktree"` 创建隔离分支；按需 push |
 | `bug-fix` | 调试 / 修复 bug，并在结论中说明"问题不成立"的备选路径 | 第一步是动态澄清（`form = true`），输出 strict compact JSON；后续 step 串接代码调研、定位、修复、验证 |
 
@@ -110,7 +111,7 @@ Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[
 - 写"批处理 + 改写 + commit"类工作流：从 `github-pr-rebase-main` 拷贝。
 - 写"动态澄清 + 调研 + 决策"：从 `bug-fix` 拷贝。
 - 写"知识整理 / 文档生成"：从 `fresh-topic-docs` 拷贝。
-- 写"代码 feature 端到端"：从 `gongbu` 拷贝。
+- 写"代码 feature 端到端"：默认从 `feature` 拷贝；如果需要隔离 worktree 与按需提交，再参考 `gongbu`。
 - 写"PR / Jira 自动化"：从 `github-pr-review` / `jira-bug-fix` 拷贝，然后嵌入对应的 atomic 子步骤。
 
 ## 用户公式优先级
