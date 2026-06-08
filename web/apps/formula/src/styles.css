@@ -102,19 +102,49 @@ button, input, textarea { font: inherit; }
 
 .graph-panel { display: flex; flex-direction: column; gap: 12px; min-height: 640px; }
 .graph-header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.graph-title-row { display: flex; align-items: center; gap: 8px; }
+.graph-title-row h3 { margin: 0; }
+.graph-help-button { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--soft-bg); color: var(--text-muted); cursor: help; }
+.graph-help-button:hover { color: var(--ant-color-primary); border-color: var(--ant-color-primary); }
+.graph-help-tooltip { max-width: 360px; }
+.graph-help-tooltip strong { display: block; margin-bottom: 6px; }
+.graph-help-tooltip ul { margin: 0; padding-left: 18px; }
+.graph-help-tooltip li { margin: 4px 0; }
 .graph-header h2 { margin: 0; }
 .graph-header p { margin: 4px 0 0; color: var(--text-muted); }
-.graph-header-side { display: flex; align-items: flex-end; flex-direction: column; gap: 10px; }
+.graph-header-side { display: flex; align-items: flex-end; flex-direction: column; gap: 10px; max-width: min(620px, 100%); }
 .graph-header-metrics, .graph-legend { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.graph-legend-block { display: grid; justify-items: end; gap: 5px; }
+.graph-legend-title { color: var(--text-muted); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .legend-pill, .graph-header-metrics span { padding: 4px 8px; border: 1px solid var(--panel-border); border-radius: 999px; font-size: 12px; color: var(--text-muted); }
-.graph-canvas { position: relative; min-height: 560px; border: 1px solid var(--panel-border); border-radius: 16px; overflow: hidden; background: var(--graph-bg); }
-.react-flow-canvas, .react-flow { width: 100%; height: 100%; min-height: 560px; }
-.graph-canvas .react-flow__controls.react-flow__panel,
-.graph-canvas .flow-controls { display: none !important; }
-.graph-now-running { position: absolute; z-index: 5; left: 16px; top: 16px; max-width: 420px; padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: 12px; background: var(--app-bg); box-shadow: var(--ant-box-shadow); }
-.graph-now-running span { display: block; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }
-.graph-now-running strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-controls, .flow-minimap { border-radius: 12px; overflow: hidden; }
+.legend-pill.status { position: relative; padding-left: 18px; background: var(--soft-bg); }
+.legend-pill.status::before { content: ''; position: absolute; left: 7px; top: 50%; width: 7px; height: 7px; border-radius: 50%; transform: translateY(-50%); background: var(--text-muted); }
+.legend-pill.status.pending::before { background: rgba(148, 163, 184, 0.92); }
+.legend-pill.status.running::before { background: #67e8f9; box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.16); }
+.legend-pill.status.completed::before { background: #34d399; }
+.legend-pill.status.failed::before { background: #fb7185; }
+.legend-pill.status.skipped::before { background: #fbbf24; }
+.legend-pill.kind { display: inline-flex; align-items: center; gap: 5px; }
+.legend-pill.kind i { width: 20px; height: 0; border-top: 2px solid var(--ant-color-primary); }
+.legend-pill.kind.agent i { border-top-style: solid; border-color: #1677ff; }
+.legend-pill.kind.script i { border-color: #fa541c; border-top-style: dashed; }
+.legend-pill.kind.tool i { border-color: #13c2c2; border-top-style: dotted; }
+.legend-pill.kind.loop i { border-color: #a855f7; border-top-style: dashed; border-top-width: 3px; }
+.legend-pill.kind.human_input i { border-color: #faad14; border-top-style: dashed; }
+.g6-canvas {
+  position: relative;
+  min-height: 560px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--graph-bg);
+}
+
+.g6-container {
+  width: 100%;
+  height: 100%;
+  min-height: 560px;
+}
 
 .graph-node, .loop-group-node {
   width: 300px;
@@ -127,7 +157,6 @@ button, input, textarea { font: inherit; }
   box-shadow: var(--ant-box-shadow-secondary);
 }
 .graph-node { display: grid; gap: 8px; text-align: left; cursor: pointer; }
-.graph-node:hover { border-color: var(--ant-color-primary); }
 .graph-node.running, .loop-group-node.running { border-color: var(--ant-color-info); }
 .graph-node.completed, .loop-group-node.completed { border-color: var(--ant-color-success); }
 .graph-node.failed, .loop-group-node.failed { border-color: var(--ant-color-error); }
@@ -143,9 +172,6 @@ button, input, textarea { font: inherit; }
 .graph-node strong { font-size: 15px; }
 .graph-node p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .graph-node-meta { justify-content: flex-start; color: var(--text-muted); font-size: 11px; }
-.graph-node-action, .loop-summary-pill, .loop-iteration-pill { width: fit-content; padding: 4px 8px; border-radius: 999px; background: var(--soft-bg); color: var(--ant-color-primary); font-size: 12px; }
-.flow-handle { width: 9px !important; height: 9px !important; background: var(--ant-color-primary) !important; border-color: var(--app-bg) !important; }
-.loop-expand-handle { background: #a855f7 !important; }
 .loop-body-node { width: 260px; min-height: 120px; }
 .loop-group-node {
   display: flex;
@@ -168,10 +194,6 @@ button, input, textarea { font: inherit; }
 .loop-group-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .loop-group-meta span { padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,0.04); }
 .loop-group-node span, .loop-group-node em { color: var(--text-muted); font-size: 12px; }
-.react-flow__edge.flow-edge .react-flow__edge-path { stroke-width: 2; }
-.react-flow__edge.loop-expand-edge .react-flow__edge-path { stroke: rgba(168, 85, 247, 0.9); stroke-dasharray: 7 6; stroke-width: 2.5; }
-.react-flow__edge.loop-body-edge .react-flow__edge-path { stroke: rgba(168, 85, 247, 0.68); }
-.react-flow__edge.loop-body-edge.synthetic .react-flow__edge-path { stroke-dasharray: 5 5; opacity: 0.72; }
 
 .step-inspector .ant-drawer-content-wrapper { max-width: 100vw; }
 .step-inspector .ant-drawer-body { min-width: 0; overflow-x: hidden; padding: 20px; }

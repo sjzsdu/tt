@@ -4,7 +4,6 @@ import '@fontsource/noto-sans/400.css';
 import '@fontsource/noto-sans/700.css';
 import 'antd/dist/reset.css';
 import 'github-markdown-css/github-markdown-light.css';
-import '@xyflow/react/dist/style.css';
 import { useEffect, useMemo, useState } from 'react';
 import { App } from './components/App';
 import './styles.css';
