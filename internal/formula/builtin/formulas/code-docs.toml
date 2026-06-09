@@ -159,6 +159,7 @@ description = """
 - 字段数量、字段类型、问题措辞都由你决定，通常 1-4 个，最多 5 个。
 - 只问会影响后续文档结构、深度、侧重点、交付形态的问题，不要问 nice-to-have。
 
+
 	输出要求:
 	- 如果信息已经足够、或用户已完成澄清：输出 ONLY 一个 compact JSON object。
 	- JSON 的 schema 自由决定，只包含你认为对后续步骤有用的字段。
@@ -300,6 +301,7 @@ description = """
 - 每个正文文档都要有独立价值，不要重复解释同一背景。
 - 为每个文档给出清楚的 purpose、reader_question、must_cover、evidence_targets，供后续并发写作 agent 使用。
 - 不要为了覆盖架构图、流程图、ER 图、PRD 等形式而强行规划；只有代码证据支持且能提升理解时才规划。
+- 使用 {{doc_language}} 规划。
 
 输出 ONLY compact JSON object，不要 Markdown 代码块：
 {
