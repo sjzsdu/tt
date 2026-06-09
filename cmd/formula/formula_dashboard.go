@@ -63,9 +63,16 @@ func newFormulaDashboardServer(workflow *ir.Workflow) *formulaDashboardServer {
 	steps, edges := ui.BuildWorkflowGraph(workflow)
 	name := ""
 	description := ""
+	vars := map[string]any(nil)
 	if workflow != nil {
 		name = workflow.Name
 		description = workflow.Description
+		if len(workflow.Vars) > 0 {
+			vars = make(map[string]any, len(workflow.Vars))
+			for key, schema := range workflow.Vars {
+				vars[key] = schema
+			}
+		}
 	}
 	return &formulaDashboardServer{
 		started: time.Now(),
@@ -74,6 +81,7 @@ func newFormulaDashboardServer(workflow *ir.Workflow) *formulaDashboardServer {
 			RecipeName:  name,
 			Description: description,
 			Status:      "running",
+			Vars:        vars,
 			Steps:       steps,
 			Edges:       edges,
 			Logs:        []ui.LogEntry{},

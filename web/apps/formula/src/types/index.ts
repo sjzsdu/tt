@@ -24,6 +24,7 @@ export type FormulaDashboardLoopBody = {
   model?: string;
   output_key?: string;
   input_ctx?: string[];
+  var_refs?: string[];
   condition?: string;
   depends_on?: string[];
 };
@@ -82,6 +83,7 @@ export type FormulaDashboardStep = {
   assignee?: string;
   output_key?: string;
   input_ctx?: string[];
+  var_refs?: string[];
   execution?: string;
   condition?: string;
   metadata?: Record<string, string>;
@@ -146,6 +148,7 @@ export type FormulaDashboardSnapshot = {
   final_report_chat?: FinalReportChat;
   repairs?: FormulaRepairRecord[];
   error?: string;
+  vars?: Record<string, unknown>;
   steps: FormulaDashboardStep[];
   edges: FormulaDashboardEdge[];
   logs: FormulaDashboardLogEntry[];

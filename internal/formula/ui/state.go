@@ -24,6 +24,7 @@ type Snapshot struct {
 	FinalReportChat *FinalReportChat `json:"final_report_chat,omitempty"`
 	Repairs         []RepairRecord   `json:"repairs,omitempty"`
 	Error           string           `json:"error,omitempty"`
+	Vars            map[string]any   `json:"vars,omitempty"`
 	Steps           []Step           `json:"steps"`
 	Edges           []Edge           `json:"edges,omitempty"`
 	Logs            []LogEntry       `json:"logs,omitempty"`
@@ -89,6 +90,7 @@ type Step struct {
 	Gate              *Gate              `json:"gate,omitempty"`
 	Loop              *Loop              `json:"loop,omitempty"`
 	DependsOn         []string           `json:"depends_on,omitempty"`
+	VarRefs           []string           `json:"var_refs,omitempty"`
 	Activities        []StepActivity     `json:"activities,omitempty"`
 	HumanInputRequest *HumanInputRequest `json:"human_input_request,omitempty"`
 	Depth             int                `json:"depth,omitempty"`
@@ -130,6 +132,7 @@ type LoopBody struct {
 	InputCtx    []string `json:"input_ctx,omitempty"`
 	Condition   string   `json:"condition,omitempty"`
 	DependsOn   []string `json:"depends_on,omitempty"`
+	VarRefs     []string `json:"var_refs,omitempty"`
 }
 
 type Gate struct {
@@ -198,12 +201,19 @@ func AppendStepActivity(step *Step, activity StepActivity) {
 
 func CloneSnapshot(s Snapshot) Snapshot {
 	cp := s
+	if s.Vars != nil {
+		cp.Vars = make(map[string]any, len(s.Vars))
+		for key, value := range s.Vars {
+			cp.Vars[key] = value
+		}
+	}
 	cp.Steps = make([]Step, len(s.Steps))
 	for i, step := range s.Steps {
 		cp.Steps[i] = step
 		cp.Steps[i].Labels = append([]string(nil), step.Labels...)
 		cp.Steps[i].InputCtx = append([]string(nil), step.InputCtx...)
 		cp.Steps[i].DependsOn = append([]string(nil), step.DependsOn...)
+		cp.Steps[i].VarRefs = append([]string(nil), step.VarRefs...)
 		cp.Steps[i].Activities = append([]StepActivity(nil), step.Activities...)
 		cp.Steps[i].Loop = CloneLoop(step.Loop)
 		cp.Steps[i].Metadata = CloneStringMap(step.Metadata)

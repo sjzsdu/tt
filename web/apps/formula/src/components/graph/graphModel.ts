@@ -30,9 +30,19 @@ export type LoopGroupNodeData = {
   layoutY?: number;
 };
 
+export type VariableNodeData = {
+  kind: 'variable';
+  key: string;
+  consumers: string[];
+  layoutRank?: number;
+  layoutOrder?: number;
+  layoutX?: number;
+  layoutY?: number;
+};
+
 export type FormulaGraphNode = {
   id: string;
-  data: StepNodeData | LoopGroupNodeData;
+  data: StepNodeData | LoopGroupNodeData | VariableNodeData;
   combo?: string;
   style?: {
     x: number;
@@ -46,7 +56,8 @@ export type FormulaGraphEdge = {
   target: string;
   data?: {
     status?: string;
-    kind?: 'dependency' | 'loop-expand' | 'loop-sequence';
+    kind?: 'dependency' | 'loop-expand' | 'loop-sequence' | 'variable-consume';
+    variable?: string;
     sourcePort?: string;
     targetPort?: string;
     laneOffset?: number;
@@ -94,6 +105,19 @@ const LANE_STEP = 12;
 const NODE_X_GAP = 560;
 const NODE_Y_GAP = 250;
 
+function variableNodeID(key: string) {
+  return `var::${key.replace(/[^a-zA-Z0-9_.:-]/g, '_')}`;
+}
+
+function consumedVariables(step: FormulaDashboardStep) {
+  const refs = new Set<string>();
+  for (const ref of step.var_refs || []) {
+    const root = ref.trim().split('.')[0];
+    if (root) refs.add(root);
+  }
+  return [...refs];
+}
+
 function portIndexForLane(index: number, total: number) {
   const indices = PORT_INDEX_BY_TOTAL[Math.min(total, SOURCE_PORTS.length)] || PORT_INDEX_BY_TOTAL[7];
   return indices[index % indices.length];
@@ -134,8 +158,9 @@ function computeRanks(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[]) {
   const rank = new Map(nodes.map(node => [node.id, 0]));
   const indegree = new Map(nodes.map(node => [node.id, 0]));
   const outgoing = new Map<string, string[]>();
+  const layoutEdges = edges.filter(edge => edge.data?.kind !== 'variable-consume');
 
-  for (const edge of edges) {
+  for (const edge of layoutEdges) {
     if (!nodeIDs.has(edge.source) || !nodeIDs.has(edge.target)) continue;
     if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
     outgoing.get(edge.source)!.push(edge.target);
@@ -165,7 +190,7 @@ function computeRanks(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[]) {
 
   // Keep cyclic or otherwise unresolved nodes stable, while still placing them
   // one layer after any already-ranked predecessor when possible.
-  for (const edge of edges) {
+  for (const edge of layoutEdges) {
     if (!nodeIDs.has(edge.source) || !nodeIDs.has(edge.target)) continue;
     if (seen.has(edge.target)) continue;
     rank.set(edge.target, Math.max(rank.get(edge.target) || 0, (rank.get(edge.source) || 0) + 1));
@@ -363,6 +388,7 @@ export function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboar
     duration_ms: bodyActivity?.duration_ms,
     output_key: body.output_key,
     input_ctx: body.input_ctx,
+    var_refs: body.var_refs,
     condition: body.condition,
     depends_on: body.depends_on,
     metadata: {
@@ -396,6 +422,7 @@ export function computeGraphData(
 
   const nodes: FormulaGraphNode[] = [];
   const edges: FormulaGraphEdge[] = [];
+  const variableConsumers = new Map<string, string[]>();
 
   for (const step of snapshot.steps) {
     nodes.push({
@@ -406,6 +433,11 @@ export function computeGraphData(
         expanded: expandedLoopIDs.has(step.id),
       },
     });
+
+    for (const key of consumedVariables(step)) {
+      if (!variableConsumers.has(key)) variableConsumers.set(key, []);
+      variableConsumers.get(key)!.push(step.id);
+    }
 
     if (expandedLoopIDs.has(step.id) && step.loop?.body?.length) {
       for (let i = 0; i < step.loop.body.length; i++) {
@@ -423,6 +455,11 @@ export function computeGraphData(
           },
           combo: `${step.id}__loop_group`,
         });
+
+        for (const key of consumedVariables(bodyStep)) {
+          if (!variableConsumers.has(key)) variableConsumers.set(key, []);
+          variableConsumers.get(key)!.push(bodyNodeID);
+        }
       }
 
       for (let i = 1; i < step.loop.body.length; i++) {
@@ -455,6 +492,27 @@ export function computeGraphData(
       target: edge.to,
       data: { status: stepMap.get(edge.to)?.status, kind: 'dependency' },
     });
+  }
+
+  for (const [key, consumers] of variableConsumers) {
+    const variableID = variableNodeID(key);
+    nodes.push({
+      id: variableID,
+      data: {
+        kind: 'variable',
+        key,
+        consumers,
+      },
+    });
+
+    for (const consumerID of consumers) {
+      edges.push({
+        id: `${variableID}-${consumerID}`,
+        source: variableID,
+        target: consumerID,
+        data: { kind: 'variable-consume', variable: key },
+      });
+    }
   }
 
   const combos: FormulaGraphCombo[] = [];

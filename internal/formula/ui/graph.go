@@ -2,6 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/spec"
@@ -13,6 +16,7 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 		return nil, nil
 	}
 	depths := computeWorkflowDepths(workflow)
+	allowedVars := workflowVarNames(workflow)
 	dependsOnMap := map[string][]string{}
 	stepIDs := map[string]struct{}{}
 
@@ -44,20 +48,57 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 			uiStep.Model = typed.Model
 			uiStep.Description = typed.Prompt
 			uiStep.InputCtx = append([]string(nil), typed.InputCtx...)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
+		case *steps.AgentStep:
+			uiStep.Agent = typed.Agent
+			uiStep.Model = typed.Model
+			uiStep.Description = typed.Prompt
+			uiStep.InputCtx = append([]string(nil), typed.InputCtx...)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
 		case steps.ScriptStep:
 			uiStep.Execution = string(steps.KindScript)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Command, typed.Cwd, typed.Env)
+		case *steps.ScriptStep:
+			uiStep.Execution = string(steps.KindScript)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Command, typed.Cwd, typed.Env)
+		case steps.ExternalAgentStep:
+			uiStep.Execution = string(steps.KindExternalAgent)
+			uiStep.Agent = typed.Driver
+			uiStep.Model = typed.Model
+			uiStep.Description = typed.Prompt
+			uiStep.InputCtx = append([]string(nil), typed.InputCtx...)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Prompt, typed.Cwd, typed.Driver, typed.Provider, typed.Model, typed.Mode, typed.Resume, typed.ExtraArgs)
+		case *steps.ExternalAgentStep:
+			uiStep.Execution = string(steps.KindExternalAgent)
+			uiStep.Agent = typed.Driver
+			uiStep.Model = typed.Model
+			uiStep.Description = typed.Prompt
+			uiStep.InputCtx = append([]string(nil), typed.InputCtx...)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Prompt, typed.Cwd, typed.Driver, typed.Provider, typed.Model, typed.Mode, typed.Resume, typed.ExtraArgs)
 		case steps.HumanInputStep:
 			uiStep.Execution = string(steps.KindHumanInput)
 			uiStep.Description = typed.Reason
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Reason)
+			request := &HumanInputRequest{Reason: typed.Reason}
+			if form, ok := typed.Form.(*spec.FormSpec); ok {
+				request.Form = form
+			}
+			uiStep.HumanInputRequest = request
+		case *steps.HumanInputStep:
+			uiStep.Execution = string(steps.KindHumanInput)
+			uiStep.Description = typed.Reason
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Reason)
 			request := &HumanInputRequest{Reason: typed.Reason}
 			if form, ok := typed.Form.(*spec.FormSpec); ok {
 				request.Form = form
 			}
 			uiStep.HumanInputRequest = request
 		case steps.LoopStep:
-			uiStep.Loop = BuildLoopFromStep(typed)
+			uiStep.VarRefs = templateVarRefs(allowedVars, localVarSet(typed.Var), typed.ForEach, typed.Until)
+			uiStep.Loop = BuildLoopFromStep(typed, allowedVars)
 		case *steps.LoopStep:
-			uiStep.Loop = BuildLoopFromStep(*typed)
+			uiStep.VarRefs = templateVarRefs(allowedVars, localVarSet(typed.Var), typed.ForEach, typed.Until)
+			uiStep.Loop = BuildLoopFromStep(*typed, allowedVars)
 		}
 		uiSteps = append(uiSteps, uiStep)
 	}
@@ -81,7 +122,7 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 	return uiSteps, uiEdges
 }
 
-func BuildLoopFromStep(loop steps.LoopStep) *Loop {
+func BuildLoopFromStep(loop steps.LoopStep, allowedVars map[string]struct{}) *Loop {
 	dashboardLoop := &Loop{
 		ForEach:        loop.ForEach,
 		Var:            loop.Var,
@@ -103,6 +144,7 @@ func BuildLoopFromStep(loop steps.LoopStep) *Loop {
 			Condition: meta.Condition,
 			DependsOn: metadataDependsOn(meta),
 		}
+		localVars := map[string]struct{}{loop.Var: {}}
 		switch typed := child.(type) {
 		case steps.AgentStep:
 			body.Description = typed.Prompt
@@ -110,26 +152,100 @@ func BuildLoopFromStep(loop steps.LoopStep) *Loop {
 			body.Model = typed.Model
 			body.OutputKey = typed.OutputKey
 			body.InputCtx = append([]string(nil), typed.InputCtx...)
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
 		case *steps.AgentStep:
 			body.Description = typed.Prompt
 			body.Agent = typed.Agent
 			body.Model = typed.Model
 			body.OutputKey = typed.OutputKey
 			body.InputCtx = append([]string(nil), typed.InputCtx...)
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
 		case steps.ScriptStep:
 			body.OutputKey = typed.OutputKey
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Command, typed.Cwd, typed.Env)
 		case *steps.ScriptStep:
 			body.OutputKey = typed.OutputKey
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Command, typed.Cwd, typed.Env)
 		case steps.HumanInputStep:
 			body.Description = typed.Reason
 			body.OutputKey = typed.OutputKey
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Reason)
 		case *steps.HumanInputStep:
 			body.Description = typed.Reason
 			body.OutputKey = typed.OutputKey
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Reason)
 		}
 		dashboardLoop.Body = append(dashboardLoop.Body, body)
 	}
 	return dashboardLoop
+}
+
+var templateVarPattern = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*}}`)
+
+func workflowVarNames(workflow *ir.Workflow) map[string]struct{} {
+	out := map[string]struct{}{}
+	if workflow == nil {
+		return out
+	}
+	for key := range workflow.Vars {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			out[key] = struct{}{}
+		}
+	}
+	return out
+}
+
+func templateVarRefs(allowed map[string]struct{}, local map[string]struct{}, values ...any) []string {
+	seen := map[string]struct{}{}
+	var scan func(any)
+	scan = func(value any) {
+		switch typed := value.(type) {
+		case string:
+			for _, match := range templateVarPattern.FindAllStringSubmatch(typed, -1) {
+				root := strings.Split(strings.TrimSpace(match[1]), ".")[0]
+				if root == "" {
+					continue
+				}
+				if _, ok := allowed[root]; !ok {
+					continue
+				}
+				if _, ok := local[root]; ok {
+					continue
+				}
+				seen[root] = struct{}{}
+			}
+		case []string:
+			for _, item := range typed {
+				scan(item)
+			}
+		case map[string]string:
+			for key, item := range typed {
+				scan(key)
+				scan(item)
+			}
+		}
+	}
+	for _, value := range values {
+		scan(value)
+	}
+	out := make([]string, 0, len(seen))
+	for key := range seen {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func localVarSet(names ...string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = struct{}{}
+		}
+	}
+	return out
 }
 
 func metadataDependsOn(meta steps.Metadata) []string {
@@ -298,6 +414,7 @@ func CloneLoop(src *Loop) *Loop {
 	copy(cp.Body, src.Body)
 	for i := range cp.Body {
 		cp.Body[i].InputCtx = append([]string(nil), src.Body[i].InputCtx...)
+		cp.Body[i].VarRefs = append([]string(nil), src.Body[i].VarRefs...)
 	}
 	return &cp
 }

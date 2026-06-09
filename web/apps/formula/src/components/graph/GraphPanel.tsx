@@ -5,7 +5,7 @@ import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { graphShortId } from '../../utils/status';
 import { stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
-import { computeGraphData, resolveClickedStep, shouldToggleLoopOnClick, type LoopGroupNodeData, type StepNodeData } from './graphModel';
+import { computeGraphData, resolveClickedStep, shouldToggleLoopOnClick, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'rgba(148, 163, 184, 0.82)',
@@ -78,6 +78,21 @@ function kindFill(executionKind: string, isDark: boolean) {
   return palette[executionKind] || palette.step;
 }
 
+function stepStatusBorderStyle(step: FormulaDashboardStep, isDark: boolean, pulse = 0) {
+  const status = step.status || 'pending';
+  const statusColor = STATUS_COLORS[status] || STATUS_COLORS.pending;
+  const isRunning = status === 'running';
+  const pulseBoost = isRunning ? pulse : 0;
+
+  return {
+    stroke: isRunning ? '#22d3ee' : statusColor,
+    lineWidth: isRunning ? 3 + pulseBoost * 1.15 : 2,
+    shadowColor: isRunning ? `rgba(103, 232, 249, ${0.34 + pulseBoost * 0.2})` : isDark ? 'rgba(0, 0, 0, 0.22)' : 'rgba(15, 23, 42, 0.08)',
+    shadowBlur: isRunning ? 14 + pulseBoost * 10 : 8,
+    shadowOffsetY: 4,
+  };
+}
+
 function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
   const status = step.status || 'pending';
   const executionKind = stepExecutionKind(step);
@@ -94,12 +109,8 @@ function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
   return {
     size: [width, height],
     fill: kindFill(executionKind, isDark),
-    stroke: statusColor,
-    lineWidth: status === 'running' ? 3 : 2,
+    ...stepStatusBorderStyle(step, isDark),
     radius: 14,
-    shadowColor: status === 'running' ? `${statusColor}66` : isDark ? 'rgba(0, 0, 0, 0.22)' : 'rgba(15, 23, 42, 0.08)',
-    shadowBlur: status === 'running' ? 18 : 8,
-    shadowOffsetY: 4,
     cursor: 'pointer',
     labelText: stepNodeLabel(step),
     labelFill: isDark ? '#e2e8f0' : '#1e293b',
@@ -129,8 +140,42 @@ function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
   };
 }
 
+function variableNodeStyle(data: VariableNodeData, isDark: boolean) {
+  return {
+    size: [220, 54],
+    fill: isDark ? 'rgba(8, 145, 178, 0.13)' : 'rgba(236, 254, 255, 0.96)',
+    stroke: isDark ? 'rgba(103, 232, 249, 0.56)' : 'rgba(8, 145, 178, 0.48)',
+    lineWidth: 1.4,
+    radius: 18,
+    labelText: `$ ${data.key}`,
+    labelFill: isDark ? '#a5f3fc' : '#155e75',
+    labelFontSize: 12,
+    labelFontWeight: 750,
+    labelWordWrap: true,
+    labelMaxWidth: 188,
+    labelPlacement: 'center',
+    badge: false,
+    ports: [
+      { key: 'bottom', placement: [0.5, 1], r: 2.8, fill: '#22d3ee', stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top', placement: [0.5, 0], r: 2.8, fill: '#22d3ee', stroke: isDark ? '#0f172a' : '#fff' },
+    ],
+  };
+}
+
 function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: string; targetPort?: string; laneOffset?: number } | undefined, isDark: boolean) {
   const laneOffset = Math.max(-42, Math.min(42, edgeData?.laneOffset || 0));
+  if (edgeData?.kind === 'variable-consume') {
+    return {
+      sourcePort: edgeData.sourcePort,
+      targetPort: edgeData.targetPort,
+      curveOffset: [laneOffset, -laneOffset],
+      stroke: isDark ? 'rgba(34, 211, 238, 0.62)' : 'rgba(8, 145, 178, 0.56)',
+      lineWidth: 1.35,
+      endArrow: true,
+      endArrowSize: 7,
+      lineDash: [3, 5],
+    };
+  }
   if (edgeData?.kind === 'loop-expand' || edgeData?.kind === 'loop-sequence') {
     return {
       sourcePort: edgeData.sourcePort,
@@ -210,9 +255,10 @@ function GraphHelpTooltip() {
           <strong>How to read this graph</strong>
           <ul>
             <li><b>Arrow direction</b>: dependency / execution order flows top to bottom.</li>
-            <li><b>Node border color</b>: status. Gray pending, cyan running, green completed, red failed, yellow skipped or waiting.</li>
+            <li><b>Node border color</b>: status. Gray pending, cyan running, green completed, red failed, yellow skipped or waiting. Running nodes also have a soft pulsing border.</li>
             <li><b>Node background color</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
-            <li><b>Edge color</b>: the target step status. Purple dashed edges are expanded loop-body structure.</li>
+            <li><b>Variable nodes</b>: small <b>$ var</b> nodes show where formula template variables like <b>{'{{repo}}'}</b> are consumed.</li>
+            <li><b>Edge color</b>: the target step status. Purple dashed edges are expanded loop-body structure; cyan dashed edges are variable consumption.</li>
             <li><b>Layout</b>: steps are grouped by dependency depth. Same-depth steps are reordered to reduce avoidable edge crossings.</li>
             <li><b>Separated lanes</b>: multiple dependencies use different ports and curves so overlapping lines remain readable.</li>
             <li><b>Click a node</b>: opens details. Click a loop node to expand/collapse its body.</li>
@@ -244,11 +290,20 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
   const isDark = theme === 'dark';
 
   const graphData = useMemo(() => computeGraphData(snapshot, expandedLoopIDs), [snapshot, expandedLoopIDs]);
+  const graphDataRef = useRef(graphData);
+  const snapshotRef = useRef(snapshot);
+  const onSelectRef = useRef(onSelect);
+
+  useEffect(() => {
+    graphDataRef.current = graphData;
+    snapshotRef.current = snapshot;
+    onSelectRef.current = onSelect;
+  }, [graphData, onSelect, snapshot]);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const { nodes, edges, combos } = graphData;
+    const initialGraphData = graphDataRef.current;
 
     const config: GraphOptions = {
       container: containerRef.current,
@@ -256,16 +311,25 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       padding: 40,
       grouping: true,
       data: {
-        nodes,
-        edges,
-        combos,
+        nodes: initialGraphData.nodes,
+        edges: initialGraphData.edges,
+        combos: initialGraphData.combos,
       },
       layout: undefined,
       node: {
         type: 'rect',
-        style: (node: { data?: StepNodeData | LoopGroupNodeData; style?: Record<string, unknown> & { x?: number; y?: number } }) => {
+        style: (node: { data?: StepNodeData | LoopGroupNodeData | VariableNodeData; style?: Record<string, unknown> & { x?: number; y?: number } }) => {
           const data = node.data;
-          if (!data || !('step' in data)) return {};
+          if (!data) return {};
+          if (data.kind === 'variable') {
+            return {
+              ...variableNodeStyle(data, isDark),
+              ...(node.style || {}),
+              x: node.style?.x ?? data.layoutX,
+              y: node.style?.y ?? data.layoutY,
+            };
+          }
+          if (!('step' in data)) return {};
           return {
             ...stepNodeStyle(data.step, isDark),
             ...(node.style || {}),
@@ -356,16 +420,54 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     const graph = new Graph(config);
     graphRef.current = graph;
 
+    let pulseFrame = 0;
+    const pulsedNodeIDs = new Set<string>();
+
+    const applyRunningPulse = () => {
+      const { nodes } = graphDataRef.current;
+      const runningIDs = new Set(
+        nodes
+          .filter(node => node.data.kind !== 'variable' && node.data.step.status === 'running')
+          .map(node => node.id),
+      );
+      const pulse = (Math.sin(pulseFrame / 2) + 1) / 2;
+      pulseFrame += 1;
+
+      const updates = nodes
+        .filter(node => {
+          if (node.data.kind === 'variable') return false;
+          return runningIDs.has(node.id) || pulsedNodeIDs.has(node.id);
+        })
+        .map(node => {
+          const isRunning = runningIDs.has(node.id);
+          if (isRunning) pulsedNodeIDs.add(node.id);
+          else pulsedNodeIDs.delete(node.id);
+          return {
+            id: node.id,
+            style: stepStatusBorderStyle(node.data.step, isDark, isRunning ? pulse : 0),
+          };
+        });
+
+      if (!updates.length) return;
+      graph.updateNodeData(updates);
+      graph.draw();
+    };
+
+    const pulseTimer = window.setInterval(applyRunningPulse, 520);
+
     const applyHoverState = (nodeID: string | undefined) => {
+      const { nodes, edges, combos } = graphDataRef.current;
       const activeIDs = nodeID ? relatedPathIDs(nodeID, edges) : new Set<string>();
       graph.updateNodeData(nodes.map(node => ({
         id: node.id,
         style: activeIDs.has(node.id)
           ? { stroke: HOVER_ACCENT, lineWidth: 2.4 }
-          : {
-              stroke: STATUS_COLORS[node.data.step.status || 'pending'] || STATUS_COLORS.pending,
-              lineWidth: node.data.step.status === 'running' ? 3 : 2,
-            },
+          : node.data.kind === 'variable'
+            ? {
+                stroke: isDark ? 'rgba(103, 232, 249, 0.56)' : 'rgba(8, 145, 178, 0.48)',
+                lineWidth: 1.4,
+              }
+          : stepStatusBorderStyle(node.data.step, isDark),
       })));
       graph.updateEdgeData(edges.map(edge => ({
         id: edge.id,
@@ -393,26 +495,40 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       if (!nodeID) return;
 
       const datum = graph.getElementData(nodeID) as { data?: StepNodeData } | undefined;
-      const step = resolveClickedStep(nodeID, datum?.data, snapshot);
+      const step = resolveClickedStep(nodeID, datum?.data, snapshotRef.current);
       if (!step) return;
 
       if (shouldToggleLoopOnClick(nodeID, step)) {
         toggleLoop(step.id);
       }
-      onSelect(step);
+      onSelectRef.current(step);
     });
 
-    graph.render();
+    void Promise.resolve(graph.render()).then(applyRunningPulse);
 
     return () => {
+      window.clearInterval(pulseTimer);
       graph.destroy();
       graphRef.current = null;
     };
-  }, [graphData, isDark, onSelect, snapshot.steps]);
+  }, [isDark]);
+
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    graph.setData({
+      nodes: graphData.nodes,
+      edges: graphData.edges,
+      combos: graphData.combos,
+    });
+    graph.render();
+  }, [graphData]);
 
   const running = snapshot.steps.find(step => step.status === 'running');
   const loopSteps = snapshot.steps.filter(step => !!step.loop?.body?.length).length;
   const expandedLoopCount = expandedLoopIDs.size;
+  const metricNodeCount = graphData.nodes.length;
+  const metricEdgeCount = graphData.edges.length;
 
   if (!snapshot.steps.length) {
     return <Empty description="No executable steps" />;
@@ -428,8 +544,8 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
           </div>
           <p>Overview-first workflow map. Loops are expanded by default, and hovering a node subtly emphasizes its upstream/downstream path.</p>
           <div className="graph-header-metrics">
-            <span>{snapshot.steps.length} nodes</span>
-            <span>{snapshot.edges.length} edges</span>
+            <span>{metricNodeCount} nodes</span>
+            <span>{metricEdgeCount} edges</span>
             {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} · {expandedLoopCount} expanded</span>}
           </div>
         </div>

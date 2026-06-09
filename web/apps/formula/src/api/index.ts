@@ -14,12 +14,19 @@ function normalizeStep(step: FormulaDashboardStep): FormulaDashboardStep {
     ...step,
     labels: Array.isArray(step.labels) ? step.labels : [],
     input_ctx: Array.isArray(step.input_ctx) ? step.input_ctx : [],
+    var_refs: Array.isArray(step.var_refs) ? step.var_refs : [],
     depends_on: Array.isArray(step.depends_on) ? step.depends_on : [],
     activities: Array.isArray(step.activities) ? step.activities : [],
     metadata: step.metadata || {},
     loop: step.loop ? {
       ...step.loop,
-      body: Array.isArray(step.loop.body) ? step.loop.body : [],
+      body: Array.isArray(step.loop.body)
+        ? step.loop.body.map(body => ({
+            ...body,
+            input_ctx: Array.isArray(body.input_ctx) ? body.input_ctx : [],
+            var_refs: Array.isArray(body.var_refs) ? body.var_refs : [],
+          }))
+        : [],
     } : undefined,
   };
 }
