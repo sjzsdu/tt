@@ -15,17 +15,29 @@ export type StepNodeData = {
   parentStep?: FormulaDashboardStep;
   body?: FormulaDashboardLoopBody;
   expanded?: boolean;
+  layoutRank?: number;
+  layoutOrder?: number;
+  layoutX?: number;
+  layoutY?: number;
 };
 
 export type LoopGroupNodeData = {
   step: FormulaDashboardStep;
   bodyCount: number;
+  layoutRank?: number;
+  layoutOrder?: number;
+  layoutX?: number;
+  layoutY?: number;
 };
 
 export type FormulaGraphNode = {
   id: string;
   data: StepNodeData | LoopGroupNodeData;
   combo?: string;
+  style?: {
+    x: number;
+    y: number;
+  };
 };
 
 export type FormulaGraphEdge = {
@@ -50,22 +62,253 @@ export type FormulaGraphCombo = {
 };
 
 
-const SOURCE_PORTS = ['right-top', 'right', 'right-bottom'];
-const TARGET_PORTS = ['left-top', 'left', 'left-bottom'];
-const LANE_STEP = 18;
+const SOURCE_PORTS = [
+  'bottom-left-3',
+  'bottom-left-2',
+  'bottom-left-1',
+  'bottom',
+  'bottom-right-1',
+  'bottom-right-2',
+  'bottom-right-3',
+];
+const TARGET_PORTS = [
+  'top-left-3',
+  'top-left-2',
+  'top-left-1',
+  'top',
+  'top-right-1',
+  'top-right-2',
+  'top-right-3',
+];
+const CENTER_PORT_INDEX = 3;
+const PORT_INDEX_BY_TOTAL: Record<number, number[]> = {
+  1: [3],
+  2: [2, 4],
+  3: [2, 3, 4],
+  4: [1, 2, 4, 5],
+  5: [1, 2, 3, 4, 5],
+  6: [0, 1, 2, 4, 5, 6],
+  7: [0, 1, 2, 3, 4, 5, 6],
+};
+const LANE_STEP = 12;
+const NODE_X_GAP = 560;
+const NODE_Y_GAP = 250;
 
-function portForLane(ports: string[], index: number) {
-  return ports[index % ports.length];
+function portIndexForLane(index: number, total: number) {
+  const indices = PORT_INDEX_BY_TOTAL[Math.min(total, SOURCE_PORTS.length)] || PORT_INDEX_BY_TOTAL[7];
+  return indices[index % indices.length];
 }
 
-function centeredOffset(index: number, total: number) {
-  if (total <= 1) return 0;
-  return (index - (total - 1) / 2) * LANE_STEP;
+function portForLane(ports: string[], index: number, total: number) {
+  return ports[portIndexForLane(index, total)];
 }
 
-function applyEdgeLanes(edges: FormulaGraphEdge[]) {
+function portOffset(index: number, total: number) {
+  return (portIndexForLane(index, total) - CENTER_PORT_INDEX) * LANE_STEP;
+}
+
+function nodeOrder(nodes: FormulaGraphNode[]) {
+  return new Map(nodes.map((node, index) => [node.id, index]));
+}
+
+function orderOf(order: Map<string, number>, id: string) {
+  return order.get(id) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function edgeEndpointMap(edges: FormulaGraphEdge[]) {
+  const incoming = new Map<string, string[]>();
+  const outgoing = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
+    if (!incoming.has(edge.target)) incoming.set(edge.target, []);
+    outgoing.get(edge.source)!.push(edge.target);
+    incoming.get(edge.target)!.push(edge.source);
+  }
+  return { incoming, outgoing };
+}
+
+function computeRanks(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[]) {
+  const nodeIDs = new Set(nodes.map(node => node.id));
+  const nodeByID = new Map(nodes.map(node => [node.id, node]));
+  const originalOrder = nodeOrder(nodes);
+  const rank = new Map(nodes.map(node => [node.id, 0]));
+  const indegree = new Map(nodes.map(node => [node.id, 0]));
+  const outgoing = new Map<string, string[]>();
+
+  for (const edge of edges) {
+    if (!nodeIDs.has(edge.source) || !nodeIDs.has(edge.target)) continue;
+    if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
+    outgoing.get(edge.source)!.push(edge.target);
+    indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+  }
+
+  const queue = nodes
+    .filter(node => (indegree.get(node.id) || 0) === 0)
+    .sort((a, b) => orderOf(originalOrder, a.id) - orderOf(originalOrder, b.id));
+  const seen = new Set<string>();
+
+  while (queue.length) {
+    const node = queue.shift()!;
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+
+    for (const target of outgoing.get(node.id) || []) {
+      rank.set(target, Math.max(rank.get(target) || 0, (rank.get(node.id) || 0) + 1));
+      indegree.set(target, Math.max(0, (indegree.get(target) || 0) - 1));
+      if ((indegree.get(target) || 0) === 0) {
+        const targetNode = nodeByID.get(target);
+        if (targetNode) queue.push(targetNode);
+        queue.sort((a, b) => orderOf(originalOrder, a.id) - orderOf(originalOrder, b.id));
+      }
+    }
+  }
+
+  // Keep cyclic or otherwise unresolved nodes stable, while still placing them
+  // one layer after any already-ranked predecessor when possible.
+  for (const edge of edges) {
+    if (!nodeIDs.has(edge.source) || !nodeIDs.has(edge.target)) continue;
+    if (seen.has(edge.target)) continue;
+    rank.set(edge.target, Math.max(rank.get(edge.target) || 0, (rank.get(edge.source) || 0) + 1));
+  }
+
+  return rank;
+}
+
+function assignLayoutOrder(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[]) {
+  const originalOrder = nodeOrder(nodes);
+  const rank = computeRanks(nodes, edges);
+  const { incoming, outgoing } = edgeEndpointMap(edges);
+  const ranks = new Map<number, FormulaGraphNode[]>();
+
+  for (const node of nodes) {
+    const nodeRank = rank.get(node.id) || 0;
+    if (!ranks.has(nodeRank)) ranks.set(nodeRank, []);
+    ranks.get(nodeRank)!.push(node);
+  }
+
+  const rankKeys = [...ranks.keys()].sort((a, b) => a - b);
+  for (const key of rankKeys) {
+    ranks.get(key)!.sort((a, b) => orderOf(originalOrder, a.id) - orderOf(originalOrder, b.id));
+  }
+
+  const order = new Map<string, number>();
+  const refreshOrder = () => {
+    for (const key of rankKeys) {
+      ranks.get(key)!.forEach((node, index) => order.set(node.id, index));
+    }
+  };
+  const barycenter = (ids: string[] | undefined) => {
+    const values = (ids || []).map(id => order.get(id)).filter((value): value is number => value !== undefined);
+    if (!values.length) return Number.POSITIVE_INFINITY;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  };
+
+  refreshOrder();
+  for (let sweep = 0; sweep < 6; sweep++) {
+    for (const key of rankKeys.slice(1)) {
+      ranks.get(key)!.sort((a, b) => (
+        barycenter(incoming.get(a.id)) - barycenter(incoming.get(b.id))
+        || orderOf(originalOrder, a.id) - orderOf(originalOrder, b.id)
+      ));
+    }
+    refreshOrder();
+
+    for (const key of rankKeys.slice(0, -1).reverse()) {
+      ranks.get(key)!.sort((a, b) => (
+        barycenter(outgoing.get(a.id)) - barycenter(outgoing.get(b.id))
+        || orderOf(originalOrder, a.id) - orderOf(originalOrder, b.id)
+      ));
+    }
+    refreshOrder();
+  }
+
+  const totalCrossings = () => {
+    let crossings = 0;
+    const visibleEdges = edges.filter(edge => rank.has(edge.source) && rank.has(edge.target));
+
+    for (let i = 0; i < visibleEdges.length; i++) {
+      const a = visibleEdges[i];
+      const aSourceRank = rank.get(a.source)!;
+      const aTargetRank = rank.get(a.target)!;
+      const aSourceOrder = order.get(a.source)!;
+      const aTargetOrder = order.get(a.target)!;
+
+      for (let j = i + 1; j < visibleEdges.length; j++) {
+        const b = visibleEdges[j];
+        if (a.source === b.source || a.target === b.target) continue;
+        if (aSourceRank !== rank.get(b.source) || aTargetRank !== rank.get(b.target)) continue;
+
+        const sourceDelta = aSourceOrder - order.get(b.source)!;
+        const targetDelta = aTargetOrder - order.get(b.target)!;
+        if (sourceDelta * targetDelta < 0) crossings++;
+      }
+    }
+
+    return crossings;
+  };
+
+  refreshOrder();
+  let bestCrossings = totalCrossings();
+  for (let pass = 0; pass < 10; pass++) {
+    let improved = false;
+
+    for (const key of rankKeys) {
+      const rankNodes = ranks.get(key)!;
+      for (let index = 0; index < rankNodes.length - 1; index++) {
+        [rankNodes[index], rankNodes[index + 1]] = [rankNodes[index + 1], rankNodes[index]];
+        refreshOrder();
+        const nextCrossings = totalCrossings();
+
+        if (nextCrossings < bestCrossings) {
+          bestCrossings = nextCrossings;
+          improved = true;
+        } else {
+          [rankNodes[index], rankNodes[index + 1]] = [rankNodes[index + 1], rankNodes[index]];
+          refreshOrder();
+        }
+      }
+    }
+
+    if (!improved) break;
+  }
+
+  for (const key of rankKeys) {
+    ranks.get(key)!.forEach((node, index) => {
+      node.data = { ...node.data, layoutRank: key, layoutOrder: index };
+    });
+  }
+
+  nodes.sort((a, b) => (
+    ((a.data.layoutRank || 0) - (b.data.layoutRank || 0))
+    || ((a.data.layoutOrder || 0) - (b.data.layoutOrder || 0))
+    || orderOf(originalOrder, a.id) - orderOf(originalOrder, b.id)
+  ));
+}
+
+function assignLayoutPositions(nodes: FormulaGraphNode[]) {
+  const ranks = new Map<number, FormulaGraphNode[]>();
+  for (const node of nodes) {
+    const rank = node.data.layoutRank || 0;
+    if (!ranks.has(rank)) ranks.set(rank, []);
+    ranks.get(rank)!.push(node);
+  }
+
+  for (const rank of [...ranks.keys()].sort((a, b) => a - b)) {
+    const rankNodes = ranks.get(rank)!.sort((a, b) => (a.data.layoutOrder || 0) - (b.data.layoutOrder || 0));
+    const center = (rankNodes.length - 1) / 2;
+    rankNodes.forEach((node, index) => {
+      const x = (index - center) * NODE_X_GAP;
+      const y = rank * NODE_Y_GAP;
+      node.data = { ...node.data, layoutX: x, layoutY: y };
+      node.style = { ...(node.style || {}), x, y };
+    });
+  }
+}
+
+function applyEdgeLanes(edges: FormulaGraphEdge[], nodes: FormulaGraphNode[]) {
   const bySource = new Map<string, FormulaGraphEdge[]>();
   const byTarget = new Map<string, FormulaGraphEdge[]>();
+  const order = nodeOrder(nodes);
 
   for (const edge of edges) {
     if (!bySource.has(edge.source)) bySource.set(edge.source, []);
@@ -75,23 +318,27 @@ function applyEdgeLanes(edges: FormulaGraphEdge[]) {
   }
 
   for (const sourceEdges of bySource.values()) {
-    sourceEdges.forEach((edge, index) => {
-      edge.data = {
-        ...edge.data,
-        sourcePort: portForLane(SOURCE_PORTS, index),
-        laneOffset: (edge.data?.laneOffset || 0) + centeredOffset(index, sourceEdges.length),
-      };
-    });
+    sourceEdges
+      .sort((a, b) => orderOf(order, a.target) - orderOf(order, b.target) || a.id.localeCompare(b.id))
+      .forEach((edge, index) => {
+        edge.data = {
+          ...edge.data,
+          sourcePort: portForLane(SOURCE_PORTS, index, sourceEdges.length),
+          laneOffset: (edge.data?.laneOffset || 0) + portOffset(index, sourceEdges.length),
+        };
+      });
   }
 
   for (const targetEdges of byTarget.values()) {
-    targetEdges.forEach((edge, index) => {
-      edge.data = {
-        ...edge.data,
-        targetPort: portForLane(TARGET_PORTS, index),
-        laneOffset: (edge.data?.laneOffset || 0) - centeredOffset(index, targetEdges.length),
-      };
-    });
+    targetEdges
+      .sort((a, b) => orderOf(order, a.source) - orderOf(order, b.source) || a.id.localeCompare(b.id))
+      .forEach((edge, index) => {
+        edge.data = {
+          ...edge.data,
+          targetPort: portForLane(TARGET_PORTS, index, targetEdges.length),
+          laneOffset: (edge.data?.laneOffset || 0) - portOffset(index, targetEdges.length),
+        };
+      });
   }
 }
 
@@ -223,7 +470,9 @@ export function computeGraphData(
     }
   }
 
-  applyEdgeLanes(edges);
+  assignLayoutOrder(nodes, edges);
+  assignLayoutPositions(nodes);
+  applyEdgeLanes(edges, nodes);
 
   return { nodes, edges, combos };
 }

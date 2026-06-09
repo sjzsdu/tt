@@ -3,7 +3,7 @@ import { Empty, Tooltip } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
-import { graphShortId, statusLabel } from '../../utils/status';
+import { graphShortId } from '../../utils/status';
 import { stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
 import { computeGraphData, resolveClickedStep, shouldToggleLoopOnClick, type LoopGroupNodeData, type StepNodeData } from './graphModel';
 
@@ -14,36 +14,6 @@ const STATUS_COLORS: Record<string, string> = {
   failed: '#fb7185',
   skipped: '#fbbf24',
   waiting_input: '#fbbf24',
-};
-
-const STATUS_BG: Record<string, string> = {
-  pending: 'rgba(30, 41, 59, 0.78)',
-  running: 'rgba(8, 47, 73, 0.46)',
-  completed: 'rgba(6, 78, 59, 0.42)',
-  failed: 'rgba(88, 28, 46, 0.45)',
-  skipped: 'rgba(113, 63, 18, 0.34)',
-  waiting_input: 'rgba(113, 63, 18, 0.40)',
-};
-
-const STATUS_BG_LIGHT: Record<string, string> = {
-  pending: 'rgba(248, 250, 252, 0.94)',
-  running: 'rgba(236, 254, 255, 0.95)',
-  completed: 'rgba(236, 253, 245, 0.95)',
-  failed: 'rgba(255, 241, 242, 0.96)',
-  skipped: 'rgba(255, 251, 235, 0.95)',
-  waiting_input: 'rgba(255, 251, 235, 0.96)',
-};
-
-const KIND_COLORS: Record<string, string> = {
-  agent: '#1677ff',
-  external_agent: '#eb2f96',
-  script: '#fa541c',
-  loop: '#a855f7',
-  tool: '#13c2c2',
-  human_input: '#faad14',
-  aggregate: '#65a30d',
-  noop: '#8c8c8c',
-  step: '#1677ff',
 };
 
 const KIND_MARKS: Record<string, string> = {
@@ -58,98 +28,103 @@ const KIND_MARKS: Record<string, string> = {
   step: '■',
 };
 
-const KIND_LINE_DASH: Record<string, number[] | undefined> = {
-  agent: undefined,
-  external_agent: [10, 3, 2, 3],
-  script: [8, 5],
-  loop: [12, 4],
-  tool: [2, 4],
-  human_input: [6, 3, 2, 3],
-  aggregate: [14, 3],
-  noop: [3, 6],
-  step: undefined,
+const KIND_BG_DARK: Record<string, string> = {
+  agent: 'rgba(22, 119, 255, 0.18)',
+  external_agent: 'rgba(235, 47, 150, 0.16)',
+  script: 'rgba(250, 84, 28, 0.18)',
+  loop: 'rgba(168, 85, 247, 0.20)',
+  tool: 'rgba(19, 194, 194, 0.17)',
+  human_input: 'rgba(250, 173, 20, 0.20)',
+  aggregate: 'rgba(101, 163, 13, 0.17)',
+  noop: 'rgba(140, 140, 140, 0.16)',
+  step: 'rgba(22, 119, 255, 0.14)',
+};
+
+const KIND_BG_LIGHT: Record<string, string> = {
+  agent: 'rgba(239, 246, 255, 0.98)',
+  external_agent: 'rgba(253, 242, 248, 0.98)',
+  script: 'rgba(255, 247, 237, 0.98)',
+  loop: 'rgba(250, 245, 255, 0.98)',
+  tool: 'rgba(236, 254, 255, 0.98)',
+  human_input: 'rgba(255, 251, 235, 0.98)',
+  aggregate: 'rgba(247, 254, 231, 0.98)',
+  noop: 'rgba(248, 250, 252, 0.98)',
+  step: 'rgba(239, 246, 255, 0.96)',
 };
 
 const STATUS_LEGEND = ['pending', 'running', 'completed', 'failed', 'skipped'];
 const KIND_LEGEND = ['agent', 'script', 'tool', 'loop', 'human_input'];
+const HOVER_ACCENT = '#38bdf8';
+const HOVER_EDGE_ACCENT = 'rgba(56, 189, 248, 0.72)';
 
 
 function edgeMarkerColor(status?: string) {
   return STATUS_COLORS[status || 'pending'] || STATUS_COLORS.pending;
 }
 
-function compactText(text: string | undefined, maxLength: number) {
-  const clean = (text || '').replace(/\s+/g, ' ').trim();
-  if (!clean) return '';
-  return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}…` : clean;
+function estimateTextLines(text: string, width: number, fontSize: number) {
+  const normalized = (text || '').replace(/\s+/g, ' ').trim() || 'Untitled step';
+  const averageCharWidth = fontSize * 0.58;
+  const charsPerLine = Math.max(8, Math.floor(width / averageCharWidth));
+  return Math.max(1, Math.ceil(normalized.length / charsPerLine));
 }
 
-function stepNodeLabel(step: FormulaDashboardStep, expanded = false) {
-  const executionKind = stepExecutionKind(step);
-  const mark = KIND_MARKS[executionKind] || KIND_MARKS.step;
-  const prefix = step.loop?.body?.length ? (expanded ? '▾ loop' : '▸ loop') : graphShortId(step.id);
-  const description = compactText(step.description || step.notes, 88);
-  const meta = compactText(stepMetaText(step), 72);
-  return [
-    `${mark} ${prefix} · ${stepExecutionLabel(executionKind)}`,
-    compactText(step.title, 72),
-    description,
-    meta ? `• ${meta}` : '',
-  ].filter(Boolean).join('\n');
+function stepNodeLabel(step: FormulaDashboardStep) {
+  return (step.title || graphShortId(step.id)).replace(/\s+/g, ' ').trim();
 }
 
-function stepMetaText(step: FormulaDashboardStep) {
-  const metaParts: string[] = [];
-  if (step.loop?.body?.length) metaParts.push(`${step.loop.body.length} body`);
-  if (step.agent) metaParts.push(`agent ${step.agent}`);
-  if (step.human_input_request) metaParts.push('input required');
-  if (step.depends_on?.length) metaParts.push(`${step.depends_on.length} deps`);
-  if (step.activities?.length) metaParts.push(`${step.activities.length} events`);
-  return metaParts.join(' · ');
+function kindFill(executionKind: string, isDark: boolean) {
+  const palette = isDark ? KIND_BG_DARK : KIND_BG_LIGHT;
+  return palette[executionKind] || palette.step;
 }
 
-function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean, expanded = false) {
+function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
   const status = step.status || 'pending';
   const executionKind = stepExecutionKind(step);
   const statusColor = STATUS_COLORS[status] || STATUS_COLORS.pending;
-  const kindColor = KIND_COLORS[executionKind] || KIND_COLORS.step;
-  const kindDash = KIND_LINE_DASH[executionKind];
   const isLoop = !!step.loop?.body?.length;
   const isLoopBody = step.type === 'loop-body';
-  const width = isLoopBody ? 300 : 340;
-  const height = isLoop ? 178 : 162;
+  const width = isLoopBody ? 340 : 400;
+  const labelFontSize = 14;
+  const labelLineHeight = 20;
+  const labelMaxWidth = width - 36;
+  const labelLines = estimateTextLines(stepNodeLabel(step), labelMaxWidth, labelFontSize);
+  const height = Math.max(isLoop ? 112 : 96, 44 + labelLines * labelLineHeight);
 
   return {
     size: [width, height],
-    radius: 14,
-    fill: isDark ? (STATUS_BG[status] || STATUS_BG.pending) : (STATUS_BG_LIGHT[status] || STATUS_BG_LIGHT.pending),
+    fill: kindFill(executionKind, isDark),
     stroke: statusColor,
-    lineDash: kindDash,
-    lineWidth: status === 'running' ? 3 : isLoop ? 2.4 : 1.7,
+    lineWidth: status === 'running' ? 3 : 2,
+    radius: 14,
     shadowColor: status === 'running' ? `${statusColor}66` : isDark ? 'rgba(0, 0, 0, 0.22)' : 'rgba(15, 23, 42, 0.08)',
     shadowBlur: status === 'running' ? 18 : 8,
     shadowOffsetY: 4,
     cursor: 'pointer',
-    labelText: stepNodeLabel(step, expanded),
+    labelText: stepNodeLabel(step),
     labelFill: isDark ? '#e2e8f0' : '#1e293b',
-    labelFontSize: 12,
-    labelFontWeight: 650,
-    labelLineHeight: 18,
+    labelFontSize,
+    labelFontWeight: 700,
+    labelLineHeight,
     labelWordWrap: true,
-    labelMaxWidth: width - 34,
+    labelMaxWidth,
     labelPlacement: 'center',
-    badge: true,
-    badges: [
-      { text: statusLabel(status), placement: 'right-top', fill: `${statusColor}24`, stroke: statusColor, color: statusColor },
-      { text: `${KIND_MARKS[executionKind] || KIND_MARKS.step} ${stepExecutionLabel(executionKind)}`, placement: 'left-top', fill: `${kindColor}22`, stroke: kindColor, color: kindColor },
-    ],
+    badge: false,
     ports: [
-      { key: 'left-top', placement: [0, 0.24], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
-      { key: 'left', placement: [0, 0.5], r: 3.2, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
-      { key: 'left-bottom', placement: [0, 0.76], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
-      { key: 'right-top', placement: [1, 0.24], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
-      { key: 'right', placement: [1, 0.5], r: 3.2, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
-      { key: 'right-bottom', placement: [1, 0.76], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top-left-3', placement: [0.14, 0], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top-left-2', placement: [0.26, 0], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top-left-1', placement: [0.38, 0], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top', placement: [0.5, 0], r: 3.3, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top-right-1', placement: [0.62, 0], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top-right-2', placement: [0.74, 0], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'top-right-3', placement: [0.86, 0], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom-left-3', placement: [0.14, 1], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom-left-2', placement: [0.26, 1], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom-left-1', placement: [0.38, 1], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom', placement: [0.5, 1], r: 3.3, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom-right-1', placement: [0.62, 1], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom-right-2', placement: [0.74, 1], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'bottom-right-3', placement: [0.86, 1], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
     ],
   };
 }
@@ -184,6 +159,47 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
   };
 }
 
+function loopStepIDs(snapshot: FormulaDashboardSnapshot) {
+  return snapshot.steps.filter(step => !!step.loop?.body?.length).map(step => step.id);
+}
+
+function relatedPathIDs(nodeID: string, edges: { id: string; source: string; target: string }[]) {
+  const relatedNodes = new Set<string>([nodeID]);
+  const relatedEdges = new Set<string>();
+  const outgoing = new Map<string, typeof edges>();
+  const incoming = new Map<string, typeof edges>();
+
+  for (const edge of edges) {
+    if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
+    if (!incoming.has(edge.target)) incoming.set(edge.target, []);
+    outgoing.get(edge.source)!.push(edge);
+    incoming.get(edge.target)!.push(edge);
+  }
+
+  const walk = (start: string, direction: 'in' | 'out') => {
+    const queue = [start];
+    const visited = new Set<string>();
+    while (queue.length) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+
+      const nextEdges = direction === 'out' ? outgoing.get(current) : incoming.get(current);
+      for (const edge of nextEdges || []) {
+        relatedEdges.add(edge.id);
+        const nextNode = direction === 'out' ? edge.target : edge.source;
+        relatedNodes.add(nextNode);
+        queue.push(nextNode);
+      }
+    }
+  };
+
+  walk(nodeID, 'in');
+  walk(nodeID, 'out');
+
+  return new Set([...relatedNodes, ...relatedEdges]);
+}
+
 
 function GraphHelpTooltip() {
   return (
@@ -193,10 +209,11 @@ function GraphHelpTooltip() {
         <div className="graph-help-tooltip">
           <strong>How to read this graph</strong>
           <ul>
-            <li><b>Arrow direction</b>: dependency / execution order flows left to right.</li>
-            <li><b>Node color</b>: status. Gray pending, cyan running, green completed, red failed, yellow skipped or waiting.</li>
-            <li><b>Node border style</b>: execution type. Solid agent, dashed script, dotted tool, long dashed loop.</li>
+            <li><b>Arrow direction</b>: dependency / execution order flows top to bottom.</li>
+            <li><b>Node border color</b>: status. Gray pending, cyan running, green completed, red failed, yellow skipped or waiting.</li>
+            <li><b>Node background color</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
             <li><b>Edge color</b>: the target step status. Purple dashed edges are expanded loop-body structure.</li>
+            <li><b>Layout</b>: steps are grouped by dependency depth. Same-depth steps are reordered to reduce avoidable edge crossings.</li>
             <li><b>Separated lanes</b>: multiple dependencies use different ports and curves so overlapping lines remain readable.</li>
             <li><b>Click a node</b>: opens details. Click a loop node to expand/collapse its body.</li>
           </ul>
@@ -213,7 +230,7 @@ function GraphHelpTooltip() {
 export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void; theme: 'light' | 'dark' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
-  const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set());
+  const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set(loopStepIDs(snapshot)));
 
   const toggleLoop = (stepID: string) => {
     setExpandedLoopIDs(current => {
@@ -243,30 +260,51 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         edges,
         combos,
       },
-      layout: {
-        type: 'dagre',
-        rankdir: 'LR',
-        nodesep: 72,
-        ranksep: 180,
-        controlPoints: true,
-        edgeSep: 36,
-        ranker: 'tight-tree',
-      },
+      layout: undefined,
       node: {
         type: 'rect',
-        style: (node: { data?: StepNodeData | LoopGroupNodeData }) => {
+        style: (node: { data?: StepNodeData | LoopGroupNodeData; style?: Record<string, unknown> & { x?: number; y?: number } }) => {
           const data = node.data;
           if (!data || !('step' in data)) return {};
-          return stepNodeStyle(data.step, isDark, 'expanded' in data ? data.expanded : false);
+          return {
+            ...stepNodeStyle(data.step, isDark),
+            ...(node.style || {}),
+            x: node.style?.x ?? data.layoutX,
+            y: node.style?.y ?? data.layoutY,
+          };
+        },
+        state: {
+          active: {
+            opacity: 1,
+            stroke: HOVER_ACCENT,
+            lineWidth: 2.1,
+            shadowBlur: 6,
+          },
+          inactive: {
+            opacity: 0.96,
+          },
         },
       },
       edge: {
-        type: 'cubic-horizontal',
-        style: (edge: { data?: { status?: string; kind?: string; sourcePort?: string; targetPort?: string; laneOffset?: number } }) => edgeStyle(edge.data, isDark),
+        type: 'cubic-vertical',
+        style: (edge: { data?: { status?: string; kind?: string; sourcePort?: string; targetPort?: string; laneOffset?: number }; style?: Record<string, unknown> }) => ({
+          ...edgeStyle(edge.data, isDark),
+          ...(edge.style || {}),
+        }),
+        state: {
+          active: {
+            opacity: 1,
+            stroke: HOVER_ACCENT,
+            lineWidth: 1.7,
+          },
+          inactive: {
+            opacity: 0.94,
+          },
+        },
       },
       combo: {
         type: 'rect',
-        style: (combo: { data?: { step?: FormulaDashboardStep; bodyCount?: number } }) => ({
+        style: (combo: { data?: { step?: FormulaDashboardStep; bodyCount?: number }; style?: Record<string, unknown> }) => ({
           radius: 14,
           fill: isDark ? 'rgba(8, 13, 25, 0.42)' : 'rgba(248, 250, 252, 0.72)',
           stroke: combo.data?.step ? (STATUS_COLORS[combo.data.step.status] || '#a855f7') : '#a855f7',
@@ -277,10 +315,18 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
           labelFill: isDark ? '#c4b5fd' : '#7e22ce',
           labelFontSize: 12,
           labelFontWeight: 700,
+          ...(combo.style || {}),
         }),
+        state: {
+          active: { opacity: 1, stroke: HOVER_ACCENT, lineWidth: 1.5 },
+          inactive: { opacity: 0.95 },
+        },
       },
       behaviors: [
-        'zoom-canvas',
+        {
+          type: 'zoom-canvas',
+          sensitivity: 0.35,
+        },
         'drag-canvas',
         {
           type: 'click-select',
@@ -309,6 +355,38 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
 
     const graph = new Graph(config);
     graphRef.current = graph;
+
+    const applyHoverState = (nodeID: string | undefined) => {
+      const activeIDs = nodeID ? relatedPathIDs(nodeID, edges) : new Set<string>();
+      graph.updateNodeData(nodes.map(node => ({
+        id: node.id,
+        style: activeIDs.has(node.id)
+          ? { stroke: HOVER_ACCENT, lineWidth: 2.4 }
+          : {
+              stroke: STATUS_COLORS[node.data.step.status || 'pending'] || STATUS_COLORS.pending,
+              lineWidth: node.data.step.status === 'running' ? 3 : 2,
+            },
+      })));
+      graph.updateEdgeData(edges.map(edge => ({
+        id: edge.id,
+        style: activeIDs.has(edge.id)
+          ? { stroke: HOVER_EDGE_ACCENT, lineWidth: 2.2 }
+          : edgeStyle(edge.data, isDark),
+      })));
+      graph.updateComboData(combos.map(combo => ({
+        id: combo.id,
+        style: activeIDs.has(combo.id)
+          ? { stroke: HOVER_ACCENT, lineWidth: 1.8 }
+          : {
+              stroke: combo.data?.step ? (STATUS_COLORS[combo.data.step.status] || '#a855f7') : '#a855f7',
+              lineWidth: 1.4,
+            },
+      })));
+      graph.draw();
+    };
+
+    graph.on('node:pointerenter', (evt: { target?: { id?: string } }) => applyHoverState(evt.target?.id));
+    graph.on('node:pointerleave', () => applyHoverState(undefined));
 
     graph.on('node:click', (evt: { target?: { id?: string } }) => {
       const nodeID = evt.target?.id;
@@ -348,7 +426,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
             <h3>Execution graph</h3>
             <GraphHelpTooltip />
           </div>
-          <p>Overview-first workflow map. Loops stay collapsed until you expand them, with details available in the inspector.</p>
+          <p>Overview-first workflow map. Loops are expanded by default, and hovering a node subtly emphasizes its upstream/downstream path.</p>
           <div className="graph-header-metrics">
             <span>{snapshot.steps.length} nodes</span>
             <span>{snapshot.edges.length} edges</span>

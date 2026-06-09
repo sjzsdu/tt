@@ -124,13 +124,13 @@ button, input, textarea { font: inherit; }
 .legend-pill.status.completed::before { background: #34d399; }
 .legend-pill.status.failed::before { background: #fb7185; }
 .legend-pill.status.skipped::before { background: #fbbf24; }
-.legend-pill.kind { display: inline-flex; align-items: center; gap: 5px; }
-.legend-pill.kind i { width: 20px; height: 0; border-top: 2px solid var(--ant-color-primary); }
-.legend-pill.kind.agent i { border-top-style: solid; border-color: #1677ff; }
-.legend-pill.kind.script i { border-color: #fa541c; border-top-style: dashed; }
-.legend-pill.kind.tool i { border-color: #13c2c2; border-top-style: dotted; }
-.legend-pill.kind.loop i { border-color: #a855f7; border-top-style: dashed; border-top-width: 3px; }
-.legend-pill.kind.human_input i { border-color: #faad14; border-top-style: dashed; }
+.legend-pill.kind { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
+.legend-pill.kind i { width: 18px; height: 14px; border: 1px solid rgba(100, 116, 139, 0.28); border-radius: 4px; }
+.legend-pill.kind.agent i { background: rgba(22, 119, 255, 0.22); }
+.legend-pill.kind.script i { background: rgba(250, 84, 28, 0.24); }
+.legend-pill.kind.tool i { background: rgba(19, 194, 194, 0.24); }
+.legend-pill.kind.loop i { background: rgba(168, 85, 247, 0.24); }
+.legend-pill.kind.human_input i { background: rgba(250, 173, 20, 0.28); }
 .g6-canvas {
   position: relative;
   min-height: 560px;
