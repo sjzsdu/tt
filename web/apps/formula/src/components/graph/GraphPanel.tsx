@@ -63,14 +63,18 @@ function edgeMarkerColor(status?: string) {
 }
 
 function estimateTextLines(text: string, width: number, fontSize: number) {
-  const normalized = (text || '').replace(/\s+/g, ' ').trim() || 'Untitled step';
   const averageCharWidth = fontSize * 0.58;
   const charsPerLine = Math.max(8, Math.floor(width / averageCharWidth));
-  return Math.max(1, Math.ceil(normalized.length / charsPerLine));
+  return (text || 'Untitled step')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim() || ' ')
+    .reduce((total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
 }
 
 function stepNodeLabel(step: FormulaDashboardStep) {
-  return (step.title || graphShortId(step.id)).replace(/\s+/g, ' ').trim();
+  const id = step.id.replace(/\s+/g, ' ').trim() || graphShortId(step.id);
+  const title = (step.title || graphShortId(step.id)).replace(/\s+/g, ' ').trim();
+  return title === id ? id : `${id}\n${title}`;
 }
 
 function kindFill(executionKind: string, isDark: boolean) {
