@@ -98,6 +98,39 @@ try {
   const loopExpandEdge = expanded.edges.find(edge => edge.source === 'collect' && edge.target === fetchNodeID);
   assert.equal(loopExpandEdge?.data.kind, 'loop-expand', 'loop expansion edge should be visually typed');
 
+  const nestedLoopStep = {
+    id: 'outer',
+    title: 'Outer loop',
+    agent: 'analyst',
+    status: 'running',
+    index: 0,
+    loop: {
+      body: [
+        {
+          id: 'inner-loop',
+          title: 'Inner loop',
+          loop: {
+            body: [
+              { id: 'inner-fetch', title: 'Inner fetch', var_refs: ['repo'] },
+              { id: 'inner-summarize', title: 'Inner summarize', depends_on: ['inner-fetch'] },
+            ],
+          },
+        },
+        { id: 'outer-finish', title: 'Outer finish', depends_on: ['inner-loop'] },
+      ],
+    },
+  };
+  const nestedSnapshot = { recipe_name: 'nested', status: 'running', logs: [], edges: [], steps: [nestedLoopStep] };
+  const innerLoopNodeID = loopBodyGraphID('outer', 'inner-loop');
+  const innerFetchNodeID = loopBodyGraphID(innerLoopNodeID, 'inner-fetch');
+  const nestedExpanded = computeGraphData(nestedSnapshot, new Set(['outer', innerLoopNodeID]));
+  assert.ok(nestedExpanded.nodes.some(node => node.id === innerLoopNodeID && node.data.step.loop?.body?.length), 'expanded graph should expose nested loop body as a loop node');
+  assert.ok(nestedExpanded.nodes.some(node => node.id === innerFetchNodeID), 'expanded graph should recursively include nested loop body nodes');
+  assert.equal(nestedExpanded.combos.length, 2, 'expanded nested graph should contain outer and inner loop combos');
+  assert.equal(nestedExpanded.combos.find(combo => combo.id === `${innerLoopNodeID}__loop_group`)?.combo, 'outer__loop_group', 'inner loop combo should be nested under the outer combo');
+  assert.ok(nestedExpanded.edges.some(edge => edge.id === `${innerLoopNodeID}-${innerFetchNodeID}` && edge.data.kind === 'loop-expand'), 'nested loop should have its own expand edge');
+  assert.deepEqual(nestedExpanded.nodes.find(node => node.id === 'var::repo')?.data.consumers, [innerFetchNodeID], 'nested body variable refs should point to the nested consumer node');
+
   const selectedFromBody = resolveClickedStep(fetchNodeID, fetchNode.data, snapshot);
   assert.equal(selectedFromBody?.id, 'collect', 'clicking a synthetic loop body should select its parent loop step');
   assert.equal(shouldToggleLoopOnClick(fetchNodeID, selectedFromBody), false, 'clicking a loop body should not toggle parent expansion');

@@ -49,6 +49,51 @@ func TestGenerateMermaidGraphEscapesMustacheLabels(t *testing.T) {
 	}
 }
 
+func TestGenerateMermaidGraphShowsDeclaredVariableConsumers(t *testing.T) {
+	workflow := &ir.Workflow{
+		ID:    "github-repo-docs",
+		Name:  "github-repo-docs",
+		Vars:  map[string]ir.VarSchema{"repo": {Required: true}, "docs": {}},
+		Graph: ir.NewGraph(),
+	}
+	workflow.Graph.AddNode(&ir.Node{ID: "prepare-repo", Step: steps.ScriptStep{
+		Base:    steps.Base{Metadata: steps.Metadata{ID: "prepare-repo", Kind: steps.KindScript, Title: "Prepare repo"}},
+		Command: []string{"bash", "-lc", "echo {{repo}} {{prepare-repo.stdout.path}}"},
+		Env:     map[string]string{"REPO": "{{repo}}"},
+	}})
+	workflow.Graph.AddNode(&ir.Node{ID: "scope-analysis", Step: steps.AgentStep{
+		Base:   steps.Base{Metadata: steps.Metadata{ID: "scope-analysis", Kind: steps.KindAgent, Title: "Scope"}},
+		Prompt: "Analyze {{repo}} and {{prepare-repo.stdout.path}}",
+	}})
+	workflow.Graph.AddNode(&ir.Node{ID: "write-docs", Step: steps.LoopStep{
+		Base:    steps.Base{Metadata: steps.Metadata{ID: "write-docs", Kind: steps.KindLoop, Title: "Write docs"}},
+		ForEach: "{{docs}}",
+		Var:     "doc",
+		Body: []steps.Step{
+			steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "draft", Kind: steps.KindAgent, Title: "Draft"}}, Prompt: "Write {{doc.title}} for {{repo}}"},
+		},
+	}})
+
+	graph := GenerateMermaidGraph(workflow)
+	for _, want := range []string{
+		`var__docs["$ docs"]`,
+		`var__repo["$ repo"]`,
+		`var__repo -. var .-> prepare_repo`,
+		`var__repo -. var .-> scope_analysis`,
+		`var__docs -. var .-> write_docs`,
+		`var__repo -. var .-> write_docs__draft`,
+	} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("graph missing %q:\n%s", want, graph)
+		}
+	}
+	for _, notWant := range []string{`var__doc[`, `var__prepare_repo[`} {
+		if strings.Contains(graph, notWant) {
+			t.Fatalf("graph should not contain %q for local loop vars or step output refs:\n%s", notWant, graph)
+		}
+	}
+}
+
 func TestGenerateMarkdownUsesExecutionOrderAndFoldsScripts(t *testing.T) {
 	f := &spec.Formula{
 		Formula: "demo",

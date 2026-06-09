@@ -66,9 +66,11 @@ export type FormulaGraphEdge = {
 
 export type FormulaGraphCombo = {
   id: string;
+  combo?: string;
   data: {
     step: FormulaDashboardStep;
     bodyCount: number;
+    depth?: number;
   };
 };
 
@@ -371,8 +373,12 @@ export function loopBodyGraphID(parentID: string, bodyID: string) {
   return `${parentID}__${bodyID}`;
 }
 
-export function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody, index: number): FormulaDashboardStep {
-  const bodyActivity = [...(parent.activities || [])]
+function loopGroupID(stepID: string) {
+  return `${stepID}__loop_group`;
+}
+
+export function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody, index: number, activitySource = parent): FormulaDashboardStep {
+  const bodyActivity = [...(activitySource.activities || [])]
     .reverse()
     .find(activity => loopActivityBodyID(activity) === body.id);
   return {
@@ -391,6 +397,7 @@ export function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboar
     var_refs: body.var_refs,
     condition: body.condition,
     depends_on: body.depends_on,
+    loop: body.loop,
     metadata: {
       parent_step: parent.id,
       body_id: body.id,
@@ -422,7 +429,73 @@ export function computeGraphData(
 
   const nodes: FormulaGraphNode[] = [];
   const edges: FormulaGraphEdge[] = [];
+  const combos: FormulaGraphCombo[] = [];
   const variableConsumers = new Map<string, string[]>();
+
+  const addVariableConsumers = (step: FormulaDashboardStep, nodeID: string) => {
+    for (const key of consumedVariables(step)) {
+      if (!variableConsumers.has(key)) variableConsumers.set(key, []);
+      variableConsumers.get(key)!.push(nodeID);
+    }
+  };
+
+  const addLoopBody = (parentStep: FormulaDashboardStep, parentNodeID: string, parentComboID: string | undefined, activitySource: FormulaDashboardStep) => {
+    if (!expandedLoopIDs.has(parentNodeID) || !parentStep.loop?.body?.length) return;
+
+    const comboID = loopGroupID(parentNodeID);
+    combos.push({
+      id: comboID,
+      combo: parentComboID,
+      data: {
+        step: parentStep,
+        bodyCount: parentStep.loop.body.length,
+        depth: parentStep.depth || 0,
+      },
+    });
+
+    for (let i = 0; i < parentStep.loop.body.length; i++) {
+      const body = parentStep.loop.body[i];
+      const bodyStep = loopBodyStep(parentStep, body, i, activitySource);
+      bodyStep.id = loopBodyGraphID(parentNodeID, body.id);
+      bodyStep.depth = (parentStep.depth || 0) + 1;
+      const bodyNodeID = bodyStep.id;
+
+      nodes.push({
+        id: bodyNodeID,
+        data: {
+          step: bodyStep,
+          kind: 'loop-body',
+          parentStep,
+          body,
+          expanded: expandedLoopIDs.has(bodyNodeID),
+        },
+        combo: comboID,
+      });
+
+      addVariableConsumers(bodyStep, bodyNodeID);
+      addLoopBody(bodyStep, bodyNodeID, comboID, activitySource);
+    }
+
+    for (let i = 1; i < parentStep.loop.body.length; i++) {
+      const prevBody = parentStep.loop.body[i - 1];
+      const currBody = parentStep.loop.body[i];
+      edges.push({
+        id: `${loopBodyGraphID(parentNodeID, prevBody.id)}-${loopBodyGraphID(parentNodeID, currBody.id)}`,
+        source: loopBodyGraphID(parentNodeID, prevBody.id),
+        target: loopBodyGraphID(parentNodeID, currBody.id),
+        data: { kind: 'loop-sequence' },
+      });
+    }
+
+    if (parentStep.loop.body[0]) {
+      edges.push({
+        id: `${parentNodeID}-${loopBodyGraphID(parentNodeID, parentStep.loop.body[0].id)}`,
+        source: parentNodeID,
+        target: loopBodyGraphID(parentNodeID, parentStep.loop.body[0].id),
+        data: { kind: 'loop-expand' },
+      });
+    }
+  };
 
   for (const step of snapshot.steps) {
     nodes.push({
@@ -434,54 +507,8 @@ export function computeGraphData(
       },
     });
 
-    for (const key of consumedVariables(step)) {
-      if (!variableConsumers.has(key)) variableConsumers.set(key, []);
-      variableConsumers.get(key)!.push(step.id);
-    }
-
-    if (expandedLoopIDs.has(step.id) && step.loop?.body?.length) {
-      for (let i = 0; i < step.loop.body.length; i++) {
-        const body = step.loop.body[i];
-        const bodyStep = loopBodyStep(step, body, i);
-        const bodyNodeID = loopBodyGraphID(step.id, body.id);
-
-        nodes.push({
-          id: bodyNodeID,
-          data: {
-            step: bodyStep,
-            kind: 'loop-body',
-            parentStep: step,
-            body,
-          },
-          combo: `${step.id}__loop_group`,
-        });
-
-        for (const key of consumedVariables(bodyStep)) {
-          if (!variableConsumers.has(key)) variableConsumers.set(key, []);
-          variableConsumers.get(key)!.push(bodyNodeID);
-        }
-      }
-
-      for (let i = 1; i < step.loop.body.length; i++) {
-        const prevBody = step.loop.body[i - 1];
-        const currBody = step.loop.body[i];
-        edges.push({
-          id: `${loopBodyGraphID(step.id, prevBody.id)}-${loopBodyGraphID(step.id, currBody.id)}`,
-          source: loopBodyGraphID(step.id, prevBody.id),
-          target: loopBodyGraphID(step.id, currBody.id),
-          data: { kind: 'loop-sequence' },
-        });
-      }
-
-      if (step.loop.body[0]) {
-        edges.push({
-          id: `${step.id}-${loopBodyGraphID(step.id, step.loop.body[0].id)}`,
-          source: step.id,
-          target: loopBodyGraphID(step.id, step.loop.body[0].id),
-          data: { kind: 'loop-expand' },
-        });
-      }
-    }
+    addVariableConsumers(step, step.id);
+    addLoopBody(step, step.id, undefined, step);
   }
 
   for (const edge of graphEdges) {
@@ -511,19 +538,6 @@ export function computeGraphData(
         source: variableID,
         target: consumerID,
         data: { kind: 'variable-consume', variable: key },
-      });
-    }
-  }
-
-  const combos: FormulaGraphCombo[] = [];
-  for (const step of snapshot.steps) {
-    if (expandedLoopIDs.has(step.id) && step.loop?.body?.length) {
-      combos.push({
-        id: `${step.id}__loop_group`,
-        data: {
-          step,
-          bodyCount: step.loop.body.length,
-        },
       });
     }
   }

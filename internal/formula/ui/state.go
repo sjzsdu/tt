@@ -133,6 +133,7 @@ type LoopBody struct {
 	Condition   string   `json:"condition,omitempty"`
 	DependsOn   []string `json:"depends_on,omitempty"`
 	VarRefs     []string `json:"var_refs,omitempty"`
+	Loop        *Loop    `json:"loop,omitempty"`
 }
 
 type Gate struct {

@@ -5,7 +5,7 @@ import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { graphShortId } from '../../utils/status';
 import { stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
-import { computeGraphData, resolveClickedStep, shouldToggleLoopOnClick, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
+import { computeGraphData, loopBodyGraphID, resolveClickedStep, shouldToggleLoopOnClick, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'rgba(148, 163, 184, 0.82)',
@@ -205,7 +205,25 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
 }
 
 function loopStepIDs(snapshot: FormulaDashboardSnapshot) {
-  return snapshot.steps.filter(step => !!step.loop?.body?.length).map(step => step.id);
+  const ids: string[] = [];
+  const collect = (step: FormulaDashboardStep, nodeID: string) => {
+    if (!step.loop?.body?.length) return;
+    ids.push(nodeID);
+    for (const body of step.loop.body) {
+      if (!body.loop?.body?.length) continue;
+      collect({
+        id: loopBodyGraphID(nodeID, body.id),
+        title: body.title || body.id,
+        agent: body.agent || step.agent,
+        status: 'pending',
+        index: 0,
+        depth: (step.depth || 0) + 1,
+        loop: body.loop,
+      }, loopBodyGraphID(nodeID, body.id));
+    }
+  };
+  for (const step of snapshot.steps) collect(step, step.id);
+  return ids;
 }
 
 function relatedPathIDs(nodeID: string, edges: { id: string; source: string; target: string }[]) {
@@ -498,7 +516,9 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       const step = resolveClickedStep(nodeID, datum?.data, snapshotRef.current);
       if (!step) return;
 
-      if (shouldToggleLoopOnClick(nodeID, step)) {
+      if (datum?.data?.kind === 'loop-body' && datum.data.step.loop?.body?.length) {
+        toggleLoop(nodeID);
+      } else if (shouldToggleLoopOnClick(nodeID, step)) {
         toggleLoop(step.id);
       }
       onSelectRef.current(step);

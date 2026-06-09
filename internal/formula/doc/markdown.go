@@ -2,6 +2,7 @@ package doc
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -216,12 +217,18 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 		return b.String()
 	}
 	ids := map[ir.NodeID]struct{}{}
+	allowedVars := workflowVarNames(workflow)
+	varEdges := []mermaidVarEdge{}
 	for _, step := range stepsList {
 		meta := step.Meta()
 		id := ir.NodeID(meta.ID)
 		ids[id] = struct{}{}
+		collectMermaidVarEdges(step, string(id), allowedVars, nil, &varEdges)
 		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidNodeID(string(id)), mermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
-		writeLoopMermaidSubgraph(&b, step)
+		writeLoopMermaidSubgraph(&b, step, string(id))
+	}
+	for _, name := range sortedWorkflowVarNames(workflow) {
+		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidVarNodeID(name), mermaidLabel("$ "+name)))
 	}
 	if workflow != nil {
 		for _, edge := range workflow.Graph.Edges {
@@ -234,10 +241,13 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 			b.WriteString(fmt.Sprintf("  %s --> %s\n", mermaidNodeID(string(edge.From)), mermaidNodeID(string(edge.To))))
 		}
 	}
+	for _, edge := range varEdges {
+		b.WriteString(fmt.Sprintf("  %s -. var .-> %s\n", mermaidVarNodeID(edge.Name), mermaidNodeID(edge.TargetID)))
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
+func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step, parentID string) {
 	if b == nil || step == nil {
 		return
 	}
@@ -253,7 +263,6 @@ func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
 	if len(loop.Body) == 0 {
 		return
 	}
-	parentID := string(step.Meta().ID)
 	b.WriteString(fmt.Sprintf("  subgraph %s [%s]\n", mermaidNodeID(parentID)+"_loop", mermaidLabel(parentID+" loop body")))
 	bodyIDs := map[string]struct{}{}
 	for _, child := range loop.Body {
@@ -263,6 +272,7 @@ func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step) {
 		meta := child.Meta()
 		bodyIDs[string(meta.ID)] = struct{}{}
 		b.WriteString(fmt.Sprintf("    %s[%s]\n", mermaidNodeID(parentID+"__"+string(meta.ID)), mermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
+		writeLoopMermaidSubgraph(b, child, parentID+"__"+string(meta.ID))
 	}
 	for i, child := range loop.Body {
 		if child == nil {
@@ -295,6 +305,143 @@ func firstLoopBodyID(loop steps.LoopStep) string {
 		}
 	}
 	return ""
+}
+
+type mermaidVarEdge struct {
+	Name     string
+	TargetID string
+}
+
+var mermaidTemplateVarPattern = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*}}`)
+
+func workflowVarNames(workflow *ir.Workflow) map[string]struct{} {
+	out := map[string]struct{}{}
+	if workflow == nil {
+		return out
+	}
+	for name := range workflow.Vars {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
+func sortedWorkflowVarNames(workflow *ir.Workflow) []string {
+	allowed := workflowVarNames(workflow)
+	names := make([]string, 0, len(allowed))
+	for name := range allowed {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func collectMermaidVarEdges(step steps.Step, nodeID string, allowed map[string]struct{}, local map[string]struct{}, edges *[]mermaidVarEdge) {
+	if step == nil || len(allowed) == 0 || edges == nil {
+		return
+	}
+	for _, name := range stepTemplateVarRefs(step, allowed, local) {
+		*edges = append(*edges, mermaidVarEdge{Name: name, TargetID: nodeID})
+	}
+
+	loop, ok := asLoopStep(step)
+	if !ok || len(loop.Body) == 0 {
+		return
+	}
+	childLocal := cloneStringSet(local)
+	if strings.TrimSpace(loop.Var) != "" {
+		childLocal[strings.TrimSpace(loop.Var)] = struct{}{}
+	}
+	for _, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		childID := nodeID + "__" + string(child.Meta().ID)
+		collectMermaidVarEdges(child, childID, allowed, childLocal, edges)
+	}
+}
+
+func stepTemplateVarRefs(step steps.Step, allowed map[string]struct{}, local map[string]struct{}) []string {
+	seen := map[string]struct{}{}
+	scan := func(values ...any) {}
+	scan = func(values ...any) {
+		for _, value := range values {
+			switch typed := value.(type) {
+			case string:
+				for _, match := range mermaidTemplateVarPattern.FindAllStringSubmatch(typed, -1) {
+					root := strings.Split(strings.TrimSpace(match[1]), ".")[0]
+					if root == "" {
+						continue
+					}
+					if _, ok := allowed[root]; !ok {
+						continue
+					}
+					if _, ok := local[root]; ok {
+						continue
+					}
+					seen[root] = struct{}{}
+				}
+			case []string:
+				for _, item := range typed {
+					scan(item)
+				}
+			case map[string]string:
+				for key, item := range typed {
+					scan(key, item)
+				}
+			}
+		}
+	}
+
+	switch typed := step.(type) {
+	case steps.AgentStep:
+		scan(typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
+	case *steps.AgentStep:
+		scan(typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
+	case steps.ScriptStep:
+		scan(typed.Command, typed.Cwd, typed.Env)
+	case *steps.ScriptStep:
+		scan(typed.Command, typed.Cwd, typed.Env)
+	case steps.HumanInputStep:
+		scan(typed.Reason)
+	case *steps.HumanInputStep:
+		scan(typed.Reason)
+	case steps.LoopStep:
+		scan(typed.ForEach, typed.Until)
+	case *steps.LoopStep:
+		scan(typed.ForEach, typed.Until)
+	}
+
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func asLoopStep(step steps.Step) (steps.LoopStep, bool) {
+	switch typed := step.(type) {
+	case steps.LoopStep:
+		return typed, true
+	case *steps.LoopStep:
+		if typed == nil {
+			return steps.LoopStep{}, false
+		}
+		return *typed, true
+	default:
+		return steps.LoopStep{}, false
+	}
+}
+
+func cloneStringSet(src map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	for key := range src {
+		out[key] = struct{}{}
+	}
+	return out
 }
 
 func sortedVarNames(vars map[string]*spec.VarDef) []string {
@@ -508,6 +655,7 @@ func mermaidNodeID(id string) string {
 	}
 	return id
 }
+func mermaidVarNodeID(name string) string { return mermaidNodeID("var__" + name) }
 func nonEmpty(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback

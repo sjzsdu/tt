@@ -32,6 +32,39 @@ func TestBuildWorkflowGraphIncludesTypedLoopBody(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowGraphIncludesNestedLoopBody(t *testing.T) {
+	workflow := &ir.Workflow{ID: "nested", Name: "nested", Graph: ir.NewGraph()}
+	outer := steps.LoopStep{
+		Base:    steps.Base{Metadata: steps.Metadata{ID: "outer", Kind: steps.KindLoop, Title: "Outer"}},
+		ForEach: "repos",
+		Var:     "repo",
+		Body: []steps.Step{
+			steps.LoopStep{
+				Base:    steps.Base{Metadata: steps.Metadata{ID: "inner", Kind: steps.KindLoop, Title: "Inner"}},
+				ForEach: "files",
+				Var:     "file",
+				Body: []steps.Step{
+					steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "summarize", Kind: steps.KindAgent, Title: "Summarize"}}, Agent: "writer", Prompt: "Summarize {{repo}} {{file}}"},
+				},
+			},
+		},
+	}
+	workflow.Vars = map[string]ir.VarSchema{"repo": {Required: true}, "files": {}}
+	workflow.Graph.AddNode(&ir.Node{ID: "outer", Step: outer})
+
+	uiSteps, _ := BuildWorkflowGraph(workflow)
+	if len(uiSteps) != 1 || uiSteps[0].Loop == nil || len(uiSteps[0].Loop.Body) != 1 {
+		t.Fatalf("expected outer loop body, got %+v", uiSteps)
+	}
+	inner := uiSteps[0].Loop.Body[0]
+	if inner.Loop == nil || len(inner.Loop.Body) != 1 {
+		t.Fatalf("expected nested loop body to include loop details, got %+v", inner)
+	}
+	if got := inner.Loop.Body[0].VarRefs; len(got) != 1 || got[0] != "repo" {
+		t.Fatalf("nested loop body VarRefs = %#v, want only declared non-local [repo]", got)
+	}
+}
+
 func TestBuildWorkflowGraphTemplateVarRefsUseDeclaredVars(t *testing.T) {
 	workflow := &ir.Workflow{
 		ID:    "github-repo-docs",

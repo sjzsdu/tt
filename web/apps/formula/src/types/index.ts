@@ -27,6 +27,7 @@ export type FormulaDashboardLoopBody = {
   var_refs?: string[];
   condition?: string;
   depends_on?: string[];
+  loop?: FormulaDashboardLoop;
 };
 
 export type FormulaDashboardLoop = {

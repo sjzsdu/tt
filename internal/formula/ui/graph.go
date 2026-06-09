@@ -174,6 +174,14 @@ func BuildLoopFromStep(loop steps.LoopStep, allowedVars map[string]struct{}) *Lo
 			body.Description = typed.Reason
 			body.OutputKey = typed.OutputKey
 			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Reason)
+		case steps.LoopStep:
+			body.Description = typedLoopSummary(typed)
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.ForEach, typed.Until)
+			body.Loop = BuildLoopFromStep(typed, allowedVars)
+		case *steps.LoopStep:
+			body.Description = typedLoopSummary(*typed)
+			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.ForEach, typed.Until)
+			body.Loop = BuildLoopFromStep(*typed, allowedVars)
 		}
 		dashboardLoop.Body = append(dashboardLoop.Body, body)
 	}
@@ -368,6 +376,7 @@ func BuildLoop(loop *spec.LoopSpec) *Loop {
 			InputCtx:    append([]string(nil), body.InputCtx...),
 			Condition:   body.Condition,
 			DependsOn:   append(append([]string(nil), body.DependsOn...), body.Needs...),
+			Loop:        BuildLoop(body.Loop),
 		})
 	}
 	return dashboardLoop
@@ -415,6 +424,8 @@ func CloneLoop(src *Loop) *Loop {
 	for i := range cp.Body {
 		cp.Body[i].InputCtx = append([]string(nil), src.Body[i].InputCtx...)
 		cp.Body[i].VarRefs = append([]string(nil), src.Body[i].VarRefs...)
+		cp.Body[i].DependsOn = append([]string(nil), src.Body[i].DependsOn...)
+		cp.Body[i].Loop = CloneLoop(src.Body[i].Loop)
 	}
 	return &cp
 }
