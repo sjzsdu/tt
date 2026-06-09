@@ -1,0 +1,430 @@
+formula = "code-docs"
+title = "代码解读与文档生成"
+description = "针对任意代码来源（单个代码文件、本地目录、GitHub URL 或 owner/repo），先抽取代码证据，再由 docs-analyst 探索并规划文档对象数组，最后并发撰写并落盘。"
+version = 6
+type = "workflow"
+category = "docs"
+tags = ["code", "docs", "code-reading", "foreach", "dynamic-form"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "读取 GitHub 仓库 URL 时需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
+[vars]
+repo = { description = "代码来源：本地代码文件、本地目录、GitHub URL，或 owner/repo", required = true }
+focus_path = { description = "可选：当代码来源是目录或 GitHub 仓库时，只解读其中某个子目录或文件；空或 - 表示整个来源", default = "" }
+output_dir = { description = "输出根目录；默认写入 ai-docs/<topic>", default = "ai-docs" }
+doc_language = { description = "文档语言", default = "简体中文", enum = ["简体中文", "English"] }
+
+[[steps]]
+id = "prepare-repo"
+title = "准备仓库并抽取基础信息"
+execution = "script"
+description = "解析代码来源。本地文件/目录直接使用；GitHub URL 或 owner/repo 会浅克隆到 .tt/tmp/code-docs 下。输出 repo_path、analysis_path、source_slug、README 摘要、目录树与关键文件列表。"
+
+[steps.script]
+command = ["python3", "-c", '''
+import json, os, re, shutil, subprocess, sys
+from pathlib import Path
+repo = os.environ.get('TT_REPO', '').strip()
+focus_path = os.environ.get('TT_FOCUS_PATH', '').strip()
+base = Path(os.getcwd()) / '.tt' / 'tmp' / 'code-docs'
+base.mkdir(parents=True, exist_ok=True)
+
+def slugify(value):
+    value = re.sub(r'^https?://github.com/', '', value.strip())
+    value = re.sub(r'\.git$', '', value)
+    value = value.strip('/').replace('/', '-')
+    value = re.sub(r'[^A-Za-z0-9._-]+', '-', value).strip('-').lower()
+    return value or 'repo'
+
+def run(cmd, cwd=None):
+    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+
+def emit(**kw):
+    base_obj = {'ok': False, 'repo_input': repo, 'focus_path': focus_path, 'repo_slug': slugify(repo), 'repo_path': '', 'analysis_path': '', 'source_type': '', 'default_branch': '', 'remote_url': '', 'readme_excerpt': '', 'tree_excerpt': '', 'key_files': [], 'error': ''}
+    base_obj.update(kw)
+    print(json.dumps(base_obj, ensure_ascii=False, separators=(',', ':')))
+
+if not repo:
+    emit(error='missing repo')
+    raise SystemExit(0)
+
+candidate = Path(repo).expanduser()
+if candidate.exists() and (candidate.is_dir() or candidate.is_file()):
+    local_path = candidate.resolve()
+    repo_path = local_path if local_path.is_dir() else local_path.parent
+    source_type = 'local_file' if local_path.is_file() else 'local_dir'
+else:
+    source_type = 'github'
+    clone_url = repo
+    if not repo.startswith(('http://', 'https://', 'git@')):
+        clone_url = 'https://github.com/' + repo.strip('/') + '.git'
+    repo_path = (base / slugify(repo)).resolve()
+    if not (repo_path / '.git').exists():
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
+        p = run(['git', 'clone', '--depth', '1', clone_url, str(repo_path)])
+        if p.returncode != 0:
+            emit(source_type=source_type, repo_path=str(repo_path), remote_url=clone_url, error=p.stderr.strip() or p.stdout.strip() or 'git clone failed')
+            raise SystemExit(0)
+
+remote = run(['git', 'config', '--get', 'remote.origin.url'], cwd=repo_path)
+branch = run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path)
+analysis_path = local_path if 'local_path' in globals() and local_path.is_file() else repo_path
+if focus_path and focus_path != '-' and not analysis_path.is_file():
+    maybe = (repo_path / focus_path).resolve()
+    try:
+        maybe.relative_to(repo_path)
+    except Exception:
+        emit(source_type=source_type, repo_path=str(repo_path), analysis_path=str(repo_path), error='focus_path escapes repo')
+        raise SystemExit(0)
+    if not maybe.exists():
+        emit(source_type=source_type, repo_path=str(repo_path), analysis_path=str(maybe), error='focus_path not found')
+        raise SystemExit(0)
+    analysis_path = maybe
+readme = ''
+for base_dir in ([analysis_path.parent, repo_path] if analysis_path.is_file() else [analysis_path, repo_path]):
+    for name in ['README.md', 'README.MD', 'Readme.md', 'README', 'readme.md']:
+        path = base_dir / name
+        if path.exists() and path.is_file():
+            readme = path.read_text(errors='ignore')[:6000]
+            break
+    if readme:
+        break
+ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '.next', 'coverage', '.tt', 'vendor', 'target'}
+files = []
+walk_root = analysis_path if analysis_path.is_dir() else analysis_path.parent
+for root, dirs, filenames in os.walk(walk_root):
+    rel_root = Path(root).relative_to(repo_path)
+    dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+    if analysis_path.is_file():
+        filenames = [analysis_path.name] if Path(root).resolve() == analysis_path.parent else []
+    for filename in filenames:
+        rel = rel_root / filename
+        rel_s = str(rel).replace('\\\\', '/')
+        if rel_s == '.':
+            rel_s = filename
+        if len(files) < 260:
+            files.append(rel_s)
+    if len(files) >= 260:
+        break
+key_patterns = re.compile(r'(^README|package.json$|go.mod$|pyproject.toml$|Cargo.toml$|pom.xml$|build.gradle$|Dockerfile$|docker-compose|Makefile$|tsconfig|vite.config|next.config|src/|cmd/|internal/|app/|pages/|routes/|config)', re.I)
+key_files = [f for f in files if key_patterns.search(f)][:80]
+tree_excerpt = '\n'.join(files[:220])
+repo_slug_value = slugify(repo)
+if source_type.startswith('local'):
+    if 'local_path' in globals() and local_path.is_file():
+        repo_slug_value = slugify(local_path.stem)
+    elif repo_slug_value in {'.', '..', ''}:
+        repo_slug_value = slugify(repo_path.name)
+emit(ok=True, source_type=source_type, repo_slug=repo_slug_value, repo_path=str(repo_path), analysis_path=str(analysis_path), focus_path=focus_path, default_branch=(branch.stdout or '').strip(), remote_url=(remote.stdout or '').strip(), readme_excerpt=readme, tree_excerpt=tree_excerpt, key_files=key_files)
+''']
+format = "json"
+timeout = "180s"
+
+[steps.script.env]
+TT_REPO = "{{repo}}"
+TT_FOCUS_PATH = "{{focus_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "scope-analysis"
+title = "分析文档目标并按需澄清范围"
+depends_on = ["prepare-repo"]
+form = true
+input_context = ["prepare-repo.stdout.repo_slug", "prepare-repo.stdout.remote_url", "prepare-repo.stdout.focus_path", "prepare-repo.stdout.readme_excerpt", "prepare-repo.stdout.tree_excerpt", "prepare-repo.stdout.key_files"]
+description = """
+为代码来源「{{repo}}」设计代码解读文档的范围。使用 docs-analyst 的证据优先原则：基于上游 prepare-repo 提供的 README、目录树、关键文件清单和元数据来形成判断，不要把目录复述当架构分析。
+
+你拥有完全自主权：是否要问、问什么、问多少、输出什么结构，全由你根据仓库本身和已有证据判断。
+不要套用任何固定字段模板，不要因为 prompt 提示了某些维度就一定要问。
+
+判断要不要追问：
+- 如果仓库范围明确、解读方向已经可推断，直接进入规划阶段，不要为了澄清而澄清。
+- 如果仓库范围大、可写方向多、读者与深度高度依赖未知信息，再发起动态表单。
+- 字段数量、字段类型、问题措辞都由你决定，通常 1-4 个，最多 5 个。
+- 只问会影响后续文档结构、深度、侧重点、交付形态的问题，不要问 nice-to-have。
+
+	输出要求:
+	- 如果信息已经足够、或用户已完成澄清：输出 ONLY 一个 compact JSON object。
+	- JSON 的 schema 自由决定，只包含你认为对后续步骤有用的字段。
+	- 不要再回到任何固定字段模板。
+	- 不要 Markdown，不要代码块。
+注意事项：
+- 仓库类型、规模、领域、读者群体、是否需要深挖架构/数据流/迁移风险，都由你判断。
+- 假设用户没有读过仓库，问题应基于你已经看到的证据来设计。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+required = []
+
+[[steps]]
+id = "repo-map"
+title = "抽取仓库证据地图"
+execution = "script"
+depends_on = ["scope-analysis"]
+description = "读取仓库中的 README、配置文件、入口文件、测试和主要源码文件摘要，形成轻量证据地图。"
+
+[steps.script]
+command = ["python3", "-c", '''
+import json, os
+from pathlib import Path
+repo_path = Path(os.environ.get('TT_REPO_PATH','')).resolve()
+analysis_path = Path(os.environ.get('TT_ANALYSIS_PATH','') or repo_path).resolve()
+if not repo_path.exists() or not analysis_path.exists():
+    print(json.dumps({'ok':False,'error':'repo_path or analysis_path not found','repo_path':str(repo_path),'analysis_path':str(analysis_path)}, ensure_ascii=False, separators=(',', ':')))
+    raise SystemExit(0)
+ignore_dirs = {'.git','node_modules','dist','build','.next','coverage','.tt','vendor','target','__pycache__','.venv','venv','out','.turbo'}
+text_ext = {'.ts','.tsx','.js','.jsx','.go','.py','.rs','.java','.kt','.swift','.md','.mdx','.json','.toml','.yaml','.yml','.graphql','.proto','.sql','.css','.scss','.html','.sh','.rb','.php'}
+important_names = {'README.md','package.json','go.mod','pyproject.toml','Cargo.toml','Makefile','Dockerfile','docker-compose.yml','tsconfig.json','vite.config.ts','next.config.js','requirements.txt','pom.xml','build.gradle'}
+entry_words = ['main','index','app','server','cli','route','router','handler','controller','command','plugin','extension']
+model_words = ['model','schema','entity','types','interface','store','state','migration']
+flow_words = ['workflow','pipeline','service','manager','engine','runner','processor','scheduler']
+items = []
+existing_docs = []
+stats = {'files_seen':0,'source_files':0,'test_files':0,'config_files':0,'doc_files':0,'dirs':set(),'extensions':{}}
+if analysis_path.is_file():
+    walk_files = [(analysis_path.parent, [], [analysis_path.name])]
+else:
+    walk_files = os.walk(analysis_path)
+for root_dir, dirs, files in walk_files:
+    root_dir = Path(root_dir)
+    rel_root = root_dir.relative_to(repo_path)
+    dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+    stats['dirs'].add(str(rel_root).replace('\\','/'))
+    for fn in files:
+        path = root_dir / fn
+        if not path.exists() or path.is_dir():
+            continue
+        rel = str((rel_root / fn)).replace('\\','/')
+        ext = path.suffix.lower()
+        stats['files_seen'] += 1
+        stats['extensions'][ext or '<none>'] = stats['extensions'].get(ext or '<none>',0)+1
+        lower = rel.lower()
+        if ext in {'.ts','.tsx','.js','.jsx','.go','.py','.rs','.java','.kt','.swift','.rb','.php'}:
+            stats['source_files'] += 1
+        if any(x in lower for x in ['test','spec','__tests__']):
+            stats['test_files'] += 1
+        if fn in important_names or ext in {'.toml','.yaml','.yml','.json'}:
+            stats['config_files'] += 1
+            score_config = True
+        else:
+            score_config = False
+        if ext in {'.md','.mdx'}:
+            stats['doc_files'] += 1
+            if lower.startswith(('ai-docs/','docs/')) or 'readme' in lower:
+                try:
+                    existing_docs.append({'path':rel,'excerpt':path.read_text(errors='ignore')[:1800]})
+                except Exception:
+                    existing_docs.append({'path':rel,'excerpt':''})
+        if ext not in text_ext:
+            continue
+        score = 0
+        name_l = fn.lower()
+        if fn in important_names or name_l.startswith('readme'):
+            score += 8
+        if score_config:
+            score += 3
+        if any(w in lower for w in entry_words):
+            score += 5
+        if any(w in lower for w in flow_words):
+            score += 4
+        if any(w in lower for w in model_words):
+            score += 4
+        if rel.startswith(('src/','app/','pages/','routes/','cmd/','internal/','pkg/','lib/','server/','frontend/','backend/','plugins/')):
+            score += 3
+        if any(x in lower for x in ['test','spec','example','demo']):
+            score += 2
+        if score <= 0:
+            continue
+        try:
+            text = path.read_text(errors='ignore')[:3600]
+        except Exception:
+            text = ''
+        items.append({'path': rel, 'score': score, 'kind': ('doc' if ext in {'.md','.mdx'} else 'code'), 'excerpt': text})
+items.sort(key=lambda x: (-x['score'], x['path']))
+extensions = sorted(stats['extensions'].items(), key=lambda kv:(-kv[1], kv[0]))[:20]
+stats_out = dict(stats)
+stats_out['dirs'] = sorted([d for d in stats['dirs'] if d and d != '.'])[:160]
+stats_out['extensions'] = [{'ext':k,'count':v} for k,v in extensions]
+complexity = 'small'
+if stats['source_files'] > 120 or len(stats['dirs']) > 60:
+    complexity = 'large'
+elif stats['source_files'] > 30 or len(stats['dirs']) > 20:
+    complexity = 'medium'
+print(json.dumps({'ok':True,'repo_path':str(repo_path),'analysis_path':str(analysis_path),'complexity':complexity,'stats':stats_out,'existing_docs':existing_docs[:30],'evidence_files':items[:90]}, ensure_ascii=False, separators=(',', ':')))''']
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_REPO_PATH = "{{prepare-repo.stdout.repo_path}}"
+TT_ANALYSIS_PATH = "{{prepare-repo.stdout.analysis_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "doc-plan"
+title = "探索代码并规划文档"
+depends_on = ["scope-analysis", "repo-map"]
+form = true
+input_context = ["scope-analysis", "prepare-repo.stdout.repo_slug", "prepare-repo.stdout.focus_path", "prepare-repo.stdout.tree_excerpt", "repo-map.stdout"]
+description = """
+基于 prepare-repo、scope-analysis 和 repo-map 的证据，探索当前代码来源，并规划需要生成哪些 Markdown 文档。
+
+这一步只做探索和规划，不写正文。你要像真正读过代码的人一样判断：这段代码最值得被解释的是什么，读者会在哪里卡住，哪些文档能真正帮忙。
+
+要求：
+- 输出多少篇由代码规模和理解价值决定。单文件可以只有 README + 一篇深入解读；复杂仓库可以生成多篇。
+- README.md 必须在 documents 中，作为文档包汇总，不写阅读顺序，只总结生成了哪些文档、每篇解决什么问题、证据边界是什么。
+- 每个正文文档都要有独立价值，不要重复解释同一背景。
+- 为每个文档给出清楚的 purpose、reader_question、must_cover、evidence_targets，供后续并发写作 agent 使用。
+- 不要为了覆盖架构图、流程图、ER 图、PRD 等形式而强行规划；只有代码证据支持且能提升理解时才规划。
+
+输出 ONLY compact JSON object，不要 Markdown 代码块：
+{
+  "topic_name":"safe-lower-kebab-case",
+  "series_title":"...",
+  "audience":"...",
+  "documents":[
+    {"filename":"README.md","title":"...","summary":"...","purpose":"...","reader_question":"...","must_cover":["..."],"evidence_targets":["..."],"style_hint":"...","diagram_hint":"..."},
+    {"filename":"01-overview.md","title":"...","summary":"...","purpose":"...","reader_question":"...","must_cover":["..."],"evidence_targets":["..."],"style_hint":"...","diagram_hint":"..."}
+  ],
+  "evidence_boundary":["..."],
+  "open_questions":["..."]
+}
+
+硬性要求：
+- topic_name 只允许小写字母、数字、连字符。
+- documents 至少包含 README.md 和一篇正文文档。
+- 每个 filename 必须是安全 Markdown 文件名，正文文档建议使用两位数字前缀。
+- 每个 document 必须包含 filename、title、summary、purpose、reader_question、must_cover、evidence_targets。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+required = ["topic_name", "documents"]
+
+[[steps]]
+id = "write-docs"
+title = "并发撰写代码解读文档"
+depends_on = ["doc-plan", "repo-map"]
+
+  [steps.loop]
+  for_each = "doc-plan.documents"
+  var = "doc"
+  parallel = true
+  max_concurrency = 3
+
+  [[steps.loop.body]]
+  id = "draft"
+  title = "撰写 {{doc.filename}}"
+  input_context = ["scope-analysis", "prepare-repo.stdout.readme_excerpt", "prepare-repo.stdout.tree_excerpt", "prepare-repo.stdout.key_files", "repo-map.stdout", "doc-plan.documents", "doc-plan.evidence_boundary", "doc-plan.open_questions", "doc"]
+  description = """
+根据当前 doc 对象、repo-map 证据、prepare-repo 的 README/目录树/关键文件，以及 scope-analysis 约束，撰写这一篇 Markdown 文档。
+
+你只负责当前这一篇：{{doc.filename}}
+
+写作要求：
+- 文档要自然、有温度，像认真读过代码的人写给后来接手的人。
+- 先回答 doc.reader_question，再展开 doc.must_cover 中的关键内容。
+- 必须围绕 doc.evidence_targets 和实际仓库文件写作；开始写之前，优先读取 doc.evidence_targets 指向的文件，再按需读取相关调用方/被调用方。
+- 你运行在代码仓库 cwd 下，可以读取文件补充上下文，但不要修改代码。
+- 关键判断尽量标注代码路径、配置路径、测试或入口。
+- 不要把目录树复述当架构分析，不要把函数逐个流水账复述。
+- 写作时参考 doc-plan.documents，避免与其他并发文档重复；如果必须引用其他文档，只做轻量交叉引用。
+- 推断必须标注“[推测]”，并说明依据。
+- 如果当前文件是 README.md，只汇总本次生成了哪些文档、每篇解决什么问题、证据边界是什么；不要写阅读顺序。
+- 只有图表确实提升理解时才使用 Mermaid；也可以用表格、调用链列表、分层说明替代。
+- 使用 {{doc_language}} 写作。
+
+输出 ONLY compact JSON object，不要 Markdown 代码块：
+{"filename":"{{doc.filename}}","title":"{{doc.title}}","summary":"{{doc.summary}}","content":"完整 Markdown 正文"}
+
+硬性要求：
+- filename 必须等于 doc.filename。
+- title 必须等于 doc.title。
+- content 第一行必须是 `# {{doc.title}}`。
+- Markdown 一级标题 `#` 和二级标题 `##` 必须简明扼要，通常不超过 20 个字符；不要把完整结论句、解释句或多个逗号的长句写进标题。
+- 正文要短而集中，避免与其他规划文档重复。
+"""
+
+  [steps.loop.body.agent]
+  name = "docs-analyst"
+  cwd = "{{prepare-repo.stdout.repo_path}}"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["filename", "title", "summary", "content"]
+
+[[steps]]
+id = "write-doc-files"
+title = "写入文档文件"
+execution = "tool"
+depends_on = ["doc-plan", "write-docs"]
+
+[steps.tool]
+name = "write_files"
+
+[steps.tool.write_files]
+source = "write-docs"
+root = "{{output_dir}}"
+dir_name = "{{doc-plan.topic_name}}"
+
+[steps.validate]
+format = "json"
+required = ["directory", "files"]
+
+[[steps]]
+id = "final-report"
+title = "输出文档生成报告"
+depends_on = ["doc-plan", "write-docs", "write-doc-files"]
+input_context = ["prepare-repo.stdout.repo_slug", "prepare-repo.stdout.focus_path", "doc-plan", "write-doc-files", "write-docs"]
+description = """
+基于 doc-plan、write-docs 和 write-doc-files，输出一份自然、简洁、有判断的中文总结。
+
+要求：
+- 不要复述每篇文档正文。
+- 说明代码来源、输出目录、生成了哪些文档。
+- 简要说明这组文档整体覆盖了什么，适合谁看。
+- 如果 doc-plan.open_questions 或 evidence_boundary 中有重要不确定项，要温和提醒。
+- 语气像给用户交付成果，不像机械日志。
+
+建议结构：
+## 结论
+1-3 句话说明已完成什么、文档放在哪里、整体质量/边界。
+
+## 文档清单
+用 Markdown 表格列出文件、用途、摘要。
+
+## 备注
+如有待验证项或证据边界，在这里简短列出；没有则省略。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"

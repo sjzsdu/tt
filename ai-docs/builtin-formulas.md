@@ -32,7 +32,7 @@
 | `github-pr-rebase-main` | 把 PR 分支 rebase 到最新 base/main | 隔离 worktree + agent 处理冲突 + `git push --force-with-lease` 推送；默认 `cleanup` 策略处理临时 worktree |
 | `github-pr-fix-comments` | 遍历未解决的 review comments 逐条用 `bug-fix` 修复 | 复用 `bug-fix` workflow（嵌套 typed runtime） |
 | `github-my-prs-rebase-main` | 批量 rebase 当前用户所有 open PR | 先用 `github-list-my-prs` 拉列表，再并发复用 `github-pr-rebase-main` |
-| `github-repo-docs` | 解读 GitHub / 本地仓库并生成 Markdown 文档 | 用 `repo-prepare-local-or-clone` 准备代码，用 `repo-evidence-map` 抽证据，最后 foreach 并发生成多篇文档 |
+| `code-docs` | 解读代码文件、目录或 GitHub 仓库并生成 Markdown 文档 | 抽取代码证据，按规模动态规划多篇文档，并生成 README 摘要 |
 
 ### workflow / 决策
 
@@ -49,7 +49,7 @@
 | 公式 | 适用场景 | 关键能力 |
 | --- | --- | --- |
 | `fresh-topic-docs` | 针对"新鲜事物 / 概念 / 趋势"主题，澄清范围后用 foreach loop 并发生成系列 Markdown 文档 | 动态表单 + foreach 数组 + 并发 agent 写作 + aggregate 汇总 |
-| `github-repo-docs` | 见上 github 表 |  |
+| `code-docs` | 见上 docs 表 |  |
 
 ### jira
 
@@ -96,11 +96,11 @@ Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[
 | --- | --- |
 | `gh`（command） | `github-pr-review` / `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `github-list-my-prs` / `github-fetch-pr` / `github-fetch-pr-files` / `github-fetch-pr-diff` |
 | `gh auth status`（exec） | 同上 github 系列 |
-| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `github-repo-docs` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` |
+| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` |
 | `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` |
 | `git` + `require_remote = true` | `git-push-branch` |
 | `jq`（command） | `git-status-check` / `git-run-validation` / `git-push-branch` / `git-integrate-ref` / `github-list-my-prs` / `github-fetch-pr` 等 |
-| `python3`（command） | `github-repo-docs` / `gongbu` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` / `repo-evidence-map` |
+| `python3`（command） | `code-docs` / `gongbu` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` / `repo-evidence-map` |
 | `bash`（command） | `git-run-validation` / `git-integrate-ref` |
 | `jira`（command） | `jira-bug-fix` |
 
