@@ -32,7 +32,6 @@ try {
     computeGraphData,
     loopBodyGraphID,
     resolveClickedStep,
-    shouldToggleLoopOnClick,
   } = await import(pathToFileURL(outfile));
 
   const loopStep = {
@@ -133,12 +132,10 @@ try {
 
   const selectedFromBody = resolveClickedStep(fetchNodeID, fetchNode.data, snapshot);
   assert.equal(selectedFromBody?.id, 'collect', 'clicking a synthetic loop body should select its parent loop step');
-  assert.equal(shouldToggleLoopOnClick(fetchNodeID, selectedFromBody), false, 'clicking a loop body should not toggle parent expansion');
 
   const loopNode = expanded.nodes.find(node => node.id === 'collect');
   const selectedFromLoop = resolveClickedStep('collect', loopNode.data, snapshot);
   assert.equal(selectedFromLoop?.id, 'collect', 'clicking a loop node should select the loop step');
-  assert.equal(shouldToggleLoopOnClick('collect', selectedFromLoop), true, 'clicking the loop node itself should toggle expansion');
 
   const crossingSnapshot = {
     recipe_name: 'crossing',

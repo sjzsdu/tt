@@ -562,7 +562,3 @@ export function resolveClickedStep(
   if (nodeData?.kind === 'loop-body') return nodeData.parentStep;
   return nodeData?.step || snapshot.steps.find(step => step.id === nodeID);
 }
-
-export function shouldToggleLoopOnClick(nodeID: string, step: FormulaDashboardStep | undefined) {
-  return !!step && step.id === nodeID && !!step.loop?.body?.length;
-}

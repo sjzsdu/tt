@@ -5,7 +5,7 @@ import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { graphShortId } from '../../utils/status';
 import { stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
-import { computeGraphData, loopBodyGraphID, resolveClickedStep, shouldToggleLoopOnClick, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
+import { computeGraphData, loopBodyGraphID, resolveClickedStep, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'rgba(148, 163, 184, 0.82)',
@@ -56,6 +56,9 @@ const STATUS_LEGEND = ['pending', 'running', 'completed', 'failed', 'skipped'];
 const KIND_LEGEND = ['agent', 'script', 'tool', 'loop', 'human_input'];
 const HOVER_ACCENT = '#38bdf8';
 const HOVER_EDGE_ACCENT = 'rgba(56, 189, 248, 0.72)';
+const LOOP_TOGGLE_BADGE_SIZE = 26;
+const LOOP_TOGGLE_BADGE_OFFSET = 16;
+const LOOP_TOGGLE_HITBOX = 36;
 
 
 function edgeMarkerColor(status?: string) {
@@ -85,6 +88,18 @@ function stepNodeLabel(step: FormulaDashboardStep) {
   return title === id ? id : `${id}\n${title}`;
 }
 
+function stepNodeMetrics(step: FormulaDashboardStep) {
+  const isLoop = !!step.loop?.body?.length;
+  const isLoopBody = step.type === 'loop-body';
+  const width = isLoopBody ? 460 : 540;
+  const labelFontSize = 14;
+  const labelLineHeight = 20;
+  const labelMaxWidth = width - 48;
+  const labelLines = estimateTextLines(stepNodeLabel(step), labelMaxWidth, labelFontSize);
+  const height = Math.max(isLoop ? 124 : 108, 56 + labelLines * labelLineHeight);
+  return { width, height, labelFontSize, labelLineHeight, labelMaxWidth, labelLines };
+}
+
 function kindFill(executionKind: string, isDark: boolean) {
   const palette = isDark ? KIND_BG_DARK : KIND_BG_LIGHT;
   return palette[executionKind] || palette.step;
@@ -105,18 +120,36 @@ function stepStatusBorderStyle(step: FormulaDashboardStep, isDark: boolean, puls
   };
 }
 
-function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
+function loopToggleBadge(expanded: boolean | undefined, isDark: boolean) {
+  return {
+    text: expanded ? '−' : '+',
+    placement: 'right-top',
+    offsetX: -LOOP_TOGGLE_BADGE_OFFSET,
+    offsetY: LOOP_TOGGLE_BADGE_OFFSET,
+    backgroundCursor: 'pointer',
+    backgroundFill: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(255, 255, 255, 0.98)',
+    backgroundStroke: isDark ? 'rgba(196, 181, 253, 0.66)' : 'rgba(126, 34, 206, 0.42)',
+    backgroundLineWidth: 1.2,
+    backgroundRadius: LOOP_TOGGLE_BADGE_SIZE / 2,
+    backgroundShadowBlur: 8,
+    backgroundShadowColor: isDark ? 'rgba(168, 85, 247, 0.28)' : 'rgba(126, 34, 206, 0.16)',
+    fill: isDark ? '#ddd6fe' : '#6b21a8',
+    fontSize: 17,
+    fontWeight: 900,
+    lineHeight: LOOP_TOGGLE_BADGE_SIZE,
+    textAlign: 'center',
+    textBaseline: 'middle',
+    padding: [0, 8],
+    zIndex: 9,
+  };
+}
+
+function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean, expanded?: boolean) {
   const status = step.status || 'pending';
   const executionKind = stepExecutionKind(step);
   const statusColor = STATUS_COLORS[status] || STATUS_COLORS.pending;
   const isLoop = !!step.loop?.body?.length;
-  const isLoopBody = step.type === 'loop-body';
-  const width = isLoopBody ? 460 : 540;
-  const labelFontSize = 14;
-  const labelLineHeight = 20;
-  const labelMaxWidth = width - 48;
-  const labelLines = estimateTextLines(stepNodeLabel(step), labelMaxWidth, labelFontSize);
-  const height = Math.max(isLoop ? 124 : 108, 56 + labelLines * labelLineHeight);
+  const { width, height, labelFontSize, labelLineHeight, labelMaxWidth, labelLines } = stepNodeMetrics(step);
 
   return {
     size: [width, height],
@@ -134,7 +167,8 @@ function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
     labelMaxLines: Math.max(2, labelLines),
     labelTextOverflow: 'clip',
     labelPlacement: 'center',
-    badge: false,
+    badge: isLoop,
+    badges: isLoop ? [loopToggleBadge(expanded, isDark)] : [],
     ports: [
       { key: 'top-left-3', placement: [0.14, 0], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
       { key: 'top-left-2', placement: [0.26, 0], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
@@ -240,8 +274,7 @@ function loopStepIDs(snapshot: FormulaDashboardSnapshot) {
   return ids;
 }
 
-function relatedPathIDs(nodeID: string, edges: { id: string; source: string; target: string }[]) {
-  const relatedNodes = new Set<string>([nodeID]);
+function relatedPathEdgeIDs(nodeID: string, edges: { id: string; source: string; target: string }[]) {
   const relatedEdges = new Set<string>();
   const outgoing = new Map<string, typeof edges>();
   const incoming = new Map<string, typeof edges>();
@@ -265,7 +298,6 @@ function relatedPathIDs(nodeID: string, edges: { id: string; source: string; tar
       for (const edge of nextEdges || []) {
         relatedEdges.add(edge.id);
         const nextNode = direction === 'out' ? edge.target : edge.source;
-        relatedNodes.add(nextNode);
         queue.push(nextNode);
       }
     }
@@ -274,7 +306,81 @@ function relatedPathIDs(nodeID: string, edges: { id: string; source: string; tar
   walk(nodeID, 'in');
   walk(nodeID, 'out');
 
-  return new Set([...relatedNodes, ...relatedEdges]);
+  return relatedEdges;
+}
+
+type GraphNodePointerEvent = {
+  target?: { id?: string };
+  originalTarget?: unknown;
+  currentTarget?: unknown;
+  originalEvent?: { clientX?: number; clientY?: number; stopPropagation?: () => void; preventDefault?: () => void };
+  canvas?: { x?: number; y?: number } | [number, number];
+  canvasX?: number;
+  canvasY?: number;
+  x?: number;
+  y?: number;
+};
+
+function targetDescriptor(target: unknown) {
+  if (!target || typeof target !== 'object') return '';
+  const value = target as Record<string, unknown>;
+  const ctor = (value as { constructor?: { name?: string } }).constructor;
+  return [
+    value.id,
+    value.name,
+    value.className,
+    value.nodeName,
+    value.type,
+    value.key,
+    value.__name__,
+    ctor?.name,
+  ].map(part => String(part || '').toLowerCase()).join(' ');
+}
+
+function isBadgeClick(evt: GraphNodePointerEvent) {
+  return `${targetDescriptor(evt.originalTarget)} ${targetDescriptor(evt.currentTarget)}`.includes('badge');
+}
+
+function eventCanvasPoint(graph: Graph, evt: GraphNodePointerEvent): [number, number] | undefined {
+  if (Array.isArray(evt.canvas) && typeof evt.canvas[0] === 'number' && typeof evt.canvas[1] === 'number') {
+    return [Number(evt.canvas[0]), Number(evt.canvas[1])];
+  }
+  if (evt.canvas && !Array.isArray(evt.canvas) && typeof evt.canvas.x === 'number' && typeof evt.canvas.y === 'number') {
+    return [Number(evt.canvas.x), Number(evt.canvas.y)];
+  }
+  if (typeof evt.canvasX === 'number' && typeof evt.canvasY === 'number') {
+    return [Number(evt.canvasX), Number(evt.canvasY)];
+  }
+  if (evt.originalEvent && typeof evt.originalEvent.clientX === 'number' && typeof evt.originalEvent.clientY === 'number') {
+    const point = graph.getCanvasByClient([Number(evt.originalEvent.clientX), Number(evt.originalEvent.clientY)]);
+    return [Number(point[0]), Number(point[1])];
+  }
+  if (typeof evt.x === 'number' && typeof evt.y === 'number') {
+    return [Number(evt.x), Number(evt.y)];
+  }
+  return undefined;
+}
+
+function isLoopToggleClick(graph: Graph, nodeData: StepNodeData | undefined, evt: GraphNodePointerEvent) {
+  if (!nodeData?.step.loop?.body?.length) return false;
+  if (isBadgeClick(evt)) return true;
+
+  const point = eventCanvasPoint(graph, evt);
+  if (!point) return false;
+
+  const { width, height } = stepNodeMetrics(nodeData.step);
+  const x = nodeData.layoutX || 0;
+  const y = nodeData.layoutY || 0;
+  const halfHitbox = LOOP_TOGGLE_HITBOX / 2;
+  const candidates: [number, number][] = [
+    [x + width / 2 - LOOP_TOGGLE_BADGE_OFFSET, y - height / 2 + LOOP_TOGGLE_BADGE_OFFSET],
+    [x + width - LOOP_TOGGLE_BADGE_OFFSET, y + LOOP_TOGGLE_BADGE_OFFSET],
+  ];
+
+  return candidates.some(([centerX, centerY]) => (
+    Math.abs(point[0] - centerX) <= halfHitbox
+    && Math.abs(point[1] - centerY) <= halfHitbox
+  ));
 }
 
 
@@ -288,7 +394,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
           <div className="graph-help-hero">
             <div>
               <strong>Execution graph</strong>
-              <p>Overview-first workflow map. Loops are expanded by default, and hover subtly emphasizes upstream/downstream paths.</p>
+              <p>Overview-first workflow map. Loops are expanded by default, and hover highlights related upstream/downstream edges.</p>
             </div>
             {runningTitle && (
               <div className="graph-help-live">
@@ -327,9 +433,9 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>Border</b>: node status. Running nodes also have a soft pulsing border.</li>
               <li><b>Background</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
               <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
-              <li><b>Edges</b>: target step status. Purple dashed edges are loop structure; cyan dashed edges are variable consumption.</li>
+              <li><b>Edges</b>: target step status. Purple dashed edges are loop structure; cyan dashed edges are variable consumption. Hover a node to highlight related edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
-              <li><b>Click</b>: opens details. Click a loop node to expand/collapse its body.</li>
+              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to expand or collapse the loop body.</li>
             </ul>
           </div>
         </div>
@@ -400,7 +506,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
           }
           if (!('step' in data)) return {};
           return {
-            ...stepNodeStyle(data.step, isDark),
+            ...stepNodeStyle(data.step, isDark, data.expanded),
             ...(node.style || {}),
             x: node.style?.x ?? data.layoutX,
             y: node.style?.y ?? data.layoutY,
@@ -461,10 +567,6 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
           sensitivity: 0.35,
         },
         'drag-canvas',
-        {
-          type: 'click-select',
-          multiple: false,
-        },
       ],
       plugins: [
         {
@@ -525,47 +627,19 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     const pulseTimer = window.setInterval(applyRunningPulse, 520);
 
     const applyHoverState = (nodeID: string | undefined) => {
-      const { nodes, edges, combos } = graphDataRef.current;
-      const activeIDs = nodeID ? relatedPathIDs(nodeID, edges) : new Set<string>();
-      graph.updateNodeData(nodes.map(node => ({
-        id: node.id,
-        style: activeIDs.has(node.id)
-          ? node.data.kind === 'variable'
-            ? {
-                stroke: isDark ? 'rgba(103, 232, 249, 0.56)' : 'rgba(8, 145, 178, 0.48)',
-                lineWidth: 2.4,
-                shadowBlur: 10,
-                shadowColor: isDark ? 'rgba(34, 211, 238, 0.20)' : 'rgba(8, 145, 178, 0.16)',
-              }
-            : {
-                ...stepStatusBorderStyle(node.data.step, isDark),
-                lineWidth: Math.max(3.2, Number(stepStatusBorderStyle(node.data.step, isDark).lineWidth) + 0.9),
-                shadowBlur: Math.max(12, Number(stepStatusBorderStyle(node.data.step, isDark).shadowBlur) + 4),
-              }
-          : node.data.kind === 'variable'
-            ? {
-                stroke: isDark ? 'rgba(103, 232, 249, 0.56)' : 'rgba(8, 145, 178, 0.48)',
-                lineWidth: 1.4,
-              }
-          : stepStatusBorderStyle(node.data.step, isDark),
-      })));
+      const { edges } = graphDataRef.current;
+      const activeEdgeIDs = nodeID ? relatedPathEdgeIDs(nodeID, edges) : new Set<string>();
       graph.updateEdgeData(edges.map(edge => ({
         id: edge.id,
-        style: activeIDs.has(edge.id)
-          ? { ...edgeStyle(edge.data, isDark), lineWidth: Math.max(2.2, Number(edgeStyle(edge.data, isDark).lineWidth) + 0.6) }
-          : edgeStyle(edge.data, isDark),
-      })));
-      graph.updateComboData(combos.map(combo => ({
-        id: combo.id,
-        style: activeIDs.has(combo.id)
+        style: activeEdgeIDs.has(edge.id)
           ? {
-              stroke: combo.data?.step ? (STATUS_COLORS[combo.data.step.status] || '#a855f7') : '#a855f7',
-              lineWidth: 2.1,
+              ...edgeStyle(edge.data, isDark),
+              stroke: HOVER_EDGE_ACCENT,
+              lineWidth: Math.max(2.8, Number(edgeStyle(edge.data, isDark).lineWidth) + 1.1),
+              shadowBlur: 6,
+              shadowColor: HOVER_EDGE_ACCENT,
             }
-          : {
-              stroke: combo.data?.step ? (STATUS_COLORS[combo.data.step.status] || '#a855f7') : '#a855f7',
-              lineWidth: 1.4,
-            },
+          : edgeStyle(edge.data, isDark),
       })));
       graph.draw();
     };
@@ -573,7 +647,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     graph.on('node:pointerenter', (evt: { target?: { id?: string } }) => applyHoverState(evt.target?.id));
     graph.on('node:pointerleave', () => applyHoverState(undefined));
 
-    graph.on('node:click', (evt: { target?: { id?: string } }) => {
+    graph.on('node:click', (evt: GraphNodePointerEvent) => {
       const nodeID = evt.target?.id;
       if (!nodeID) return;
 
@@ -581,11 +655,13 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       const step = resolveClickedStep(nodeID, datum?.data, snapshotRef.current);
       if (!step) return;
 
-      if (datum?.data?.kind === 'loop-body' && datum.data.step.loop?.body?.length) {
+      if (isLoopToggleClick(graph, datum?.data, evt)) {
+        evt.originalEvent?.preventDefault?.();
+        evt.originalEvent?.stopPropagation?.();
         toggleLoop(nodeID);
-      } else if (shouldToggleLoopOnClick(nodeID, step)) {
-        toggleLoop(step.id);
+        return;
       }
+
       onSelectRef.current(step);
     });
 
