@@ -451,6 +451,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
 export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void; theme: 'light' | 'dark' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
+  const renderGraphRef = useRef<(() => void) | null>(null);
   const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set(loopStepIDs(snapshot)));
 
   const toggleLoop = (stepID: string) => {
@@ -592,9 +593,50 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     graphRef.current = graph;
 
     let pulseFrame = 0;
+    let renderTimer: ReturnType<typeof window.setTimeout> | undefined;
+    let renderInFlight = false;
+    let renderAgain = false;
+    let disposed = false;
     const pulsedNodeIDs = new Set<string>();
 
+    const renderGraph = () => {
+      if (disposed || document.hidden) {
+        renderAgain = true;
+        return;
+      }
+      if (renderInFlight) {
+        renderAgain = true;
+        return;
+      }
+      if (renderTimer) window.clearTimeout(renderTimer);
+      renderTimer = window.setTimeout(() => {
+        renderTimer = undefined;
+        if (disposed || document.hidden) {
+          renderAgain = true;
+          return;
+        }
+        renderInFlight = true;
+        renderAgain = false;
+        void Promise.resolve(graph.render())
+          .catch(err => {
+            console.error('Formula graph render failed', err);
+          })
+          .finally(() => {
+            renderInFlight = false;
+            if (renderAgain && !disposed) renderGraph();
+          });
+      }, 180);
+    };
+
+    renderGraphRef.current = renderGraph;
+
+    const flushWhenVisible = () => {
+      if (!document.hidden && renderAgain) renderGraph();
+    };
+    document.addEventListener('visibilitychange', flushWhenVisible);
+
     const applyRunningPulse = () => {
+      if (document.hidden || renderInFlight) return;
       const { nodes } = graphDataRef.current;
       const runningIDs = new Set(
         nodes
@@ -621,7 +663,9 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
 
       if (!updates.length) return;
       graph.updateNodeData(updates);
-      graph.draw();
+      void Promise.resolve(graph.draw()).catch(err => {
+        console.error('Formula graph pulse draw failed', err);
+      });
     };
 
     const pulseTimer = window.setInterval(applyRunningPulse, 520);
@@ -641,7 +685,9 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
             }
           : edgeStyle(edge.data, isDark),
       })));
-      graph.draw();
+      void Promise.resolve(graph.draw()).catch(err => {
+        console.error('Formula graph hover draw failed', err);
+      });
     };
 
     graph.on('node:pointerenter', (evt: { target?: { id?: string } }) => applyHoverState(evt.target?.id));
@@ -665,13 +711,13 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       onSelectRef.current(step);
     });
 
-    void Promise.resolve(graph.render())
-      .then(applyRunningPulse)
-      .catch(err => {
-        console.error('Formula graph initial render failed', err);
-      });
+    renderGraph();
 
     return () => {
+      disposed = true;
+      renderGraphRef.current = null;
+      if (renderTimer) window.clearTimeout(renderTimer);
+      document.removeEventListener('visibilitychange', flushWhenVisible);
       window.clearInterval(pulseTimer);
       graph.destroy();
       graphRef.current = null;
@@ -686,9 +732,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       edges: graphData.edges,
       combos: graphData.combos,
     });
-    void Promise.resolve(graph.render()).catch(err => {
-      console.error('Formula graph update render failed', err);
-    });
+    renderGraphRef.current?.();
   }, [graphData]);
 
   const running = snapshot.steps.find(step => step.status === 'running');
