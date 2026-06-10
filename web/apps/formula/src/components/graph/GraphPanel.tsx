@@ -75,8 +75,8 @@ function wrapSafeText(text: string) {
   return text
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/([._:/-])/g, '$1\u200b')
-    .replace(/([^\u200b\s]{24})/g, '$1\u200b');
+    .replace(/([._:/-])/g, '$1 ')
+    .replace(/([^\s]{24})/g, '$1 ');
 }
 
 function stepNodeLabel(step: FormulaDashboardStep) {
@@ -131,6 +131,8 @@ function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
     labelLineHeight,
     labelWordWrap: true,
     labelMaxWidth,
+    labelMaxLines: Math.max(2, labelLines),
+    labelTextOverflow: 'clip',
     labelPlacement: 'center',
     badge: false,
     ports: [
@@ -528,7 +530,18 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       graph.updateNodeData(nodes.map(node => ({
         id: node.id,
         style: activeIDs.has(node.id)
-          ? { stroke: HOVER_ACCENT, lineWidth: 2.4 }
+          ? node.data.kind === 'variable'
+            ? {
+                stroke: isDark ? 'rgba(103, 232, 249, 0.56)' : 'rgba(8, 145, 178, 0.48)',
+                lineWidth: 2.4,
+                shadowBlur: 10,
+                shadowColor: isDark ? 'rgba(34, 211, 238, 0.20)' : 'rgba(8, 145, 178, 0.16)',
+              }
+            : {
+                ...stepStatusBorderStyle(node.data.step, isDark),
+                lineWidth: Math.max(3.2, Number(stepStatusBorderStyle(node.data.step, isDark).lineWidth) + 0.9),
+                shadowBlur: Math.max(12, Number(stepStatusBorderStyle(node.data.step, isDark).shadowBlur) + 4),
+              }
           : node.data.kind === 'variable'
             ? {
                 stroke: isDark ? 'rgba(103, 232, 249, 0.56)' : 'rgba(8, 145, 178, 0.48)',
@@ -539,13 +552,16 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       graph.updateEdgeData(edges.map(edge => ({
         id: edge.id,
         style: activeIDs.has(edge.id)
-          ? { stroke: HOVER_EDGE_ACCENT, lineWidth: 2.2 }
+          ? { ...edgeStyle(edge.data, isDark), lineWidth: Math.max(2.2, Number(edgeStyle(edge.data, isDark).lineWidth) + 0.6) }
           : edgeStyle(edge.data, isDark),
       })));
       graph.updateComboData(combos.map(combo => ({
         id: combo.id,
         style: activeIDs.has(combo.id)
-          ? { stroke: HOVER_ACCENT, lineWidth: 1.8 }
+          ? {
+              stroke: combo.data?.step ? (STATUS_COLORS[combo.data.step.status] || '#a855f7') : '#a855f7',
+              lineWidth: 2.1,
+            }
           : {
               stroke: combo.data?.step ? (STATUS_COLORS[combo.data.step.status] || '#a855f7') : '#a855f7',
               lineWidth: 1.4,
