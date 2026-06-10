@@ -204,6 +204,11 @@ function computeRanks(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[]) {
 function assignLayoutOrder(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[]) {
   const originalOrder = nodeOrder(nodes);
   const rank = computeRanks(nodes, edges);
+  if (nodes.some(node => node.data.kind === 'variable')) {
+    for (const node of nodes) {
+      rank.set(node.id, node.data.kind === 'variable' ? 0 : (rank.get(node.id) || 0) + 1);
+    }
+  }
   const { incoming, outgoing } = edgeEndpointMap(edges);
   const ranks = new Map<number, FormulaGraphNode[]>();
 

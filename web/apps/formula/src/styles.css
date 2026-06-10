@@ -104,12 +104,20 @@ button, input, textarea { font: inherit; }
 .graph-header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .graph-title-row { display: flex; align-items: center; gap: 8px; }
 .graph-title-row h3 { margin: 0; }
-.graph-help-button { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--soft-bg); color: var(--text-muted); cursor: help; }
-.graph-help-button:hover { color: var(--ant-color-primary); border-color: var(--ant-color-primary); }
-.graph-help-tooltip { max-width: 360px; }
-.graph-help-tooltip strong { display: block; margin-bottom: 6px; }
-.graph-help-tooltip ul { margin: 0; padding-left: 18px; }
-.graph-help-tooltip li { margin: 4px 0; }
+.graph-help-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--soft-bg); color: var(--text-muted); cursor: pointer; transition: color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.graph-help-button:hover { color: var(--ant-color-primary); border-color: var(--ant-color-primary); box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12); transform: translateY(-1px); }
+.graph-help-popover { width: min(560px, calc(100vw - 48px)); display: grid; gap: 14px; color: var(--text-main); }
+.graph-help-hero { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(168, 85, 247, 0.10)); }
+.graph-help-hero strong { display: block; margin-bottom: 4px; font-size: 15px; }
+.graph-help-hero p { margin: 0; color: var(--text-muted); line-height: 1.45; }
+.graph-help-live { display: grid; justify-items: end; gap: 3px; min-width: 120px; padding: 8px 10px; border-radius: 12px; background: rgba(34, 211, 238, 0.12); color: var(--text-main); }
+.graph-help-live span { color: #06b6d4; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.graph-help-live b { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-help-metrics { display: flex; flex-wrap: wrap; gap: 8px; }
+.graph-help-metrics span { padding: 5px 9px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--soft-bg); color: var(--text-muted); font-size: 12px; }
+.graph-help-section { display: grid; gap: 7px; padding: 10px 0 0; border-top: 1px solid var(--panel-border); }
+.graph-help-section.compact ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--text-muted); line-height: 1.42; }
+.graph-help-section.compact li b { color: var(--text-main); }
 .graph-header h2 { margin: 0; }
 .graph-header p { margin: 4px 0 0; color: var(--text-muted); }
 .graph-header-side { display: flex; align-items: flex-end; flex-direction: column; gap: 10px; max-width: min(620px, 100%); }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Empty, Tooltip } from 'antd';
+import { Empty, Popover } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
@@ -67,13 +67,21 @@ function estimateTextLines(text: string, width: number, fontSize: number) {
   const charsPerLine = Math.max(8, Math.floor(width / averageCharWidth));
   return (text || 'Untitled step')
     .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim() || ' ')
+    .map(line => line.replace(/\u200b/g, '').replace(/\s+/g, ' ').trim() || ' ')
     .reduce((total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
 }
 
+function wrapSafeText(text: string) {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/([._:/-])/g, '$1\u200b')
+    .replace(/([^\u200b\s]{24})/g, '$1\u200b');
+}
+
 function stepNodeLabel(step: FormulaDashboardStep) {
-  const id = step.id.replace(/\s+/g, ' ').trim() || graphShortId(step.id);
-  const title = (step.title || graphShortId(step.id)).replace(/\s+/g, ' ').trim();
+  const id = wrapSafeText(step.id || graphShortId(step.id));
+  const title = wrapSafeText(step.title || graphShortId(step.id));
   return title === id ? id : `${id}\n${title}`;
 }
 
@@ -103,12 +111,12 @@ function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean) {
   const statusColor = STATUS_COLORS[status] || STATUS_COLORS.pending;
   const isLoop = !!step.loop?.body?.length;
   const isLoopBody = step.type === 'loop-body';
-  const width = isLoopBody ? 340 : 400;
+  const width = isLoopBody ? 460 : 540;
   const labelFontSize = 14;
   const labelLineHeight = 20;
-  const labelMaxWidth = width - 36;
+  const labelMaxWidth = width - 48;
   const labelLines = estimateTextLines(stepNodeLabel(step), labelMaxWidth, labelFontSize);
-  const height = Math.max(isLoop ? 112 : 96, 44 + labelLines * labelLineHeight);
+  const height = Math.max(isLoop ? 124 : 108, 56 + labelLines * labelLineHeight);
 
   return {
     size: [width, height],
@@ -268,30 +276,67 @@ function relatedPathIDs(nodeID: string, edges: { id: string; source: string; tar
 }
 
 
-function GraphHelpTooltip() {
+function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expandedLoopCount }: { runningTitle?: string; nodeCount: number; edgeCount: number; loopCount: number; expandedLoopCount: number }) {
   return (
-    <Tooltip
+    <Popover
+      trigger="click"
       placement="bottom"
-      title={(
-        <div className="graph-help-tooltip">
-          <strong>How to read this graph</strong>
-          <ul>
-            <li><b>Arrow direction</b>: dependency / execution order flows top to bottom.</li>
-            <li><b>Node border color</b>: status. Gray pending, cyan running, green completed, red failed, yellow skipped or waiting. Running nodes also have a soft pulsing border.</li>
-            <li><b>Node background color</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
-            <li><b>Variable nodes</b>: small <b>$ var</b> nodes show where formula template variables like <b>{'{{repo}}'}</b> are consumed.</li>
-            <li><b>Edge color</b>: the target step status. Purple dashed edges are expanded loop-body structure; cyan dashed edges are variable consumption.</li>
-            <li><b>Layout</b>: steps are grouped by dependency depth. Same-depth steps are reordered to reduce avoidable edge crossings.</li>
-            <li><b>Separated lanes</b>: multiple dependencies use different ports and curves so overlapping lines remain readable.</li>
-            <li><b>Click a node</b>: opens details. Click a loop node to expand/collapse its body.</li>
-          </ul>
+      content={(
+        <div className="graph-help-popover">
+          <div className="graph-help-hero">
+            <div>
+              <strong>Execution graph</strong>
+              <p>Overview-first workflow map. Loops are expanded by default, and hover subtly emphasizes upstream/downstream paths.</p>
+            </div>
+            {runningTitle && (
+              <div className="graph-help-live">
+                <span>Live</span>
+                <b>{runningTitle}</b>
+              </div>
+            )}
+          </div>
+          <div className="graph-help-metrics">
+            <span>{nodeCount} nodes</span>
+            <span>{edgeCount} edges</span>
+            {!!loopCount && <span>{loopCount} loop{loopCount === 1 ? '' : 's'} · {expandedLoopCount} expanded</span>}
+          </div>
+          <div className="graph-help-section">
+            <span className="graph-legend-title">Status</span>
+            <div className="graph-legend">
+              {STATUS_LEGEND.map(status => (
+                <span className={`legend-pill status ${status}`} key={status}>{status}</span>
+              ))}
+            </div>
+          </div>
+          <div className="graph-help-section">
+            <span className="graph-legend-title">Type</span>
+            <div className="graph-legend kind-legend">
+              {KIND_LEGEND.map(kind => (
+                <span className={`legend-pill kind ${kind}`} key={kind}>
+                  <i aria-hidden="true" /> {KIND_MARKS[kind]} {stepExecutionLabel(kind as ReturnType<typeof stepExecutionKind>)}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="graph-help-section compact">
+            <span className="graph-legend-title">How to read</span>
+            <ul>
+              <li><b>Direction</b>: dependency / execution order flows top to bottom.</li>
+              <li><b>Border</b>: node status. Running nodes also have a soft pulsing border.</li>
+              <li><b>Background</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
+              <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
+              <li><b>Edges</b>: target step status. Purple dashed edges are loop structure; cyan dashed edges are variable consumption.</li>
+              <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
+              <li><b>Click</b>: opens details. Click a loop node to expand/collapse its body.</li>
+            </ul>
+          </div>
         </div>
       )}
     >
-      <button type="button" className="graph-help-button" aria-label="How to read this graph">
+      <button type="button" className="graph-help-button" aria-label="Graph guide">
         <QuestionCircleOutlined />
       </button>
-    </Tooltip>
+    </Popover>
   );
 }
 
@@ -564,39 +609,13 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         <div>
           <div className="graph-title-row">
             <h3>Execution graph</h3>
-            <GraphHelpTooltip />
-          </div>
-          <p>Overview-first workflow map. Loops are expanded by default, and hovering a node subtly emphasizes its upstream/downstream path.</p>
-          <div className="graph-header-metrics">
-            <span>{metricNodeCount} nodes</span>
-            <span>{metricEdgeCount} edges</span>
-            {!!loopSteps && <span>{loopSteps} loop{loopSteps === 1 ? '' : 's'} · {expandedLoopCount} expanded</span>}
-          </div>
-        </div>
-        <div className="graph-header-side">
-          {running && (
-            <div className="graph-now-running">
-              <span>Live</span>
-              <strong>{running.title}</strong>
-            </div>
-          )}
-          <div className="graph-legend-block" aria-label="Graph status legend">
-            <span className="graph-legend-title">Status</span>
-            <div className="graph-legend">
-              {STATUS_LEGEND.map(status => (
-                <span className={`legend-pill status ${status}`} key={status}>{status}</span>
-              ))}
-            </div>
-          </div>
-          <div className="graph-legend-block" aria-label="Graph execution type legend">
-            <span className="graph-legend-title">Type</span>
-            <div className="graph-legend kind-legend">
-              {KIND_LEGEND.map(kind => (
-                <span className={`legend-pill kind ${kind}`} key={kind}>
-                  <i aria-hidden="true" /> {KIND_MARKS[kind]} {stepExecutionLabel(kind as ReturnType<typeof stepExecutionKind>)}
-                </span>
-              ))}
-            </div>
+            <GraphHelpPopover
+              runningTitle={running?.title}
+              nodeCount={metricNodeCount}
+              edgeCount={metricEdgeCount}
+              loopCount={loopSteps}
+              expandedLoopCount={expandedLoopCount}
+            />
           </div>
         </div>
       </div>

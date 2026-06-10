@@ -272,10 +272,12 @@ try {
     ],
   };
   const rankIsolationGraph = computeGraphData(rankIsolationSnapshot, new Set());
+  const repoVarNode = rankIsolationGraph.nodes.find(node => node.id === 'var::repo');
   const independentNode = rankIsolationGraph.nodes.find(node => node.id === 'independent');
   const downstreamNode = rankIsolationGraph.nodes.find(node => node.id === 'downstream');
-  assert.equal(independentNode?.data.layoutRank, 0, 'variable consume edges should not push independent step out of rank 0');
-  assert.equal(downstreamNode?.data.layoutRank, 1, 'true dependency edge should still determine downstream rank');
+  assert.equal(repoVarNode?.data.layoutRank, 0, 'variable nodes should occupy the first visual rank');
+  assert.equal(independentNode?.data.layoutRank, 1, 'steps should start one rank below variable nodes');
+  assert.equal(downstreamNode?.data.layoutRank, 2, 'true dependency edge should still determine downstream rank below its parent');
 
   console.log('formula graph smoke passed');
 } finally {
