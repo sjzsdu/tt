@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, normalizeSnapshot } from '../api';
 import type { FormulaDashboardMessage, FormulaDashboardSnapshot, FormulaDashboardStep } from '../types';
 import { statusOrder } from '../utils/status';
@@ -6,13 +6,25 @@ import { statusOrder } from '../utils/status';
 export function useFormulaDashboard(onError: (error: unknown) => void) {
   const [snapshot, setSnapshot] = useState<FormulaDashboardSnapshot | null>(null);
   const [error, setError] = useState('');
+  const onErrorRef = useRef(onError);
 
   useEffect(() => {
-    api.state().then(setSnapshot).catch(err => {
-      setError(String(err));
-      onError(err);
-    });
+    onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.state().then(next => {
+      if (!cancelled) setSnapshot(next);
+    }).catch(err => {
+      if (cancelled) return;
+      setError(String(err));
+      onErrorRef.current(err);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

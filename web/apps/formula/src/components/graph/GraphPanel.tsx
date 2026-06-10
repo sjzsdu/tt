@@ -665,7 +665,11 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       onSelectRef.current(step);
     });
 
-    void Promise.resolve(graph.render()).then(applyRunningPulse);
+    void Promise.resolve(graph.render())
+      .then(applyRunningPulse)
+      .catch(err => {
+        console.error('Formula graph initial render failed', err);
+      });
 
     return () => {
       window.clearInterval(pulseTimer);
@@ -682,7 +686,9 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       edges: graphData.edges,
       combos: graphData.combos,
     });
-    graph.render();
+    void Promise.resolve(graph.render()).catch(err => {
+      console.error('Formula graph update render failed', err);
+    });
   }, [graphData]);
 
   const running = snapshot.steps.find(step => step.status === 'running');

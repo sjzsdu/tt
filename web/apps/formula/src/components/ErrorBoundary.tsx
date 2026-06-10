@@ -25,27 +25,9 @@ export class DashboardErrorBoundary extends Component<DashboardErrorBoundaryProp
     return { error: errorFromUnknown(error) };
   }
 
-  componentDidMount() {
-    window.addEventListener('error', this.handleWindowError);
-    window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
-  }
-
-  componentWillUnmount() {
-    window.removeEventListener('error', this.handleWindowError);
-    window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
-  }
-
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Formula dashboard render failed', error, info.componentStack);
   }
-
-  private handleWindowError = (event: ErrorEvent) => {
-    this.setState({ error: errorFromUnknown(event.error || event.message) });
-  };
-
-  private handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-    this.setState({ error: errorFromUnknown(event.reason) });
-  };
 
   private reset = () => {
     this.setState({ error: null });
