@@ -341,3 +341,77 @@ button, input, textarea { font: inherit; }
   .graph-header-side { align-items: flex-start; }
   .graph-node { width: 260px; }
 }
+
+.dashboard-error-screen {
+  padding: 32px;
+  color: var(--formula-text, #e2e8f0);
+}
+
+.dashboard-error-card {
+  width: min(920px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-theme='light'] .dashboard-error-card {
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+}
+
+.dashboard-error-kicker {
+  margin: 0 0 8px;
+  color: #fb7185;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-error-card h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.dashboard-error-message {
+  margin: 0 0 16px;
+  color: #fb7185;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.dashboard-error-stack {
+  max-height: 360px;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.78);
+  color: #e2e8f0;
+  white-space: pre-wrap;
+}
+
+.dashboard-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.dashboard-error-actions button {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(20, 184, 166, 0.16);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.dashboard-error-actions button:hover {
+  border-color: rgba(20, 184, 166, 0.78);
+}

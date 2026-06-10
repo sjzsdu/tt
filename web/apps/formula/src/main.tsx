@@ -5,7 +5,7 @@ import '@fontsource/noto-sans/700.css';
 import 'antd/dist/reset.css';
 import 'github-markdown-css/github-markdown-light.css';
 import { useEffect, useMemo, useState } from 'react';
-import { App } from './components/App';
+import { DashboardErrorBoundary } from './components/ErrorBoundary';
 import './styles.css';
 
 type AppTheme = 'light' | 'dark';
@@ -42,7 +42,9 @@ function Root() {
   return (
     <ConfigProvider theme={antdTheme}>
       <AntApp>
-        <App theme={appTheme} onThemeChange={setAppTheme} />
+        <DashboardErrorBoundary>
+          <App theme={appTheme} onThemeChange={setAppTheme} />
+        </DashboardErrorBoundary>
       </AntApp>
     </ConfigProvider>
   );

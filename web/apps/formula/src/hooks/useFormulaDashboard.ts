@@ -17,6 +17,7 @@ export function useFormulaDashboard(onError: (error: unknown) => void) {
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let intentionallyClosed = false;
     let ws: WebSocket | null = null;
 
     const connect = () => {
@@ -33,7 +34,9 @@ export function useFormulaDashboard(onError: (error: unknown) => void) {
         }
       };
       ws.onclose = () => {
-        timer = setTimeout(connect, 1500);
+        if (!intentionallyClosed) {
+          timer = setTimeout(connect, 1500);
+        }
       };
       ws.onerror = event => {
         console.error(event);
@@ -42,6 +45,7 @@ export function useFormulaDashboard(onError: (error: unknown) => void) {
 
     connect();
     return () => {
+      intentionallyClosed = true;
       if (timer) clearTimeout(timer);
       ws?.close();
     };
