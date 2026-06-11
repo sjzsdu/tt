@@ -1,3 +1,4 @@
+import { MenuFoldOutlined } from '@ant-design/icons';
 import { Input, Segmented, Tooltip } from 'antd';
 import type { MdFile } from '../types';
 import { filterFiles } from '../utils/fileSearch';
@@ -13,6 +14,7 @@ interface FileSidebarProps {
   setFileMode: (mode: 'tree' | 'flat') => void;
   fileQuery: string;
   setFileQuery: (query: string) => void;
+  onCollapse?: () => void;
 }
 
 export function FileSidebar({
@@ -25,12 +27,29 @@ export function FileSidebar({
   setFileMode,
   fileQuery,
   setFileQuery,
+  onCollapse,
 }: FileSidebarProps) {
   const filteredFiles = filterFiles(files, fileQuery);
   return (
     <aside className="files-pane section">
-      <h1 className="section-title">Markdown Files</h1>
-      <p className="section-subtitle">Browse and edit local Markdown files.</p>
+      <div className="section-heading">
+        <div>
+          <h1 className="section-title">Markdown Files</h1>
+          <p className="section-subtitle">Browse and edit local Markdown files.</p>
+        </div>
+        {onCollapse && (
+          <Tooltip title="Collapse file list">
+            <button
+              className="sidebar-collapse-btn"
+              type="button"
+              onClick={onCollapse}
+              aria-label="Collapse file list"
+            >
+              <MenuFoldOutlined />
+            </button>
+          </Tooltip>
+        )}
+      </div>
       <Input.Search
         className="file-search"
         allowClear
