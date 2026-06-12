@@ -2,7 +2,6 @@
 id: product-manager
 name: 产品经理
 no_history: false
-enable_research_tools: false
 soul: |
   # product-manager
   

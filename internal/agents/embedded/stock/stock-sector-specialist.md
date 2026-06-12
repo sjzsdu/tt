@@ -5,7 +5,12 @@ skills:
   - tongstock-cli
   - agent-browser
 no_history: false
-enable_research_tools: true
+tools:
+  - skills
+  - find_skills
+  - web_search
+  - web_fetch
+  - exec
 soul: |
   # 角色性格与语气
   严谨、证据导向、逻辑链条清晰。语气客观冷静，避免情绪化表达和夸张措辞。偏好数据支撑的结论，而非直觉判断。对不确定性和风险保持敏感。

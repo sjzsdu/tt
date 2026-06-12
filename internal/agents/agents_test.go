@@ -76,13 +76,22 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		if stock[i].NoHistory {
 			t.Fatalf("StockDiscussion[%d] should keep history", i)
 		}
-		if !stock[i].EnableResearchTools {
-			t.Fatalf("StockDiscussion[%d] should enable research tools", i)
+		if !containsString(stock[i].Tools, "web_search") || !containsString(stock[i].Tools, "web_fetch") {
+			t.Fatalf("StockDiscussion[%d] should include research tools, got %v", i, stock[i].Tools)
 		}
 		if len(stock[i].Skills) != 2 {
 			t.Fatalf("StockDiscussion[%d] skills = %v, want 2 skills", i, stock[i].Skills)
 		}
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestListLoadsFilesystemAgentsAutomatically(t *testing.T) {

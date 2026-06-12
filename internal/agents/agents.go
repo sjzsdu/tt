@@ -41,25 +41,16 @@ const (
 var embeddedFS embed.FS
 
 type definition struct {
-	ID                  string                   `yaml:"id"`
-	Name                string                   `yaml:"name"`
-	Description         string                   `yaml:"description"`
-	Capabilities        []string                 `yaml:"capabilities"`
-	Soul                string                   `yaml:"soul"`
-	Skills              []string                 `yaml:"skills"`
-	Tools               toolsDefinition          `yaml:"tools"`
-	OutputContract      outputContractDefinition `yaml:"output_contract"`
-	Validation          validationDefinition     `yaml:"validation"`
-	NoHistory           bool                     `yaml:"no_history"`
-	EnableResearchTools bool                     `yaml:"enable_research_tools"`
-}
-
-type toolsDefinition struct {
-	Skills     *bool `yaml:"skills"`
-	FindSkills *bool `yaml:"find_skills"`
-	Web        *bool `yaml:"web"`
-	WebFetch   *bool `yaml:"web_fetch"`
-	Exec       *bool `yaml:"exec"`
+	ID             string                   `yaml:"id"`
+	Name           string                   `yaml:"name"`
+	Description    string                   `yaml:"description"`
+	Capabilities   []string                 `yaml:"capabilities"`
+	Soul           string                   `yaml:"soul"`
+	Skills         []string                 `yaml:"skills"`
+	Tools          []string                 `yaml:"tools"`
+	OutputContract outputContractDefinition `yaml:"output_contract"`
+	Validation     validationDefinition     `yaml:"validation"`
+	NoHistory      bool                     `yaml:"no_history"`
 }
 
 type outputContractDefinition struct {
@@ -326,18 +317,17 @@ func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
 		def.Name = def.ID
 	}
 	return pcwrap.EmbeddedAgent{
-		ID:                  def.ID,
-		Name:                def.Name,
-		Description:         strings.TrimSpace(def.Description),
-		Capabilities:        compactStrings(def.Capabilities),
-		Prompt:              strings.TrimSpace(body),
-		Soul:                strings.TrimSpace(def.Soul),
-		Skills:              compactStrings(def.Skills),
-		Tools:               convertTools(def.Tools),
-		OutputContract:      convertOutputContract(def.OutputContract),
-		Validation:          convertValidation(def.Validation),
-		NoHistory:           def.NoHistory,
-		EnableResearchTools: def.EnableResearchTools,
+		ID:             def.ID,
+		Name:           def.Name,
+		Description:    strings.TrimSpace(def.Description),
+		Capabilities:   compactStrings(def.Capabilities),
+		Prompt:         strings.TrimSpace(body),
+		Soul:           strings.TrimSpace(def.Soul),
+		Skills:         compactStrings(def.Skills),
+		Tools:          compactStrings(def.Tools),
+		OutputContract: convertOutputContract(def.OutputContract),
+		Validation:     convertValidation(def.Validation),
+		NoHistory:      def.NoHistory,
 	}, nil
 }
 
@@ -363,29 +353,18 @@ func LoadFromFile(path string) (pcwrap.EmbeddedAgent, error) {
 		def.Name = def.ID
 	}
 	return pcwrap.EmbeddedAgent{
-		ID:                  def.ID,
-		Name:                def.Name,
-		Description:         strings.TrimSpace(def.Description),
-		Capabilities:        compactStrings(def.Capabilities),
-		Prompt:              strings.TrimSpace(body),
-		Soul:                strings.TrimSpace(def.Soul),
-		Skills:              compactStrings(def.Skills),
-		Tools:               convertTools(def.Tools),
-		OutputContract:      convertOutputContract(def.OutputContract),
-		Validation:          convertValidation(def.Validation),
-		NoHistory:           def.NoHistory,
-		EnableResearchTools: def.EnableResearchTools,
+		ID:             def.ID,
+		Name:           def.Name,
+		Description:    strings.TrimSpace(def.Description),
+		Capabilities:   compactStrings(def.Capabilities),
+		Prompt:         strings.TrimSpace(body),
+		Soul:           strings.TrimSpace(def.Soul),
+		Skills:         compactStrings(def.Skills),
+		Tools:          compactStrings(def.Tools),
+		OutputContract: convertOutputContract(def.OutputContract),
+		Validation:     convertValidation(def.Validation),
+		NoHistory:      def.NoHistory,
 	}, nil
-}
-
-func convertTools(def toolsDefinition) pcwrap.EmbeddedAgentTools {
-	return pcwrap.EmbeddedAgentTools{
-		Skills:     cloneBoolPtr(def.Skills),
-		FindSkills: cloneBoolPtr(def.FindSkills),
-		Web:        cloneBoolPtr(def.Web),
-		WebFetch:   cloneBoolPtr(def.WebFetch),
-		Exec:       cloneBoolPtr(def.Exec),
-	}
 }
 
 func convertOutputContract(def outputContractDefinition) pcwrap.EmbeddedAgentOutputContract {
@@ -398,14 +377,6 @@ func convertValidation(def validationDefinition) pcwrap.EmbeddedAgentValidation 
 		Evidence: strings.TrimSpace(def.Evidence),
 		Commands: compactStrings(def.Commands),
 	}
-}
-
-func cloneBoolPtr(v *bool) *bool {
-	if v == nil {
-		return nil
-	}
-	out := *v
-	return &out
 }
 
 func canonicalAgentID(id string) string {

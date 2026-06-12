@@ -120,11 +120,11 @@ func TestOptimizeRejectsPromptOverBudget(t *testing.T) {
 
 func parseAgent(t *testing.T) agentOutput {
 	t.Helper()
-	return agentOutput{ID: "demo-opt", Name: "Demo Opt", Soul: "Stay precise", Skills: []string{"repo2skill"}, Prompt: "You are optimized.", EnableResearchTools: true}
+	return agentOutput{ID: "demo-opt", Name: "Demo Opt", Soul: "Stay precise", Skills: []string{"repo2skill"}, Tools: []string{"read_file"}, Prompt: "You are optimized."}
 }
 
 func toEmbeddedAgent(a agentOutput) pcwrap.EmbeddedAgent {
-	return pcwrap.EmbeddedAgent{ID: a.ID, Name: a.Name, Soul: a.Soul, Skills: a.Skills, Prompt: a.Prompt, NoHistory: a.NoHistory, EnableResearchTools: a.EnableResearchTools}
+	return pcwrap.EmbeddedAgent{ID: a.ID, Name: a.Name, Soul: a.Soul, Skills: a.Skills, Tools: a.Tools, Prompt: a.Prompt, NoHistory: a.NoHistory}
 }
 
 func longPrompt(repo string) string {

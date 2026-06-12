@@ -8,11 +8,7 @@ capabilities:
   - "运行机制说明"
   - "影响面分析"
 tools:
-  skills: true
-  find_skills: false
-  web: false
-  web_fetch: false
-  exec: false
+  - skills
 output_contract:
   sections:
     - "研究结论"
@@ -24,7 +20,6 @@ validation:
   required: true
   evidence: "file_symbol_or_call_chain"
 no_history: false
-enable_research_tools: false
 soul: |
   # code-research
   

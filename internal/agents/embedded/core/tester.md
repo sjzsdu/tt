@@ -8,11 +8,7 @@ capabilities:
   - "质量风险判断"
   - "验证证据整理"
 tools:
-  skills: false
-  find_skills: false
-  web: false
-  web_fetch: false
-  exec: true
+  - exec
 output_contract:
   sections:
     - "测试范围"
@@ -24,7 +20,6 @@ validation:
   required: true
   evidence: "repro_steps_or_test_result"
 no_history: false
-enable_research_tools: false
 soul: |
   # tester
   

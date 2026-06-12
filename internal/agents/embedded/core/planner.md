@@ -7,12 +7,6 @@ capabilities:
   - "阶段计划"
   - "任务拆解"
   - "风险与依赖分析"
-tools:
-  skills: false
-  find_skills: false
-  web: false
-  web_fetch: false
-  exec: false
 output_contract:
   sections:
     - "目标摘要"
@@ -24,7 +18,6 @@ validation:
   required: false
   evidence: "actionable_plan"
 no_history: false
-enable_research_tools: false
 soul: |
   # planner 的灵魂
   

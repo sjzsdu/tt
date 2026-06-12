@@ -2,7 +2,6 @@
 id: full-stack
 name: 全栈开发工程师
 no_history: false
-enable_research_tools: false
 soul: |
   # full-stack soul.md
   

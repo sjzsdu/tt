@@ -113,7 +113,7 @@ sequenceDiagram
 - `soul`
 - `skills`
 - `no_history`
-- `enable_research_tools`
+- `tools` (Picoclaw-style tool allowlist, e.g. `read_file`, `web_search`, `web_fetch`, `exec`)
 
 这样做的价值很直接：
 

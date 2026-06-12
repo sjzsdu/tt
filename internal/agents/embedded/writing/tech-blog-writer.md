@@ -2,7 +2,6 @@
 id: tech-blog-writer
 name: "技术博客写手"
 no_history: false
-enable_research_tools: false
 soul: |
   # tech-blog-writer
   

@@ -52,13 +52,13 @@ type Result struct {
 }
 
 type agentOutput struct {
-	ID                  string   `json:"id"`
-	Name                string   `json:"name"`
-	Soul                string   `json:"soul"`
-	Skills              []string `json:"skills"`
-	NoHistory           bool     `json:"no_history"`
-	EnableResearchTools bool     `json:"enable_research_tools"`
-	Prompt              string   `json:"prompt"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Soul      string   `json:"soul"`
+	Skills    []string `json:"skills"`
+	Tools     []string `json:"tools"`
+	NoHistory bool     `json:"no_history"`
+	Prompt    string   `json:"prompt"`
 }
 
 type repoCollector struct{}
@@ -198,13 +198,13 @@ func buildRequest(profile *repo2skillpkg.RepoProfile, base pcwrap.EmbeddedAgent,
 			"dedupe":           "deduplicate repeated workflows, constraints, commands, and terminology while retaining repository-specific facts",
 		},
 		"base_agent": map[string]any{
-			"id":                    base.ID,
-			"name":                  base.Name,
-			"soul":                  base.Soul,
-			"skills":                base.Skills,
-			"no_history":            base.NoHistory,
-			"enable_research_tools": base.EnableResearchTools,
-			"prompt":                strings.TrimSpace(base.Prompt),
+			"id":         base.ID,
+			"name":       base.Name,
+			"soul":       base.Soul,
+			"skills":     base.Skills,
+			"tools":      base.Tools,
+			"no_history": base.NoHistory,
+			"prompt":     strings.TrimSpace(base.Prompt),
 		},
 	}
 }
@@ -286,13 +286,13 @@ func parseAgentOutput(resp string, base pcwrap.EmbeddedAgent) (pcwrap.EmbeddedAg
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("parse agent optimizer JSON: %w", err)
 	}
 	generated := pcwrap.EmbeddedAgent{
-		ID:                  normalizeID(out.ID, base.ID),
-		Name:                firstNonEmpty(out.Name, strings.TrimSpace(base.Name)+" Optimized"),
-		Prompt:              strings.TrimSpace(out.Prompt),
-		Soul:                strings.TrimSpace(out.Soul),
-		Skills:              compactStrings(out.Skills),
-		NoHistory:           out.NoHistory,
-		EnableResearchTools: out.EnableResearchTools,
+		ID:        normalizeID(out.ID, base.ID),
+		Name:      firstNonEmpty(out.Name, strings.TrimSpace(base.Name)+" Optimized"),
+		Prompt:    strings.TrimSpace(out.Prompt),
+		Soul:      strings.TrimSpace(out.Soul),
+		Skills:    compactStrings(out.Skills),
+		Tools:     compactStrings(out.Tools),
+		NoHistory: out.NoHistory,
 	}
 	if generated.Prompt == "" {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("generated agent prompt is empty")
@@ -302,6 +302,9 @@ func parseAgentOutput(resp string, base pcwrap.EmbeddedAgent) (pcwrap.EmbeddedAg
 	}
 	if len(generated.Skills) == 0 {
 		generated.Skills = append([]string(nil), base.Skills...)
+	}
+	if len(generated.Tools) == 0 {
+		generated.Tools = append([]string(nil), base.Tools...)
 	}
 	return generated, nil
 }
@@ -361,11 +364,14 @@ func RenderMarkdown(agent pcwrap.EmbeddedAgent) string {
 			fmt.Fprintf(&b, "  - %q\n", strings.TrimSpace(skill))
 		}
 	}
+	if len(agent.Tools) > 0 {
+		b.WriteString("tools:\n")
+		for _, tool := range agent.Tools {
+			fmt.Fprintf(&b, "  - %q\n", strings.TrimSpace(tool))
+		}
+	}
 	if agent.NoHistory {
 		b.WriteString("no_history: true\n")
-	}
-	if agent.EnableResearchTools {
-		b.WriteString("enable_research_tools: true\n")
 	}
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimSpace(agent.Prompt))

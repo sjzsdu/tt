@@ -17,11 +17,11 @@ type PromptOptions struct {
 }
 
 type EmbeddedOptions struct {
-	ID                  string
-	Name                string
-	Skills              []string
-	NoHistory           bool
-	EnableResearchTools bool
+	ID        string
+	Name      string
+	Skills    []string
+	Tools     []string
+	NoHistory bool
 }
 
 func BuildGenerationPrompt(opt PromptOptions) (string, error) {
@@ -80,8 +80,13 @@ func RenderEmbeddedMarkdown(files Files, opt EmbeddedOptions) (string, error) {
 			fmt.Fprintf(&b, "  - %s\n", yamlScalar(skill))
 		}
 	}
+	if len(compactStrings(opt.Tools)) > 0 {
+		b.WriteString("tools:\n")
+		for _, tool := range compactStrings(opt.Tools) {
+			fmt.Fprintf(&b, "  - %s\n", yamlScalar(tool))
+		}
+	}
 	fmt.Fprintf(&b, "no_history: %t\n", opt.NoHistory)
-	fmt.Fprintf(&b, "enable_research_tools: %t\n", opt.EnableResearchTools)
 	if soul := strings.TrimSpace(files.Soul); soul != "" {
 		b.WriteString("soul: |\n")
 		for _, line := range strings.Split(soul, "\n") {

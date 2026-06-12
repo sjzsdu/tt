@@ -16,15 +16,15 @@ Return ONLY one JSON object with this shape:
   "name": "string",
   "soul": "string",
   "skills": ["string"],
+  "tools": ["string"],
   "no_history": false,
-  "enable_research_tools": false,
   "prompt": "string"
 }
 
 Rules:
 1. Keep the result aligned with the base agent's role. Specialize it for the target repository domain, do not create an unrelated role.
 2. Use repository evidence from README, docs, examples, tests, entrypoints, public APIs, package files, app routes, service boundaries, configs, workflows, and usage snippets.
-3. Do not invent tools or skills. Only keep skills that exist on the base agent unless the input explicitly justifies them.
+3. Do not invent tools or skills. Only keep tools and skills that exist on the base agent unless the input explicitly justifies them. Tools use Picoclaw AGENT.md allowlist names such as read_file, write_file, edit_file, list_dir, web_search, web_fetch, exec, skills, find_skills, spawn, and subagent.
 4. The prompt must be complete, actionable, and directly usable as an embedded agent prompt body.
 5. Prefer concise specialization over generic repetition, but include enough concrete repository knowledge to make the agent useful.
 6. If a field should stay the same as the base agent, still return it explicitly.

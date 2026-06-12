@@ -5,7 +5,12 @@ skills:
   - tongstock-cli
   - agent-browser
 no_history: false
-enable_research_tools: true
+tools:
+  - skills
+  - find_skills
+  - web_search
+  - web_fetch
+  - exec
 soul: |
   # 中文股票基本面分析师 soul.md
   

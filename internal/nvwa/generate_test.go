@@ -56,11 +56,11 @@ func TestRenderEmbeddedMarkdown(t *testing.T) {
 		Agent: "# 前端工程师\n\n负责 UI 交付。\n",
 		Soul:  "# 灵魂\n\n重视体验。\n",
 	}, EmbeddedOptions{
-		ID:                  "frontend-engineer",
-		Name:                "前端工程师",
-		Skills:              []string{"browser", "ui-review"},
-		NoHistory:           true,
-		EnableResearchTools: true,
+		ID:        "frontend-engineer",
+		Name:      "前端工程师",
+		Skills:    []string{"browser", "ui-review"},
+		Tools:     []string{"web_search", "web_fetch"},
+		NoHistory: true,
 	})
 	if err != nil {
 		t.Fatalf("RenderEmbeddedMarkdown returned error: %v", err)
@@ -70,8 +70,8 @@ func TestRenderEmbeddedMarkdown(t *testing.T) {
 		"id: frontend-engineer",
 		"name: \"前端工程师\"",
 		"skills:\n  - browser\n  - ui-review",
+		"tools:\n  - web_search\n  - web_fetch",
 		"no_history: true",
-		"enable_research_tools: true",
 		"soul: |\n  # 灵魂",
 		"# 前端工程师\n\n负责 UI 交付。",
 	} {

@@ -2,7 +2,6 @@
 id: ui
 name: "UI及交互设计师"
 no_history: false
-enable_research_tools: false
 soul: |
   # UI Soul
   

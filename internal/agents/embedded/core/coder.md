@@ -8,11 +8,8 @@ capabilities:
   - "测试验证"
   - "工程取舍说明"
 tools:
-  skills: true
-  find_skills: false
-  web: false
-  web_fetch: false
-  exec: true
+  - skills
+  - exec
 output_contract:
   sections:
     - "实现结果"
@@ -22,7 +19,6 @@ output_contract:
 validation:
   required: true
   evidence: "test_or_command"
-enable_research_tools: true
 soul: |
   # coder
   

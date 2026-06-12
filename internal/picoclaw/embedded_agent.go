@@ -71,40 +71,42 @@ func applyEmbeddedAgentConfig(cfg *pcconfig.Config, agent *EmbeddedAgent, model 
 		Skills:    append([]string(nil), agent.Skills...),
 		NoHistory: agent.NoHistory,
 	})
-	if agent.EnableResearchTools {
-		enableResearchTools(cfg)
-	}
 	applyEmbeddedAgentTools(cfg, agent.Tools)
 	return nil
 }
 
-func applyEmbeddedAgentTools(cfg *pcconfig.Config, tools EmbeddedAgentTools) {
+func applyEmbeddedAgentTools(cfg *pcconfig.Config, tools []string) {
 	if cfg == nil {
 		return
 	}
-	setBoolPtr(&cfg.Tools.Skills.Enabled, tools.Skills)
-	setBoolPtr(&cfg.Tools.FindSkills.Enabled, tools.FindSkills)
-	setBoolPtr(&cfg.Tools.Web.Enabled, tools.Web)
-	setBoolPtr(&cfg.Tools.WebFetch.Enabled, tools.WebFetch)
-	setBoolPtr(&cfg.Tools.Exec.Enabled, tools.Exec)
-}
-
-func setBoolPtr(target *bool, value *bool) {
-	if target == nil || value == nil {
-		return
+	for _, tool := range tools {
+		switch strings.ToLower(strings.TrimSpace(tool)) {
+		case "skills":
+			cfg.Tools.Skills.Enabled = true
+		case "find_skills":
+			cfg.Tools.FindSkills.Enabled = true
+		case "web", "web_search":
+			cfg.Tools.Web.Enabled = true
+		case "web_fetch":
+			cfg.Tools.WebFetch.Enabled = true
+		case "exec", "bash", "shell":
+			cfg.Tools.Exec.Enabled = true
+		case "read_file":
+			cfg.Tools.ReadFile.Enabled = true
+		case "write_file":
+			cfg.Tools.WriteFile.Enabled = true
+		case "edit_file":
+			cfg.Tools.EditFile.Enabled = true
+		case "append_file":
+			cfg.Tools.AppendFile.Enabled = true
+		case "list_dir":
+			cfg.Tools.ListDir.Enabled = true
+		case "spawn":
+			cfg.Tools.Spawn.Enabled = true
+		case "subagent":
+			cfg.Tools.Subagent.Enabled = true
+		}
 	}
-	*target = *value
-}
-
-func enableResearchTools(cfg *pcconfig.Config) {
-	if cfg == nil {
-		return
-	}
-	cfg.Tools.Skills.Enabled = true
-	cfg.Tools.FindSkills.Enabled = true
-	cfg.Tools.Web.Enabled = true
-	cfg.Tools.WebFetch.Enabled = true
-	cfg.Tools.Exec.Enabled = true
 }
 
 func applyEmbeddedAgentConfigs(cfg *pcconfig.Config, agents []EmbeddedAgent, model string) error {

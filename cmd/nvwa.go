@@ -90,7 +90,7 @@ func init() {
 	nvwaCmd.Flags().StringVarP(&nvwaOutput, "output", "o", ".", "output directory when writing files")
 	nvwaCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true when --style embedded is used")
-	nvwaCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true when --style embedded is used")
+	nvwaCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "include research tools in embedded agent tools allowlist")
 	nvwaCmd.Flags().StringVar(&nvwaModel, "model", "", "model to use; defaults to the picoclaw default model")
 	nvwaCmd.Flags().StringVarP(&nvwaSession, "session", "s", "cli:nvwa", "session key")
 	nvwaCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
@@ -101,7 +101,7 @@ func init() {
 	nvwaCreateCmd.Flags().StringVar(&nvwaName, "name", "", "embedded agent display name; defaults to <id>")
 	nvwaCreateCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaCreateCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
-	nvwaCreateCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
+	nvwaCreateCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "include research tools in embedded agent tools allowlist")
 	nvwaCreateCmd.Flags().StringVar(&nvwaModel, "model", "", "model to use; defaults to the picoclaw default model")
 	nvwaCreateCmd.Flags().StringVarP(&nvwaSession, "session", "s", "cli:nvwa", "session key")
 	nvwaCreateCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
@@ -112,7 +112,7 @@ func init() {
 	nvwaOptimizeCmd.Flags().StringVar(&nvwaName, "name", "", "embedded agent display name; defaults to <id>")
 	nvwaOptimizeCmd.Flags().StringSliceVar(&nvwaSkills, "skill", nil, "embedded agent skill; repeat or comma-separate for multiple skills")
 	nvwaOptimizeCmd.Flags().BoolVar(&nvwaNoHist, "no-history", false, "set no_history: true")
-	nvwaOptimizeCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "set enable_research_tools: true")
+	nvwaOptimizeCmd.Flags().BoolVar(&nvwaTools, "research-tools", false, "include research tools in embedded agent tools allowlist")
 	nvwaOptimizeCmd.Flags().StringVar(&nvwaModel, "model", "", "model to use; defaults to the picoclaw default model")
 	nvwaOptimizeCmd.Flags().StringVarP(&nvwaSession, "session", "s", "cli:nvwa", "session key")
 	nvwaOptimizeCmd.Flags().BoolVarP(&nvwaDebug, "debug", "d", false, "enable debug logging")
@@ -152,11 +152,11 @@ func runNvwaEmbeddedCreateOrOptimize(cmd *cobra.Command, name, suggestion string
 	}
 
 	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
-		ID:                  id,
-		Name:                displayName,
-		Skills:              nvwaSkills,
-		NoHistory:           nvwaNoHist,
-		EnableResearchTools: nvwaTools,
+		ID:        id,
+		Name:      displayName,
+		Skills:    nvwaSkills,
+		Tools:     nvwaResearchTools(nvwaTools),
+		NoHistory: nvwaNoHist,
 	})
 	if err != nil {
 		return err
@@ -265,11 +265,11 @@ func outputNvwaEmbedded(files nvwa.Files, role string) error {
 	id := nvwa.DefaultEmbeddedID(role)
 	name := role
 	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
-		ID:                  id,
-		Name:                name,
-		Skills:              nvwaSkills,
-		NoHistory:           nvwaNoHist,
-		EnableResearchTools: nvwaTools,
+		ID:        id,
+		Name:      name,
+		Skills:    nvwaSkills,
+		Tools:     nvwaResearchTools(nvwaTools),
+		NoHistory: nvwaNoHist,
 	})
 	if err != nil {
 		return err
@@ -406,9 +406,15 @@ SOUL.md 最低结构：
 2. 决策偏好与取舍
 3. 反模式与禁词
 4. 压力/不确定性下的行为底线`),
-		NoHistory:           true,
-		EnableResearchTools: false,
+		NoHistory: true,
 	}
+}
+
+func nvwaResearchTools(enabled bool) []string {
+	if !enabled {
+		return nil
+	}
+	return []string{"skills", "find_skills", "web_search", "web_fetch", "exec"}
 }
 
 func printNvwaFiles(files nvwa.Files, format string) {

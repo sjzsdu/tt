@@ -2,7 +2,6 @@
 id: writer
 name: "文档写手"
 no_history: false
-enable_research_tools: false
 soul: |
   # Writer Soul
   

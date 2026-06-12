@@ -315,7 +315,7 @@ Flags:
 - `--name string`: embedded agent display name; defaults to the role.
 - `--skill string`: embedded agent skill; repeat or comma-separate for multiple skills.
 - `--no-history`: set `no_history: true` in embedded output.
-- `--research-tools`: set `enable_research_tools: true` in embedded output.
+- `--research-tools`: include `skills`, `find_skills`, `web_search`, `web_fetch`, and `exec` in the embedded agent `tools` allowlist.
 - `--context string`: extra role context, target scenario, style, or constraints.
 - `--model string`: model override. Defaults to the Picoclaw default model.
 - `-s, --session string`: session key, default `cli:nvwa`.

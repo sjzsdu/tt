@@ -2,7 +2,6 @@
 id: repo2skill
 name: "Repo2Skill 分析师"
 no_history: true
-enable_research_tools: false
 soul: |
   # soul.md
 

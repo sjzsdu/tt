@@ -2,7 +2,6 @@
 id: docs-analyst
 name: 代码逆向文档分析师
 no_history: false
-enable_research_tools: false
 soul: |
   # docs-analyst
 
