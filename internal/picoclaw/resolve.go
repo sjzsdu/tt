@@ -21,27 +21,14 @@ type RunOptions struct {
 }
 
 type EmbeddedAgent struct {
-	ID             string
-	Name           string
-	Description    string
-	Capabilities   []string
-	Prompt         string
-	Soul           string
-	Skills         []string
-	Tools          []string
-	OutputContract EmbeddedAgentOutputContract
-	Validation     EmbeddedAgentValidation
-	NoHistory      bool
-}
-
-type EmbeddedAgentOutputContract struct {
-	Sections []string
-}
-
-type EmbeddedAgentValidation struct {
-	Required bool
-	Evidence string
-	Commands []string
+	ID          string
+	Name        string
+	Description string
+	Prompt      string
+	Soul        string
+	Skills      []string
+	Tools       []string
+	NoHistory   bool
 }
 
 type ResolvedRunOptions struct {

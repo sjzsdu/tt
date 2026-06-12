@@ -252,14 +252,8 @@ func TestCoreAgentMetadataContract(t *testing.T) {
 		if strings.TrimSpace(agent.Description) == "" {
 			t.Fatalf("%s missing description", agent.ID)
 		}
-		if len(agent.Capabilities) == 0 {
-			t.Fatalf("%s missing capabilities", agent.ID)
-		}
-		if len(agent.OutputContract.Sections) == 0 {
-			t.Fatalf("%s missing output_contract.sections", agent.ID)
-		}
-		if agent.Validation.Required && strings.TrimSpace(agent.Validation.Evidence) == "" {
-			t.Fatalf("%s requires validation but has no evidence policy", agent.ID)
+		if agent.ID == CoderID && !containsString(agent.Tools, "exec") {
+			t.Fatalf("%s should include exec tool, got %v", agent.ID, agent.Tools)
 		}
 	}
 	for id := range wantIDs {
@@ -292,9 +286,6 @@ func TestAgentIDsAreUniqueAndPromptsReasonable(t *testing.T) {
 		_, isCoreMetadataAgent := coreMetadataAgents[agent.ID]
 		if isCoreMetadataAgent && len(agent.Prompt) > 12000 {
 			t.Fatalf("%s prompt too long: %d chars", agent.ID, len(agent.Prompt))
-		}
-		if agent.Validation.Required && !strings.Contains(strings.ToLower(agent.Prompt), "验证") && !strings.Contains(strings.ToLower(agent.Prompt), "evidence") {
-			t.Fatalf("%s requires validation but prompt does not mention validation/evidence", agent.ID)
 		}
 	}
 }

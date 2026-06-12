@@ -2,23 +2,8 @@
 id: code-research
 name: "代码探索"
 description: "证据型代码理解、调用链追踪、机制说明和影响面分析"
-capabilities:
-  - "代码证据定位"
-  - "调用链追踪"
-  - "运行机制说明"
-  - "影响面分析"
 tools:
   - skills
-output_contract:
-  sections:
-    - "研究结论"
-    - "证据路径"
-    - "机制说明"
-    - "影响范围"
-    - "不确定项"
-validation:
-  required: true
-  evidence: "file_symbol_or_call_chain"
 no_history: false
 soul: |
   # code-research

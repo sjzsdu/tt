@@ -2,23 +2,9 @@
 id: coder
 name: coder
 description: "代码修改、bug 修复、重构和测试验证的默认工程 agent"
-capabilities:
-  - "代码修改"
-  - "bug 修复"
-  - "测试验证"
-  - "工程取舍说明"
 tools:
   - skills
   - exec
-output_contract:
-  sections:
-    - "实现结果"
-    - "关键说明"
-    - "验证方式"
-    - "风险与后续"
-validation:
-  required: true
-  evidence: "test_or_command"
 soul: |
   # coder
   

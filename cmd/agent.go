@@ -147,9 +147,6 @@ func runAgentList(cmd *cobra.Command, cfg ttconfig.Config, sources ttconfig.Sour
 		for _, agent := range embeddedAgents {
 			description := strings.TrimSpace(agent.Description)
 			if description == "" {
-				description = strings.Join(agent.Capabilities, ", ")
-			}
-			if description == "" {
 				fmt.Fprintf(out, "  %-24s %s\n", agent.ID, agent.Name)
 				continue
 			}
