@@ -1,11 +1,11 @@
 # Builtin Atomic Formulas
 
-`atomics/` 只放可以被上层 builtin formula 复用的原子步骤。它们不是独立产品化 workflow，单独运行通常没有意义。
+`atomics/<category>/` 只放可以被上层 builtin formula 复用的原子步骤。它们不是独立产品化 workflow，单独运行通常没有意义。
 
 ## 保留原则
 
 - **必须被复用**：只有当前 builtin formulas 通过 `embed = "..."` 使用的流程才放在这里。
-- **原子职责**：一个 atomic 只做一个稳定步骤，例如获取 PR metadata、获取 PR diff、运行验证。
+- **原子职责**：一个 atomic 只做一个稳定步骤，例如获取 PR 全量信息、列出 PR、运行验证。
 - **稳定 JSON 契约**：输出必须适合父 formula 通过 `xxx.stdout.field` 消费。
 - **少报告，多数据**：atomic 默认不做长 Markdown final report，只输出结构化数据。
 - **不重复输出**：每个 step 只输出自己的增量，不复制上游 JSON/stdout/stderr/diff/log。
@@ -104,7 +104,7 @@
 
 ## 维护流程
 
-新增 atomic 前先问两个问题：
+新增 atomic 前先选择合适 category，并问两个问题：
 
 1. 是否已经有至少一个 builtin formula 会立即 `embed` 它？
 2. 它是否真的是一个可复用的原子步骤，而不是一次性 workflow？

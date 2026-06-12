@@ -179,6 +179,6 @@ flowchart TD
 - docs 命令：`cmd/docs.go`、`internal/agents/embedded/docs/docs-analyst.md`
 - agent 优化命令：`cmd/agent_optimize.go`、`internal/agentopt/`、`internal/agents/embedded/engineering/agent-optimizer.md`
 - formula 子包：`cmd/formula/`
-- 内置 formula：`internal/formula/builtin/formulas/`、`internal/formula/builtin/atomics/`
+- 内置 formula：`internal/formula/builtin/formulas/<category>/`、`internal/formula/builtin/atomics/<category>/`
 - step kinds 实现：`internal/formula/steps/kinds.go`
 - 运行环境与 worktree：`internal/formula/runtime/environment.go`、`internal/formula/runtime/workspace.go`

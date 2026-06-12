@@ -16,6 +16,14 @@ import (
 )
 
 func TestBuiltinFormulasParseAndCompile(t *testing.T) {
+	paths, err := builtinFormulaPathsInDir("builtin/formulas")
+	if err != nil {
+		t.Fatalf("builtinFormulaPathsInDir(formulas) error = %v", err)
+	}
+	if !slices.Contains(paths, "builtin/formulas/docs/fresh-topic-docs.toml") {
+		t.Fatalf("builtin formula paths should include nested docs/fresh-topic-docs.toml; got %v", paths)
+	}
+
 	entries, err := BuiltinFormulas()
 	if err != nil {
 		t.Fatalf("BuiltinFormulas() error = %v", err)
@@ -84,6 +92,14 @@ func TestBuiltinFormulaContent(t *testing.T) {
 }
 
 func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
+	paths, err := builtinFormulaPathsInDir("builtin/atomics")
+	if err != nil {
+		t.Fatalf("builtinFormulaPathsInDir(atomics) error = %v", err)
+	}
+	if !slices.Contains(paths, "builtin/atomics/validation/run-validation.toml") {
+		t.Fatalf("builtin atomic paths should include nested validation/run-validation.toml; got %v", paths)
+	}
+
 	regular, err := BuiltinFormulas()
 	if err != nil {
 		t.Fatalf("BuiltinFormulas() error = %v", err)
