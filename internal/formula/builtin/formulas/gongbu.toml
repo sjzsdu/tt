@@ -233,7 +233,7 @@ agent.name = "full-stack"
 id = "run-tests"
 title = "执行测试与基础验证"
 depends_on = ["implement-feature"]
-embed = "git-run-validation"
+embed = "run-validation"
 
 [steps.embed_vars]
 command = ""

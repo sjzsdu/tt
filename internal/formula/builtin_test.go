@@ -89,7 +89,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 		t.Fatalf("BuiltinFormulas() error = %v", err)
 	}
 	for _, entry := range regular {
-		if slices.Contains([]string{"git-run-validation", "github-fetch-pr", "github-list-my-prs"}, entry.Name) {
+		if slices.Contains([]string{"run-validation", "github-fetch-pr", "github-list-my-prs"}, entry.Name) {
 			t.Fatalf("atomic formula %q should not appear in regular builtin list", entry.Name)
 		}
 	}
@@ -98,7 +98,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuiltinAtomicFormulas() error = %v", err)
 	}
-	want := []string{"git-run-validation", "github-fetch-pr", "github-list-my-prs"}
+	want := []string{"run-validation", "github-fetch-pr", "github-list-my-prs"}
 	got := make(map[string]bool)
 	for _, entry := range atomics {
 		got[entry.Name] = true
@@ -153,17 +153,17 @@ func TestBuiltinAtomicFormulasCompile(t *testing.T) {
 }
 
 func TestBuiltinAtomicRuntimeContracts(t *testing.T) {
-	t.Run("git-run-validation", func(t *testing.T) {
+	t.Run("run-validation", func(t *testing.T) {
 		repo := t.TempDir()
-		out := runAtomicForTest(t, "git-run-validation", map[string]string{"repo_path": repo, "command": "printf ok"}, "validation")
+		out := runAtomicForTest(t, "run-validation", map[string]string{"repo_path": repo, "command": "printf ok"}, "validation")
 		if out["requested"] != true || out["success"] != true || !strings.Contains(asString(out["stdout"]), "ok") {
 			t.Fatalf("unexpected validation output: %#v", out)
 		}
 	})
 
-	t.Run("git-run-validation auto detect override", func(t *testing.T) {
+	t.Run("run-validation auto detect override", func(t *testing.T) {
 		repo := t.TempDir()
-		out := runAtomicForTest(t, "git-run-validation", map[string]string{"repo_path": repo, "command": "printf auto-ok", "auto_detect": "true"}, "validation")
+		out := runAtomicForTest(t, "run-validation", map[string]string{"repo_path": repo, "command": "printf auto-ok", "auto_detect": "true"}, "validation")
 		if out["attempted"] != true || out["success"] != true || out["auto_detect"] != true || !strings.Contains(asString(out["stdout"]), "auto-ok") {
 			t.Fatalf("unexpected auto validation output: %#v", out)
 		}

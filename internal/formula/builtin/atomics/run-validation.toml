@@ -1,9 +1,9 @@
-formula = "git-run-validation"
-description = "原子 formula：在当前仓库运行验证命令；可由父流程显式传入 command，也可 auto_detect 根据仓库标记选择轻量验证。"
+formula = "run-validation"
+description = "原子 formula：在指定仓库/目录运行验证命令；可由父流程显式传入 command，也可 auto_detect 根据项目标记选择轻量验证。"
 version = 1
 type = "atomic"
-category = "git"
-tags = ["git", "atomic", "validation", "test"]
+category = "validation"
+tags = ["atomic", "validation", "test"]
 
 [preflight]
 
@@ -26,16 +26,16 @@ require_repo = true
 message = "当前目录必须是 git 仓库"
 
 [vars]
-repo_path = { description = "可选仓库目录；为空时使用当前 git 仓库", default = "" }
+repo_path = { description = "可选项目目录；为空时使用当前 git 仓库根目录", default = "" }
 command = { description = "验证命令；为空或 - 时默认跳过。auto_detect=true 时为空表示自动检测", default = "" }
-auto_detect = { description = "command 为空时是否根据仓库标记自动选择轻量验证命令", default = "false", enum = ["true", "false"] }
+auto_detect = { description = "command 为空时是否根据项目标记自动选择轻量验证命令", default = "false", enum = ["true", "false"] }
 timeout_hint = { description = "给报告使用的超时提示；实际超时由 formula step 固定为 20m", default = "20m" }
 
 [[steps]]
 id = "validation"
 title = "运行验证命令"
 execution = "script"
-description = "运行父流程提供的验证命令；auto_detect=true 且 command 为空时按仓库标记选择轻量验证；未请求验证时返回 requested=false, success=true。"
+description = "运行父流程提供的验证命令；auto_detect=true 且 command 为空时按项目标记选择轻量验证；未请求验证时返回 requested=false, success=true。"
 
 [steps.script]
 command = ["bash", "-lc", """

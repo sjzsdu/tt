@@ -518,7 +518,7 @@ id = "run-validation"
 title = "运行可选验证命令"
 depends_on = ["summarize-rebase-state"]
 condition = "summarize-rebase-state.stdout.rebase_done == true"
-embed = "git-run-validation"
+embed = "run-validation"
 
 [steps.embed_vars]
 repo_path = "{{prepare-rebase-worktree.stdout.worktree_path}}"

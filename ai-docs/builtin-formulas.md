@@ -63,7 +63,7 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 
 | Atomic | 被谁使用 | 输出 | 关键行为 |
 | --- | --- | --- | --- |
-| `git-run-validation` | `feature` / `gongbu` / `github-pr-rebase-main` | `validation.stdout` | 显式运行 `vars.command`；`auto_detect=true` 且 command 为空时根据 `go.mod` / `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 自动选择轻量验证 |
+| `run-validation` | `feature` / `gongbu` / `github-pr-rebase-main` | `validation.stdout` | 显式运行 `vars.command`；`auto_detect=true` 且 command 为空时根据 `go.mod` / `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 自动选择轻量验证 |
 | `github-fetch-pr` | `github-pr-review` / `github-pr-fix-comments` / `github-pr-rebase-main` | `pr.stdout` | 一次获取单个 PR 的 metadata、files、patch diff 和 review 上下文字段；父 formula 自行取需要字段 |
 | `github-list-my-prs` | `github-my-prs-fix-comments` / `github-my-prs-rebase-main` | `prs.stdout` | 列出当前仓库指定作者的 open PR，供批量流程循环 |
 
@@ -74,11 +74,11 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 | 命令 / 状态 | 出现位置 |
 | --- | --- |
 | `gh auth status`（exec） | 同上 github 系列 |
-| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `git-run-validation` |
-| `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `git-run-validation` |
-| `jq`（command） | `git-run-validation` / `github-list-my-prs` / `github-fetch-pr` 等 |
+| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `run-validation` |
+| `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `run-validation` |
+| `jq`（command） | `run-validation` / `github-list-my-prs` / `github-fetch-pr` 等 |
 | `python3`（command） | `code-docs` / `gongbu` |
-| `bash`（command） | `git-run-validation` |
+| `bash`（command） | `run-validation` |
 | `jira`（command） | `jira-bug-fix` |
 
 如果 `tt formula run <name>` 报"preflight 失败"，直接对照这张表确认是否需要安装 / 登录。

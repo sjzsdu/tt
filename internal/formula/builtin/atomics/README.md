@@ -15,21 +15,21 @@
 
 | Atomic | 被谁使用 | 主输出 | 用途 |
 |---|---|---|---|
-| `git-run-validation` | `feature`, `gongbu`, `github-pr-rebase-main` | `validation.stdout` | 运行父流程传入的验证命令；也可 `auto_detect=true` 根据仓库标记自动选择轻量验证 |
+| `run-validation` | `feature`, `gongbu`, `github-pr-rebase-main` | `validation.stdout` | 运行父流程传入的验证命令；也可 `auto_detect=true` 根据项目标记自动选择轻量验证 |
 | `github-fetch-pr` | `github-pr-review`, `github-pr-fix-comments`, `github-pr-rebase-main` | `pr.stdout` | 一次获取单个 GitHub PR 的 metadata、changed files、patch diff 和 review 上下文字段 |
 | `github-list-my-prs` | `github-my-prs-fix-comments`, `github-my-prs-rebase-main` | `prs.stdout` | 列出当前仓库指定作者的 open PR，供批量流程循环 |
 
 ## 详细说明
 
-### `git-run-validation`
+### `run-validation`
 
 父流程：`feature`, `gongbu`, `github-pr-rebase-main`
 
 变量：
 
-- `repo_path`: 可选仓库目录；为空时使用当前 git root。
+- `repo_path`: 可选项目目录；为空时使用当前 git root。
 - `command`: 验证命令；为空或 `-` 时默认跳过。
-- `auto_detect`: `true` 时，`command` 为空会按仓库标记选择轻量验证。
+- `auto_detect`: `true` 时，`command` 为空会按项目标记选择轻量验证。
 - `timeout_hint`: 仅给报告使用，实际 step timeout 固定为 `20m`。
 
 自动检测顺序：
@@ -120,7 +120,7 @@ go test ./internal/formula -run 'TestBuiltin|TestAllBuiltin'
 并逐个 compile 当前 atomic：
 
 ```bash
-go run . formula compile git-run-validation
+go run . formula compile run-validation
 go run . formula compile github-fetch-pr
 go run . formula compile github-list-my-prs
 ```
