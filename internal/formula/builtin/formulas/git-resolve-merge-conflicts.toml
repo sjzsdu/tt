@@ -1,6 +1,6 @@
 formula = "git-resolve-merge-conflicts"
 title = "Resolve current git conflicts"
-description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push。为每个冲突文件生成 base/ours/theirs 三方上下文，保守调用 merge-conflict-resolver 修复，自动重建 lockfile，并输出冲突解决报告。"
+description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push。为每个冲突文件生成 base/ours/theirs 三方上下文，并发调用 merge-conflict-resolver 修复，自动重建 lockfile，并输出冲突解决报告。"
 version = 3
 type = "workflow"
 category = "git"
@@ -71,22 +71,13 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
-id = "resolve-conflict-rounds"
-title = "基于三方上下文保守修复冲突文件"
+id = "list-conflict-files"
+title = "生成冲突文件索引"
 depends_on = ["inspect-conflicts"]
 condition = "inspect-conflicts.stdout.needs_resolution == true"
-description = "外层按轮次复查剩余冲突；内层只负责把本轮文件并发分发给 resolver。大块三方上下文写入 .tt/conflict-context，避免 step stdout 重复输出。"
-
-[steps.loop]
-until = "check-remaining-conflicts.stdout.done == true"
-max = 5
-
-[[steps.loop.body]]
-id = "list-conflict-files"
-title = "生成本轮冲突文件索引"
 execution = "script"
 
-[steps.loop.body.script]
+[steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
@@ -150,26 +141,26 @@ PY
 format = "json"
 timeout = "60s"
 
-[steps.loop.body.script.env]
+[steps.script.env]
 TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 
-[steps.loop.body.validate]
+[steps.validate]
 format = "json"
 required = ["stdout"]
 
-[[steps.loop.body]]
+[[steps]]
 id = "resolve-conflict-file"
-title = "并发分发本轮冲突文件"
+title = "并发修复冲突文件"
 depends_on = ["list-conflict-files"]
 condition = "list-conflict-files.stdout.done != true"
 
-[steps.loop.body.loop]
+[steps.loop]
 for_each = "list-conflict-files.stdout.items"
 var = "conflict_file"
 parallel = true
 max_concurrency = 3
 
-[[steps.loop.body.loop.body]]
+[[steps.loop.body]]
 id = "fix-conflict-file"
 title = "修复 {{conflict_file.path}}"
 input_context = ["conflict_file", "inspect-conflicts.stdout.operation"]
@@ -198,20 +189,20 @@ description = """
 {"attempted":true,"resolved":true,"conflicted_files":["{{conflict_file.path}}"],"touched_files":["{{conflict_file.path}}"],"extra_touched_files":[],"resolution_summary":"","validations_run":[],"blocker_type":"none|semantic_uncertainty|missing_context|validation_failed|unknown","blocker_summary":""}
 """
 
-[steps.loop.body.loop.body.agent]
+[steps.loop.body.agent]
 name = "merge-conflict-resolver"
 
-[steps.loop.body.loop.body.validate]
+[steps.loop.body.validate]
 format = "json"
 required = ["attempted", "resolved", "blocker_type"]
 
-[[steps.loop.body]]
+[[steps]]
 id = "check-remaining-conflicts"
 title = "复查剩余冲突"
 execution = "script"
 depends_on = ["list-conflict-files", "resolve-conflict-file"]
 
-[steps.loop.body.script]
+[steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
@@ -229,11 +220,11 @@ jq -cn --argjson remaining_conflicts "$remaining" --argjson resolved_count "$res
 format = "json"
 timeout = "60s"
 
-[steps.loop.body.script.env]
+[steps.script.env]
 TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 TT_PREVIOUS_FILES = "{{list-conflict-files.stdout.files}}"
 
-[steps.loop.body.validate]
+[steps.validate]
 format = "json"
 required = ["stdout"]
 
@@ -241,7 +232,7 @@ required = ["stdout"]
 id = "auto-resolve-lockfiles"
 title = "自动重建剩余 lockfile 冲突"
 execution = "script"
-depends_on = ["inspect-conflicts", "resolve-conflict-rounds"]
+depends_on = ["inspect-conflicts", "check-remaining-conflicts"]
 condition = "inspect-conflicts.stdout.needs_resolution == true"
 description = "如果只剩 pnpm/yarn/npm lockfile 冲突，基于 package manifest 重新生成 lockfile 并 git add。"
 
@@ -285,7 +276,7 @@ required = ["stdout"]
 id = "finalize-conflicts"
 title = "确认冲突已解决"
 execution = "script"
-depends_on = ["inspect-conflicts", "resolve-conflict-rounds", "auto-resolve-lockfiles"]
+depends_on = ["inspect-conflicts", "check-remaining-conflicts", "auto-resolve-lockfiles"]
 description = "确认无 unmerged 和冲突标记，并 stage 已解决文件；不执行 merge/rebase/cherry-pick --continue。"
 
 [steps.script]
@@ -351,7 +342,7 @@ required = ["stdout"]
 [[steps]]
 id = "final-report"
 title = "当前冲突修复报告"
-depends_on = ["inspect-conflicts", "resolve-conflict-rounds", "auto-resolve-lockfiles", "finalize-conflicts", "run-validation"]
+depends_on = ["inspect-conflicts", "list-conflict-files", "resolve-conflict-file", "check-remaining-conflicts", "auto-resolve-lockfiles", "finalize-conflicts", "run-validation"]
 input_context = ["inspect-conflicts.stdout", "finalize-conflicts.stdout", "run-validation.stdout"]
 description = """
 输出中文最终报告，结论先行。
