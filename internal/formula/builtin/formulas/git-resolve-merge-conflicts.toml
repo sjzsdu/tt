@@ -120,15 +120,28 @@ def hunks(path, radius=24, limit=32000):
     for start,end in merged:
         chunks.append("\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
     return trunc("\n\n--- conflict hunk ---\n\n".join(chunks), limit)
-files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines() if p]
+unmerged_files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines() if p]
+marker_files=[]
+for candidate in [p for p in run(["git","diff","--name-only","HEAD"]).splitlines() if p]:
+    if os.path.isfile(candidate):
+        grep=subprocess.run(["git","grep","-n","-E",r"^(<<<<<<<|=======|>>>>>>>)","--",candidate], text=True, capture_output=True)
+        if grep.returncode == 0:
+            marker_files.append(candidate)
+files=sorted(set(unmerged_files + marker_files))
+unmerged_set=set(unmerged_files)
 ctx_dir=pathlib.Path(".tt/conflict-context/git-resolve-merge-conflicts")
 ctx_dir.mkdir(parents=True, exist_ok=True)
 items=[]
 for path in files:
-    ours=stage(path,2); theirs=stage(path,3); base=stage(path,1)
+    if path in unmerged_set:
+        ours=stage(path,2); theirs=stage(path,3); base=stage(path,1)
+        context_note="ours is the current side; theirs is the incoming side; base is the merge base. Preserve compatible intent from both sides."
+    else:
+        ours=theirs=base=""
+        context_note="This file has conflict markers in the working tree but no unmerged index stages. Resolve markers conservatively from the file content and nearby project context."
     key=hashlib.sha1(path.encode()).hexdigest()[:12]
     context_file=str(ctx_dir / f"{key}.json")
-    payload={"path":path,"context_note":"ours is the current side; theirs is the incoming side; base is the merge base. Preserve compatible intent from both sides.","base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\n")+(1 if theirs else 0)}}
+    payload={"path":path,"context_note":context_note,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\n")+(1 if theirs else 0)}}
     pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
 print(json.dumps({"done":len(files)==0,"files":files,"items":items}, ensure_ascii=False))
@@ -280,10 +293,10 @@ command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
 [ -n "$repo_root" ] && cd "$repo_root"
-inspect='${TT_INSPECT:-}'
-lockfix='${TT_LOCKFIX:-}'
-inspect_json="$(jq -cn --arg s "$inspect" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
-lockfix_json="$(jq -cn --arg s "$lockfix" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+inspect_raw="${TT_INSPECT:-}"
+lockfix_raw="${TT_LOCKFIX:-}"
+inspect_json="$(jq -cn --arg s "$inspect_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+lockfix_json="$(jq -cn --arg s "$lockfix_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
 initial_conflicts="$(jq -c '.conflicted_files // []' <<<"$inspect_json")"
 operation="$(jq -r '.operation // "none"' <<<"$inspect_json")"
 lockfix_summary="$(jq -c '{attempted:(.attempted == true),resolved:(.resolved == true),lockfiles:(.lockfiles // []),reason:(.reason // "")}' <<<"$lockfix_json")"
