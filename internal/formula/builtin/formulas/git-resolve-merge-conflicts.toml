@@ -203,11 +203,12 @@ command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
 [ -n "$repo_root" ] && cd "$repo_root"
-previous='${TT_PREVIOUS_FILES:-[]}'
+previous_raw="${TT_PREVIOUS_FILES:-[]}"
+previous="$(jq -cn --arg s "$previous_raw" '($s|fromjson?) // []')"
 unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 remaining="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
-prev_count="$(jq -r 'length' <<<"$previous" 2>/dev/null || echo 0)"
+prev_count="$(jq -r 'length' <<<"$previous")"
 remaining_count="$(jq -r 'length' <<<"$remaining")"
 resolved_count=$(( prev_count - remaining_count )); [ "$resolved_count" -lt 0 ] && resolved_count=0
 jq -cn --argjson remaining_conflicts "$remaining" --argjson resolved_count "$resolved_count" '{done:(($remaining_conflicts|length)==0),remaining_conflicts:$remaining_conflicts,resolved_count:$resolved_count}'
