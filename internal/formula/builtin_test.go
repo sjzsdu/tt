@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -137,6 +138,87 @@ func assertFormulaStepAgentsExist(t *testing.T, formulaName string, step *spec.S
 	}
 	for _, child := range step.Children {
 		assertFormulaStepAgentsExist(t, formulaName, child, known)
+	}
+}
+
+func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
+	p := NewParser()
+	f, err := p.LoadByName("git-resolve-conflicts")
+	if err != nil {
+		t.Fatalf("LoadByName(git-resolve-conflicts) error = %v", err)
+	}
+	var listStep *spec.Step
+	for _, step := range f.Steps {
+		if step.ID == "list-conflict-files" {
+			listStep = step
+			break
+		}
+	}
+	if listStep == nil || listStep.Script == nil {
+		t.Fatalf("list-conflict-files script step not found")
+	}
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "file.txt")
+	runGit(t, repo, "commit", "-m", "base")
+	runGit(t, repo, "checkout", "-b", "left")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("left\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "commit", "-am", "left")
+	runGit(t, repo, "checkout", "-b", "right", "main")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("right\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "commit", "-am", "right")
+	merge := exec.Command("git", "merge", "left")
+	merge.Dir = repo
+	if err := merge.Run(); err == nil {
+		t.Fatalf("expected merge conflict")
+	}
+
+	out, err := (formularuntime.ScriptCapability{DefaultTimeout: 5 * time.Second}).RunScript(context.Background(), steps.ScriptRequest{
+		Command: listStep.Script.Command,
+		Env:     map[string]string{"TT_REPO_ROOT": repo},
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("list-conflict-files script failed: %v; raw=%s", err, string(out.Raw))
+	}
+	var wrapper map[string]any
+	if err := json.Unmarshal(out.Raw, &wrapper); err != nil {
+		t.Fatalf("unmarshal script wrapper: %v; raw=%s", err, string(out.Raw))
+	}
+	stdout, ok := wrapper["stdout"].(string)
+	if !ok || strings.TrimSpace(stdout) == "" {
+		t.Fatalf("script stdout missing in %#v", wrapper)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal script stdout: %v; stdout=%s stderr=%v", err, stdout, wrapper["stderr"])
+	}
+	files := asSlice(payload["files"])
+	if len(files) != 1 || asString(files[0]) != "file.txt" {
+		t.Fatalf("files = %#v, want [file.txt]; payload=%#v", files, payload)
+	}
+	if len(asSlice(payload["items"])) != 1 {
+		t.Fatalf("items = %#v, want one item", payload["items"])
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 }
 

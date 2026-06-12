@@ -79,9 +79,14 @@ execution = "script"
 
 [steps.script]
 command = ["bash", "-lc", """
-set -euo pipefail
+set -uo pipefail
+json_error() {
+  python3 -c 'import json,sys; print(json.dumps({"done":False,"files":[],"items":[],"error":sys.argv[1]}, ensure_ascii=False))' "$1" 2>/dev/null \
+    || printf '{"done":false,"files":[],"items":[],"error":"script setup failed before python could report details"}\n'
+}
 repo_root="${TT_REPO_ROOT:-}"
-[ -n "$repo_root" ] && cd "$repo_root"
+[ -n "$repo_root" ] && cd "$repo_root" || { json_error "failed to enter repo root: ${repo_root:-<empty>}"; exit 0; }
+command -v python3 >/dev/null 2>&1 || { json_error "python3 is required for conflict indexing but was not found in PATH"; exit 0; }
 python3 - <<'PY'
 import hashlib, json, os, pathlib, subprocess, sys, traceback
 
@@ -96,7 +101,7 @@ def run_text(args):
 def trunc(text, limit=24000):
     if text is None: return ""
     if len(text) <= limit: return text
-    return text[:limit] + f"\n...<truncated {len(text) - limit} chars>"
+    return text[:limit] + f"\\n...<truncated {len(text) - limit} chars>"
 def stage(path, n):
     rc, stdout, stderr = run_text(["git", "show", f":{n}:{path}"])
     if rc != 0:
@@ -120,8 +125,8 @@ def hunks(path, radius=24, limit=32000):
         else: merged.append((start,end))
     chunks=[]
     for start,end in merged:
-        chunks.append("\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
-    return trunc("\n\n--- conflict hunk ---\n\n".join(chunks), limit)
+        chunks.append("\\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
+    return trunc("\\n\\n--- conflict hunk ---\\n\\n".join(chunks), limit)
 try:
     unmerged_files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines() if p]
     marker_files=[]
@@ -144,7 +149,7 @@ try:
             context_note="This file has conflict markers in the working tree but no unmerged index stages. Resolve markers conservatively from the file content and nearby project context."
         key=hashlib.sha1(path.encode()).hexdigest()[:12]
         context_file=str(ctx_dir / f"{key}.json")
-        payload={"path":path,"context_note":context_note,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\n")+(1 if theirs else 0)}}
+        payload={"path":path,"context_note":context_note,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
         pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
     print(json.dumps({"done":len(files)==0,"files":files,"items":items}, ensure_ascii=False))
@@ -152,6 +157,11 @@ except Exception as exc:
     print(json.dumps({"done":False,"files":[],"items":[],"error":str(exc),"traceback":traceback.format_exc(limit=6)}, ensure_ascii=False))
     sys.exit(0)
 PY
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  json_error "conflict indexing python helper exited with status $rc"
+fi
+exit 0
 """]
 format = "json"
 timeout = "60s"
