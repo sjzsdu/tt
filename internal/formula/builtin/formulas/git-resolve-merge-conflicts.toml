@@ -1,7 +1,7 @@
 formula = "git-resolve-merge-conflicts"
 title = "Resolve current git conflicts"
-description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/push。为每个冲突文件生成 base/ours/theirs 三方上下文，保守调用 merge-conflict-resolver 修复，自动重建 lockfile，必要时完成当前 merge/rebase/cherry-pick continue，并输出冲突解决报告。"
-version = 2
+description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push。为每个冲突文件生成 base/ours/theirs 三方上下文，保守调用 merge-conflict-resolver 修复，自动重建 lockfile，并输出冲突解决报告。"
+version = 3
 type = "workflow"
 category = "git"
 tags = ["git", "conflict", "resolver"]
@@ -33,9 +33,7 @@ require_repo = true
 message = "当前目录必须在 git 仓库内"
 
 [vars]
-workspace_path = { description = "可选工作区路径；为空使用 formula 启动目录", default = "" }
 validation_command = { description = "可选验证命令；冲突修复后执行，例如 npm test / go test ./...", default = "" }
-continue_operation = { description = "冲突修复后是否尝试 git merge/rebase/cherry-pick --continue；默认 true", default = "true", enum = ["true", "false"] }
 
 [[steps]]
 id = "inspect-conflicts"
@@ -46,8 +44,6 @@ description = "只检查当前 git repo 是否已有 unmerged files 或 conflict
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
-workspace="${TT_WORKSPACE_PATH:-}"
-if [ -n "$workspace" ] && [ "$workspace" != "-" ]; then cd "$workspace"; fi
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$repo_root" ]; then jq -cn '{ok:false,needs_resolution:false,repo_root:"",blocker_type:"not_git_repo",blocker_summary:"not inside a git repository",conflicted_files:[]}'; exit 0; fi
 cd "$repo_root"
@@ -69,9 +65,6 @@ jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg
 """]
 format = "json"
 timeout = "60s"
-
-[steps.script.env]
-TT_WORKSPACE_PATH = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
@@ -271,16 +264,15 @@ required = ["stdout"]
 
 [[steps]]
 id = "finalize-conflicts"
-title = "确认冲突已解决并可选 continue"
+title = "确认冲突已解决"
 execution = "script"
 depends_on = ["inspect-conflicts", "resolve-conflict-rounds", "auto-resolve-lockfiles"]
-description = "确认无 unmerged 和冲突标记。若当前处于 merge/rebase/cherry-pick 且 continue_operation=true，则尝试对应 --continue。"
+description = "确认无 unmerged 和冲突标记，并 stage 已解决文件；不执行 merge/rebase/cherry-pick --continue。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
-continue_enabled="${TT_CONTINUE_OPERATION:-true}"
 [ -n "$repo_root" ] && cd "$repo_root"
 inspect='${TT_INSPECT:-}'
 lockfix='${TT_LOCKFIX:-}'
@@ -294,21 +286,7 @@ if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --argjson i
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,local_commit:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
 git add -u
-continued=false
-continue_out=""
-continue_rc=0
-if [ "$continue_enabled" = "true" ]; then
-  case "$operation" in
-    merge)
-      if [ -e "$(git rev-parse --git-path MERGE_HEAD)" ]; then set +e; continue_out="$(HUSKY=0 GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no git -c core.hooksPath=/dev/null merge --continue 2>&1)"; continue_rc=$?; set -e; continued=true; fi ;;
-    rebase)
-      if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then set +e; continue_out="$(HUSKY=0 GIT_EDITOR=true git -c core.hooksPath=/dev/null rebase --continue 2>&1)"; continue_rc=$?; set -e; continued=true; fi ;;
-    cherry-pick)
-      if [ -e "$(git rev-parse --git-path CHERRY_PICK_HEAD)" ]; then set +e; continue_out="$(HUSKY=0 GIT_EDITOR=true git -c core.hooksPath=/dev/null cherry-pick --continue 2>&1)"; continue_rc=$?; set -e; continued=true; fi ;;
-  esac
-fi
-if [ "$continue_rc" -ne 0 ]; then jq -cn --arg operation "$operation" --arg out "$continue_out" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],continued:true,local_commit:"",blocker_type:"continue_failed",blocker_summary:$out}'; exit 0; fi
-jq -cn --arg operation "$operation" --arg out "$continue_out" --arg head "$(git rev-parse HEAD)" --argjson continued "$continued" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{resolved:true,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],continued:$continued,continue_output:$out,local_commit:$head,blocker_type:"none",blocker_summary:"",validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers"]}'
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{resolved:true,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],continued:false,continue_output:"",local_commit:$head,blocker_type:"none",blocker_summary:"",validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers"]}'
 """]
 format = "json"
 timeout = "5m"
@@ -317,7 +295,6 @@ timeout = "5m"
 TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 TT_INSPECT = "{{inspect-conflicts.stdout}}"
 TT_LOCKFIX = "{{auto-resolve-lockfiles.stdout}}"
-TT_CONTINUE_OPERATION = "{{continue_operation}}"
 
 [steps.validate]
 format = "json"
@@ -364,7 +341,7 @@ description = """
 - repo/current branch/operation/local_commit
 - 初始冲突文件 initial_conflicts
 - 解决方式：resolver、lockfile_resolution、validations_run
-- 是否执行 merge/rebase/cherry-pick continue 以及结果
+- 不执行 merge/rebase/cherry-pick continue，只说明当前 operation 状态
 - 剩余冲突 remaining_conflicts 或 blocker_type/blocker_summary
 - validation_command 结果
 
