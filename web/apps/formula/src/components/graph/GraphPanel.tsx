@@ -452,6 +452,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
   const renderGraphRef = useRef<(() => void) | null>(null);
+  const [graphError, setGraphError] = useState('');
   const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set(loopStepIDs(snapshot)));
 
   const toggleLoop = (stepID: string) => {
@@ -598,6 +599,16 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     let renderAgain = false;
     let disposed = false;
     const pulsedNodeIDs = new Set<string>();
+    const reportGraphError = (phase: string, err: unknown) => {
+      console.error(`Formula graph ${phase} failed`, err);
+      if (!disposed) {
+        const message = err instanceof Error ? err.message : String(err);
+        setGraphError(`${phase}: ${message}`);
+      }
+    };
+    const clearGraphError = () => {
+      if (!disposed) setGraphError('');
+    };
 
     const renderGraph = () => {
       if (disposed || document.hidden) {
@@ -618,9 +629,8 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         renderInFlight = true;
         renderAgain = false;
         void Promise.resolve(graph.render())
-          .catch(err => {
-            console.error('Formula graph render failed', err);
-          })
+          .then(clearGraphError)
+          .catch(err => reportGraphError('render', err))
           .finally(() => {
             renderInFlight = false;
             if (renderAgain && !disposed) renderGraph();
@@ -662,10 +672,14 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         });
 
       if (!updates.length) return;
-      graph.updateNodeData(updates);
-      void Promise.resolve(graph.draw()).catch(err => {
-        console.error('Formula graph pulse draw failed', err);
-      });
+      try {
+        graph.updateNodeData(updates);
+        void Promise.resolve(graph.draw())
+          .then(clearGraphError)
+          .catch(err => reportGraphError('pulse draw', err));
+      } catch (err) {
+        reportGraphError('pulse update', err);
+      }
     };
 
     const pulseTimer = window.setInterval(applyRunningPulse, 520);
@@ -673,21 +687,25 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     const applyHoverState = (nodeID: string | undefined) => {
       const { edges } = graphDataRef.current;
       const activeEdgeIDs = nodeID ? relatedPathEdgeIDs(nodeID, edges) : new Set<string>();
-      graph.updateEdgeData(edges.map(edge => ({
-        id: edge.id,
-        style: activeEdgeIDs.has(edge.id)
-          ? {
-              ...edgeStyle(edge.data, isDark),
-              stroke: HOVER_EDGE_ACCENT,
-              lineWidth: Math.max(2.8, Number(edgeStyle(edge.data, isDark).lineWidth) + 1.1),
-              shadowBlur: 6,
-              shadowColor: HOVER_EDGE_ACCENT,
-            }
-          : edgeStyle(edge.data, isDark),
-      })));
-      void Promise.resolve(graph.draw()).catch(err => {
-        console.error('Formula graph hover draw failed', err);
-      });
+      try {
+        graph.updateEdgeData(edges.map(edge => ({
+          id: edge.id,
+          style: activeEdgeIDs.has(edge.id)
+            ? {
+                ...edgeStyle(edge.data, isDark),
+                stroke: HOVER_EDGE_ACCENT,
+                lineWidth: Math.max(2.8, Number(edgeStyle(edge.data, isDark).lineWidth) + 1.1),
+                shadowBlur: 6,
+                shadowColor: HOVER_EDGE_ACCENT,
+              }
+            : edgeStyle(edge.data, isDark),
+        })));
+        void Promise.resolve(graph.draw())
+          .then(clearGraphError)
+          .catch(err => reportGraphError('hover draw', err));
+      } catch (err) {
+        reportGraphError('hover update', err);
+      }
     };
 
     graph.on('node:pointerenter', (evt: { target?: { id?: string } }) => applyHoverState(evt.target?.id));
@@ -697,18 +715,22 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       const nodeID = evt.target?.id;
       if (!nodeID) return;
 
-      const datum = graph.getElementData(nodeID) as { data?: StepNodeData } | undefined;
-      const step = resolveClickedStep(nodeID, datum?.data, snapshotRef.current);
-      if (!step) return;
+      try {
+        const datum = graph.getElementData(nodeID) as { data?: StepNodeData } | undefined;
+        const step = resolveClickedStep(nodeID, datum?.data, snapshotRef.current);
+        if (!step) return;
 
-      if (isLoopToggleClick(graph, datum?.data, evt)) {
-        evt.originalEvent?.preventDefault?.();
-        evt.originalEvent?.stopPropagation?.();
-        toggleLoop(nodeID);
-        return;
+        if (isLoopToggleClick(graph, datum?.data, evt)) {
+          evt.originalEvent?.preventDefault?.();
+          evt.originalEvent?.stopPropagation?.();
+          toggleLoop(nodeID);
+          return;
+        }
+
+        onSelectRef.current(step);
+      } catch (err) {
+        reportGraphError('node click', err);
       }
-
-      onSelectRef.current(step);
     });
 
     renderGraph();
@@ -719,7 +741,11 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
       if (renderTimer) window.clearTimeout(renderTimer);
       document.removeEventListener('visibilitychange', flushWhenVisible);
       window.clearInterval(pulseTimer);
-      graph.destroy();
+      try {
+        graph.destroy();
+      } catch (err) {
+        console.error('Formula graph destroy failed', err);
+      }
       graphRef.current = null;
     };
   }, [isDark]);
@@ -727,12 +753,18 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
-    graph.setData({
-      nodes: graphData.nodes,
-      edges: graphData.edges,
-      combos: graphData.combos,
-    });
-    renderGraphRef.current?.();
+    try {
+      graph.setData({
+        nodes: graphData.nodes,
+        edges: graphData.edges,
+        combos: graphData.combos,
+      });
+      renderGraphRef.current?.();
+    } catch (err) {
+      console.error('Formula graph data update failed', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setGraphError(`data update: ${message}`);
+    }
   }, [graphData]);
 
   const running = snapshot.steps.find(step => step.status === 'running');
@@ -762,6 +794,11 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         </div>
       </div>
       <div className="graph-canvas g6-canvas">
+        {graphError ? (
+          <div className="graph-runtime-warning" role="status">
+            Graph view recovered from a render issue. Waiting for the next update… <span>{graphError}</span>
+          </div>
+        ) : null}
         <div ref={containerRef} className="g6-container" />
       </div>
     </div>

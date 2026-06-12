@@ -153,6 +153,26 @@ button, input, textarea { font: inherit; }
   height: 100%;
   min-height: 560px;
 }
+.graph-runtime-warning {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  max-width: min(520px, calc(100% - 24px));
+  padding: 8px 10px;
+  border: 1px solid rgba(251, 191, 36, 0.36);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-bg) 88%, rgba(251, 191, 36, 0.22));
+  color: #fbbf24;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+.graph-runtime-warning span {
+  color: var(--text-muted);
+  word-break: break-word;
+}
 
 .graph-node, .loop-group-node {
   width: 300px;
