@@ -2,8 +2,17 @@ package formula
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/sjzsdu/tt/internal/formula/ir"
+	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
 func TestBuiltinFormulasParseAndCompile(t *testing.T) {
@@ -146,6 +155,65 @@ func TestBuiltinAtomicFormulasCompile(t *testing.T) {
 	}
 }
 
+func TestBuiltinAtomicRuntimeContracts(t *testing.T) {
+	t.Run("git-run-validation", func(t *testing.T) {
+		repo := t.TempDir()
+		out := runAtomicForTest(t, "git-run-validation", map[string]string{"repo_path": repo, "command": "printf ok"}, "validation")
+		if out["requested"] != true || out["success"] != true || !strings.Contains(asString(out["stdout"]), "ok") {
+			t.Fatalf("unexpected validation output: %#v", out)
+		}
+	})
+
+	t.Run("git-auto-detect-validation", func(t *testing.T) {
+		repo := t.TempDir()
+		oldwd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir(repo); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chdir(oldwd) })
+		out := runAtomicForTest(t, "git-auto-detect-validation", map[string]string{"command": "printf auto-ok"}, "validation")
+		if out["attempted"] != true || out["success"] != true || !strings.Contains(asString(out["stdout"]), "auto-ok") {
+			t.Fatalf("unexpected auto validation output: %#v", out)
+		}
+	})
+
+	t.Run("github atomics with fake gh", func(t *testing.T) {
+		installFakeGH(t)
+
+		pr := runAtomicForTest(t, "github-fetch-pr", map[string]string{"pr_ref": "1"}, "pr")
+		if pr["ok"] != true || int(asFloat(pr["number"])) != 1 || asString(pr["title"]) != "Test PR" {
+			t.Fatalf("unexpected pr output: %#v", pr)
+		}
+
+		files := runAtomicForTest(t, "github-fetch-pr-files", map[string]string{"pr_ref": "1"}, "files")
+		if files["ok"] != true || len(asSlice(files["files"])) != 1 {
+			t.Fatalf("unexpected files output: %#v", files)
+		}
+
+		diff := runAtomicForTest(t, "github-fetch-pr-diff", map[string]string{"pr_ref": "1"}, "diff")
+		if diff["ok"] != true || !strings.Contains(asString(diff["patch"]), "diff --git") || asFloat(diff["patch_chars"]) == 0 {
+			t.Fatalf("unexpected diff output: %#v", diff)
+		}
+
+		contextOut := runAtomicForTest(t, "github-build-pr-context", map[string]string{
+			"meta_json":   mustJSON(t, pr),
+			"files_json":  mustJSON(t, files),
+			"patch_chars": "123",
+		}, "context")
+		if contextOut["ready"] != true || int(asFloat(contextOut["number"])) != 1 || len(asSlice(contextOut["changed_files"])) != 1 {
+			t.Fatalf("unexpected context output: %#v", contextOut)
+		}
+
+		prs := runAtomicForTest(t, "github-list-my-prs", map[string]string{"author": "me", "limit": "5"}, "prs")
+		if prs["ok"] != true || len(asSlice(prs["items"])) != 1 {
+			t.Fatalf("unexpected prs output: %#v", prs)
+		}
+	})
+}
+
 func TestAllBuiltinFormulasCompile(t *testing.T) {
 	entries, err := BuiltinFormulas()
 	if err != nil {
@@ -184,6 +252,110 @@ func builtinCompileSmokeVars(name string) map[string]string {
 	default:
 		return nil
 	}
+}
+
+func runAtomicForTest(t *testing.T, name string, vars map[string]string, stepID string) map[string]any {
+	t.Helper()
+	workflow, err := CompileWorkflowByName(context.Background(), name, nil, vars)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(%q) error = %v", name, err)
+	}
+	exec := formularuntime.NewExecutor(workflow, steps.Capabilities{Scripts: formularuntime.ScriptCapability{DefaultTimeout: 5 * time.Second}})
+	exec.SeedWorkflowVars(workflow)
+	exec.SeedVars(vars)
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		if result != nil {
+			for id, node := range result.Nodes {
+				if node != nil && node.Error != nil {
+					t.Logf("node %s error: %+v raw=%s", id, node.Error, string(node.Output.Raw))
+				}
+			}
+		}
+		t.Fatalf("Run(%q) error = %v", name, err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("Run(%q) status = %s", name, result.Status)
+	}
+	node := result.Nodes[workflow.Graph.Nodes[ir.NodeID(stepID)].ID]
+	if node == nil {
+		t.Fatalf("missing node result %q in %#v", stepID, result.Nodes)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(node.Output.Raw, &out); err != nil {
+		t.Fatalf("unmarshal output for %s.%s: %v; raw=%s", name, stepID, err, string(node.Output.Raw))
+	}
+	return unwrapScriptStdout(t, out)
+}
+
+func unwrapScriptStdout(t *testing.T, out map[string]any) map[string]any {
+	t.Helper()
+	if parsed, ok := out["stdout"].(map[string]any); ok {
+		return parsed
+	}
+	stdout, ok := out["stdout"].(string)
+	if !ok {
+		return out
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		return out
+	}
+	return parsed
+}
+
+func installFakeGH(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gh")
+	script := `#!/bin/sh
+if [ "$1" = "auth" ]; then exit 0; fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  case "$*" in
+    *files*) printf '{"files":[{"path":"src/a.ts","additions":2,"deletions":1,"changeType":"MODIFIED"}]}' ;;
+    *) printf '{"number":1,"title":"Test PR","body":"Body","author":{"login":"octo"},"url":"https://github.com/o/r/pull/1","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feat","headRefOid":"abc123","changedFiles":1,"additions":2,"deletions":1,"commits":[{"messageHeadline":"feat: test"}]}' ;;
+  esac
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "diff" ]; then
+  printf 'diff --git a/src/a.ts b/src/a.ts\n+new line\n'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '[{"number":1,"title":"Test PR","url":"https://github.com/o/r/pull/1","headRefName":"feat","baseRefName":"main","author":{"login":"me"}}]'
+  exit 0
+fi
+printf 'unexpected gh args: %s\n' "$*" >&2
+exit 1
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func asString(value any) string {
+	s, _ := value.(string)
+	return s
+}
+
+func asFloat(value any) float64 {
+	f, _ := value.(float64)
+	return f
+}
+
+func asSlice(value any) []any {
+	s, _ := value.([]any)
+	return s
 }
 
 func TestShanYiZheBuiltinFormula(t *testing.T) {
