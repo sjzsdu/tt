@@ -233,10 +233,11 @@ agent.name = "full-stack"
 id = "run-tests"
 title = "执行测试与基础验证"
 depends_on = ["implement-feature"]
-embed = "git-auto-detect-validation"
+embed = "git-run-validation"
 
 [steps.embed_vars]
 command = ""
+auto_detect = "true"
 
 [[steps]]
 id = "review-quality"

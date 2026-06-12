@@ -57,33 +57,15 @@
 | --- | --- | --- |
 | `jira-bug-fix` | 从 Jira ticket 直接拉数据并嵌套 `bug-fix` | `[preflight]` 校验 `jira` CLI；第一步用 `script` step 调 `jira issue view --comments 20 --raw` 取结构化数据 |
 
-## Atomics（12 个）
+## Atomics（3 个）
 
-Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[[steps]] id = "..." execution = "agent" input_context = [...]` 模式 inline 引用，也可在 `compose` / `embed` / `expand` 段被展开。
+Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步骤。未被 builtin formula 使用的 atomic 不保留，避免目录膨胀。
 
-### git
-
-| Atomic | 输出 | 关键行为 |
-| --- | --- | --- |
-| `git-status-check` | 结构化 `git status` 信息 | `vars.require_clean` / `vars.require_upstream`；输出 `ok` / `branch` / `head` / `upstream` / `dirty` / `conflict` / `rebase` / `merge` / `cherry-pick` |
-| `git-run-validation` | 跑任意验证命令并产出结构化结果 | `vars.command` 为空时跳过并返回 success；适合"不指定命令就跑测试" |
-| `git-auto-detect-validation` | 按仓库标记自动挑选验证命令 | `python3 -c` 检测 `package.json`/`go.mod`/`pyproject.toml`/`Cargo.toml`/`Makefile` 等；`vars.command` 可覆盖 |
-| `git-push-branch` | push HEAD 到指定 remote/branch | 默认 `no_verify=true` / `force_with_lease=true`；**远端副作用，需由上层公式显式组合** |
-| `git-integrate-ref` | 把当前分支集成目标 ref | 脚本负责确定性 git 操作，agent 处理冲突 / 验证失败等不可编程环节；**不包含 push** |
-
-### github
-
-| Atomic | 输出 | 关键行为 |
-| --- | --- | --- |
-| `github-list-my-prs` | 当前仓库指定作者 open PR 列表 | 依赖 `gh` + `gh auth`；默认 `author = @me`；输出 `items` 数组 |
-| `github-fetch-pr` | 单个 PR 的结构化元数据 | 接受编号 / URL / 分支引用；`repo_hint` 可覆盖上下文 |
-
-### repo
-
-| Atomic | 输出 | 关键行为 |
-| --- | --- | --- |
-| `repo-prepare-local-or-clone` | 把仓库（本地目录 / GitHub URL / owner-repo）准备好 | 必要时浅克隆到 `.tt/tmp/repos`；输出 `repo_path` / `source` 等基础信息 |
-| `repo-evidence-map` | 仓库轻量证据地图 | 扫描 README、配置、入口、测试和主要源码摘要；`vars.focus` 可指定关注点 |
+| Atomic | 被谁使用 | 输出 | 关键行为 |
+| --- | --- | --- | --- |
+| `git-run-validation` | `feature` / `gongbu` / `github-pr-rebase-main` | `validation.stdout` | 显式运行 `vars.command`；`auto_detect=true` 且 command 为空时根据 `go.mod` / `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 自动选择轻量验证 |
+| `github-fetch-pr` | `github-pr-review` / `github-pr-fix-comments` / `github-pr-rebase-main` | `pr.stdout` | 一次获取单个 PR 的 metadata、files、patch diff 和 review 上下文字段；父 formula 自行取需要字段 |
+| `github-list-my-prs` | `github-my-prs-fix-comments` / `github-my-prs-rebase-main` | `prs.stdout` | 列出当前仓库指定作者的 open PR，供批量流程循环 |
 
 ## preflight 依赖一览
 
@@ -92,12 +74,11 @@ Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[
 | 命令 / 状态 | 出现位置 |
 | --- | --- |
 | `gh auth status`（exec） | 同上 github 系列 |
-| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` |
-| `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` |
-| `git` + `require_remote = true` | `git-push-branch` |
-| `jq`（command） | `git-status-check` / `git-run-validation` / `git-push-branch` / `git-integrate-ref` / `github-list-my-prs` / `github-fetch-pr` 等 |
-| `python3`（command） | `code-docs` / `gongbu` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` / `repo-evidence-map` |
-| `bash`（command） | `git-run-validation` / `git-integrate-ref` |
+| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `git-run-validation` |
+| `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `git-run-validation` |
+| `jq`（command） | `git-run-validation` / `github-list-my-prs` / `github-fetch-pr` 等 |
+| `python3`（command） | `code-docs` / `gongbu` |
+| `bash`（command） | `git-run-validation` |
 | `jira`（command） | `jira-bug-fix` |
 
 如果 `tt formula run <name>` 报"preflight 失败"，直接对照这张表确认是否需要安装 / 登录。

@@ -1,5 +1,5 @@
 formula = "git-run-validation"
-description = "原子 formula：在当前仓库运行可选验证命令，输出结构化验证结果。"
+description = "原子 formula：在当前仓库运行验证命令；可由父流程显式传入 command，也可 auto_detect 根据仓库标记选择轻量验证。"
 version = 1
 type = "atomic"
 category = "git"
@@ -27,33 +27,43 @@ message = "当前目录必须是 git 仓库"
 
 [vars]
 repo_path = { description = "可选仓库目录；为空时使用当前 git 仓库", default = "" }
-command = { description = "验证命令；为空或 - 时跳过并返回 success=true", default = "" }
+command = { description = "验证命令；为空或 - 时默认跳过。auto_detect=true 时为空表示自动检测", default = "" }
+auto_detect = { description = "command 为空时是否根据仓库标记自动选择轻量验证命令", default = "false", enum = ["true", "false"] }
 timeout_hint = { description = "给报告使用的超时提示；实际超时由 formula step 固定为 20m", default = "20m" }
 
 [[steps]]
 id = "validation"
 title = "运行验证命令"
 execution = "script"
-description = "运行用户提供的验证命令；未提供时返回 requested=false, success=true。"
+description = "运行父流程提供的验证命令；auto_detect=true 且 command 为空时按仓库标记选择轻量验证；未请求验证时返回 requested=false, success=true。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -u
 cmd="${TT_VALIDATION_COMMAND:-}"
+auto_detect="${TT_AUTO_DETECT:-false}"
 repo_input="${TT_REPO_PATH:-}"
 if [ -n "$repo_input" ]; then
   repo_root="$repo_input"
 else
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
+cd "$repo_root" 2>/dev/null || { jq -cn --arg command "$cmd" --arg repo_root "$repo_root" '{requested:true,attempted:false,success:false,command:$command,repo_root:$repo_root,auto_detect:false,detected:false,stdout:"",stderr:"repo root missing"}'; exit 0; }
+detected=false
+if { [ -z "$cmd" ] || [ "$cmd" = "-" ]; } && [ "$auto_detect" = true ]; then
+  if [ -f go.mod ]; then cmd='go test ./...'; detected=true
+  elif [ -f package.json ]; then cmd='npm test'; detected=true
+  elif [ -f pnpm-lock.yaml ]; then cmd='pnpm test'; detected=true
+  elif [ -f pyproject.toml ]; then cmd='pytest'; detected=true
+  fi
+fi
 if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
-  jq -cn --arg repo_root "$repo_root" '{requested:false,success:true,command:"",repo_root:$repo_root,stdout:"",stderr:""}'
+  jq -cn --arg repo_root "$repo_root" --argjson auto_detect "$([ "$auto_detect" = true ] && echo true || echo false)" '{requested:false,attempted:false,success:true,command:"",repo_root:$repo_root,auto_detect:$auto_detect,detected:false,stdout:"",stderr:(if $auto_detect then "no supported project marker found; skipped automatic validation" else "" end)}'
   exit 0
 fi
-cd "$repo_root"
 out="$(bash -lc "$cmd" 2>&1)"
 rc=$?
-jq -cn --arg command "$cmd" --arg repo_root "$repo_root" --arg output "$out" --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" '{requested:true,success:$success,command:$command,repo_root:$repo_root,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end)}'
+jq -cn --arg command "$cmd" --arg repo_root "$repo_root" --arg output "$out" --argjson success "$([ "$rc" -eq 0 ] && echo true || echo false)" --argjson detected "$([ "$detected" = true ] && echo true || echo false)" --argjson auto_detect "$([ "$auto_detect" = true ] && echo true || echo false)" '{requested:true,attempted:true,success:$success,command:$command,repo_root:$repo_root,auto_detect:$auto_detect,detected:$detected,stdout:(if $success then $output else "" end),stderr:(if $success then "" else $output end)}'
 """]
 format = "json"
 timeout = "20m"
@@ -61,6 +71,7 @@ timeout = "20m"
 [steps.script.env]
 TT_REPO_PATH = "{{repo_path}}"
 TT_VALIDATION_COMMAND = "{{command}}"
+TT_AUTO_DETECT = "{{auto_detect}}"
 
 [steps.validate]
 format = "json"
