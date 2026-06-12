@@ -210,6 +210,18 @@ func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
 	if len(asSlice(payload["items"])) != 1 {
 		t.Fatalf("items = %#v, want one item", payload["items"])
 	}
+	item, ok := asSlice(payload["items"])[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item = %#v, want object", asSlice(payload["items"])[0])
+	}
+	regions := asSlice(item["conflict_regions"])
+	if len(regions) != 1 {
+		t.Fatalf("conflict_regions = %#v, want one region", item["conflict_regions"])
+	}
+	region, ok := regions[0].(map[string]any)
+	if !ok || asFloat(region["start_line"]) <= 0 || asFloat(region["end_line"]) <= 0 {
+		t.Fatalf("conflict region missing line range: %#v", regions[0])
+	}
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

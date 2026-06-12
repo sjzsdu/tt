@@ -45,7 +45,9 @@ description = "只检查当前 git repo 是否已有 unmerged files 或 conflict
 command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -z "$repo_root" ]; then jq -cn '{ok:false,needs_resolution:false,repo_root:"",blocker_type:"not_git_repo",blocker_summary:"not inside a git repository",conflicted_files:[]}'; exit 0; fi
+started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+started_epoch="$(date +%s)"
+if [ -z "$repo_root" ]; then jq -cn --arg started_at "$started_at" --argjson started_epoch "$started_epoch" '{ok:false,needs_resolution:false,repo_root:"",started_at:$started_at,started_epoch:$started_epoch,blocker_type:"not_git_repo",blocker_summary:"not inside a git repository",conflicted_files:[]}'; exit 0; fi
 cd "$repo_root"
 current_branch="$(git branch --show-current 2>/dev/null || true)"
 merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
@@ -61,7 +63,7 @@ marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$f
 conflicted="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
 needs=false
 [ "$(jq -r 'length' <<<"$conflicted")" -gt 0 ] && needs=true
-jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg operation "$operation" --argjson unmerged "$unmerged" --argjson marker_files "$marker_files" --argjson conflicted "$conflicted" --argjson needs "$needs" '{ok:true,repo_root:$repo_root,current_branch:$current_branch,operation:$operation,needs_resolution:$needs,conflicted_files:$conflicted,unmerged_files:$unmerged,marker_files:$marker_files,blocker_type:(if $needs then "none" else "none" end),blocker_summary:(if $needs then "" else "no current git conflict detected" end)}'
+jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg operation "$operation" --arg started_at "$started_at" --argjson started_epoch "$started_epoch" --argjson unmerged "$unmerged" --argjson marker_files "$marker_files" --argjson conflicted "$conflicted" --argjson needs "$needs" '{ok:true,repo_root:$repo_root,current_branch:$current_branch,operation:$operation,started_at:$started_at,started_epoch:$started_epoch,needs_resolution:$needs,conflicted_files:$conflicted,unmerged_files:$unmerged,marker_files:$marker_files,blocker_type:(if $needs then "none" else "none" end),blocker_summary:(if $needs then "" else "no current git conflict detected" end)}'
 """]
 format = "json"
 timeout = "60s"
@@ -127,6 +129,24 @@ def hunks(path, radius=24, limit=32000):
     for start,end in merged:
         chunks.append("\\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
     return trunc("\\n\\n--- conflict hunk ---\\n\\n".join(chunks), limit)
+def conflict_regions(path):
+    try: lines=open(path, encoding="utf-8", errors="replace").read().splitlines()
+    except OSError: return []
+    regions=[]
+    i=0
+    while i < len(lines):
+        if lines[i].startswith("<<<<<<<"):
+            start=i+1; sep=None; end=None; j=i+1
+            while j < len(lines):
+                if lines[j].startswith("=======") and sep is None:
+                    sep=j+1
+                if lines[j].startswith(">>>>>>>"):
+                    end=j+1; break
+                j+=1
+            regions.append({"start_line":start,"separator_line":sep,"end_line":end,"summary":f"lines {start}-{end or '?'}"})
+            i=j if end else i+1
+        i+=1
+    return regions
 try:
     unmerged_files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines() if p]
     marker_files=[]
@@ -149,9 +169,10 @@ try:
             context_note="This file has conflict markers in the working tree but no unmerged index stages. Resolve markers conservatively from the file content and nearby project context."
         key=hashlib.sha1(path.encode()).hexdigest()[:12]
         context_file=str(ctx_dir / f"{key}.json")
-        payload={"path":path,"context_note":context_note,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
+        regions=conflict_regions(path)
+        payload={"path":path,"context_note":context_note,"conflict_regions":regions,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
         pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
+        items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"conflict_regions":regions,"conflict_region_count":len(regions),"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
     print(json.dumps({"done":len(files)==0,"files":files,"items":items}, ensure_ascii=False))
 except Exception as exc:
     print(json.dumps({"done":False,"files":[],"items":[],"error":str(exc),"traceback":traceback.format_exc(limit=6)}, ensure_ascii=False))
@@ -315,14 +336,19 @@ inspect_json="$(jq -cn --arg s "$inspect_raw" 'if ($s|length)==0 then {} else ((
 lockfix_json="$(jq -cn --arg s "$lockfix_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
 initial_conflicts="$(jq -c '.conflicted_files // []' <<<"$inspect_json")"
 operation="$(jq -r '.operation // "none"' <<<"$inspect_json")"
+started_at="$(jq -r '.started_at // ""' <<<"$inspect_json")"
+started_epoch="$(jq -r '.started_epoch // 0' <<<"$inspect_json")"
+completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+completed_epoch="$(date +%s)"
+elapsed_seconds=$(( completed_epoch - started_epoch )); [ "$elapsed_seconds" -lt 0 ] && elapsed_seconds=0
 lockfix_summary="$(jq -c '{attempted:(.attempted == true),resolved:(.resolved == true),lockfiles:(.lockfiles // []),reason:(.reason // "")}' <<<"$lockfix_json")"
 unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,head:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
+if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,head:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,head:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
+if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,head:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
 git add -u
 staged="$(git diff --cached --name-only | jq -R -s -c 'split("\n") | map(select(length>0))')"
-jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson staged "$staged" '{resolved:true,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],staged_files:$staged,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson staged "$staged" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],staged_files:$staged,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"
 timeout = "5m"
@@ -368,18 +394,29 @@ required = ["stdout"]
 id = "final-report"
 title = "当前冲突修复报告"
 depends_on = ["inspect-conflicts", "list-conflict-files", "resolve-conflict-file", "check-remaining-conflicts", "auto-resolve-lockfiles", "finalize-conflicts", "run-validation"]
-input_context = ["inspect-conflicts.stdout", "finalize-conflicts.stdout", "run-validation.stdout"]
+input_context = ["inspect-conflicts.stdout", "list-conflict-files.stdout", "resolve-conflict-file", "check-remaining-conflicts.stdout", "auto-resolve-lockfiles.stdout", "finalize-conflicts.stdout", "run-validation.stdout"]
 description = """
 输出中文最终报告，结论先行。
 
 必须包含：
 - 当前 git 项目是否还有冲突，是否已解决
 - repo/current branch/operation/head
-- 初始冲突文件 initial_conflicts
-- 解决方式：resolver、lockfile_resolution、staged_files、validation_command 结果
+- 总耗时：使用 finalize-conflicts.stdout.elapsed_seconds，同时给出 started_at/completed_at
+- 初始冲突文件 initial_conflicts，并用表格列出每个冲突文件
+- 冲突位置：从 list-conflict-files.stdout.items[].conflict_regions 提取行号范围；如果 conflict_regions 为空，说明“未记录具体行号/仅 index stage 冲突”
+- 解决方式：从 resolve-conflict-file 的每个子结果提取 resolution_summary、resolved、blocker_type；lockfile 使用 lockfile_resolution
+- staged_files 与 validation_command 结果
 - 不执行 merge/rebase/cherry-pick continue，只说明当前 operation 状态
 - 剩余冲突 remaining_conflicts 或 blocker_type/blocker_summary
 - validation_command 结果
+
+报告结构必须包含这些小节：
+1. 结论
+2. 耗时
+3. 冲突文件与位置，表格列：文件、冲突位置、状态
+4. 解决方式，表格列：文件、解决摘要、是否已解决、blocker
+5. 验证与 staged 文件
+6. 后续操作提示
 
 不要输出长日志，不要重复粘贴各 step 原始 JSON，不要输出 context_file 中的大块 excerpt，不要编造 input_context 没有的信息。
 """
