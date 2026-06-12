@@ -31,6 +31,7 @@ try {
   const {
     computeGraphData,
     loopBodyGraphID,
+    loopBodyStep,
     resolveClickedStep,
   } = await import(pathToFileURL(outfile));
 
@@ -83,19 +84,21 @@ try {
   const expanded = computeGraphData(snapshot, new Set(['collect']));
   const fetchNodeID = loopBodyGraphID('collect', 'fetch');
   const summarizeNodeID = loopBodyGraphID('collect', 'summarize');
-  const fetchNode = expanded.nodes.find(node => node.id === fetchNodeID);
+  const fetchBodyStep = loopBodyStep(loopStep, loopStep.loop.body[0], 0, loopStep);
 
-  assert.equal(expanded.nodes.length, 6, 'expanded graph should include two loop body nodes');
-  assert.equal(expanded.combos.length, 1, 'expanded graph should contain one loop combo');
-  assert.ok(fetchNode, 'expanded graph should contain fetch loop body');
-  assert.equal(fetchNode.data.kind, 'loop-body', 'body node should be marked as loop-body');
-  assert.equal(fetchNode.data.step.status, 'completed', 'body node should inherit latest matching activity status');
-  assert.equal(fetchNode.data.step.metadata.iteration, '2', 'body node should expose latest iteration metadata');
-  const loopSequenceEdge = expanded.edges.find(edge => edge.source === fetchNodeID && edge.target === summarizeNodeID);
-  assert.ok(loopSequenceEdge, 'loop body sequence edge should exist');
-  assert.equal(loopSequenceEdge.data.kind, 'loop-sequence', 'loop body sequence edge should be visually typed');
-  const loopExpandEdge = expanded.edges.find(edge => edge.source === 'collect' && edge.target === fetchNodeID);
-  assert.equal(loopExpandEdge?.data.kind, 'loop-expand', 'loop expansion edge should be visually typed');
+  assert.equal(expanded.nodes.length, 4, 'expanded graph should keep loop bodies out of the main graph layout');
+  assert.equal(expanded.combos.length, 0, 'expanded graph should not create loop combos in the main graph');
+  assert.ok(!expanded.nodes.some(node => node.id === fetchNodeID), 'loop body nodes should render in the independent side area, not the main graph');
+  assert.ok(!expanded.edges.some(edge => edge.source === fetchNodeID || edge.target === summarizeNodeID), 'loop body edges should not participate in main graph edge routing');
+  assert.equal(expanded.nodes.find(node => node.id === 'collect')?.data.expanded, true, 'loop node should still expose expanded state for the +/- badge');
+  assert.deepEqual(
+    expanded.nodes.map(node => [node.id, node.style.x, node.style.y]),
+    collapsed.nodes.map(node => [node.id, node.style.x, node.style.y]),
+    'expanding a loop should not change the original graph node coordinates',
+  );
+  assert.equal(fetchBodyStep.id, fetchNodeID, 'loop body helper should still materialize the side-area body id');
+  assert.equal(fetchBodyStep.status, 'completed', 'loop body helper should inherit latest matching activity status');
+  assert.equal(fetchBodyStep.metadata.iteration, '2', 'loop body helper should expose latest iteration metadata');
 
   const nestedLoopStep = {
     id: 'outer',
@@ -123,14 +126,12 @@ try {
   const innerLoopNodeID = loopBodyGraphID('outer', 'inner-loop');
   const innerFetchNodeID = loopBodyGraphID(innerLoopNodeID, 'inner-fetch');
   const nestedExpanded = computeGraphData(nestedSnapshot, new Set(['outer', innerLoopNodeID]));
-  assert.ok(nestedExpanded.nodes.some(node => node.id === innerLoopNodeID && node.data.step.loop?.body?.length), 'expanded graph should expose nested loop body as a loop node');
-  assert.ok(nestedExpanded.nodes.some(node => node.id === innerFetchNodeID), 'expanded graph should recursively include nested loop body nodes');
-  assert.equal(nestedExpanded.combos.length, 2, 'expanded nested graph should contain outer and inner loop combos');
-  assert.equal(nestedExpanded.combos.find(combo => combo.id === `${innerLoopNodeID}__loop_group`)?.combo, 'outer__loop_group', 'inner loop combo should be nested under the outer combo');
-  assert.ok(nestedExpanded.edges.some(edge => edge.id === `${innerLoopNodeID}-${innerFetchNodeID}` && edge.data.kind === 'loop-expand'), 'nested loop should have its own expand edge');
-  assert.deepEqual(nestedExpanded.nodes.find(node => node.id === 'var::repo')?.data.consumers, [innerFetchNodeID], 'nested body variable refs should point to the nested consumer node');
+  assert.ok(!nestedExpanded.nodes.some(node => node.id === innerLoopNodeID), 'nested loop body nodes should stay out of the main graph layout');
+  assert.ok(!nestedExpanded.nodes.some(node => node.id === innerFetchNodeID), 'nested loop descendants should render only in the independent side area');
+  assert.equal(nestedExpanded.combos.length, 0, 'expanded nested graph should not contain loop combos');
+  assert.equal(nestedExpanded.nodes.find(node => node.id === 'outer')?.data.expanded, true, 'outer loop node should still expose expanded state');
 
-  const selectedFromBody = resolveClickedStep(fetchNodeID, fetchNode.data, snapshot);
+  const selectedFromBody = resolveClickedStep(fetchNodeID, { kind: 'loop-body', parentStep: loopStep, step: fetchBodyStep }, snapshot);
   assert.equal(selectedFromBody?.id, 'collect', 'clicking a synthetic loop body should select its parent loop step');
 
   const loopNode = expanded.nodes.find(node => node.id === 'collect');
@@ -214,8 +215,8 @@ try {
   };
   const bodyVarsGraph = computeGraphData(bodyVarsSnapshot, new Set(['loop-step']));
   const bodyVar = bodyVarsGraph.nodes.find(node => node.id === 'var::repo');
-  assert.equal(bodyVar?.data.kind, 'variable', 'loop body template variable should create variable node');
-  assert.deepEqual(bodyVar?.data.consumers, [loopBodyGraphID('loop-step', 'fetch')], 'loop body variable should point to body consumer');
+  assert.equal(bodyVar, undefined, 'loop body template variables should not alter the main graph variable layout');
+  assert.ok(!bodyVarsGraph.nodes.some(node => node.id === loopBodyGraphID('loop-step', 'fetch')), 'loop body consumer should stay out of the main graph');
   assert.ok(!bodyVarsGraph.nodes.some(node => node.id === 'var::seed'), 'only backend-provided var_refs should become variable nodes');
 
   const collisionSnapshot = {

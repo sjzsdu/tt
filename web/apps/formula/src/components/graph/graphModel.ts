@@ -22,6 +22,7 @@ export type StepNodeData = {
 };
 
 export type LoopGroupNodeData = {
+  kind: 'loop-group';
   step: FormulaDashboardStep;
   bodyCount: number;
   layoutRank?: number;
@@ -378,10 +379,6 @@ export function loopBodyGraphID(parentID: string, bodyID: string) {
   return `${parentID}__${bodyID}`;
 }
 
-function loopGroupID(stepID: string) {
-  return `${stepID}__loop_group`;
-}
-
 export function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboardLoopBody, index: number, activitySource = parent): FormulaDashboardStep {
   const bodyActivity = [...(activitySource.activities || [])]
     .reverse()
@@ -444,64 +441,6 @@ export function computeGraphData(
     }
   };
 
-  const addLoopBody = (parentStep: FormulaDashboardStep, parentNodeID: string, parentComboID: string | undefined, activitySource: FormulaDashboardStep) => {
-    if (!expandedLoopIDs.has(parentNodeID) || !parentStep.loop?.body?.length) return;
-
-    const comboID = loopGroupID(parentNodeID);
-    combos.push({
-      id: comboID,
-      combo: parentComboID,
-      data: {
-        step: parentStep,
-        bodyCount: parentStep.loop.body.length,
-        depth: parentStep.depth || 0,
-      },
-    });
-
-    for (let i = 0; i < parentStep.loop.body.length; i++) {
-      const body = parentStep.loop.body[i];
-      const bodyStep = loopBodyStep(parentStep, body, i, activitySource);
-      bodyStep.id = loopBodyGraphID(parentNodeID, body.id);
-      bodyStep.depth = (parentStep.depth || 0) + 1;
-      const bodyNodeID = bodyStep.id;
-
-      nodes.push({
-        id: bodyNodeID,
-        data: {
-          step: bodyStep,
-          kind: 'loop-body',
-          parentStep,
-          body,
-          expanded: expandedLoopIDs.has(bodyNodeID),
-        },
-        combo: comboID,
-      });
-
-      addVariableConsumers(bodyStep, bodyNodeID);
-      addLoopBody(bodyStep, bodyNodeID, comboID, activitySource);
-    }
-
-    for (let i = 1; i < parentStep.loop.body.length; i++) {
-      const prevBody = parentStep.loop.body[i - 1];
-      const currBody = parentStep.loop.body[i];
-      edges.push({
-        id: `${loopBodyGraphID(parentNodeID, prevBody.id)}-${loopBodyGraphID(parentNodeID, currBody.id)}`,
-        source: loopBodyGraphID(parentNodeID, prevBody.id),
-        target: loopBodyGraphID(parentNodeID, currBody.id),
-        data: { kind: 'loop-sequence' },
-      });
-    }
-
-    if (parentStep.loop.body[0]) {
-      edges.push({
-        id: `${parentNodeID}-${loopBodyGraphID(parentNodeID, parentStep.loop.body[0].id)}`,
-        source: parentNodeID,
-        target: loopBodyGraphID(parentNodeID, parentStep.loop.body[0].id),
-        data: { kind: 'loop-expand' },
-      });
-    }
-  };
-
   for (const step of snapshot.steps) {
     nodes.push({
       id: step.id,
@@ -513,7 +452,6 @@ export function computeGraphData(
     });
 
     addVariableConsumers(step, step.id);
-    addLoopBody(step, step.id, undefined, step);
   }
 
   for (const edge of graphEdges) {
