@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
+	"github.com/sjzsdu/tt/internal/formula/spec"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
@@ -88,6 +90,53 @@ func TestBuiltinFormulaContent(t *testing.T) {
 	}
 	if !ok || len(data) == 0 {
 		t.Fatalf("expected fresh-topic-docs content")
+	}
+}
+
+func TestBuiltinFormulaAgentReferencesExist(t *testing.T) {
+	agentList, err := agents.List()
+	if err != nil {
+		t.Fatalf("agents.List() error = %v", err)
+	}
+	known := map[string]struct{}{}
+	for _, agent := range agentList {
+		known[agent.ID] = struct{}{}
+	}
+
+	entries, err := BuiltinFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinFormulas() error = %v", err)
+	}
+	atomics, err := BuiltinAtomicFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinAtomicFormulas() error = %v", err)
+	}
+	entries = append(entries, atomics...)
+
+	p := NewParser()
+	for _, entry := range entries {
+		f, err := p.LoadByName(entry.Name)
+		if err != nil {
+			t.Fatalf("LoadByName(%q) error = %v", entry.Name, err)
+		}
+		for _, step := range f.Steps {
+			assertFormulaStepAgentsExist(t, entry.Name, step, known)
+		}
+	}
+}
+
+func assertFormulaStepAgentsExist(t *testing.T, formulaName string, step *spec.Step, known map[string]struct{}) {
+	t.Helper()
+	if step == nil {
+		return
+	}
+	if step.Agent != nil && strings.TrimSpace(step.Agent.Name) != "" {
+		if _, ok := known[strings.TrimSpace(step.Agent.Name)]; !ok {
+			t.Fatalf("builtin formula %s step %s references unknown agent %q", formulaName, step.ID, step.Agent.Name)
+		}
+	}
+	for _, child := range step.Children {
+		assertFormulaStepAgentsExist(t, formulaName, child, known)
 	}
 }
 

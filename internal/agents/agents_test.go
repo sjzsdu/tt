@@ -24,10 +24,10 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	}
 
 	core := Core()
-	if len(core) != 6 {
-		t.Fatalf("Core len = %d, want 6", len(core))
+	if len(core) != 4 {
+		t.Fatalf("Core len = %d, want 4", len(core))
 	}
-	wantCoreIDs := []string{CoderID, FullStackID, PlannerID, ProductManagerID, TesterID, UIID}
+	wantCoreIDs := []string{CoderID, CodeResearchID, PlannerID, TesterID}
 	for i, want := range wantCoreIDs {
 		if core[i].ID != want {
 			t.Fatalf("Core[%d] ID = %q, want %q", i, core[i].ID, want)

@@ -233,7 +233,6 @@ Agent guidance:
 - Use `planner` for decomposition/strategy.
 - Use `coder` for code investigation/implementation reasoning.
 - Use `tester` for validation strategy.
-- Use `product-manager` for product requirements/tradeoffs.
 - Use `writer` or `reporter` for user-facing prose.
 - If output drives `condition`, `loop.until`, `aggregate`, or tools, require compact JSON and validate it.
 - Do not mix long Markdown and control JSON in one step. Split them.

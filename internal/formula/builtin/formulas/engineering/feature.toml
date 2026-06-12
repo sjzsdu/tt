@@ -34,7 +34,7 @@ description = """
 - acceptance_criteria 必须可验证；
 - assumptions 只记录不阻塞调研的假设。
 """
-agent.name = "product-manager"
+agent.name = "planner"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -175,7 +175,7 @@ description = """
 - implemented 必须是布尔值；
 - 如果无法完整实现，implemented=false 并明确 blocked_items。
 """
-agent.name = "full-stack"
+agent.name = "coder"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

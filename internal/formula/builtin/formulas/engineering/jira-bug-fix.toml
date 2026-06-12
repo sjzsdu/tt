@@ -61,4 +61,4 @@ description = """
 
 - 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
-agent.name = "product-manager"
+agent.name = "reporter"

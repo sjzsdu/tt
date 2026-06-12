@@ -139,7 +139,7 @@ overview → architecture → picoclaw-integration → module-map
 
 - 在概览、架构、模块地图、formula、picoclaw 五篇核心文档中同步新增能力：
   - `tt agent optimize` / `tt agent info`
-  - 嵌入式 `agent-optimizer` / `code-research` / `tech-blog-writer` / `writer` / `reporter` 等 agent
+  - 嵌入式 `agent-optimizer` / `code-research` / `writer` / `reporter` 等 agent
   - formula 的 preflight、worktree workspace、environment context、output validation advice、script repair
   - 新的 step kind：aggregate / tool / write_files / retry / loop（parallel + max_concurrency）
   - `internal/formula/ast` / `ir` / `compile` / `builtin` / `doc` / `ui` / `run` / `runview` 子包

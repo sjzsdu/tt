@@ -215,7 +215,7 @@ Requirements:
 - Use step ids consistently for data consumed downstream.
 - Add depends_on and input_context where data flows between steps.
 - If a condition or loop depends on agent output, make that step output ONLY compact JSON.
-- Use embedded agents where appropriate: coder, planner, tester, product-manager, ui, full-stack, reporter.
+- Use embedded agents where appropriate: coder, code-research, planner, tester, reporter, writer, docs-analyst, merge-conflict-resolver, formula-writer.
 `, name, userPrompt, name)
 }
 

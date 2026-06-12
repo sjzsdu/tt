@@ -19,11 +19,8 @@ const (
 	CoderID                 = "coder"
 	ReporterID              = "reporter"
 	legacyReporterID        = "nvwa-agent"
-	FullStackID             = "full-stack"
 	PlannerID               = "planner"
-	ProductManagerID        = "product-manager"
 	TesterID                = "tester"
-	UIID                    = "ui"
 	StockBeginnerID         = "stock-growth-investor"
 	StockOldHandID          = "stock-risk-investor"
 	StockMacroStrategistID  = "stock-macro-strategist"
@@ -62,24 +59,12 @@ func Reporter() pcwrap.EmbeddedAgent {
 	return mustGet(ReporterID)
 }
 
-func FullStack() pcwrap.EmbeddedAgent {
-	return mustGet(FullStackID)
-}
-
 func Planner() pcwrap.EmbeddedAgent {
 	return mustGet(PlannerID)
 }
 
-func ProductManager() pcwrap.EmbeddedAgent {
-	return mustGet(ProductManagerID)
-}
-
 func Tester() pcwrap.EmbeddedAgent {
 	return mustGet(TesterID)
-}
-
-func UI() pcwrap.EmbeddedAgent {
-	return mustGet(UIID)
 }
 
 func Repo2Skill() pcwrap.EmbeddedAgent {
@@ -99,7 +84,7 @@ func AgentOptimizer() pcwrap.EmbeddedAgent {
 }
 
 func Core() []pcwrap.EmbeddedAgent {
-	return mustGetMany(CoderID, FullStackID, PlannerID, ProductManagerID, TesterID, UIID)
+	return mustGetMany(CoderID, CodeResearchID, PlannerID, TesterID)
 }
 
 func All() []pcwrap.EmbeddedAgent {

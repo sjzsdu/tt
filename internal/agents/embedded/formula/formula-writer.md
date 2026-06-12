@@ -221,10 +221,9 @@ required = ["kind", "confidence", "reason"]
 
 规则：
 
-- `planner`：拆解、策略、流程设计。
+- `planner`：需求收敛、拆解、策略、流程设计。
 - `coder`：代码分析、实现推理、debug。
 - `tester`：测试和验证策略。
-- `product-manager`：需求、取舍、产品判断。
 - `writer` / `reporter`：面向用户的文档和报告。
 - 驱动分支/循环/tool 的输出必须 compact JSON + validate。
 - 不要在同一步同时输出长 Markdown 和控制 JSON。

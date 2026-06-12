@@ -141,16 +141,13 @@ flowchart TD
 
 | Agent ID | 用途 | 触发命令 |
 | --- | --- | --- |
-| `coder` | 通用编码 / 修复 / 重构 / 调研 | `tt agent`、formula agent step 默认 agent |
-| `full-stack` | 全栈视角实现 | `tt agent --agent full-stack` |
-| `planner` | 任务分解与计划 | `tt agent --agent planner` |
-| `product-manager` | 需求 / 验收条件 | `tt agent --agent product-manager` |
-| `tester` | 测试设计与补齐 | `tt agent --agent tester` |
-| `ui` | UI 实现与调整 | `tt agent --agent ui` |
+| `coder` | 通用编码 / 修复 / 重构 / 实现 | `tt agent`、formula agent step 默认 agent |
+| `code-research` | 证据导向的代码研究 | `tt agent --agent code-research` |
+| `planner` | 需求收敛 / 任务分解 / 方案计划 | `tt agent --agent planner` |
+| `tester` | 测试设计与质量评估 | `tt agent --agent tester` |
+| `merge-conflict-resolver` | merge/rebase/cherry-pick 冲突解决 | merge conflict formula |
 | `reporter` | 报告 / 总结 | `tt agent --agent reporter` |
 | `writer` | 长文写作 | `tt agent --agent writer` |
-| `tech-blog-writer` | 科技博客风格写作 | `tt agent --agent tech-blog-writer` |
-| `code-research` | 证据导向的代码研究 | `tt agent --agent code-research` |
 | `translate-master` | 中英 / 多语种翻译 | `tt translate` |
 | `repo2skill` | 把仓库分析成 skill | `tt repo2skill --analyzer agent` |
 | `formula-writer` | 编写 / 优化 formula | `tt formula create` / `tt formula optimize` |

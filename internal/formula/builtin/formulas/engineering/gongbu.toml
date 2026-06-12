@@ -92,7 +92,7 @@ feature_request 是用户启动 gongbu 时提供的需求原文；如果该值�
   "needs_changelog":true
 }
 """
-agent.name = "product-manager"
+agent.name = "planner"
 
 [steps.validate]
 format = "json"
@@ -189,7 +189,7 @@ plan-feature 判断存在多个合理实现方案，需要让用户选择。请�
 输出 ONLY compact JSON：
 {"selected_option_id":"...","strategy_notes":"...","reason":"..."}
 """
-agent.name = "product-manager"
+agent.name = "planner"
 
 [steps.validate]
 format = "json"
@@ -207,7 +207,7 @@ description = """
 输出 ONLY compact JSON：
 {"ui_needed":true,"screens":["..."],"interaction_changes":["..."],"copy_suggestions":["..."],"edge_states":["..."]}
 """
-agent.name = "ui"
+agent.name = "planner"
 
 [[steps]]
 id = "implement-feature"
@@ -227,7 +227,7 @@ description = """
 输出 ONLY compact JSON：
 {"implemented":true,"files_changed":["..."],"summary":"...","blocked_items":["..."],"notes":["..."]}
 """
-agent.name = "full-stack"
+agent.name = "coder"
 
 [[steps]]
 id = "run-tests"
