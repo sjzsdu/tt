@@ -16,6 +16,7 @@ submit_review = { description = "是否提交 review", default = "true", enum = 
 id = "context"
 title = "整理 PR 上下文"
 execution = "script"
+description = "把 PR metadata、files 和 diff 大小归一化为上层 review/fix formula 可直接消费的上下文 JSON。"
 [steps.script]
 command = ["python3", "-c", """
 import json, os

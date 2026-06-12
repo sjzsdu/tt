@@ -24,6 +24,7 @@ command = { description = "可选覆盖验证命令；为空则自动检测", de
 id = "validation"
 title = "自动检测并运行验证"
 execution = "script"
+description = "按仓库标记选择轻量验证命令；command 为空时自动检测，找不到标记则成功跳过。"
 [steps.script]
 command = ["python3", "-c", """
 import json, os, subprocess

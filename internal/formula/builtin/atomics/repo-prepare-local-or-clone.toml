@@ -25,6 +25,7 @@ tmp_root = { description = "临时克隆根目录", default = ".tt/tmp/repos" }
 id = "repo"
 title = "准备仓库"
 execution = "script"
+description = "把本地路径、GitHub URL 或 owner/repo 解析为可用仓库路径；必要时浅克隆到 .tt/tmp/repos。"
 [steps.script]
 command = ["python3", "-c", '''
 import json, os, re, shutil, subprocess

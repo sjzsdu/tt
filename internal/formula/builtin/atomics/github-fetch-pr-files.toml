@@ -25,6 +25,7 @@ repo_hint = { description = "可选 owner/repo", default = "" }
 id = "files"
 title = "获取 PR files"
 execution = "script"
+description = "调用 gh pr view --json files 获取 PR 文件列表，并将失败解析为 ok=false 的稳定 JSON。"
 [steps.script]
 command = ["python3", "-c", """
 import json, os, subprocess

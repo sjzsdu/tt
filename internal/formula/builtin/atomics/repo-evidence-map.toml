@@ -20,6 +20,7 @@ focus = { description = "关注点", default = "" }
 id = "evidence"
 title = "抽取证据地图"
 execution = "script"
+description = "扫描仓库内 README、配置、入口、测试和主要源码文件，输出带 excerpt 的轻量 evidence_files 列表。"
 [steps.script]
 command = ["python3", "-c", '''
 import json, os

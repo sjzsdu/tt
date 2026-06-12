@@ -262,6 +262,7 @@ description = """
 - 明确说明本 formula 不 push。
 
 不要编造未出现在 input_context 中的测试或远端结果。
+不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/commit、风险和下一步。
 """
 
 [steps.agent]

@@ -25,6 +25,7 @@ repo_hint = { description = "可选 owner/repo", default = "" }
 id = "diff"
 title = "获取 PR diff"
 execution = "script"
+description = "调用 gh pr diff --patch 获取 PR patch，并输出 ok、patch、patch_chars、stderr/error 等结构化字段。"
 [steps.script]
 command = ["python3", "-c", """
 import json, os, subprocess
