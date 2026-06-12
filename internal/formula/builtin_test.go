@@ -80,7 +80,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 		t.Fatalf("BuiltinFormulas() error = %v", err)
 	}
 	for _, entry := range regular {
-		if slices.Contains([]string{"git-status-check", "git-integrate-ref", "git-run-validation", "git-push-branch", "github-fetch-pr", "github-list-my-prs", "github-fetch-pr-files", "github-fetch-pr-diff", "github-build-pr-context", "git-auto-detect-validation", "repo-prepare-local-or-clone", "repo-evidence-map"}, entry.Name) {
+		if slices.Contains([]string{"git-run-validation", "github-fetch-pr", "github-list-my-prs", "github-fetch-pr-files", "github-fetch-pr-diff", "github-build-pr-context", "git-auto-detect-validation"}, entry.Name) {
 			t.Fatalf("atomic formula %q should not appear in regular builtin list", entry.Name)
 		}
 	}
@@ -89,7 +89,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuiltinAtomicFormulas() error = %v", err)
 	}
-	want := []string{"git-status-check", "git-integrate-ref", "git-run-validation", "git-push-branch", "github-fetch-pr", "github-list-my-prs", "github-fetch-pr-files", "github-fetch-pr-diff", "github-build-pr-context", "git-auto-detect-validation", "repo-prepare-local-or-clone", "repo-evidence-map"}
+	want := []string{"git-run-validation", "github-fetch-pr", "github-list-my-prs", "github-fetch-pr-files", "github-fetch-pr-diff", "github-build-pr-context", "git-auto-detect-validation"}
 	got := make(map[string]bool)
 	for _, entry := range atomics {
 		got[entry.Name] = true
@@ -126,12 +126,10 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 
 func TestBuiltinAtomicFormulasCompile(t *testing.T) {
 	varsByName := map[string]map[string]string{
-		"github-fetch-pr":             {"pr_ref": "1"},
-		"github-fetch-pr-files":       {"pr_ref": "1"},
-		"github-fetch-pr-diff":        {"pr_ref": "1"},
-		"github-build-pr-context":     {"meta_json": `{"number":1,"title":"t"}`},
-		"repo-prepare-local-or-clone": {"repo": "."},
-		"repo-evidence-map":           {"repo_path": "."},
+		"github-fetch-pr":         {"pr_ref": "1"},
+		"github-fetch-pr-files":   {"pr_ref": "1"},
+		"github-fetch-pr-diff":    {"pr_ref": "1"},
+		"github-build-pr-context": {"meta_json": `{"number":1,"title":"t"}`},
 	}
 	atomics, err := BuiltinAtomicFormulas()
 	if err != nil {

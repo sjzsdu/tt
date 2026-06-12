@@ -1,221 +1,150 @@
 # Builtin Atomic Formulas
 
-`atomics/` contains small, composable builtin formulas. They are intended to be embedded by higher-level workflow formulas rather than used as long user-facing workflows.
+`atomics/` 只放可以被上层 builtin formula 复用的原子步骤。它们不是独立产品化 workflow，单独运行通常没有意义。
 
-## Authoring contract
+## 保留原则
 
-Atomic formulas should follow these rules:
+- **必须被复用**：只有当前 builtin formulas 通过 `embed = "..."` 使用的流程才放在这里。
+- **原子职责**：一个 atomic 只做一个稳定步骤，例如获取 PR metadata、获取 PR diff、运行验证。
+- **稳定 JSON 契约**：输出必须适合父 formula 通过 `xxx.stdout.field` 消费。
+- **少报告，多数据**：atomic 默认不做长 Markdown final report，只输出结构化数据。
+- **不重复输出**：每个 step 只输出自己的增量，不复制上游 JSON/stdout/stderr/diff/log。
+- **清爽优先**：如果一个 atomic 暂时没有 builtin formula 使用，就删除。未来有真实复用需求时再加回来。
 
-- **Single responsibility**: one atomic formula should do one deterministic job, such as fetch PR metadata, check git status, run validation, or push a branch.
-- **Stable JSON output**: every important result should be available from a predictable step id, usually `*.stdout` when the step is a script.
-- **No noisy reports by default**: atomics should avoid long Markdown reports unless the atomic genuinely needs human-facing synthesis.
-- **No duplicated output**: each step should output only its own delta. Do not copy upstream raw JSON/stdout/stderr/diffs/logs into downstream outputs.
-- **Explicit side effects**: formulas that mutate git state or remote state must say so in their description and should expose dry-run or caller-controlled flags where useful.
-- **Composable failures**: expected external failures should normally become `ok:false` / `success:false` JSON instead of crashing the workflow, so parent formulas can decide what to do.
+## 当前保留清单
 
-## Atomic catalog
+| Atomic | 被谁使用 | 主输出 | 用途 |
+|---|---|---|---|
+| `git-auto-detect-validation` | `feature`, `gongbu` | `validation.stdout` | 根据仓库标记自动选择轻量验证命令并执行 |
+| `git-run-validation` | `github-pr-rebase-main` | `validation.stdout` | 在指定 repo 运行父流程传入的验证命令 |
+| `github-fetch-pr` | `github-pr-review`, `github-pr-fix-comments`, `github-pr-rebase-main` | `pr.stdout` | 获取单个 GitHub PR 的结构化 metadata |
+| `github-fetch-pr-files` | `github-pr-review` | `files.stdout` | 获取 PR changed files 列表 |
+| `github-fetch-pr-diff` | `github-pr-review` | `diff.stdout` | 获取 PR patch diff 和 diff 大小 |
+| `github-build-pr-context` | `github-pr-review` | `context.stdout` | 将 PR metadata/files/diff size 规整成 review 上下文 |
+| `github-list-my-prs` | `github-my-prs-fix-comments`, `github-my-prs-rebase-main` | `prs.stdout` | 列出当前仓库指定作者的 open PR，供批量流程循环 |
 
-| Formula | Category | Primary step | Purpose | Side effects |
-|---|---|---:|---|---|
-| `git-status-check` | git | `status.stdout` | Collect current repo status: branch, HEAD, upstream, dirty state, conflict files, and in-progress git operations. | Read-only |
-| `git-run-validation` | git | `validation.stdout` | Run an explicit validation command in a repo, or skip successfully when no command is provided. | Runs caller command |
-| `git-auto-detect-validation` | git | `validation.stdout` | Pick a lightweight validation command from repo markers such as `go.mod`, `package.json`, `pnpm-lock.yaml`, or `pyproject.toml`. | Runs detected/caller command |
-| `git-integrate-ref` | git | `verify-integrated.stdout` plus `final-report` | Integrate a target ref into the current branch via rebase/merge and let an agent resolve conflicts if needed. Does not push. | Mutates local git history/worktree |
-| `git-push-branch` | git | `push.stdout` | Push current `HEAD` to a remote branch with configurable `--force-with-lease`, `--no-verify`, and dry-run. | Remote push unless `dry_run=true` |
-| `github-fetch-pr` | github | `pr.stdout` | Fetch GitHub PR metadata using `gh pr view`, with retry and REST fallback for numeric PR refs. | Read-only network call |
-| `github-fetch-pr-files` | github | `files.stdout` | Fetch GitHub PR changed files using `gh pr view --json files`. | Read-only network call |
-| `github-fetch-pr-diff` | github | `diff.stdout` | Fetch GitHub PR patch diff using `gh pr diff --patch`. | Read-only network call |
-| `github-build-pr-context` | github | `context.stdout` | Normalize PR metadata, files, diff size, and review options into a compact context object. | Read-only |
-| `github-list-my-prs` | github | `prs.stdout` | List open PRs for an author in the current repo or `repo_hint`. | Read-only network call |
-| `repo-prepare-local-or-clone` | repo | `repo.stdout` | Resolve a local path, GitHub URL, or `owner/repo` into a local repo path, shallow-cloning when needed. | May clone into `.tt/tmp/repos` |
-| `repo-evidence-map` | repo | `evidence.stdout` | Scan README/config/entry/test/source files into a lightweight evidence map with excerpts. | Read-only |
-
-## Details
-
-### `git-status-check`
-
-Use this as the first git safety check in parent workflows.
-
-Variables:
-
-- `require_clean`: when `true`, `ok=false` if the worktree is dirty or a merge/rebase/cherry-pick is in progress.
-- `require_upstream`: when `true`, `ok=false` if the current branch has no upstream.
-
-Output: `status.stdout`
-
-Key fields:
-
-- `ok`, `reason`
-- `repo_root`, `branch`, `head`, `upstream`
-- `dirty`, `status_short`
-- `in_rebase`, `in_merge`, `in_cherry_pick`
-- `conflict_files`
-
-### `git-run-validation`
-
-Runs a caller-provided command and packages the result as JSON.
-
-Variables:
-
-- `repo_path`: optional repo path. Empty means current git root.
-- `command`: validation command. Empty or `-` skips and returns `success=true`.
-- `timeout_hint`: documentation/report hint only. The step timeout is fixed at `20m`.
-
-Output: `validation.stdout`
-
-Key fields:
-
-- `requested`, `success`, `command`, `repo_root`
-- `stdout` on success
-- `stderr` on failure
+## 详细说明
 
 ### `git-auto-detect-validation`
 
-Chooses a lightweight validation command when the caller does not provide one.
+父流程：`feature`, `gongbu`
 
-Detection order:
+变量：
+
+- `command`: 可选覆盖验证命令；为空则自动检测。
+
+检测顺序：
 
 1. `go.mod` -> `go test ./...`
 2. `package.json` -> `npm test`
 3. `pnpm-lock.yaml` -> `pnpm test`
 4. `pyproject.toml` -> `pytest`
 
-Variables:
+输出：`validation.stdout`
 
-- `command`: optional override. When set, runs through `bash -lc`.
+关键字段：
 
-Output: `validation.stdout`
+- `attempted`
+- `success`
+- `command`
+- `exit_code`
+- `stdout`
+- `stderr`
 
-Key fields:
+### `git-run-validation`
 
-- `attempted`, `success`, `command`, `exit_code`
-- `stdout` on success
-- `stderr` on failure or skip reason
+父流程：`github-pr-rebase-main`
 
-### `git-integrate-ref`
+变量：
 
-Ensures the current branch contains `target_ref`, using rebase or merge. This atomic can invoke an agent for conflict resolution and continuation. It intentionally **does not push**.
+- `repo_path`: 可选仓库目录；为空时使用当前 git root。
+- `command`: 验证命令；为空或 `-` 时跳过并返回 `success=true`。
+- `timeout_hint`: 仅给报告使用，实际 step timeout 固定为 `20m`。
 
-Variables:
+输出：`validation.stdout`
 
-- `target_ref`: ref to integrate, default `origin/main`.
-- `strategy`: `rebase`, `merge`, or `auto`. `auto` currently resolves to `rebase`.
-- `validation_command`: optional post-integration validation.
-- `max_agent_rounds`: instruction limit for the agent loop.
+关键字段：
 
-Important steps:
-
-- `pre-status.stdout`: initial repo suitability and target ref status.
-- `attempt-integrate.stdout`: deterministic rebase/merge attempt result.
-- `agent-integrate-loop`: agent JSON summary when deterministic integration fails.
-- `verify-integrated.stdout`: final deterministic success criteria.
-- `run-validation.stdout`: optional validation result.
-- `final-report`: compact human-facing summary.
-
-Side effects:
-
-- May rebase or merge the current branch.
-- May edit files and create commits during conflict resolution.
-- Never pushes.
-
-Parent workflow guidance:
-
-- Use `git-status-check` before embedding if you need a stricter clean-worktree gate.
-- Use `git-push-branch` explicitly after successful integration when remote mutation is desired.
-
-### `git-push-branch`
-
-Pushes current `HEAD` to a target remote branch. This is intentionally a separate atomic because it mutates remote state.
-
-Variables:
-
-- `remote`: default comes from upstream remote, then `origin`.
-- `branch`: default comes from upstream branch, then current branch.
-- `force_with_lease`: default `true`.
-- `no_verify`: default `true`.
-- `dry_run`: default `false`.
-
-Output: `push.stdout`
-
-Key fields:
-
-- `requested`, `pushed`, `dry_run`
-- `command`, `repo_root`, `remote`, `branch`, `head`
-- `stdout`, `stderr`, `error`
+- `requested`
+- `success`
+- `command`
+- `repo_root`
+- `stdout`
+- `stderr`
 
 ### `github-fetch-pr`
 
-Fetches PR metadata via GitHub CLI.
+父流程：`github-pr-review`, `github-pr-fix-comments`, `github-pr-rebase-main`
 
-Variables:
+变量：
 
-- `pr_ref`: PR number, URL, or branch ref.
-- `repo_hint`: optional `owner/repo`. Empty uses the current `gh` repo context.
+- `pr_ref`: PR 编号、URL 或分支引用。
+- `repo_hint`: 可选 `owner/repo`，为空时使用当前 `gh` repo context。
 
-Output: `pr.stdout`
+输出：`pr.stdout`
 
-Key fields include GitHub's PR fields plus normalized helpers:
+关键字段：
 
 - `ok`, `error`, `attempts`
-- `pr_ref`, `repo_hint`
 - `number`, `title`, `body`, `author`, `url`, `state`, `isDraft`
 - `baseRefName`, `headRefName`, `headRefOid`
 - `changedFiles`, `additions`, `deletions`, `commits`
 
 ### `github-fetch-pr-files`
 
-Fetches changed files for a PR.
+父流程：`github-pr-review`
 
-Variables:
+变量：
 
-- `pr_ref`: PR number, URL, or branch ref.
-- `repo_hint`: optional `owner/repo`.
+- `pr_ref`: PR 编号、URL 或分支引用。
+- `repo_hint`: 可选 `owner/repo`。
 
-Output: `files.stdout`
+输出：`files.stdout`
 
-Key fields:
+关键字段：
 
-- `ok`, `error`, `command`
-- `files`: GitHub CLI file objects
-
-Expected failures are converted into `ok=false` JSON.
+- `ok`
+- `files`
+- `error`
+- `command`
 
 ### `github-fetch-pr-diff`
 
-Fetches patch diff text for a PR.
+父流程：`github-pr-review`
 
-Variables:
+变量：
 
-- `pr_ref`: PR number, URL, or branch ref.
-- `repo_hint`: optional `owner/repo`.
+- `pr_ref`: PR 编号、URL 或分支引用。
+- `repo_hint`: 可选 `owner/repo`。
 
-Output: `diff.stdout`
+输出：`diff.stdout`
 
-Key fields:
+关键字段：
 
-- `ok`, `patch`, `patch_chars`
-- `stderr`, `error`, `command`
+- `ok`
+- `patch`
+- `patch_chars`
+- `stderr`
+- `error`
+- `command`
 
-Parent workflow guidance:
-
-- Do not pass large `patch` values directly to final reports.
-- Prefer using `patch_chars` and a curated analysis/summarization step.
+注意：`patch` 可能很大，父流程不要直接把它传给最终报告；应先分析/压缩。
 
 ### `github-build-pr-context`
 
-Normalizes outputs from `github-fetch-pr`, `github-fetch-pr-files`, and optionally `github-fetch-pr-diff` into a compact review context.
+父流程：`github-pr-review`
 
-Variables:
+变量：
 
-- `meta_json`: PR metadata JSON, normally `{{github-fetch-pr.pr.stdout}}`.
-- `files_json`: PR files JSON, normally `{{github-fetch-pr-files.files.stdout}}`.
-- `patch_chars`: diff size, normally `{{github-fetch-pr-diff.diff.stdout.patch_chars}}`.
-- `review_focus`: comma/Chinese-comma separated focus areas.
-- `submit_review`: whether the parent review formula intends to submit comments.
+- `meta_json`: 通常是 `{{fetch-pr.pr.stdout}}`。
+- `files_json`: 通常是 `{{fetch-pr-files.files.stdout}}`。
+- `patch_chars`: 通常是 `{{fetch-pr-diff.diff.stdout.patch_chars}}`。
+- `review_focus`: 审阅关注点。
+- `submit_review`: 父流程是否计划提交 review。
 
-Output: `context.stdout`
+输出：`context.stdout`
 
-Key fields:
+关键字段：
 
 - `ready`, `error`
 - `number`, `title`, `url`, `author`, `state`, `is_draft`
@@ -226,149 +155,47 @@ Key fields:
 
 ### `github-list-my-prs`
 
-Lists open PRs for an author.
+父流程：`github-my-prs-fix-comments`, `github-my-prs-rebase-main`
 
-Variables:
+变量：
 
-- `author`: GitHub login. Empty uses `@me` behavior through gh where supported by the current implementation.
-- `state`: normally `open`.
-- `repo_hint`: optional `owner/repo`.
-- `limit`: maximum PR count.
+- `author`: GitHub login。
+- `state`: 通常是 `open`。
+- `repo_hint`: 可选 `owner/repo`。
+- `limit`: 最大 PR 数量。
 
-Output: `prs.stdout`
+输出：`prs.stdout`
 
-Key fields:
+关键字段：
 
-- `ok`, `error`, `command`
-- `items` / `prs`: PR list suitable for parent formula loops
-- count/config fields depending on GitHub CLI output
+- `ok`
+- `items` / `prs`
+- `error`
+- `command`
 
-### `repo-prepare-local-or-clone`
+## 维护流程
 
-Turns a repo input into a local directory.
+新增 atomic 前先问两个问题：
 
-Accepted `repo` inputs:
+1. 是否已经有至少一个 builtin formula 会立即 `embed` 它？
+2. 它是否真的是一个可复用的原子步骤，而不是一次性 workflow？
 
-- Empty: use current git repository.
-- Existing local directory: use that directory.
-- GitHub URL: shallow clone if not already present in `.tt/tmp/repos`.
-- `owner/repo`: shallow clone from GitHub if needed.
+如果答案不是两个都是 yes，不要放进 `atomics/`。
 
-Variables:
+修改后必须验证：
 
-- `repo`: repo input.
-- `tmp_root`: clone cache root, default `.tt/tmp/repos`.
-
-Output: `repo.stdout`
-
-Key fields:
-
-- `ok`, `error`
-- `repo_input`, `repo_path`, `repo_root`
-- `cloned`, `reused`
-- `slug`, `remote_url`
-
-### `repo-evidence-map`
-
-Builds a lightweight repository evidence map for documentation, review, or planning workflows.
-
-Variables:
-
-- `repo_path`: repository directory.
-- `focus`: optional focus hint to carry into the output.
-
-Output: `evidence.stdout`
-
-Key fields:
-
-- `ok`, `error`
-- `repo_path`, `focus`
-- `evidence_files`: up to 60 scored files with `path`, `score`, and a short `excerpt`
-
-Parent workflow guidance:
-
-- This atomic intentionally includes excerpts. Do not pass `evidence_files` directly to a final report if the parent workflow also has detailed analysis steps. Summarize or project first.
-
-## Composition examples
-
-### Check status, integrate main, validate, then push
-
-```toml
-[[steps]]
-id = "status"
-embed = "git-status-check"
-
-[steps.embed_vars]
-require_clean = "true"
-require_upstream = "true"
-
-[[steps]]
-id = "integrate-main"
-embed = "git-integrate-ref"
-depends_on = ["status"]
-condition = "status.status.stdout.ok == true"
-
-[steps.embed_vars]
-target_ref = "origin/main"
-strategy = "rebase"
-validation_command = "go test ./..."
-
-[[steps]]
-id = "push"
-embed = "git-push-branch"
-depends_on = ["integrate-main"]
-condition = "integrate-main.verify-integrated.stdout.success == true"
-
-[steps.embed_vars]
-dry_run = "false"
+```bash
+go test ./internal/formula -run 'TestBuiltin|TestAllBuiltin'
 ```
 
-### Build a PR review context
+并逐个 compile 当前 atomic：
 
-```toml
-[[steps]]
-id = "pr"
-embed = "github-fetch-pr"
-[steps.embed_vars]
-pr_ref = "{{pr_ref}}"
-repo_hint = "{{repo_hint}}"
-
-[[steps]]
-id = "files"
-embed = "github-fetch-pr-files"
-[steps.embed_vars]
-pr_ref = "{{pr_ref}}"
-repo_hint = "{{repo_hint}}"
-
-[[steps]]
-id = "diff"
-embed = "github-fetch-pr-diff"
-[steps.embed_vars]
-pr_ref = "{{pr_ref}}"
-repo_hint = "{{repo_hint}}"
-
-[[steps]]
-id = "context"
-embed = "github-build-pr-context"
-depends_on = ["pr", "files", "diff"]
-
-[steps.embed_vars]
-meta_json = "{{pr.pr.stdout}}"
-files_json = "{{files.files.stdout}}"
-patch_chars = "{{diff.diff.stdout.patch_chars}}"
-review_focus = "正确性、风险与可维护性"
-submit_review = "false"
+```bash
+go run . formula compile git-auto-detect-validation
+go run . formula compile git-run-validation
+go run . formula compile github-fetch-pr
+go run . formula compile github-fetch-pr-files
+go run . formula compile github-fetch-pr-diff
+go run . formula compile github-build-pr-context
+go run . formula compile github-list-my-prs
 ```
-
-## Maintenance checklist
-
-When adding or changing an atomic formula:
-
-1. Add top-level `formula`, `description`, `version`, `type = "atomic"`, `category`, and `tags`.
-2. Prefer one primary step with a stable id and JSON output.
-3. Add `description` to every step.
-4. Add preflight checks for required CLIs and auth.
-5. Convert expected external failures into stable JSON fields.
-6. Keep stdout compact. If a value can be huge, expose size/manifest fields and let parent workflows decide whether to read the full content.
-7. Document variables, output step, key fields, and side effects in this README.
-8. Validate with `go test ./internal/formula -run 'TestBuiltin|TestAllBuiltin'` and `go run . formula compile <formula>`.
