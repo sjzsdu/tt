@@ -75,7 +75,7 @@ id = "resolve-conflict-rounds"
 title = "基于三方上下文保守修复冲突文件"
 depends_on = ["inspect-conflicts"]
 condition = "inspect-conflicts.stdout.needs_resolution == true"
-description = "逐轮列出当前 unmerged files，为每个文件生成 base/ours/theirs/conflict_hunks 上下文，并发度 3 调用 merge-conflict-resolver。"
+description = "外层按轮次复查剩余冲突；内层只负责把本轮文件并发分发给 resolver。大块三方上下文写入 .tt/conflict-context，避免 step stdout 重复输出。"
 
 [steps.loop]
 until = "check-remaining-conflicts.stdout.done == true"
@@ -83,7 +83,7 @@ max = 5
 
 [[steps.loop.body]]
 id = "list-conflict-files"
-title = "生成冲突文件三方上下文"
+title = "生成本轮冲突文件索引"
 execution = "script"
 
 [steps.loop.body.script]
@@ -92,13 +92,13 @@ set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
 [ -n "$repo_root" ] && cd "$repo_root"
 python3 - <<'PY'
-import json, os, subprocess
+import hashlib, json, os, pathlib, subprocess
 
 def run(args): return subprocess.run(args, text=True, capture_output=True).stdout
 def trunc(text, limit=24000):
     if text is None: return ""
     if len(text) <= limit: return text
-    return text[:limit] + f"\\n...<truncated {len(text) - limit} chars>"
+    return text[:limit] + f"\n...<truncated {len(text) - limit} chars>"
 def stage(path, n): return run(["git", "show", f":{n}:{path}"])
 def hunks(path, radius=24, limit=32000):
     try: lines=open(path, encoding="utf-8", errors="replace").read().splitlines()
@@ -118,14 +118,20 @@ def hunks(path, radius=24, limit=32000):
         else: merged.append((start,end))
     chunks=[]
     for start,end in merged:
-        chunks.append("\\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
-    return trunc("\\n\\n--- conflict hunk ---\\n\\n".join(chunks), limit)
+        chunks.append("\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
+    return trunc("\n\n--- conflict hunk ---\n\n".join(chunks), limit)
 files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines() if p]
+ctx_dir=pathlib.Path(".tt/conflict-context/git-resolve-merge-conflicts")
+ctx_dir.mkdir(parents=True, exist_ok=True)
 items=[]
 for path in files:
     ours=stage(path,2); theirs=stage(path,3); base=stage(path,1)
-    items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_note":"ours is the current side; theirs is the incoming side; base is the merge base. Preserve compatible intent from both sides.","base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}})
-print(json.dumps({"done":len(files)==0,"count":len(files),"files":files,"items":items}, ensure_ascii=False))
+    key=hashlib.sha1(path.encode()).hexdigest()[:12]
+    context_file=str(ctx_dir / f"{key}.json")
+    payload={"path":path,"context_note":"ours is the current side; theirs is the incoming side; base is the merge base. Preserve compatible intent from both sides.","base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\n")+(1 if theirs else 0)}}
+    pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
+print(json.dumps({"done":len(files)==0,"files":files,"items":items}, ensure_ascii=False))
 PY
 """]
 format = "json"
@@ -140,7 +146,7 @@ required = ["stdout"]
 
 [[steps.loop.body]]
 id = "resolve-conflict-file"
-title = "并发修复冲突文件"
+title = "并发分发本轮冲突文件"
 depends_on = ["list-conflict-files"]
 condition = "list-conflict-files.stdout.done != true"
 
@@ -153,16 +159,14 @@ max_concurrency = 3
 [[steps.loop.body.loop.body]]
 id = "fix-conflict-file"
 title = "修复 {{conflict_file.path}}"
-input_context = ["conflict_file", "conflict_file.context_note", "conflict_file.base_excerpt", "conflict_file.ours_excerpt", "conflict_file.theirs_excerpt", "conflict_file.conflict_hunks", "inspect-conflicts.stdout"]
+input_context = ["conflict_file", "inspect-conflicts.stdout.operation"]
 cwd = "{{inspect-conflicts.stdout.repo_root}}"
 description = """
 当前 git 工作区已经存在冲突。本任务只允许处理当前 conflict_file.path 指定的一个文件：{{conflict_file.path}}
 
 上下文说明：
-- base_excerpt: merge base 版本
-- ours_excerpt: 当前 side 版本
-- theirs_excerpt: incoming side 版本
-- conflict_hunks: 带行号的冲突片段
+- 三方上下文已写入 {{conflict_file.context_file}}，开始前必须读取该 JSON 文件。
+- JSON 中的 base_excerpt 是 merge base，ours_excerpt 是当前 side，theirs_excerpt 是 incoming side，conflict_hunks 是带行号的冲突片段。
 
 合并原则：
 - 先根据 base/ours/theirs 判断双方各自改了什么。
@@ -206,7 +210,7 @@ remaining="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)
 prev_count="$(jq -r 'length' <<<"$previous" 2>/dev/null || echo 0)"
 remaining_count="$(jq -r 'length' <<<"$remaining")"
 resolved_count=$(( prev_count - remaining_count )); [ "$resolved_count" -lt 0 ] && resolved_count=0
-jq -cn --argjson previous_files "$previous" --argjson remaining_conflicts "$remaining" --argjson unmerged "$unmerged" --argjson marker_files "$marker_files" --argjson resolved_count "$resolved_count" '{done:(($remaining_conflicts|length)==0),previous_files:$previous_files,remaining_conflicts:$remaining_conflicts,unmerged_files:$unmerged,marker_files:$marker_files,resolved_count:$resolved_count,validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers"]}'
+jq -cn --argjson remaining_conflicts "$remaining" --argjson resolved_count "$resolved_count" '{done:(($remaining_conflicts|length)==0),remaining_conflicts:$remaining_conflicts,resolved_count:$resolved_count}'
 """]
 format = "json"
 timeout = "60s"
@@ -250,7 +254,8 @@ done
 post_unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
 post_markers="$(jq -r '.[]' <<<"$lockfiles" | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 resolved=false; [ "$post_unmerged" = "[]" ] && [ "$post_markers" = "[]" ] && resolved=true
-jq -cn --argjson lockfiles "$lockfiles" --argjson post_unmerged "$post_unmerged" --argjson post_markers "$post_markers" --argjson resolved "$resolved" '{attempted:true,resolved:$resolved,lockfiles:$lockfiles,remaining_unmerged:$post_unmerged,remaining_marker_files:$post_markers,reason:(if $resolved then "lockfiles regenerated" else "lockfile regeneration left conflicts" end)}'
+remaining_after="$(jq -cn --argjson a "$post_unmerged" --argjson b "$post_markers" '($a+$b)|unique')"
+jq -cn --argjson lockfiles "$lockfiles" --argjson remaining "$remaining_after" --argjson resolved "$resolved" '{attempted:true,resolved:$resolved,lockfiles:$lockfiles,remaining_conflicts:$remaining,reason:(if $resolved then "lockfiles regenerated" else "lockfile regeneration left conflicts" end)}'
 """]
 format = "json"
 timeout = "10m"
@@ -282,11 +287,12 @@ initial_conflicts="$(jq -c '.conflicted_files // []' <<<"$inspect_json")"
 operation="$(jq -r '.operation // "none"' <<<"$inspect_json")"
 lockfix_summary="$(jq -c '{attempted:(.attempted == true),resolved:(.resolved == true),lockfiles:(.lockfiles // []),reason:(.reason // "")}' <<<"$lockfix_json")"
 unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,local_commit:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
+if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,head:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,local_commit:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
+if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,head:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
 git add -u
-jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{resolved:true,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],continued:false,continue_output:"",local_commit:$head,blocker_type:"none",blocker_summary:"",validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers"]}'
+staged="$(git diff --cached --name-only | jq -R -s -c 'split("\n") | map(select(length>0))')"
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson staged "$staged" '{resolved:true,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],staged_files:$staged,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"
 timeout = "5m"
@@ -338,14 +344,14 @@ description = """
 
 必须包含：
 - 当前 git 项目是否还有冲突，是否已解决
-- repo/current branch/operation/local_commit
+- repo/current branch/operation/head
 - 初始冲突文件 initial_conflicts
-- 解决方式：resolver、lockfile_resolution、validations_run
+- 解决方式：resolver、lockfile_resolution、staged_files、validation_command 结果
 - 不执行 merge/rebase/cherry-pick continue，只说明当前 operation 状态
 - 剩余冲突 remaining_conflicts 或 blocker_type/blocker_summary
 - validation_command 结果
 
-不要输出长日志，不要编造 input_context 没有的信息。
+不要输出长日志，不要重复粘贴各 step 原始 JSON，不要输出 context_file 中的大块 excerpt，不要编造 input_context 没有的信息。
 """
 
 [steps.agent]
