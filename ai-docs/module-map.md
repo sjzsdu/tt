@@ -169,7 +169,7 @@ flowchart LR
 它管理内嵌 agent 定义，数据来源是：
 
 ```text
-internal/agents/embedded/*.md
+internal/agents/embedded/<category>/*.md
 ```
 
 这些 Markdown 文件带 YAML frontmatter，里面声明：
@@ -373,7 +373,7 @@ flowchart TD
 
 ### 我想新增一个嵌入式 agent
 先看：
-- `internal/agents/embedded/*.md`
+- `internal/agents/embedded/<category>/*.md`
 - `internal/agents/agents.go`
 - 具体调用该 agent 的命令文件
 
@@ -412,4 +412,4 @@ flowchart TD
 - formula 执行：`internal/formula/runtime/executor.go`、`internal/formula/steps/`
 - run 持久化：`internal/formula/run/store.go`
 - 渲染与快照：`internal/formula/ui/`、`internal/formula/runview/snapshot.go`、`internal/formula/doc/markdown.go`
-- embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/*.md`
+- embedded agents：`internal/agents/agents.go`、`internal/agents/embedded/<category>/*.md`

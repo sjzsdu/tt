@@ -3,6 +3,7 @@ package agents
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,7 +36,7 @@ const (
 	DocsAnalystID           = "docs-analyst"
 )
 
-//go:embed embedded/*.md
+//go:embed embedded
 var embeddedFS embed.FS
 
 type definition struct {
@@ -145,41 +146,43 @@ func FilePathForID(id string) (string, error) {
 	if searchRoot == "" {
 		searchRoot = ".tt/agents"
 	}
-	entries, err := os.ReadDir(searchRoot)
+	err := filepath.WalkDir(searchRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			return nil
+		}
+		agent, err := LoadFromFile(path)
+		if err != nil {
+			return err
+		}
+		if agent.ID == id {
+			return foundAgentPath(path)
+		}
+		return nil
+	})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("agent %q is embedded or has no local markdown file", id)
 		}
+		if found, ok := err.(foundAgentPath); ok {
+			return string(found), nil
+		}
 		return "", fmt.Errorf("read embedded agents from %s failed: %w", searchRoot, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-			continue
-		}
-		path := filepath.Join(searchRoot, entry.Name())
-		agent, err := LoadFromFile(path)
-		if err != nil {
-			return "", err
-		}
-		if agent.ID == id {
-			return path, nil
-		}
 	}
 	return "", fmt.Errorf("agent %q is embedded or has no local markdown file", id)
 }
 
 func List() ([]pcwrap.EmbeddedAgent, error) {
-	entries, err := embeddedFS.ReadDir("embedded")
+	paths, err := embeddedAgentPaths()
 	if err != nil {
-		return nil, fmt.Errorf("read embedded agents failed: %w", err)
+		return nil, err
 	}
-	agents := make([]pcwrap.EmbeddedAgent, 0, len(entries))
+	agents := make([]pcwrap.EmbeddedAgent, 0, len(paths))
 	indexByID := map[string]int{}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-			continue
-		}
-		agent, err := loadMarkdownAgent("embedded/" + entry.Name())
+	for _, path := range paths {
+		agent, err := loadMarkdownAgent(path)
 		if err != nil {
 			return nil, err
 		}
@@ -195,6 +198,25 @@ func List() ([]pcwrap.EmbeddedAgent, error) {
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
 	return agents, nil
+}
+
+func embeddedAgentPaths() ([]string, error) {
+	paths := make([]string, 0)
+	err := fs.WalkDir(embeddedFS, "embedded", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read embedded agents failed: %w", err)
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func upsertAgent(agents []pcwrap.EmbeddedAgent, indexByID map[string]int, agent pcwrap.EmbeddedAgent) []pcwrap.EmbeddedAgent {
@@ -214,26 +236,33 @@ func loadFilesystemAgents() ([]pcwrap.EmbeddedAgent, error) {
 	searchRoots := []string{searchRoot}
 	collected := make([]pcwrap.EmbeddedAgent, 0)
 	for _, root := range searchRoots {
-		entries, err := os.ReadDir(root)
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+				return nil
+			}
+			agent, err := LoadFromFile(path)
+			if err != nil {
+				return err
+			}
+			collected = append(collected, agent)
+			return nil
+		})
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return nil, fmt.Errorf("read embedded agents from %s failed: %w", root, err)
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-				continue
-			}
-			agent, err := LoadFromFile(filepath.Join(root, entry.Name()))
-			if err != nil {
-				return nil, err
-			}
-			collected = append(collected, agent)
-		}
 	}
 	return collected, nil
 }
+
+type foundAgentPath string
+
+func (p foundAgentPath) Error() string { return string(p) }
 
 func mustGet(id string) pcwrap.EmbeddedAgent {
 	agent, err := Get(id)

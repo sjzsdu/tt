@@ -176,8 +176,8 @@ flowchart TD
 - 项目定位与命令清单：`README.md`
 - 依赖栈：`go.mod`
 - 前端构建嵌入：`Makefile`、`internal/webui/*`
-- docs 命令：`cmd/docs.go`、`internal/agents/embedded/docs-analyst.md`
-- agent 优化命令：`cmd/agent_optimize.go`、`internal/agentopt/`、`internal/agents/embedded/agent-optimizer.md`
+- docs 命令：`cmd/docs.go`、`internal/agents/embedded/docs/docs-analyst.md`
+- agent 优化命令：`cmd/agent_optimize.go`、`internal/agentopt/`、`internal/agents/embedded/engineering/agent-optimizer.md`
 - formula 子包：`cmd/formula/`
 - 内置 formula：`internal/formula/builtin/formulas/`、`internal/formula/builtin/atomics/`
 - step kinds 实现：`internal/formula/steps/kinds.go`

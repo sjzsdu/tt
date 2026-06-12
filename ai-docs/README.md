@@ -40,7 +40,7 @@
 ### 如果你准备增强 docs / 代码理解生成能力
 1. [项目概览](./overview.md)
 2. [命令与模块地图](./module-map.md)
-3. 再看 `cmd/docs.go` 与 `internal/agents/embedded/docs-analyst.md`
+3. 再看 `cmd/docs.go` 与 `internal/agents/embedded/docs/docs-analyst.md`
 
 ---
 

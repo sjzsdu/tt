@@ -274,7 +274,7 @@ tt debate --topic "英伟达估值是否还能支撑上涨" --rounds 4
 tt debate "比亚迪现在是机会还是风险" --out debates/byd.json
 ```
 
-The embedded agent definitions live in `internal/agents/embedded/*.md` as Markdown files with YAML frontmatter. The `internal/agents` package loads them into Picoclaw `EmbeddedAgent` values so future embedded agents can be added without hardcoding large prompts in command files.
+The embedded agent definitions live in `internal/agents/embedded/<category>/*.md` as Markdown files with YAML frontmatter. The `internal/agents` package loads them into Picoclaw `EmbeddedAgent` values so future embedded agents can be added without hardcoding large prompts in command files.
 
 The embedded stock agents are configured with `tongstock-cli` and `agent-browser` skills, and research tools such as web/search/fetch/exec are enabled in the cloned Picoclaw runtime config. This command depends on Picoclaw config and models, defaulting to `~/.picoclaw/config.json` unless overridden.
 
@@ -294,7 +294,7 @@ Flags:
 
 ### `tt nvwa`
 
-Generate OpenClaw/Picoclaw-style prompt content for a professional role. `nvwa` calls an embedded prompt-designer agent through the configured Picoclaw model, so the result is role-specific rather than a fixed template. By default it writes generated files and asks the model for a standard-length prompt: `Agent.md` about 900-1400 Chinese characters and `soul.md` about 400-700 Chinese characters. Set `--write=false` to print to stdout. Use `--style embedded` to output the same YAML-frontmatter Markdown format used by `internal/agents/embedded/*.md`.
+Generate OpenClaw/Picoclaw-style prompt content for a professional role. `nvwa` calls an embedded prompt-designer agent through the configured Picoclaw model, so the result is role-specific rather than a fixed template. By default it writes generated files and asks the model for a standard-length prompt: `Agent.md` about 900-1400 Chinese characters and `soul.md` about 400-700 Chinese characters. Set `--write=false` to print to stdout. Use `--style embedded` to output the same YAML-frontmatter Markdown format used by `internal/agents/embedded/<category>/*.md`.
 
 ```bash
 tt nvwa 前端开发工程师

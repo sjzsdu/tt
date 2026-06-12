@@ -7,6 +7,21 @@ import (
 )
 
 func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
+	paths, err := embeddedAgentPaths()
+	if err != nil {
+		t.Fatalf("embeddedAgentPaths() error = %v", err)
+	}
+	foundNested := false
+	for _, path := range paths {
+		if path == "embedded/core/coder.md" {
+			foundNested = true
+			break
+		}
+	}
+	if !foundNested {
+		t.Fatalf("embeddedAgentPaths() should include nested embedded/core/coder.md; got %v", paths)
+	}
+
 	core := Core()
 	if len(core) != 6 {
 		t.Fatalf("Core len = %d, want 6", len(core))
@@ -118,6 +133,50 @@ You are a local demo agent.
 	}
 	if got.ID != "local-demo" {
 		t.Fatalf("Get(local-demo).ID = %q", got.ID)
+	}
+}
+
+func TestListLoadsFilesystemAgentsFromSubdirectories(t *testing.T) {
+	tmp := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir(tmp) error = %v", err)
+	}
+
+	dir := filepath.Join(".tt", "agents", "custom", "review")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	const md = `---
+id: nested-local-demo
+name: Nested Local Demo
+soul: Nested soul
+---
+You are a nested local demo agent.
+`
+	path := filepath.Join(dir, "nested-local-demo.md")
+	if err := os.WriteFile(path, []byte(md), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got, err := Get("nested-local-demo")
+	if err != nil {
+		t.Fatalf("Get(nested-local-demo) error = %v", err)
+	}
+	if got.Name != "Nested Local Demo" || got.Soul != "Nested soul" || got.Prompt == "" {
+		t.Fatalf("nested-local-demo fields mismatch: %+v", got)
+	}
+
+	gotPath, err := FilePathForID("nested-local-demo")
+	if err != nil {
+		t.Fatalf("FilePathForID(nested-local-demo) error = %v", err)
+	}
+	if gotPath != path {
+		t.Fatalf("FilePathForID(nested-local-demo) = %q, want %q", gotPath, path)
 	}
 }
 

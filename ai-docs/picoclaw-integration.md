@@ -105,7 +105,7 @@ sequenceDiagram
 
 ## embedded agent：为什么是 Markdown 文件
 
-`internal/agents/embedded/*.md` 是这个项目非常有代表性的设计。
+`internal/agents/embedded/<category>/*.md` 是这个项目非常有代表性的设计。
 
 它把 agent 定义放在 Markdown 中，并配 YAML frontmatter，例如：
 - `id`
@@ -125,7 +125,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[internal/agents/embedded/*.md] --> B[embed.FS]
+    A[internal/agents/embedded/<category>/*.md] --> B[embed.FS]
     B --> C[读取 Markdown]
     C --> D[splitFrontMatter]
     D --> E[YAML 解析 definition]
@@ -169,7 +169,7 @@ flowchart TD
 以 JSON 输出已解析的 runtime 信息（home、config 路径、skills、agents、providers 摘要等）。
 
 ### `tt agent optimize`
-用 `agent-optimizer` 把一个基础 agent 优化为针对目标仓库的专用 agent。优化后会写入 `internal/agents/embedded/*.md` 风格的新 Markdown 定义，默认就地更新源文件；`--copy` 创建副本，`--output` 显式指定路径。
+用 `agent-optimizer` 把一个基础 agent 优化为针对目标仓库的专用 agent。优化后会写入 `internal/agents/embedded/<category>/*.md` 风格的新 Markdown 定义，默认就地更新源文件；`--copy` 创建副本，`--output` 显式指定路径。
 
 ### `tt translate`
 使用固定的 `translate-master`。
@@ -284,7 +284,7 @@ Picoclaw 运行时并不是直接只读自身配置，还会受 `tt` 的双层�
 1. `internal/picoclaw/runtime.go`
 2. `internal/picoclaw/direct.go`
 3. `internal/agents/agents.go`
-4. `internal/agents/embedded/*.md`
+4. `internal/agents/embedded/<category>/*.md`
 5. `cmd/agent.go`
 6. `cmd/translate.go`
 7. `cmd/docs.go`
@@ -297,7 +297,7 @@ Picoclaw 运行时并不是直接只读自身配置，还会受 `tt` 的双层�
 - DirectRunner：`internal/picoclaw/direct.go`
 - 运行参数解析：`internal/picoclaw/resolve.go`
 - embedded agent 注册：`internal/picoclaw/embedded_agent.go`
-- embedded agents 定义：`internal/agents/agents.go`、`internal/agents/embedded/*.md`
+- embedded agents 定义：`internal/agents/agents.go`、`internal/agents/embedded/<category>/*.md`
 - 通用 agent 命令：`cmd/agent.go`
 - 翻译命令：`cmd/translate.go`
 - 文档分析命令：`cmd/docs.go`
