@@ -74,7 +74,26 @@ func applyEmbeddedAgentConfig(cfg *pcconfig.Config, agent *EmbeddedAgent, model 
 	if agent.EnableResearchTools {
 		enableResearchTools(cfg)
 	}
+	applyEmbeddedAgentTools(cfg, agent.Tools)
 	return nil
+}
+
+func applyEmbeddedAgentTools(cfg *pcconfig.Config, tools EmbeddedAgentTools) {
+	if cfg == nil {
+		return
+	}
+	setBoolPtr(&cfg.Tools.Skills.Enabled, tools.Skills)
+	setBoolPtr(&cfg.Tools.FindSkills.Enabled, tools.FindSkills)
+	setBoolPtr(&cfg.Tools.Web.Enabled, tools.Web)
+	setBoolPtr(&cfg.Tools.WebFetch.Enabled, tools.WebFetch)
+	setBoolPtr(&cfg.Tools.Exec.Enabled, tools.Exec)
+}
+
+func setBoolPtr(target *bool, value *bool) {
+	if target == nil || value == nil {
+		return
+	}
+	*target = *value
 }
 
 func enableResearchTools(cfg *pcconfig.Config) {

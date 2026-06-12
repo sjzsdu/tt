@@ -3,6 +3,7 @@ package agents
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -221,5 +222,70 @@ You are an overridden writer agent.
 	}
 	if count != 1 {
 		t.Fatalf("writer count = %d, want 1", count)
+	}
+}
+
+func TestCoreAgentMetadataContract(t *testing.T) {
+	wantIDs := map[string]struct{}{
+		CoderID:        {},
+		PlannerID:      {},
+		TesterID:       {},
+		CodeResearchID: {},
+	}
+
+	all := All()
+	seen := map[string]struct{}{}
+	for _, agent := range all {
+		if _, ok := wantIDs[agent.ID]; !ok {
+			continue
+		}
+		seen[agent.ID] = struct{}{}
+		if strings.TrimSpace(agent.Description) == "" {
+			t.Fatalf("%s missing description", agent.ID)
+		}
+		if len(agent.Capabilities) == 0 {
+			t.Fatalf("%s missing capabilities", agent.ID)
+		}
+		if len(agent.OutputContract.Sections) == 0 {
+			t.Fatalf("%s missing output_contract.sections", agent.ID)
+		}
+		if agent.Validation.Required && strings.TrimSpace(agent.Validation.Evidence) == "" {
+			t.Fatalf("%s requires validation but has no evidence policy", agent.ID)
+		}
+	}
+	for id := range wantIDs {
+		if _, ok := seen[id]; !ok {
+			t.Fatalf("metadata contract did not see core agent %s", id)
+		}
+	}
+}
+
+func TestAgentIDsAreUniqueAndPromptsReasonable(t *testing.T) {
+	agents := All()
+	seen := map[string]struct{}{}
+	coreMetadataAgents := map[string]struct{}{
+		CoderID:        {},
+		PlannerID:      {},
+		TesterID:       {},
+		CodeResearchID: {},
+	}
+	for _, agent := range agents {
+		if strings.TrimSpace(agent.ID) == "" {
+			t.Fatalf("agent missing id: %+v", agent)
+		}
+		if _, ok := seen[agent.ID]; ok {
+			t.Fatalf("duplicate agent id %q", agent.ID)
+		}
+		seen[agent.ID] = struct{}{}
+		if strings.TrimSpace(agent.Prompt) == "" {
+			t.Fatalf("%s missing prompt body", agent.ID)
+		}
+		_, isCoreMetadataAgent := coreMetadataAgents[agent.ID]
+		if isCoreMetadataAgent && len(agent.Prompt) > 12000 {
+			t.Fatalf("%s prompt too long: %d chars", agent.ID, len(agent.Prompt))
+		}
+		if agent.Validation.Required && !strings.Contains(strings.ToLower(agent.Prompt), "验证") && !strings.Contains(strings.ToLower(agent.Prompt), "evidence") {
+			t.Fatalf("%s requires validation but prompt does not mention validation/evidence", agent.ID)
+		}
 	}
 }

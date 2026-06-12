@@ -317,6 +317,13 @@ func TestFinalReportChatMessageHandler(t *testing.T) {
 	if !strings.Contains(fake.opt.Message, "report body") || !strings.Contains(fake.opt.Message, "Please revise it") {
 		t.Fatalf("message = %q", fake.opt.Message)
 	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if dashboard.state.FinalReportChat != nil && len(dashboard.state.FinalReportChat.Messages) == 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if dashboard.state.FinalReportChat == nil || len(dashboard.state.FinalReportChat.Messages) != 2 {
 		t.Fatalf("chat = %+v", dashboard.state.FinalReportChat)
 	}
