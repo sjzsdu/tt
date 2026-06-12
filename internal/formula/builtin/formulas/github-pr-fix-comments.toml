@@ -520,6 +520,8 @@ description = """
 - 不要编造未执行的测试、push、同步校验或评论处理结果。
 - `Comments 明细` 中 `Comment` 优先使用 comment url 做 Markdown 链接；没有 url 时使用 comment_id。
 - `摘要` 必须压缩成一句话，不要粘贴完整评论正文或 diff hunk。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 agent.name = "reporter"
 agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"

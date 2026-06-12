@@ -88,6 +88,8 @@ Rules:
 - `input_context` injects prior outputs into agent prompts.
 - Prefer whole step ids in `input_context`, not field paths.
 - Do not feed huge content to an agent if a deterministic step can shrink or materialize it first.
+- Treat each step output as a delta contract: include only information unique to that step. Do not repeat upstream fields unless a downstream `condition`, `loop.until`, `aggregate`, or report explicitly needs them.
+- For final reports, pass curated summaries or manifests, not full raw stdout/stderr/diffs/logs. A reporter must synthesize conclusions instead of pasting upstream JSON or child reports.
 
 ### 4. Move deterministic work out of agents
 
@@ -235,6 +237,7 @@ Agent guidance:
 - Use `writer` or `reporter` for user-facing prose.
 - If output drives `condition`, `loop.until`, `aggregate`, or tools, require compact JSON and validate it.
 - Do not mix long Markdown and control JSON in one step. Split them.
+- For reporter/writer steps, explicitly forbid repeating raw upstream JSON, stdout/stderr, diffs, logs, or full child reports. Ask for only each upstream step's unique conclusion, state change, files/URLs/commits, risks, and next action.
 
 ### 2. Tool step, for built-in deterministic operations
 

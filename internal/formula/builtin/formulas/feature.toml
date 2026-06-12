@@ -274,6 +274,8 @@ description = """
 - 控制在 8 条以内要点，优先写可执行结论；
 - 不要把未执行测试写成已执行；
 - 如果未完整实现或不安全上线，必须明确写出原因与下一步。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 agent.name = "reporter"
 agent.cwd = "{{workspace_path}}"

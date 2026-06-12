@@ -345,6 +345,8 @@ description = """
 - 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败。
 - 如果 formula_repairs.submit-review-comments 可用，必须在报告中增加“运行时脚本自修复”提示，说明本次使用了临时 fixed_command，并建议更新 github-pr-review formula 文档。
 - 如果 build-pr-context.context.stdout.ready=false，直接报告 PR 元数据获取失败和 build-pr-context.context.stdout.error，不要继续编造 review 结果。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 
 [steps.agent]

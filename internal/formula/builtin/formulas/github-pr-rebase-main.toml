@@ -663,6 +663,8 @@ description = """
 8. 给出下一步建议，例如刷新 PR、等待 CI、或人工处理 blocker。
 
 不要编造未出现在 input_context 中的测试或 push 结果。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 
 [steps.agent]

@@ -261,6 +261,8 @@ description = """
 - 不要粘贴每个子流程的完整 final_report，只能基于结构化字段总结。
 - `Comments 明细` 中 `Comment` 优先使用 comment url 做 Markdown 链接；没有 url 时用 comment_id。
 - `Comments 明细` 中 `摘要` 必须压缩到一句话，不能粘贴完整评论正文。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 
 [steps.agent]

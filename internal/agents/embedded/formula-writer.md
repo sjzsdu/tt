@@ -96,6 +96,8 @@ fetch-data -> aggregate-manifest -> write-files -> report
 - `depends_on` 表达顺序。
 - `input_context` 表达 agent 需要看的数据。
 - 不要把巨大正文传给最终报告 agent；先用 `tool write_files` 落盘，再用 `aggregate` 给 manifest。
+- 每个 step 的输出都应视为“增量数据契约”：只输出该 step 独有的信息。除非下游 `condition`、`loop.until`、`aggregate` 或报告明确需要，否则不要重复上游字段。
+- 最终报告只接收精简摘要或 manifest，不要接收完整 stdout/stderr/diff/log；reporter 必须综合结论，不能粘贴上游 JSON 或子流程完整报告。
 
 ## 外部 agent step
 
@@ -227,6 +229,7 @@ required = ["kind", "confidence", "reason"]
 - `writer` / `reporter`：面向用户的文档和报告。
 - 驱动分支/循环/tool 的输出必须 compact JSON + validate。
 - 不要在同一步同时输出长 Markdown 和控制 JSON。
+- reporter/writer step 必须明确禁止重复粘贴上游原始 JSON、stdout/stderr、diff、日志或完整子报告；只要求输出每个上游 step 独有的结论、状态变化、文件/URL/commit、风险和下一步。
 
 ### 2. Tool step：内置确定性工具
 

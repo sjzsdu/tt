@@ -189,6 +189,8 @@ description = """
 - 若没有 open PR，输出一句结论和配置即可，不要输出空表格。
 - 不要编造子流程输出中没有出现的测试、push 或冲突结果。
 - 不要粘贴每个子流程的完整 final_report，只能基于结构化字段总结。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 
 [steps.agent]

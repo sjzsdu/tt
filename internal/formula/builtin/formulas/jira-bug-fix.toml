@@ -58,5 +58,7 @@ description = """
 - 不重复 bug-fix 内部细节，只做摘要。
 - 控制在 6-10 条要点内，每条 1-2 句，避免冗长复述。
 - 用用户能直接理解的语言，不要复述整条 workflow。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 agent.name = "product-manager"

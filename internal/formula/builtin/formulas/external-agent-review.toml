@@ -93,5 +93,7 @@ description = """
 1. 外部 agent 的主要风险判断；
 2. 是否需要进一步提供完整 diff 或运行测试；
 3. 建议的下一步。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """
 agent.name = "reporter"
