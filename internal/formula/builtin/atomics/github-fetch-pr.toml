@@ -1,9 +1,9 @@
 formula = "github-fetch-pr"
-description = "原子 formula：用 gh pr view 获取单个 GitHub PR 的结构化元数据。"
+description = "原子 formula：用 gh 获取单个 GitHub PR 的全量结构化信息，包括 metadata、files、patch diff 与 review 上下文字段。"
 version = 1
 type = "atomic"
 category = "github"
-tags = ["github", "pr", "atomic", "metadata"]
+tags = ["github", "pr", "atomic", "metadata", "diff", "files"]
 
 [preflight]
 
@@ -28,91 +28,89 @@ message = "需要安装 jq"
 [vars]
 pr_ref = { description = "PR 编号、URL 或分支引用", required = true }
 repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 上下文", default = "" }
+review_focus = { description = "审阅关注点；用于派生 focus_areas", default = "正确性、风险与可维护性" }
+submit_review = { description = "父流程是否计划提交 review；仅作为上下文字段输出", default = "true", enum = ["true", "false"] }
 
 [[steps]]
 id = "pr"
-title = "获取 PR 元数据"
+title = "获取 PR 全量信息"
 execution = "script"
-description = "输出 PR 编号、标题、URL、状态、head/base 分支和 head SHA 等结构化信息。"
+description = "输出 PR metadata、changed files、patch diff、diff size 和 review 上下文字段，供父 formula 自行取用。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -u
 pr="${TT_PR_REF:-}"
 repo="${TT_REPO_HINT:-}"
+review_focus="${TT_REVIEW_FOCUS:-}"
+submit_review="${TT_SUBMIT_REVIEW:-true}"
 fields='number,title,body,author,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepositoryOwner,headRepository,reviewDecision,changedFiles,commits,additions,deletions,maintainerCanModify'
-cmd=(gh pr view "$pr" --json "$fields")
-if [ -n "$repo" ]; then cmd+=(--repo "$repo"); fi
+view_cmd=(gh pr view "$pr" --json "$fields")
+files_cmd=(gh pr view "$pr" --json files)
+diff_cmd=(gh pr diff "$pr" --patch)
+if [ -n "$repo" ]; then
+  view_cmd+=(--repo "$repo")
+  files_cmd+=(--repo "$repo")
+  diff_cmd+=(--repo "$repo")
+fi
 last_out=""
-last_rc=0
+meta=""
 for attempt in 1 2 3; do
-  out="$("${cmd[@]}" 2>&1)"
+  out="$("${view_cmd[@]}" 2>&1)"
   rc=$?
   last_out="$out"
-  last_rc=$rc
-  if [ "$rc" -eq 0 ]; then
-    jq -c --arg pr_ref "$pr" --arg repo_hint "$repo" --argjson attempts "$attempt" '. + {ok:true,pr_ref:$pr_ref,repo_hint:$repo_hint,error:"",attempts:$attempts}' <<<"$out"
-    exit 0
-  fi
+  if [ "$rc" -eq 0 ]; then meta="$out"; break; fi
   case "$out" in
     *EOF*|*timeout*|*Timeout*|*TLS*|*tls*|*connection*|*Connection*|*network*|*Network*) sleep "$attempt" ;;
     *) break ;;
   esac
 done
-if printf '%s' "$pr" | grep -Eq '^[0-9]+$'; then
-  owner_repo="$repo"
-  if [ -z "$owner_repo" ]; then
-    origin_url="$(git config --get remote.origin.url 2>/dev/null || true)"
-    case "$origin_url" in
-      git@github.com:*) owner_repo="${origin_url#git@github.com:}" ; owner_repo="${owner_repo%.git}" ;;
-      https://github.com/*) owner_repo="${origin_url#https://github.com/}" ; owner_repo="${owner_repo%.git}" ;;
-      http://github.com/*) owner_repo="${origin_url#http://github.com/}" ; owner_repo="${owner_repo%.git}" ;;
-    esac
-  fi
-  if [ -n "$owner_repo" ] && printf '%s' "$owner_repo" | grep -q '/'; then
-    rest_out="$(gh api "repos/${owner_repo}/pulls/${pr}" 2>&1)"
-    rest_rc=$?
-    if [ "$rest_rc" -eq 0 ]; then
-      jq -c \
-        --arg pr_ref "$pr" \
-        --arg repo_hint "$repo" \
-        --arg owner_repo "$owner_repo" \
-        --arg graphql_error "$last_out" \
-        --argjson attempts 3 '
-        {
-          ok:true,
-          pr_ref:$pr_ref,
-          repo_hint:$repo_hint,
-          error:"",
-          attempts:$attempts,
-          fallback:"rest",
-          graphql_error:$graphql_error,
-          number:.number,
-          title:(.title // ""),
-          body:(.body // ""),
-          author:{login:(.user.login // "")},
-          url:(.html_url // ""),
-          state:(.state // ""),
-          isDraft:(.draft // false),
-          baseRefName:(.base.ref // ""),
-          headRefName:(.head.ref // ""),
-          headRefOid:(.head.sha // ""),
-          headRepositoryOwner:{login:(.head.repo.owner.login // "")},
-          headRepository:(.head.repo // {}),
-          reviewDecision:null,
-          changedFiles:(.changed_files // 0),
-          commits:(.commits // 0),
-          additions:(.additions // 0),
-          deletions:(.deletions // 0),
-          maintainerCanModify:(.maintainer_can_modify // false)
-        }' <<<"$rest_out"
-      exit 0
-    fi
-    last_out="$last_out; REST fallback failed: $rest_out"
-  fi
+if [ -z "$meta" ]; then
+  jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$last_out" '{ok:false,ready:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error,files:[],patch:"",patch_chars:0,changed_files:[],focus_areas:[]}'
+  exit 0
 fi
-jq -cn --arg pr_ref "$pr" --arg repo_hint "$repo" --arg error "$last_out" --argjson attempts 3 '{ok:false,pr_ref:$pr_ref,repo_hint:$repo_hint,error:$error,attempts:$attempts}'
-exit 0
+files_out="$("${files_cmd[@]}" 2>&1)"; files_rc=$?
+diff_out="$("${diff_cmd[@]}" 2>&1)"; diff_rc=$?
+if [ "$files_rc" -ne 0 ]; then files_json='{"files":[]}'; files_error="$files_out"; else files_json="$files_out"; files_error=""; fi
+if [ "$diff_rc" -ne 0 ]; then patch=""; diff_error="$diff_out"; else patch="$diff_out"; diff_error=""; fi
+jq -cn \
+  --argjson meta "$meta" \
+  --argjson files_data "$files_json" \
+  --arg pr_ref "$pr" \
+  --arg repo_hint "$repo" \
+  --arg patch "$patch" \
+  --arg files_error "$files_error" \
+  --arg diff_error "$diff_error" \
+  --arg review_focus "$review_focus" \
+  --arg submit_review "$submit_review" '
+  def changed_files:
+    [($files_data.files // [])[] | {path:(.path // .filename // ""), additions:(.additions // 0), deletions:(.deletions // 0), change_type:(.changeType // .status // "")}];
+  def focus_areas: ($review_focus | gsub("，"; ",") | split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length>0)));
+  def commits_summary:
+    (($meta.commits // []) | if type == "array" then map((.messageHeadline // .message // ""))[:10] | map(select(length>0)) | join("; ") else "" end);
+  ($meta + {
+    ok:true,
+    ready:(($meta.number // null) != null),
+    error:($files_error // ""),
+    diff_error:($diff_error // ""),
+    pr_ref:$pr_ref,
+    repo_hint:$repo_hint,
+    files:($files_data.files // []),
+    patch:$patch,
+    patch_chars:($patch|length),
+    base_branch:($meta.baseRefName // ""),
+    head_branch:($meta.headRefName // ""),
+    head_sha:($meta.headRefOid // ""),
+    is_draft:($meta.isDraft // false),
+    review_decision:($meta.reviewDecision // ""),
+    changed_files:changed_files,
+    changed_files_count:(($meta.changedFiles // null) // (changed_files|length)),
+    pr_summary:(([$meta.body // "", (if commits_summary == "" then "" else "Commits: " + commits_summary end)] | map(select(length>0)) | join("\\n")) // ($meta.title // "")),
+    focus_areas:focus_areas,
+    diff_overview:((changed_files|length|tostring) + " files changed, +" + (($meta.additions // 0)|tostring) + "/-" + (($meta.deletions // 0)|tostring) + ", patch_chars=" + (($patch|length)|tostring)),
+    review_constraints:["Do not invent behavior not supported by the PR metadata or diff.","Use line comments only when the diff supports file and line evidence."],
+    submit_review:($submit_review == "true")
+  })'
 """]
 format = "json"
 timeout = "60s"
@@ -120,6 +118,8 @@ timeout = "60s"
 [steps.script.env]
 TT_PR_REF = "{{pr_ref}}"
 TT_REPO_HINT = "{{repo_hint}}"
+TT_REVIEW_FOCUS = "{{review_focus}}"
+TT_SUBMIT_REVIEW = "{{submit_review}}"
 
 [steps.validate]
 format = "json"

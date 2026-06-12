@@ -36,55 +36,24 @@ repo_hint = { description = "可选的仓库提示，例如 owner/repo；若为�
 submit_review = { description = "是否真实提交 GitHub review/comment；默认 true。传 false 时仅生成草稿，不写入 GitHub。", default = "true", enum = ["true", "false"] }
 
 [[steps]]
-id = "fetch-pr-metadata"
-title = "使用 gh 获取 PR 基本信息"
+id = "fetch-pr"
+title = "使用 gh 获取 PR 全量信息"
 embed = "github-fetch-pr"
 
 [steps.embed_vars]
 pr_ref = "{{pr_ref}}"
 repo_hint = "{{repo_hint}}"
-
-[[steps]]
-id = "fetch-pr-files"
-title = "使用 gh 获取 PR 改动文件清单"
-depends_on = ["fetch-pr-metadata"]
-embed = "github-fetch-pr-files"
-
-[steps.embed_vars]
-pr_ref = "{{pr_ref}}"
-repo_hint = "{{repo_hint}}"
-
-[[steps]]
-id = "fetch-pr-diff"
-title = "使用 gh 获取 PR diff"
-depends_on = ["fetch-pr-metadata"]
-embed = "github-fetch-pr-diff"
-
-[steps.embed_vars]
-pr_ref = "{{pr_ref}}"
-repo_hint = "{{repo_hint}}"
-
-[[steps]]
-id = "build-pr-context"
-title = "整理结构化 PR 上下文"
-depends_on = ["fetch-pr-metadata", "fetch-pr-files", "fetch-pr-diff"]
-embed = "github-build-pr-context"
-
-[steps.embed_vars]
-meta_json = "{{fetch-pr-metadata.pr.stdout}}"
-files_json = "{{fetch-pr-files.files.stdout}}"
-patch_chars = "{{fetch-pr-diff.diff.stdout.patch_chars}}"
 review_focus = "{{review_focus}}"
 submit_review = "{{submit_review}}"
 
 [[steps]]
 id = "analyze-review-findings"
 title = "分析改动并产出审阅问题清单"
-depends_on = ["build-pr-context", "fetch-pr-diff"]
-condition = "build-pr-context.context.stdout.ready == true"
-input_context = ["build-pr-context.context.stdout", "fetch-pr-diff.diff.stdout.patch"]
+depends_on = ["fetch-pr"]
+condition = "fetch-pr.pr.stdout.ready == true"
+input_context = ["fetch-pr.pr.stdout", "fetch-pr.pr.stdout.patch"]
 description = """
-基于 build-pr-context.context.stdout 与 fetch-pr-diff.diff.stdout.patch 对该 PR 做代码审阅。
+基于 fetch-pr.pr.stdout 与 fetch-pr.pr.stdout.patch 对该 PR 做代码审阅。
 
 重点关注：正确性、边界条件、回归风险、安全性、性能、可维护性，以及 review_focus 明确相关的方面。
 
@@ -116,9 +85,9 @@ required = ["has_findings", "review_comments", "files_and_modules", "major_risks
 [[steps]]
 id = "prepare-review-summary"
 title = "整理待提交评论与总评摘要"
-depends_on = ["analyze-review-findings", "build-pr-context"]
-condition = "build-pr-context.context.stdout.ready == true"
-input_context = ["analyze-review-findings.review_comments", "analyze-review-findings.has_findings", "analyze-review-findings.why_clean", "analyze-review-findings.major_risks", "build-pr-context.context.stdout.submit_review", "build-pr-context.context.stdout.title", "build-pr-context.context.stdout.url"]
+depends_on = ["analyze-review-findings", "fetch-pr"]
+condition = "fetch-pr.pr.stdout.ready == true"
+input_context = ["analyze-review-findings.review_comments", "analyze-review-findings.has_findings", "analyze-review-findings.why_clean", "analyze-review-findings.major_risks", "fetch-pr.pr.stdout.submit_review", "fetch-pr.pr.stdout.title", "fetch-pr.pr.stdout.url"]
 description = """
 基于 review findings 与 PR context，整理提交计划。
 
@@ -133,7 +102,7 @@ description = """
 }
 
 要求：
-- submit_review 直接沿用 build-pr-context.context.stdout.submit_review。
+- submit_review 直接沿用 fetch-pr.pr.stdout.submit_review。
 - 将可行的 line 评论与 conversation 评论分开。
 - summary_comment 需总结整体结论、风险重点、建议动作。
 - table_rows 将用于最终报告中的汇总表格。
@@ -152,7 +121,7 @@ id = "submit-review-comments"
 title = "提交 review summary 与 conversation comments"
 execution = "script"
 depends_on = ["prepare-review-summary"]
-input_context = ["prepare-review-summary.summary_comment", "prepare-review-summary.conversation_comments", "prepare-review-summary.submit_review", "build-pr-context.context.stdout.number", "build-pr-context.context.stdout.repo_hint"]
+input_context = ["prepare-review-summary.summary_comment", "prepare-review-summary.conversation_comments", "prepare-review-summary.submit_review", "fetch-pr.pr.stdout.number", "fetch-pr.pr.stdout.repo_hint"]
 condition = "prepare-review-summary.submit_review == true"
 
 [steps.script]
@@ -234,7 +203,7 @@ condition = "prepare-review-summary.submit_review == true"
   id = "submit-inline-comment"
   title = "提交 inline comment {{review_comment.id}}"
   execution = "script"
-  input_context = ["review_comment", "build-pr-context.context.stdout.head_sha", "build-pr-context.context.stdout.repo_hint"]
+  input_context = ["review_comment", "fetch-pr.pr.stdout.head_sha", "fetch-pr.pr.stdout.repo_hint"]
 
     [steps.loop.body.script]
     command = ["python3", "-c", """
@@ -300,8 +269,8 @@ emit(result)
 
     [steps.loop.body.script.env]
     TT_PR_REF = "{{pr_ref}}"
-    TT_REPO_HINT = "{{build-pr-context.context.stdout.repo_hint}}"
-    TT_HEAD_SHA = "{{build-pr-context.context.stdout.head_sha}}"
+    TT_REPO_HINT = "{{fetch-pr.pr.stdout.repo_hint}}"
+    TT_HEAD_SHA = "{{fetch-pr.pr.stdout.head_sha}}"
     TT_REVIEW_COMMENT = "{{review_comment}}"
 
   [steps.loop.body.validate]
@@ -312,8 +281,8 @@ emit(result)
 id = "draft-review-comments"
 title = "生成 review 草稿但不真实提交"
 depends_on = ["prepare-review-summary"]
-input_context = ["prepare-review-summary", "build-pr-context.context.stdout.url", "analyze-review-findings.why_clean"]
-condition = "build-pr-context.context.stdout.ready == true && prepare-review-summary.submit_review == false"
+input_context = ["prepare-review-summary", "fetch-pr.pr.stdout.url", "analyze-review-findings.why_clean"]
+condition = "fetch-pr.pr.stdout.ready == true && prepare-review-summary.submit_review == false"
 description = """
 基于 review_plan、PR URL 和 why_clean 生成拟发送 review 草稿。
 
@@ -328,8 +297,8 @@ name = "coder"
 [[steps]]
 id = "final-report"
 title = "输出最终 PR 审查报告"
-depends_on = ["submit-review-comments", "submit-inline-comments", "draft-review-comments"]
-input_context = ["build-pr-context.context.stdout.ready", "build-pr-context.context.stdout.error", "build-pr-context.context.stdout.title", "build-pr-context.context.stdout.url", "build-pr-context.context.stdout.changed_files_count", "build-pr-context.context.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "submit-inline-comments", "formula_repairs.submit-review-comments", "formula_repairs.submit-inline-comment", "draft-review-comments"]
+depends_on = ["fetch-pr", "submit-review-comments", "submit-inline-comments", "draft-review-comments"]
+input_context = ["fetch-pr.pr.stdout.ready", "fetch-pr.pr.stdout.error", "fetch-pr.pr.stdout.title", "fetch-pr.pr.stdout.url", "fetch-pr.pr.stdout.changed_files_count", "fetch-pr.pr.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "submit-inline-comments", "formula_repairs.submit-review-comments", "formula_repairs.submit-inline-comment", "draft-review-comments"]
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
 
@@ -344,7 +313,7 @@ description = """
 - 如果没有问题，仍然输出 no-issue 行。
 - 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败。
 - 如果 formula_repairs.submit-review-comments 可用，必须在报告中增加“运行时脚本自修复”提示，说明本次使用了临时 fixed_command，并建议更新 github-pr-review formula 文档。
-- 如果 build-pr-context.context.stdout.ready=false，直接报告 PR 元数据获取失败和 build-pr-context.context.stdout.error，不要继续编造 review 结果。
+- 如果 fetch-pr.pr.stdout.ready=false，直接报告 PR 元数据获取失败和 fetch-pr.pr.stdout.error，不要继续编造 review 结果。
 
 - 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
 """

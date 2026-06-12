@@ -17,10 +17,7 @@
 |---|---|---|---|
 | `git-auto-detect-validation` | `feature`, `gongbu` | `validation.stdout` | 根据仓库标记自动选择轻量验证命令并执行 |
 | `git-run-validation` | `github-pr-rebase-main` | `validation.stdout` | 在指定 repo 运行父流程传入的验证命令 |
-| `github-fetch-pr` | `github-pr-review`, `github-pr-fix-comments`, `github-pr-rebase-main` | `pr.stdout` | 获取单个 GitHub PR 的结构化 metadata |
-| `github-fetch-pr-files` | `github-pr-review` | `files.stdout` | 获取 PR changed files 列表 |
-| `github-fetch-pr-diff` | `github-pr-review` | `diff.stdout` | 获取 PR patch diff 和 diff 大小 |
-| `github-build-pr-context` | `github-pr-review` | `context.stdout` | 将 PR metadata/files/diff size 规整成 review 上下文 |
+| `github-fetch-pr` | `github-pr-review`, `github-pr-fix-comments`, `github-pr-rebase-main` | `pr.stdout` | 一次获取单个 GitHub PR 的 metadata、changed files、patch diff 和 review 上下文字段 |
 | `github-list-my-prs` | `github-my-prs-fix-comments`, `github-my-prs-rebase-main` | `prs.stdout` | 列出当前仓库指定作者的 open PR，供批量流程循环 |
 
 ## 详细说明
@@ -76,82 +73,30 @@
 
 父流程：`github-pr-review`, `github-pr-fix-comments`, `github-pr-rebase-main`
 
+这是唯一的“获取单个 PR” atomic。它一次调用 GitHub CLI 获取 metadata、changed files、patch diff，并派生 review 所需上下文字段。父 formula 需要什么字段就直接从 `pr.stdout` 取，不再拆成多个 fetch atomic。
+
 变量：
 
 - `pr_ref`: PR 编号、URL 或分支引用。
 - `repo_hint`: 可选 `owner/repo`，为空时使用当前 `gh` repo context。
+- `review_focus`: 审阅关注点，用于派生 `focus_areas`。
+- `submit_review`: 父流程是否计划提交 review，仅作为上下文字段输出。
 
 输出：`pr.stdout`
 
 关键字段：
 
-- `ok`, `error`, `attempts`
+- `ok`, `ready`, `error`, `diff_error`
 - `number`, `title`, `body`, `author`, `url`, `state`, `isDraft`
 - `baseRefName`, `headRefName`, `headRefOid`
-- `changedFiles`, `additions`, `deletions`, `commits`
-
-### `github-fetch-pr-files`
-
-父流程：`github-pr-review`
-
-变量：
-
-- `pr_ref`: PR 编号、URL 或分支引用。
-- `repo_hint`: 可选 `owner/repo`。
-
-输出：`files.stdout`
-
-关键字段：
-
-- `ok`
-- `files`
-- `error`
-- `command`
-
-### `github-fetch-pr-diff`
-
-父流程：`github-pr-review`
-
-变量：
-
-- `pr_ref`: PR 编号、URL 或分支引用。
-- `repo_hint`: 可选 `owner/repo`。
-
-输出：`diff.stdout`
-
-关键字段：
-
-- `ok`
-- `patch`
-- `patch_chars`
-- `stderr`
-- `error`
-- `command`
-
-注意：`patch` 可能很大，父流程不要直接把它传给最终报告；应先分析/压缩。
-
-### `github-build-pr-context`
-
-父流程：`github-pr-review`
-
-变量：
-
-- `meta_json`: 通常是 `{{fetch-pr.pr.stdout}}`。
-- `files_json`: 通常是 `{{fetch-pr-files.files.stdout}}`。
-- `patch_chars`: 通常是 `{{fetch-pr-diff.diff.stdout.patch_chars}}`。
-- `review_focus`: 审阅关注点。
-- `submit_review`: 父流程是否计划提交 review。
-
-输出：`context.stdout`
-
-关键字段：
-
-- `ready`, `error`
-- `number`, `title`, `url`, `author`, `state`, `is_draft`
+- `files`: GitHub CLI 原始 files 列表
+- `patch`, `patch_chars`
+- `changed_files`, `changed_files_count`
 - `base_branch`, `head_branch`, `head_sha`
-- `changed_files`, `changed_files_count`, `additions`, `deletions`
 - `pr_summary`, `focus_areas`, `diff_overview`
 - `review_constraints`, `submit_review`
+
+注意：`patch` 可能很大，最终报告不要直接粘贴。父流程应只把它传给分析 step。
 
 ### `github-list-my-prs`
 
@@ -194,8 +139,5 @@ go test ./internal/formula -run 'TestBuiltin|TestAllBuiltin'
 go run . formula compile git-auto-detect-validation
 go run . formula compile git-run-validation
 go run . formula compile github-fetch-pr
-go run . formula compile github-fetch-pr-files
-go run . formula compile github-fetch-pr-diff
-go run . formula compile github-build-pr-context
 go run . formula compile github-list-my-prs
 ```

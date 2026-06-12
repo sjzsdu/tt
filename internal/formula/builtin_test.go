@@ -89,7 +89,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 		t.Fatalf("BuiltinFormulas() error = %v", err)
 	}
 	for _, entry := range regular {
-		if slices.Contains([]string{"git-run-validation", "github-fetch-pr", "github-list-my-prs", "github-fetch-pr-files", "github-fetch-pr-diff", "github-build-pr-context", "git-auto-detect-validation"}, entry.Name) {
+		if slices.Contains([]string{"git-run-validation", "github-fetch-pr", "github-list-my-prs", "git-auto-detect-validation"}, entry.Name) {
 			t.Fatalf("atomic formula %q should not appear in regular builtin list", entry.Name)
 		}
 	}
@@ -98,7 +98,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuiltinAtomicFormulas() error = %v", err)
 	}
-	want := []string{"git-run-validation", "github-fetch-pr", "github-list-my-prs", "github-fetch-pr-files", "github-fetch-pr-diff", "github-build-pr-context", "git-auto-detect-validation"}
+	want := []string{"git-run-validation", "github-fetch-pr", "github-list-my-prs", "git-auto-detect-validation"}
 	got := make(map[string]bool)
 	for _, entry := range atomics {
 		got[entry.Name] = true
@@ -135,10 +135,7 @@ func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
 
 func TestBuiltinAtomicFormulasCompile(t *testing.T) {
 	varsByName := map[string]map[string]string{
-		"github-fetch-pr":         {"pr_ref": "1"},
-		"github-fetch-pr-files":   {"pr_ref": "1"},
-		"github-fetch-pr-diff":    {"pr_ref": "1"},
-		"github-build-pr-context": {"meta_json": `{"number":1,"title":"t"}`},
+		"github-fetch-pr": {"pr_ref": "1"},
 	}
 	atomics, err := BuiltinAtomicFormulas()
 	if err != nil {
@@ -188,23 +185,11 @@ func TestBuiltinAtomicRuntimeContracts(t *testing.T) {
 			t.Fatalf("unexpected pr output: %#v", pr)
 		}
 
-		files := runAtomicForTest(t, "github-fetch-pr-files", map[string]string{"pr_ref": "1"}, "files")
-		if files["ok"] != true || len(asSlice(files["files"])) != 1 {
-			t.Fatalf("unexpected files output: %#v", files)
+		if pr["ready"] != true || len(asSlice(pr["files"])) != 1 || len(asSlice(pr["changed_files"])) != 1 {
+			t.Fatalf("expected full PR files/context fields: %#v", pr)
 		}
-
-		diff := runAtomicForTest(t, "github-fetch-pr-diff", map[string]string{"pr_ref": "1"}, "diff")
-		if diff["ok"] != true || !strings.Contains(asString(diff["patch"]), "diff --git") || asFloat(diff["patch_chars"]) == 0 {
-			t.Fatalf("unexpected diff output: %#v", diff)
-		}
-
-		contextOut := runAtomicForTest(t, "github-build-pr-context", map[string]string{
-			"meta_json":   mustJSON(t, pr),
-			"files_json":  mustJSON(t, files),
-			"patch_chars": "123",
-		}, "context")
-		if contextOut["ready"] != true || int(asFloat(contextOut["number"])) != 1 || len(asSlice(contextOut["changed_files"])) != 1 {
-			t.Fatalf("unexpected context output: %#v", contextOut)
+		if !strings.Contains(asString(pr["patch"]), "diff --git") || asFloat(pr["patch_chars"]) == 0 {
+			t.Fatalf("expected full PR patch fields: %#v", pr)
 		}
 
 		prs := runAtomicForTest(t, "github-list-my-prs", map[string]string{"author": "me", "limit": "5"}, "prs")
@@ -332,15 +317,6 @@ exit 1
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
-func mustJSON(t *testing.T, value any) string {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(raw)
 }
 
 func asString(value any) string {

@@ -28,7 +28,7 @@
 
 | 公式 | 适用场景 | 关键能力 |
 | --- | --- | --- |
-| `github-pr-review` | 对单个 PR 完成代码审阅并默认真实提交 review | `[preflight]` 强校验 `gh` 命令与 `gh auth status`；组合 `github-fetch-pr` / `github-fetch-pr-files` / `github-fetch-pr-diff` / `github-build-pr-context` 等 atomic；末尾用确定性脚本提交 review 与 comment |
+| `github-pr-review` | 对单个 PR 完成代码审阅并默认真实提交 review | `[preflight]` 强校验 `gh` 命令与 `gh auth status`；组合单个 `github-fetch-pr` atomic 获取 PR 全量信息；末尾用确定性脚本提交 review 与 comment |
 | `github-pr-rebase-main` | 把 PR 分支 rebase 到最新 base/main | 隔离 worktree + agent 处理冲突 + `git push --force-with-lease` 推送；默认 `cleanup` 策略处理临时 worktree |
 | `github-pr-fix-comments` | 遍历未解决的 review comments 逐条用 `bug-fix` 修复 | 复用 `bug-fix` workflow（嵌套 typed runtime） |
 | `github-my-prs-rebase-main` | 批量 rebase 当前用户所有 open PR | 先用 `github-list-my-prs` 拉列表，再并发复用 `github-pr-rebase-main` |
@@ -77,9 +77,6 @@ Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[
 | --- | --- | --- |
 | `github-list-my-prs` | 当前仓库指定作者 open PR 列表 | 依赖 `gh` + `gh auth`；默认 `author = @me`；输出 `items` 数组 |
 | `github-fetch-pr` | 单个 PR 的结构化元数据 | 接受编号 / URL / 分支引用；`repo_hint` 可覆盖上下文 |
-| `github-fetch-pr-files` | PR 改动文件列表 | 配合 `github-fetch-pr` 使用 |
-| `github-fetch-pr-diff` | PR patch diff，包装为 JSON | 适合在 review / 上下文构建时直接使用 |
-| `github-build-pr-context` | 把 metadata + files + diff 摘要规整为审阅上下文 | `vars.meta_json` / `vars.files_json` / `vars.patch_chars` / `vars.review_focus` / `vars.submit_review` |
 
 ### repo
 
@@ -94,7 +91,6 @@ Atomic 是 `type = "atomic"` 的最小可复用工作单元，可被公式用 `[
 
 | 命令 / 状态 | 出现位置 |
 | --- | --- |
-| `gh`（command） | `github-pr-review` / `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `github-list-my-prs` / `github-fetch-pr` / `github-fetch-pr-files` / `github-fetch-pr-diff` |
 | `gh auth status`（exec） | 同上 github 系列 |
 | `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` / `repo-prepare-local-or-clone` |
 | `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `git-status-check` / `git-push-branch` / `git-integrate-ref` / `git-run-validation` / `git-auto-detect-validation` |
