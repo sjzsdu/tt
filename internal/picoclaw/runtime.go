@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	pcpkg "github.com/sipeed/picoclaw/pkg"
+	pcbus "github.com/sipeed/picoclaw/pkg/bus"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pcskills "github.com/sipeed/picoclaw/pkg/skills"
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
@@ -108,4 +109,8 @@ func Workspace(cfg *pcconfig.Config) string {
 	}
 	home := pcconfig.GetHome()
 	return filepath.Join(home, pcpkg.WorkspaceName)
+}
+
+func newMessageBus() *pcbus.MessageBus {
+	return pcbus.NewMessageBus()
 }

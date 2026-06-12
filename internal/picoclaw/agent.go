@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
-	pcbus "github.com/sipeed/picoclaw/pkg/bus"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pclogger "github.com/sipeed/picoclaw/pkg/logger"
 	pcproviders "github.com/sipeed/picoclaw/pkg/providers"
@@ -28,20 +27,14 @@ func (rt *Runtime) Run(opt RunOptions) error {
 
 	cfg := cloneConfig(rt.Config)
 	if workspace := resolveRunWorkspace(opt.Workspace); workspace != "" {
-		configureProjectWorkspace(cfg, workspace)
+		cfg = configureProjectWorkspace(cfg, workspace)
 	}
 	cfg = prepareConfigForRun(cfg, resolved)
 	embeddedAgents := opt.embeddedAgents()
 	if err := applyEmbeddedAgentConfigs(cfg, embeddedAgents, resolved.Model); err != nil {
 		return err
 	}
-	pclogger.ConfigureFromEnv()
-	if opt.Quiet && !opt.Debug {
-		pclogger.DisableConsole()
-	}
-	if opt.Debug {
-		pclogger.SetLevel(pclogger.DEBUG)
-	}
+	configureLogging(opt)
 	if str(resolved.Model) != "" {
 		cfg.Agents.Defaults.ModelName = str(resolved.Model)
 	}
@@ -57,35 +50,15 @@ func (rt *Runtime) Run(opt RunOptions) error {
 		defer stateful.Close()
 	}
 
-	msgBus := pcbus.NewMessageBus()
-	defer msgBus.Close()
-
-	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
+	loop := newAgentLoop(cfg, provider)
 	defer loop.Close()
 	if err := registerEmbeddedAgentPrompts(loop, embeddedAgents); err != nil {
 		return err
 	}
 
 	if text := str(resolved.Message); text != "" {
-		var resp string
-		if str(resolved.Agent) != "" && !strings.EqualFold(str(resolved.Agent), DefaultAgent(cfg)) {
-			resp, err = loop.ProcessDirectForAgent(context.Background(), text, resolved.Session, resolved.Agent)
-		} else {
-			resp, err = loop.ProcessDirect(context.Background(), text, resolved.Session)
-		}
+		resp, err := processDirect(loop, text, resolved.Session, resolved.Agent, DefaultAgent(cfg))
 		if err != nil {
-			return fmt.Errorf("process picoclaw message failed: %w", err)
-		}
-		resp, err = normalizeDirectResponse(resp, nil)
-		if err != nil {
-			if isEmptyDirectResponseError(err) {
-				resp, err = recoverEmptyDirectResponse(loop, resolved.Session, str(resolved.Agent), DefaultAgent(cfg))
-				if err == nil {
-					callBeforeOutput(opt.BeforeOutput)
-					fmt.Fprintln(os.Stdout, resp)
-					return nil
-				}
-			}
 			return err
 		}
 		callBeforeOutput(opt.BeforeOutput)
@@ -94,6 +67,47 @@ func (rt *Runtime) Run(opt RunOptions) error {
 	}
 
 	return runInteractive(loop, resolved.Session)
+}
+
+func configureLogging(opt RunOptions) {
+	pclogger.ConfigureFromEnv()
+	if opt.Quiet && !opt.Debug {
+		pclogger.DisableConsole()
+	}
+	if opt.Debug {
+		pclogger.SetLevel(pclogger.DEBUG)
+	}
+}
+
+func newAgentLoop(cfg *pcconfig.Config, provider pcproviders.LLMProvider) *pcagent.AgentLoop {
+	msgBus := newMessageBus()
+	return pcagent.NewAgentLoop(cfg, msgBus, provider)
+}
+
+func processDirect(loop *pcagent.AgentLoop, text, session, agentID, defaultAgent string) (string, error) {
+	var (
+		resp string
+		err  error
+	)
+	if str(agentID) != "" && !strings.EqualFold(str(agentID), defaultAgent) {
+		resp, err = loop.ProcessDirectForAgent(context.Background(), text, session, agentID)
+	} else {
+		resp, err = loop.ProcessDirect(context.Background(), text, session)
+	}
+	if err != nil {
+		return "", fmt.Errorf("process picoclaw message failed: %w", err)
+	}
+	resp, err = normalizeDirectResponse(resp, nil)
+	if err != nil {
+		if isEmptyDirectResponseError(err) {
+			resp, err = recoverEmptyDirectResponse(loop, session, agentID, defaultAgent)
+			if err == nil {
+				return resp, nil
+			}
+		}
+		return "", err
+	}
+	return resp, nil
 }
 
 func callBeforeOutput(fn func()) {
@@ -109,24 +123,41 @@ func cloneConfig(cfg *pcconfig.Config) *pcconfig.Config {
 	cp := *cfg
 	if len(cfg.Agents.List) > 0 {
 		cp.Agents.List = append([]pcconfig.AgentConfig(nil), cfg.Agents.List...)
+		for i := range cfg.Agents.List {
+			if cfg.Agents.List[i].Model != nil {
+				modelCopy := *cfg.Agents.List[i].Model
+				cp.Agents.List[i].Model = &modelCopy
+			}
+		}
+	}
+	if len(cfg.ModelList) > 0 {
+		cp.ModelList = make([]*pcconfig.ModelConfig, len(cfg.ModelList))
+		for i := range cfg.ModelList {
+			if cfg.ModelList[i] != nil {
+				modelCopy := *cfg.ModelList[i]
+				cp.ModelList[i] = &modelCopy
+			}
+		}
+	}
+	if len(cfg.Agents.Defaults.ModelFallbacks) > 0 {
+		cp.Agents.Defaults.ModelFallbacks = append([]string(nil), cfg.Agents.Defaults.ModelFallbacks...)
 	}
 	return &cp
 }
 
-// configureProjectWorkspace points picoclaw agents at the requested workspace.
-// Formula runs should use the actual project root or prepared worktree here;
-// .tt is only formula state storage and is not a sufficient code workspace.
-func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) {
+func configureProjectWorkspace(cfg *pcconfig.Config, workspace string) *pcconfig.Config {
 	if cfg == nil || workspace == "" {
-		return
+		return cfg
 	}
-	setAgentWorkspaces(cfg, workspace)
-	cfg.Agents.Defaults.RestrictToWorkspace = false
-	cfg.Agents.Defaults.AllowReadOutsideWorkspace = true
+	result := cloneConfig(cfg)
+	setAgentWorkspaces(result, workspace)
+	result.Agents.Defaults.RestrictToWorkspace = false
+	result.Agents.Defaults.AllowReadOutsideWorkspace = true
 	for _, path := range workspaceAccessPaths(workspace) {
-		cfg.Tools.AllowReadPaths = append(cfg.Tools.AllowReadPaths, path)
-		cfg.Tools.AllowWritePaths = append(cfg.Tools.AllowWritePaths, path)
+		result.Tools.AllowReadPaths = append(result.Tools.AllowReadPaths, path)
+		result.Tools.AllowWritePaths = append(result.Tools.AllowWritePaths, path)
 	}
+	return result
 }
 
 func workspaceAccessPaths(workspace string) []string {

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
-	pcbus "github.com/sipeed/picoclaw/pkg/bus"
-	pclogger "github.com/sipeed/picoclaw/pkg/logger"
+	pcconfig "github.com/sipeed/picoclaw/pkg/config"
 	pcproviders "github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -16,11 +16,11 @@ type DirectRunner struct {
 	rt             *Runtime
 	defaultAgent   string
 	modelOverride  string
-	msgBus         *pcbus.MessageBus
 	loop           *pcagent.AgentLoop
 	closeProvider  func()
 	embeddedAgents []EmbeddedAgent
 	workspace      string
+	closeOnce      sync.Once
 }
 
 func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
@@ -36,20 +36,14 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 	cfg := cloneConfig(rt.Config)
 	workspace := resolveRunWorkspace(opt.Workspace)
 	if workspace != "" {
-		configureProjectWorkspace(cfg, workspace)
+		cfg = configureProjectWorkspace(cfg, workspace)
 	}
 	cfg = prepareConfigForRun(cfg, resolved)
 	embeddedAgents := opt.embeddedAgents()
 	if err := applyEmbeddedAgentConfigs(cfg, embeddedAgents, resolved.Model); err != nil {
 		return nil, err
 	}
-	pclogger.ConfigureFromEnv()
-	if opt.Quiet && !opt.Debug {
-		pclogger.DisableConsole()
-	}
-	if opt.Debug {
-		pclogger.SetLevel(pclogger.DEBUG)
-	}
+	configureLogging(opt)
 	if str(resolved.Model) != "" {
 		cfg.Agents.Defaults.ModelName = str(resolved.Model)
 	}
@@ -66,11 +60,9 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 		cfg.Agents.Defaults.ModelName = modelID
 	}
 
-	msgBus := pcbus.NewMessageBus()
-	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
+	loop := newAgentLoop(cfg, provider)
 	if err := registerEmbeddedAgentPrompts(loop, embeddedAgents); err != nil {
 		loop.Close()
-		msgBus.Close()
 		closeProvider()
 		return nil, err
 	}
@@ -79,7 +71,6 @@ func (rt *Runtime) NewDirectRunner(opt RunOptions) (*DirectRunner, error) {
 		rt:             rt,
 		defaultAgent:   DefaultAgent(cfg),
 		modelOverride:  str(opt.Model),
-		msgBus:         msgBus,
 		loop:           loop,
 		closeProvider:  closeProvider,
 		embeddedAgents: embeddedAgents,
@@ -91,18 +82,24 @@ func (dr *DirectRunner) Close() {
 	if dr == nil {
 		return
 	}
-	if dr.loop != nil {
-		dr.loop.Close()
-		dr.loop = nil
+	dr.closeOnce.Do(func() {
+		if dr.loop != nil {
+			dr.loop.Close()
+			dr.loop = nil
+		}
+		if dr.closeProvider != nil {
+			dr.closeProvider()
+			dr.closeProvider = nil
+		}
+	})
+}
+
+func (dr *DirectRunner) CloseWithError() error {
+	if dr == nil {
+		return nil
 	}
-	if dr.msgBus != nil {
-		dr.msgBus.Close()
-		dr.msgBus = nil
-	}
-	if dr.closeProvider != nil {
-		dr.closeProvider()
-		dr.closeProvider = nil
-	}
+	dr.Close()
+	return nil
 }
 
 func (dr *DirectRunner) ProcessDirect(opt RunOptions) (string, error) {
@@ -143,39 +140,7 @@ func (dr *DirectRunner) ProcessDirectContext(ctx context.Context, opt RunOptions
 		return "", err
 	}
 
-	if str(resolved.Agent) != "" && !strings.EqualFold(str(resolved.Agent), dr.defaultAgent) {
-		resp, err := dr.loop.ProcessDirectForAgent(ctx, resolved.Message, resolved.Session, resolved.Agent)
-		if err != nil {
-			return "", fmt.Errorf("process picoclaw message failed: %w", err)
-		}
-		resp, err = normalizeDirectResponse(resp, nil)
-		if err != nil {
-			if isEmptyDirectResponseError(err) {
-				resp, err = recoverEmptyDirectResponse(dr.loop, resolved.Session, resolved.Agent, dr.defaultAgent)
-				if err == nil {
-					return resp, nil
-				}
-			}
-			return "", err
-		}
-		return resp, nil
-	}
-
-	resp, err := dr.loop.ProcessDirect(ctx, resolved.Message, resolved.Session)
-	if err != nil {
-		return "", fmt.Errorf("process picoclaw message failed: %w", err)
-	}
-	resp, err = normalizeDirectResponse(resp, nil)
-	if err != nil {
-		if isEmptyDirectResponseError(err) {
-			resp, err = recoverEmptyDirectResponse(dr.loop, resolved.Session, "", dr.defaultAgent)
-			if err == nil {
-				return resp, nil
-			}
-		}
-		return "", err
-	}
-	return resp, nil
+	return processDirect(dr.loop, resolved.Message, resolved.Session, resolved.Agent, dr.defaultAgent)
 }
 
 func sameWorkspace(a, b string) bool {
@@ -185,4 +150,16 @@ func sameWorkspace(a, b string) bool {
 		return a == b
 	}
 	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+func cloneAgentConfig(src *pcconfig.AgentConfig) *pcconfig.AgentConfig {
+	if src == nil {
+		return nil
+	}
+	cp := *src
+	if src.Model != nil {
+		modelCopy := *src.Model
+		cp.Model = &modelCopy
+	}
+	return &cp
 }

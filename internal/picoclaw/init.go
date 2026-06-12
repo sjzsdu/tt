@@ -6,9 +6,7 @@ import (
 	"strings"
 
 	pcagent "github.com/sipeed/picoclaw/pkg/agent"
-	pcbus "github.com/sipeed/picoclaw/pkg/bus"
 	pcconfig "github.com/sipeed/picoclaw/pkg/config"
-	pclogger "github.com/sipeed/picoclaw/pkg/logger"
 	pcproviders "github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -16,7 +14,6 @@ type initRuntimeResult struct {
 	cfg            *pcconfig.Config
 	modelOverride  string
 	defaultAgent   string
-	msgBus         *pcbus.MessageBus
 	loop           *pcagent.AgentLoop
 	closeProvider  func()
 	embeddedAgents []EmbeddedAgent
@@ -39,13 +36,7 @@ func (rt *Runtime) initRuntime(opt RunOptions) (*initRuntimeResult, error) {
 		return nil, err
 	}
 
-	pclogger.ConfigureFromEnv()
-	if opt.Quiet && !opt.Debug {
-		pclogger.DisableConsole()
-	}
-	if opt.Debug {
-		pclogger.SetLevel(pclogger.DEBUG)
-	}
+	configureLogging(opt)
 
 	if str(resolved.Model) != "" {
 		cfg.Agents.Defaults.ModelName = str(resolved.Model)
@@ -64,11 +55,9 @@ func (rt *Runtime) initRuntime(opt RunOptions) (*initRuntimeResult, error) {
 		closeProvider = stateful.Close
 	}
 
-	msgBus := pcbus.NewMessageBus()
-	loop := pcagent.NewAgentLoop(cfg, msgBus, provider)
+	loop := newAgentLoop(cfg, provider)
 	if err := registerEmbeddedAgentPrompts(loop, embeddedAgents); err != nil {
 		loop.Close()
-		msgBus.Close()
 		closeProvider()
 		return nil, err
 	}
@@ -77,7 +66,6 @@ func (rt *Runtime) initRuntime(opt RunOptions) (*initRuntimeResult, error) {
 		cfg:            cfg,
 		modelOverride:  str(opt.Model),
 		defaultAgent:   DefaultAgent(cfg),
-		msgBus:         msgBus,
 		loop:           loop,
 		closeProvider:  closeProvider,
 		embeddedAgents: embeddedAgents,
@@ -116,10 +104,6 @@ func (r *initRuntimeResult) close() {
 	if r.loop != nil {
 		r.loop.Close()
 		r.loop = nil
-	}
-	if r.msgBus != nil {
-		r.msgBus.Close()
-		r.msgBus = nil
 	}
 	if r.closeProvider != nil {
 		r.closeProvider()
