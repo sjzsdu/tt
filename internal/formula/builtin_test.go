@@ -175,8 +175,6 @@ func builtinCompileSmokeVars(name string) map[string]string {
 		return map[string]string{"feature_request": "smoke feature"}
 	case "github-pr-review", "github-pr-fix-comments", "github-pr-rebase-main":
 		return map[string]string{"pr_ref": "1"}
-	case "git-resolve-merge-conflicts":
-		return map[string]string{"merge_ref": "main"}
 	case "code-docs":
 		return map[string]string{"repo": "."}
 	case "gongbu":

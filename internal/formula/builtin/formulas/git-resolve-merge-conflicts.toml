@@ -1,10 +1,10 @@
 formula = "git-resolve-merge-conflicts"
-title = "Resolve git merge conflicts"
-description = "通用 Git merge 冲突修复公式：可接管当前已停在冲突状态的工作区，或先执行 git merge <merge_ref>；为每个冲突文件生成 base/ours/theirs 三方上下文，保守调用 merge-conflict-resolver 修复，自动重建 lockfile，完成 merge commit，并输出冲突解决报告。"
-version = 1
+title = "Resolve current git conflicts"
+description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/push。为每个冲突文件生成 base/ours/theirs 三方上下文，保守调用 merge-conflict-resolver 修复，自动重建 lockfile，必要时完成当前 merge/rebase/cherry-pick continue，并输出冲突解决报告。"
+version = 2
 type = "workflow"
 category = "git"
-tags = ["git", "merge", "conflict", "resolver"]
+tags = ["git", "conflict", "resolver"]
 
 [preflight]
 
@@ -34,82 +34,44 @@ message = "当前目录必须在 git 仓库内"
 
 [vars]
 workspace_path = { description = "可选工作区路径；为空使用 formula 启动目录", default = "" }
-merge_ref = { description = "要合入的 ref/branch，例如 origin/feature 或 feature；如果当前已在 MERGE_HEAD 冲突状态，可留空只接管当前冲突", default = "" }
-base_ref = { description = "可选：开始前 checkout 的目标 base/ref；为空则使用当前分支/当前状态。不会 reset --hard", default = "" }
-remote = { description = "远端名，用于 push；默认 origin", default = "origin" }
-push = { description = "merge 成功后是否 push 当前 HEAD 到当前分支 upstream；默认 false", default = "false", enum = ["true", "false"] }
-validation_command = { description = "可选验证命令；merge 完成后执行，例如 npm test / go test ./...", default = "" }
+validation_command = { description = "可选验证命令；冲突修复后执行，例如 npm test / go test ./...", default = "" }
+continue_operation = { description = "冲突修复后是否尝试 git merge/rebase/cherry-pick --continue；默认 true", default = "true", enum = ["true", "false"] }
 
 [[steps]]
-id = "prepare-merge"
-title = "准备或接管 merge 冲突"
+id = "inspect-conflicts"
+title = "检查当前工作区冲突状态"
 execution = "script"
-description = "进入工作区，若已存在 MERGE_HEAD 则接管当前冲突；否则在干净工作区中可选 checkout base_ref 并执行 git merge --no-ff merge_ref。"
+description = "只检查当前 git repo 是否已有 unmerged files 或 conflict markers；不执行 checkout/merge/push。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
 workspace="${TT_WORKSPACE_PATH:-}"
-base_ref="${TT_BASE_REF:-}"
-merge_ref="${TT_MERGE_REF:-}"
 if [ -n "$workspace" ] && [ "$workspace" != "-" ]; then cd "$workspace"; fi
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [ -z "$repo_root" ]; then jq -cn '{attempted:false,ready_for_resolver:false,resolved:false,blocker_type:"not_git_repo",blocker_summary:"not inside a git repository",conflicted_files:[]}'; exit 0; fi
+if [ -z "$repo_root" ]; then jq -cn '{ok:false,needs_resolution:false,repo_root:"",blocker_type:"not_git_repo",blocker_summary:"not inside a git repository",conflicted_files:[]}'; exit 0; fi
 cd "$repo_root"
-merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
 current_branch="$(git branch --show-current 2>/dev/null || true)"
-if [ -e "$merge_head_path" ]; then
-  conflicted="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-  merge_head="$(cat "$merge_head_path" 2>/dev/null | head -1 || true)"
-  jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg merge_ref "$merge_ref" --arg merge_head "$merge_head" --argjson conflicted "$conflicted" '{attempted:true,mode:"adopt_existing_merge",merge_complete:false,ready_for_resolver:(($conflicted|length)>0),resolved:false,repo_root:$repo_root,current_branch:$current_branch,base_ref:$current_branch,merge_ref:$merge_ref,merge_head:$merge_head,conflicted_files:$conflicted,touched_files:[],stdout:"adopting existing merge state",stderr:""}'
-  exit 0
-fi
-if [ -z "$merge_ref" ] || [ "$merge_ref" = "-" ]; then
-  jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" '{attempted:false,mode:"no_merge_ref",merge_complete:false,ready_for_resolver:false,resolved:false,repo_root:$repo_root,current_branch:$current_branch,base_ref:$current_branch,merge_ref:"",conflicted_files:[],touched_files:[],blocker_type:"missing_merge_ref",blocker_summary:"merge_ref is required unless a merge is already in progress"}'
-  exit 0
-fi
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" '{attempted:false,mode:"dirty_worktree",merge_complete:false,ready_for_resolver:false,resolved:false,repo_root:$repo_root,current_branch:$current_branch,conflicted_files:[],touched_files:[],blocker_type:"dirty_worktree",blocker_summary:"worktree has uncommitted changes before merge; commit/stash them or start from an existing merge conflict"}'
-  exit 0
-fi
-checkout_out=""
-if [ -n "$base_ref" ] && [ "$base_ref" != "-" ]; then
-  set +e
-  checkout_out="$(git checkout "$base_ref" 2>&1)"
-  checkout_rc=$?
-  set -e
-  if [ "$checkout_rc" -ne 0 ]; then
-    jq -cn --arg repo_root "$repo_root" --arg base_ref "$base_ref" --arg out "$checkout_out" '{attempted:true,mode:"checkout_base",merge_complete:false,ready_for_resolver:false,resolved:false,repo_root:$repo_root,base_ref:$base_ref,conflicted_files:[],touched_files:[],blocker_type:"checkout_failed",blocker_summary:$out}'
-    exit 0
-  fi
-  current_branch="$(git branch --show-current 2>/dev/null || true)"
-else
-  base_ref="$current_branch"
-fi
-merge_message="Merge ${merge_ref} into ${base_ref:-$current_branch}"
-set +e
-merge_out="$(git merge --no-ff "$merge_ref" -m "$merge_message" 2>&1)"
-merge_rc=$?
-set -e
-conflicted="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-touched="$(git diff --name-only HEAD | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$merge_rc" -eq 0 ]; then
-  jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg base_ref "$base_ref" --arg merge_ref "$merge_ref" --arg merge_message "$merge_message" --arg out "$merge_out" --arg head "$(git rev-parse HEAD)" '{attempted:true,mode:"merge",merge_complete:true,ready_for_resolver:false,resolved:true,repo_root:$repo_root,current_branch:$current_branch,base_ref:$base_ref,merge_ref:$merge_ref,merge_message:$merge_message,conflicted_files:[],touched_files:[],stdout:$out,stderr:"",head:$head}'
-  exit 0
-fi
-if [ "$conflicted" = "[]" ]; then
-  jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg base_ref "$base_ref" --arg merge_ref "$merge_ref" --arg merge_message "$merge_message" --arg out "$merge_out" '{attempted:true,mode:"merge",merge_complete:false,ready_for_resolver:false,resolved:false,repo_root:$repo_root,current_branch:$current_branch,base_ref:$base_ref,merge_ref:$merge_ref,merge_message:$merge_message,conflicted_files:[],touched_files:[],stdout:"",stderr:$out,blocker_type:"merge_failed_without_conflicts",blocker_summary:$out}'
-  exit 0
-fi
-jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg base_ref "$base_ref" --arg merge_ref "$merge_ref" --arg merge_message "$merge_message" --arg out "$merge_out" --argjson conflicted "$conflicted" --argjson touched "$touched" '{attempted:true,mode:"merge",merge_complete:false,ready_for_resolver:true,resolved:false,repo_root:$repo_root,current_branch:$current_branch,base_ref:$base_ref,merge_ref:$merge_ref,merge_message:$merge_message,conflicted_files:$conflicted,touched_files:$touched,stdout:$out,stderr:""}'
+merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
+rebase_merge_path="$(git rev-parse --git-path rebase-merge)"
+rebase_apply_path="$(git rev-parse --git-path rebase-apply)"
+cherry_pick_head_path="$(git rev-parse --git-path CHERRY_PICK_HEAD)"
+operation="none"
+[ -e "$merge_head_path" ] && operation="merge"
+if [ -d "$rebase_merge_path" ] || [ -d "$rebase_apply_path" ]; then operation="rebase"; fi
+[ -e "$cherry_pick_head_path" ] && operation="cherry-pick"
+unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
+conflicted="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
+needs=false
+[ "$(jq -r 'length' <<<"$conflicted")" -gt 0 ] && needs=true
+jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg operation "$operation" --argjson unmerged "$unmerged" --argjson marker_files "$marker_files" --argjson conflicted "$conflicted" --argjson needs "$needs" '{ok:true,repo_root:$repo_root,current_branch:$current_branch,operation:$operation,needs_resolution:$needs,conflicted_files:$conflicted,unmerged_files:$unmerged,marker_files:$marker_files,blocker_type:(if $needs then "none" else "none" end),blocker_summary:(if $needs then "" else "no current git conflict detected" end)}'
 """]
 format = "json"
-timeout = "5m"
+timeout = "60s"
 
 [steps.script.env]
 TT_WORKSPACE_PATH = "{{workspace_path}}"
-TT_BASE_REF = "{{base_ref}}"
-TT_MERGE_REF = "{{merge_ref}}"
 
 [steps.validate]
 format = "json"
@@ -118,9 +80,9 @@ required = ["stdout"]
 [[steps]]
 id = "resolve-conflict-rounds"
 title = "基于三方上下文保守修复冲突文件"
-depends_on = ["prepare-merge"]
-condition = "prepare-merge.stdout.ready_for_resolver == true"
-description = "逐轮列出 unmerged files，为每个文件生成 base/ours/theirs/conflict_hunks 上下文，并发度 3 调用 merge-conflict-resolver。"
+depends_on = ["inspect-conflicts"]
+condition = "inspect-conflicts.stdout.needs_resolution == true"
+description = "逐轮列出当前 unmerged files，为每个文件生成 base/ours/theirs/conflict_hunks 上下文，并发度 3 调用 merge-conflict-resolver。"
 
 [steps.loop]
 until = "check-remaining-conflicts.stdout.done == true"
@@ -136,11 +98,9 @@ command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
 [ -n "$repo_root" ] && cd "$repo_root"
-tmp_branch="${TT_BASE_REF:-}"
-merge_branch="${TT_MERGE_REF:-}"
-python3 - "$tmp_branch" "$merge_branch" <<'PY'
-import json, os, subprocess, sys
-base_name=sys.argv[1]; merge_name=sys.argv[2]
+python3 - <<'PY'
+import json, os, subprocess
+
 def run(args): return subprocess.run(args, text=True, capture_output=True).stdout
 def trunc(text, limit=24000):
     if text is None: return ""
@@ -171,17 +131,15 @@ files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines
 items=[]
 for path in files:
     ours=stage(path,2); theirs=stage(path,3); base=stage(path,1)
-    items.append({"path":path,"base_ref":base_name,"merge_ref":merge_name,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_note":"ours is the current/base side; theirs is the merge_ref side; base is the merge base. Preserve compatible intent from both sides.","base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}})
-print(json.dumps({"done":len(files)==0,"count":len(files),"files":files,"items":items,"base_ref":base_name,"merge_ref":merge_name}, ensure_ascii=False))
+    items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_note":"ours is the current side; theirs is the incoming side; base is the merge base. Preserve compatible intent from both sides.","base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}})
+print(json.dumps({"done":len(files)==0,"count":len(files),"files":files,"items":items}, ensure_ascii=False))
 PY
 """]
 format = "json"
 timeout = "60s"
 
 [steps.loop.body.script.env]
-TT_REPO_ROOT = "{{prepare-merge.stdout.repo_root}}"
-TT_BASE_REF = "{{prepare-merge.stdout.base_ref}}"
-TT_MERGE_REF = "{{prepare-merge.stdout.merge_ref}}"
+TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 
 [steps.loop.body.validate]
 format = "json"
@@ -202,15 +160,15 @@ max_concurrency = 3
 [[steps.loop.body.loop.body]]
 id = "fix-conflict-file"
 title = "修复 {{conflict_file.path}}"
-input_context = ["conflict_file", "conflict_file.context_note", "conflict_file.base_excerpt", "conflict_file.ours_excerpt", "conflict_file.theirs_excerpt", "conflict_file.conflict_hunks", "prepare-merge.stdout"]
-cwd = "{{prepare-merge.stdout.repo_root}}"
+input_context = ["conflict_file", "conflict_file.context_note", "conflict_file.base_excerpt", "conflict_file.ours_excerpt", "conflict_file.theirs_excerpt", "conflict_file.conflict_hunks", "inspect-conflicts.stdout"]
+cwd = "{{inspect-conflicts.stdout.repo_root}}"
 description = """
-当前工作区停在 merge conflict 状态。本任务只允许处理当前 conflict_file.path 指定的一个文件：{{conflict_file.path}}
+当前 git 工作区已经存在冲突。本任务只允许处理当前 conflict_file.path 指定的一个文件：{{conflict_file.path}}
 
 上下文说明：
 - base_excerpt: merge base 版本
-- ours_excerpt: 当前/base side 版本
-- theirs_excerpt: merge_ref side 版本
+- ours_excerpt: 当前 side 版本
+- theirs_excerpt: incoming side 版本
 - conflict_hunks: 带行号的冲突片段
 
 合并原则：
@@ -261,7 +219,7 @@ format = "json"
 timeout = "60s"
 
 [steps.loop.body.script.env]
-TT_REPO_ROOT = "{{prepare-merge.stdout.repo_root}}"
+TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 TT_PREVIOUS_FILES = "{{list-conflict-files.stdout.files}}"
 
 [steps.loop.body.validate]
@@ -272,8 +230,8 @@ required = ["stdout"]
 id = "auto-resolve-lockfiles"
 title = "自动重建剩余 lockfile 冲突"
 execution = "script"
-depends_on = ["prepare-merge", "resolve-conflict-rounds"]
-condition = "prepare-merge.stdout.ready_for_resolver == true"
+depends_on = ["inspect-conflicts", "resolve-conflict-rounds"]
+condition = "inspect-conflicts.stdout.needs_resolution == true"
 description = "如果只剩 pnpm/yarn/npm lockfile 冲突，基于 package manifest 重新生成 lockfile 并 git add。"
 
 [steps.script]
@@ -305,57 +263,61 @@ format = "json"
 timeout = "10m"
 
 [steps.script.env]
-TT_REPO_ROOT = "{{prepare-merge.stdout.repo_root}}"
+TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 
 [steps.validate]
 format = "json"
 required = ["stdout"]
 
 [[steps]]
-id = "complete-merge"
-title = "完成 merge commit"
+id = "finalize-conflicts"
+title = "确认冲突已解决并可选 continue"
 execution = "script"
-depends_on = ["prepare-merge", "resolve-conflict-rounds", "auto-resolve-lockfiles"]
-description = "检查无 unmerged 和冲突标记后 git merge --continue；若 merge 已提前完成则直接返回。"
+depends_on = ["inspect-conflicts", "resolve-conflict-rounds", "auto-resolve-lockfiles"]
+description = "确认无 unmerged 和冲突标记。若当前处于 merge/rebase/cherry-pick 且 continue_operation=true，则尝试对应 --continue。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
+continue_enabled="${TT_CONTINUE_OPERATION:-true}"
 [ -n "$repo_root" ] && cd "$repo_root"
-prep='${TT_PREPARE:-}'
+inspect='${TT_INSPECT:-}'
 lockfix='${TT_LOCKFIX:-}'
-prep_json="$(jq -cn --arg s "$prep" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+inspect_json="$(jq -cn --arg s "$inspect" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
 lockfix_json="$(jq -cn --arg s "$lockfix" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
-if [ "$(jq -r '.merge_complete == true' <<<"$prep_json")" = true ]; then
-  jq -cn --arg head "$(git rev-parse HEAD)" --argjson prep "$prep_json" '{attempted:false,resolved:true,merge_already_complete:true,local_commit:$head,initial_conflicts:($prep.conflicted_files // []),lockfile_resolution:{attempted:false,resolved:true,lockfiles:[],reason:"merge had no conflicts"},remaining_conflicts:[],blocker_type:"none",blocker_summary:""}'
-  exit 0
-fi
-initial_conflicts="$(jq -c '.conflicted_files // []' <<<"$prep_json")"
+initial_conflicts="$(jq -c '.conflicted_files // []' <<<"$inspect_json")"
+operation="$(jq -r '.operation // "none"' <<<"$inspect_json")"
 lockfix_summary="$(jq -c '{attempted:(.attempted == true),resolved:(.resolved == true),lockfiles:(.lockfiles // []),reason:(.reason // "")}' <<<"$lockfix_json")"
 unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$unmerged" != "[]" ]; then jq -cn --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{attempted:true,resolved:false,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,local_commit:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
+if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,local_commit:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$marker_files" != "[]" ]; then jq -cn --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{attempted:true,resolved:false,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,local_commit:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
+if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,local_commit:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
 git add -u
-merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
-if [ -e "$merge_head_path" ]; then
-  set +e
-  HUSKY=0 GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no git -c core.hooksPath=/dev/null merge --continue >/tmp/tt-merge-conflict-continue.log 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then HUSKY=0 GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no git -c core.hooksPath=/dev/null commit --no-edit >>/tmp/tt-merge-conflict-continue.log 2>&1; rc=$?; fi
-  set -e
-  if [ "$rc" -ne 0 ]; then out="$(cat /tmp/tt-merge-conflict-continue.log 2>/dev/null || true)"; jq -cn --arg out "$out" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{attempted:true,resolved:false,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],local_commit:"",blocker_type:"merge_continue_failed",blocker_summary:$out}'; exit 0; fi
+continued=false
+continue_out=""
+continue_rc=0
+if [ "$continue_enabled" = "true" ]; then
+  case "$operation" in
+    merge)
+      if [ -e "$(git rev-parse --git-path MERGE_HEAD)" ]; then set +e; continue_out="$(HUSKY=0 GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no git -c core.hooksPath=/dev/null merge --continue 2>&1)"; continue_rc=$?; set -e; continued=true; fi ;;
+    rebase)
+      if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then set +e; continue_out="$(HUSKY=0 GIT_EDITOR=true git -c core.hooksPath=/dev/null rebase --continue 2>&1)"; continue_rc=$?; set -e; continued=true; fi ;;
+    cherry-pick)
+      if [ -e "$(git rev-parse --git-path CHERRY_PICK_HEAD)" ]; then set +e; continue_out="$(HUSKY=0 GIT_EDITOR=true git -c core.hooksPath=/dev/null cherry-pick --continue 2>&1)"; continue_rc=$?; set -e; continued=true; fi ;;
+  esac
 fi
-jq -cn --arg head "$(git rev-parse HEAD)" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{attempted:true,resolved:true,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],local_commit:$head,blocker_type:"none",blocker_summary:"",validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers","git merge --continue"]}'
+if [ "$continue_rc" -ne 0 ]; then jq -cn --arg operation "$operation" --arg out "$continue_out" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{resolved:false,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],continued:true,local_commit:"",blocker_type:"continue_failed",blocker_summary:$out}'; exit 0; fi
+jq -cn --arg operation "$operation" --arg out "$continue_out" --arg head "$(git rev-parse HEAD)" --argjson continued "$continued" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" '{resolved:true,operation:$operation,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],continued:$continued,continue_output:$out,local_commit:$head,blocker_type:"none",blocker_summary:"",validations_run:["git diff --name-only --diff-filter=U","git grep conflict markers"]}'
 """]
 format = "json"
 timeout = "5m"
 
 [steps.script.env]
-TT_REPO_ROOT = "{{prepare-merge.stdout.repo_root}}"
-TT_PREPARE = "{{prepare-merge.stdout}}"
+TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
+TT_INSPECT = "{{inspect-conflicts.stdout}}"
 TT_LOCKFIX = "{{auto-resolve-lockfiles.stdout}}"
+TT_CONTINUE_OPERATION = "{{continue_operation}}"
 
 [steps.validate]
 format = "json"
@@ -365,8 +327,8 @@ required = ["stdout"]
 id = "run-validation"
 title = "运行可选验证命令"
 execution = "script"
-depends_on = ["complete-merge"]
-condition = "complete-merge.stdout.resolved == true"
+depends_on = ["finalize-conflicts"]
+condition = "finalize-conflicts.stdout.resolved == true"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -382,7 +344,7 @@ format = "json"
 timeout = "20m"
 
 [steps.script.env]
-TT_REPO_ROOT = "{{prepare-merge.stdout.repo_root}}"
+TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 TT_VALIDATION_COMMAND = "{{validation_command}}"
 
 [steps.validate]
@@ -390,54 +352,21 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
-id = "push-merge"
-title = "可选 push 当前分支"
-execution = "script"
-depends_on = ["complete-merge", "run-validation"]
-condition = "complete-merge.stdout.resolved == true"
-
-[steps.script]
-command = ["bash", "-lc", """
-set -u
-repo_root="${TT_REPO_ROOT:-}"
-push_enabled="${TT_PUSH:-false}"
-remote="${TT_REMOTE:-origin}"
-[ -n "$repo_root" ] && cd "$repo_root"
-head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
-branch="$(git branch --show-current 2>/dev/null || true)"
-if [ "$push_enabled" != "true" ]; then jq -cn --arg head "$head_sha" --arg branch "$branch" '{attempted:false,pushed:false,head:$head,branch:$branch,stdout:"",stderr:"",reason:"push disabled"}'; exit 0; fi
-if [ -z "$branch" ]; then jq -cn --arg head "$head_sha" '{attempted:true,pushed:false,head:$head,branch:"",stdout:"",stderr:"detached HEAD; cannot push current branch"}'; exit 0; fi
-out="$(HUSKY=0 git push --no-verify "$remote" "HEAD:$branch" 2>&1)"; rc=$?
-jq -cn --arg head "$head_sha" --arg branch "$branch" --arg output "$out" --argjson pushed "$([ "$rc" -eq 0 ] && echo true || echo false)" '{attempted:true,pushed:$pushed,head:$head,branch:$branch,stdout:(if $pushed then $output else "" end),stderr:(if $pushed then "" else $output end)}'
-"""]
-format = "json"
-timeout = "5m"
-
-[steps.script.env]
-TT_REPO_ROOT = "{{prepare-merge.stdout.repo_root}}"
-TT_PUSH = "{{push}}"
-TT_REMOTE = "{{remote}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
-
-[[steps]]
 id = "final-report"
-title = "冲突修复报告"
-depends_on = ["prepare-merge", "resolve-conflict-rounds", "auto-resolve-lockfiles", "complete-merge", "run-validation", "push-merge"]
-input_context = ["prepare-merge.stdout", "complete-merge.stdout", "run-validation.stdout", "push-merge.stdout"]
+title = "当前冲突修复报告"
+depends_on = ["inspect-conflicts", "resolve-conflict-rounds", "auto-resolve-lockfiles", "finalize-conflicts", "run-validation"]
+input_context = ["inspect-conflicts.stdout", "finalize-conflicts.stdout", "run-validation.stdout"]
 description = """
 输出中文最终报告，结论先行。
 
 必须包含：
-- 是否完成 merge conflict resolution
-- repo/current branch/base_ref/merge_ref/local_commit
+- 当前 git 项目是否还有冲突，是否已解决
+- repo/current branch/operation/local_commit
 - 初始冲突文件 initial_conflicts
-- 解决方式：每轮 resolver、lockfile_resolution、validations_run
+- 解决方式：resolver、lockfile_resolution、validations_run
+- 是否执行 merge/rebase/cherry-pick continue 以及结果
 - 剩余冲突 remaining_conflicts 或 blocker_type/blocker_summary
 - validation_command 结果
-- push 是否执行和结果
 
 不要输出长日志，不要编造 input_context 没有的信息。
 """
