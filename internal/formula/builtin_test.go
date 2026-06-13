@@ -141,7 +141,7 @@ func assertFormulaStepAgentsExist(t *testing.T, formulaName string, step *spec.S
 	}
 }
 
-func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
+func TestGitResolveConflictsPrepareConflictContextScript(t *testing.T) {
 	p := NewParser()
 	f, err := p.LoadByName("git-resolve-conflicts")
 	if err != nil {
@@ -149,13 +149,13 @@ func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
 	}
 	var listStep *spec.Step
 	for _, step := range f.Steps {
-		if step.ID == "list-conflict-files" {
+		if step.ID == "prepare-conflict-context" {
 			listStep = step
 			break
 		}
 	}
 	if listStep == nil || listStep.Script == nil {
-		t.Fatalf("list-conflict-files script step not found")
+		t.Fatalf("prepare-conflict-context script step not found")
 	}
 
 	repo := t.TempDir()
@@ -189,7 +189,7 @@ func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
 		Timeout: 5 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("list-conflict-files script failed: %v; raw=%s", err, string(out.Raw))
+		t.Fatalf("prepare-conflict-context script failed: %v; raw=%s", err, string(out.Raw))
 	}
 	var wrapper map[string]any
 	if err := json.Unmarshal(out.Raw, &wrapper); err != nil {
@@ -224,7 +224,7 @@ func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
 	}
 }
 
-func TestGitResolveConflictsFinalizeDoesNotStageFiles(t *testing.T) {
+func TestGitResolveConflictsVerifyDoesNotStageFiles(t *testing.T) {
 	p := NewParser()
 	f, err := p.LoadByName("git-resolve-conflicts")
 	if err != nil {
@@ -232,13 +232,13 @@ func TestGitResolveConflictsFinalizeDoesNotStageFiles(t *testing.T) {
 	}
 	var finalizeStep *spec.Step
 	for _, step := range f.Steps {
-		if step.ID == "finalize-conflicts" {
+		if step.ID == "verify-conflict-resolution" {
 			finalizeStep = step
 			break
 		}
 	}
 	if finalizeStep == nil || finalizeStep.Script == nil {
-		t.Fatalf("finalize-conflicts script step not found")
+		t.Fatalf("verify-conflict-resolution script step not found")
 	}
 
 	repo := t.TempDir()
@@ -260,19 +260,17 @@ func TestGitResolveConflictsFinalizeDoesNotStageFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inspect := `{"conflicted_files":["conflict.txt"],"operation":"merge","started_at":"2026-01-01T00:00:00Z","started_epoch":1767225600}`
-	lockfix := `{"attempted":false,"resolved":true,"lockfiles":[],"reason":"no remaining conflicts"}`
+	prepare := `{"files":["conflict.txt"],"operation":"merge","started_at":"2026-01-01T00:00:00Z","started_epoch":1767225600}`
 	out, err := (formularuntime.ScriptCapability{DefaultTimeout: 5 * time.Second}).RunScript(context.Background(), steps.ScriptRequest{
 		Command: finalizeStep.Script.Command,
 		Env: map[string]string{
 			"TT_REPO_ROOT": repo,
-			"TT_INSPECT":   inspect,
-			"TT_LOCKFIX":   lockfix,
+			"TT_PREPARE":   prepare,
 		},
 		Timeout: 5 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("finalize-conflicts script failed: %v; raw=%s", err, string(out.Raw))
+		t.Fatalf("verify-conflict-resolution script failed: %v; raw=%s", err, string(out.Raw))
 	}
 	staged := runGitOutput(t, repo, "diff", "--cached", "--name-only")
 	if strings.TrimSpace(staged) != "" {

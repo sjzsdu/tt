@@ -36,60 +36,25 @@ message = "当前目录必须在 git 仓库内"
 validation_command = { description = "可选验证命令；冲突修复后执行，例如 npm test / go test ./...", default = "" }
 
 [[steps]]
-id = "inspect-conflicts"
-title = "检查当前工作区冲突状态"
+id = "prepare-conflict-context"
+title = "准备冲突上下文"
 execution = "script"
-description = "只检查当前 git repo 是否已有 unmerged files 或 conflict markers；不执行 checkout/merge/push。"
-
-[steps.script]
-command = ["bash", "-lc", """
-set -euo pipefail
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-started_epoch="$(date +%s)"
-if [ -z "$repo_root" ]; then jq -cn --arg started_at "$started_at" --argjson started_epoch "$started_epoch" '{ok:false,needs_resolution:false,repo_root:"",started_at:$started_at,started_epoch:$started_epoch,blocker_type:"not_git_repo",blocker_summary:"not inside a git repository",conflicted_files:[]}'; exit 0; fi
-cd "$repo_root"
-current_branch="$(git branch --show-current 2>/dev/null || true)"
-merge_head_path="$(git rev-parse --git-path MERGE_HEAD)"
-rebase_merge_path="$(git rev-parse --git-path rebase-merge)"
-rebase_apply_path="$(git rev-parse --git-path rebase-apply)"
-cherry_pick_head_path="$(git rev-parse --git-path CHERRY_PICK_HEAD)"
-operation="none"
-[ -e "$merge_head_path" ] && operation="merge"
-if [ -d "$rebase_merge_path" ] || [ -d "$rebase_apply_path" ]; then operation="rebase"; fi
-[ -e "$cherry_pick_head_path" ] && operation="cherry-pick"
-unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-conflicted="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
-needs=false
-[ "$(jq -r 'length' <<<"$conflicted")" -gt 0 ] && needs=true
-jq -cn --arg repo_root "$repo_root" --arg current_branch "$current_branch" --arg operation "$operation" --arg started_at "$started_at" --argjson started_epoch "$started_epoch" --argjson unmerged "$unmerged" --argjson marker_files "$marker_files" --argjson conflicted "$conflicted" --argjson needs "$needs" '{ok:true,repo_root:$repo_root,current_branch:$current_branch,operation:$operation,started_at:$started_at,started_epoch:$started_epoch,needs_resolution:$needs,conflicted_files:$conflicted,unmerged_files:$unmerged,marker_files:$marker_files,blocker_type:(if $needs then "none" else "none" end),blocker_summary:(if $needs then "" else "no current git conflict detected" end)}'
-"""]
-format = "json"
-timeout = "60s"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
-
-[[steps]]
-id = "list-conflict-files"
-title = "生成冲突文件索引"
-depends_on = ["inspect-conflicts"]
-condition = "inspect-conflicts.stdout.needs_resolution == true"
-execution = "script"
+description = "检查当前 repo 的冲突文件，并为每个冲突文件生成三方上下文；不修改文件，不执行 git add。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -uo pipefail
 json_error() {
-  python3 -c 'import json,sys; print(json.dumps({"done":False,"files":[],"items":[],"error":sys.argv[1]}, ensure_ascii=False))' "$1" 2>/dev/null \
-    || printf '{"done":false,"files":[],"items":[],"error":"script setup failed before python could report details"}\n'
+  python3 -c 'import json,sys; print(json.dumps({"ok":False,"needs_resolution":False,"files":[],"items":[],"error":sys.argv[1]}, ensure_ascii=False))' "$1" 2>/dev/null \
+    || printf '{"ok":false,"needs_resolution":false,"files":[],"items":[],"error":"script setup failed before python could report details"}\n'
 }
 repo_root="${TT_REPO_ROOT:-}"
-[ -n "$repo_root" ] && cd "$repo_root" || { json_error "failed to enter repo root: ${repo_root:-<empty>}"; exit 0; }
-command -v python3 >/dev/null 2>&1 || { json_error "python3 is required for conflict indexing but was not found in PATH"; exit 0; }
-python3 - <<'PY'
+[ -n "$repo_root" ] || repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+started_epoch="$(date +%s)"
+[ -n "$repo_root" ] && cd "$repo_root" || { json_error "not inside a git repository"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { json_error "python3 is required for conflict indexing but was not found in PATH"; exit 1; }
+TT_STARTED_AT="$started_at" TT_STARTED_EPOCH="$started_epoch" python3 - <<'PY'
 import hashlib, json, os, pathlib, subprocess, sys, traceback
 
 def run(args):
@@ -104,11 +69,13 @@ def trunc(text, limit=24000):
     if text is None: return ""
     if len(text) <= limit: return text
     return text[:limit] + f"\\n...<truncated {len(text) - limit} chars>"
+
 def stage(path, n):
     rc, stdout, stderr = run_text(["git", "show", f":{n}:{path}"])
     if rc != 0:
         return ""
     return stdout
+
 def hunks(path, radius=24, limit=32000):
     try: lines=open(path, encoding="utf-8", errors="replace").read().splitlines()
     except OSError: return ""
@@ -129,11 +96,11 @@ def hunks(path, radius=24, limit=32000):
     for start,end in merged:
         chunks.append("\\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
     return trunc("\\n\\n--- conflict hunk ---\\n\\n".join(chunks), limit)
+
 def conflict_regions(path):
     try: lines=open(path, encoding="utf-8", errors="replace").read().splitlines()
     except OSError: return []
-    regions=[]
-    i=0
+    regions=[]; i=0
     while i < len(lines):
         if lines[i].startswith("<<<<<<<"):
             start=i+1; sep=None; end=None; j=i+1
@@ -147,7 +114,19 @@ def conflict_regions(path):
             i=j if end else i+1
         i+=1
     return regions
+
 try:
+    repo_root=run(["git","rev-parse","--show-toplevel"]).strip()
+    current_branch=run(["git","branch","--show-current"]).strip()
+    merge_head=run(["git","rev-parse","--git-path","MERGE_HEAD"]).strip()
+    rebase_merge=run(["git","rev-parse","--git-path","rebase-merge"]).strip()
+    rebase_apply=run(["git","rev-parse","--git-path","rebase-apply"]).strip()
+    cherry_pick=run(["git","rev-parse","--git-path","CHERRY_PICK_HEAD"]).strip()
+    operation="none"
+    if merge_head and os.path.exists(merge_head): operation="merge"
+    if (rebase_merge and os.path.isdir(rebase_merge)) or (rebase_apply and os.path.isdir(rebase_apply)): operation="rebase"
+    if cherry_pick and os.path.exists(cherry_pick): operation="cherry-pick"
+
     unmerged_files=[p for p in run(["git","diff","--name-only","--diff-filter=U"]).splitlines() if p]
     marker_files=[]
     for candidate in [p for p in run(["git","diff","--name-only","HEAD"]).splitlines() if p]:
@@ -173,22 +152,16 @@ try:
         payload={"path":path,"context_note":context_note,"conflict_regions":regions,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
         pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"conflict_regions":regions,"conflict_region_count":len(regions),"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
-    print(json.dumps({"done":len(files)==0,"files":files,"items":items}, ensure_ascii=False))
+    started_at=os.environ.get("TT_STARTED_AT", "")
+    started_epoch=int(os.environ.get("TT_STARTED_EPOCH", "0") or "0")
+    print(json.dumps({"ok":True,"repo_root":repo_root,"current_branch":current_branch,"operation":operation,"started_at":started_at,"started_epoch":started_epoch,"needs_resolution":len(files)>0,"done":len(files)==0,"files":files,"items":items,"conflicted_files":files,"unmerged_files":unmerged_files,"marker_files":sorted(set(marker_files)),"blocker_type":"none" if files else "none","blocker_summary":"" if files else "no current git conflict detected"}, ensure_ascii=False))
 except Exception as exc:
-    print(json.dumps({"done":False,"files":[],"items":[],"error":str(exc),"traceback":traceback.format_exc(limit=6)}, ensure_ascii=False))
-    sys.exit(0)
+    print(json.dumps({"ok":False,"needs_resolution":False,"done":False,"files":[],"items":[],"error":str(exc),"traceback":traceback.format_exc(limit=6)}, ensure_ascii=False))
+    sys.exit(1)
 PY
-rc=$?
-if [ "$rc" -ne 0 ]; then
-  json_error "conflict indexing python helper exited with status $rc"
-fi
-exit 0
 """]
 format = "json"
 timeout = "60s"
-
-[steps.script.env]
-TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
 
 [steps.validate]
 format = "json"
@@ -197,11 +170,11 @@ required = ["stdout"]
 [[steps]]
 id = "resolve-conflict-file"
 title = "并发修复冲突文件"
-depends_on = ["list-conflict-files"]
-condition = "list-conflict-files.stdout.done != true"
+depends_on = ["prepare-conflict-context"]
+condition = "prepare-conflict-context.stdout.done != true"
 
 [steps.loop]
-for_each = "list-conflict-files.stdout.items"
+for_each = "prepare-conflict-context.stdout.items"
 var = "conflict_file"
 parallel = true
 max_concurrency = 3
@@ -209,8 +182,8 @@ max_concurrency = 3
 [[steps.loop.body]]
 id = "fix-conflict-file"
 title = "修复 {{conflict_file.path}}"
-input_context = ["conflict_file", "inspect-conflicts.stdout.operation"]
-cwd = "{{inspect-conflicts.stdout.repo_root}}"
+input_context = ["conflict_file", "prepare-conflict-context.stdout.operation"]
+cwd = "{{prepare-conflict-context.stdout.repo_root}}"
 description = """
 当前 git 工作区已经存在冲突。本任务只允许处理当前 conflict_file.path 指定的一个文件：{{conflict_file.path}}
 
@@ -243,98 +216,42 @@ format = "json"
 required = ["attempted", "resolved", "blocker_type"]
 
 [[steps]]
-id = "check-remaining-conflicts"
-title = "复查剩余冲突"
-execution = "script"
-depends_on = ["list-conflict-files", "resolve-conflict-file"]
-
-[steps.script]
-command = ["bash", "-lc", """
-set -euo pipefail
-repo_root="${TT_REPO_ROOT:-}"
-[ -n "$repo_root" ] && cd "$repo_root"
-previous_raw="${TT_PREVIOUS_FILES:-[]}"
-previous="$(jq -cn --arg s "$previous_raw" '($s|fromjson?) // []')"
-unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-remaining="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
-prev_count="$(jq -r 'length' <<<"$previous")"
-remaining_count="$(jq -r 'length' <<<"$remaining")"
-resolved_count=$(( prev_count - remaining_count )); [ "$resolved_count" -lt 0 ] && resolved_count=0
-jq -cn --argjson remaining_conflicts "$remaining" --argjson resolved_count "$resolved_count" '{done:(($remaining_conflicts|length)==0),remaining_conflicts:$remaining_conflicts,resolved_count:$resolved_count}'
-"""]
-format = "json"
-timeout = "60s"
-
-[steps.script.env]
-TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
-TT_PREVIOUS_FILES = "{{list-conflict-files.stdout.files}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
-
-[[steps]]
-id = "auto-resolve-lockfiles"
-title = "跳过 lockfile 自动重建"
-execution = "script"
-depends_on = ["inspect-conflicts", "check-remaining-conflicts"]
-condition = "inspect-conflicts.stdout.needs_resolution == true"
-description = "安全边界：不运行 pnpm/yarn/npm，不自动重建 lockfile。lockfile 只作为普通初始冲突文件处理。"
-
-[steps.script]
-command = ["bash", "-lc", """
-set -euo pipefail
-jq -cn '{attempted:false,resolved:false,lockfiles:[],remaining_conflicts:[],reason:"automatic lockfile regeneration disabled; only initial conflict files may be modified"}'
-"""]
-format = "json"
-timeout = "10m"
-
-[steps.script.env]
-TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
-
-[steps.validate]
-format = "json"
-required = ["stdout"]
-
-[[steps]]
-id = "finalize-conflicts"
+id = "verify-conflict-resolution"
 title = "确认冲突已解决"
 execution = "script"
-depends_on = ["inspect-conflicts", "check-remaining-conflicts", "auto-resolve-lockfiles"]
-description = "确认无 unmerged 和冲突标记；不执行 git add，不执行 merge/rebase/cherry-pick --continue。"
+depends_on = ["prepare-conflict-context", "resolve-conflict-file"]
+description = "检查剩余 unmerged 文件和 conflict markers；不执行 git add。若仍有冲突，直接失败中断。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
 [ -n "$repo_root" ] && cd "$repo_root"
-inspect_raw="${TT_INSPECT:-}"
-lockfix_raw="${TT_LOCKFIX:-}"
-inspect_json="$(jq -cn --arg s "$inspect_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
-lockfix_json="$(jq -cn --arg s "$lockfix_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
-initial_conflicts="$(jq -c '.conflicted_files // []' <<<"$inspect_json")"
-operation="$(jq -r '.operation // "none"' <<<"$inspect_json")"
-started_at="$(jq -r '.started_at // ""' <<<"$inspect_json")"
-started_epoch="$(jq -r '.started_epoch // 0' <<<"$inspect_json")"
+prepare_raw="${TT_PREPARE:-}"
+prepare_json="$(jq -cn --arg s "$prepare_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+initial_conflicts="$(jq -c '.files // .conflicted_files // []' <<<"$prepare_json")"
+operation="$(jq -r '.operation // "none"' <<<"$prepare_json")"
+started_at="$(jq -r '.started_at // ""' <<<"$prepare_json")"
+started_epoch="$(jq -r '.started_epoch // 0' <<<"$prepare_json")"
 completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 completed_epoch="$(date +%s)"
 elapsed_seconds=$(( completed_epoch - started_epoch )); [ "$elapsed_seconds" -lt 0 ] && elapsed_seconds=0
-lockfix_summary="$(jq -c '{attempted:(.attempted == true),resolved:(.resolved == true),lockfiles:(.lockfiles // []),reason:(.reason // "")}' <<<"$lockfix_json")"
 unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,head:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,head:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
+remaining="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
+if [ "$(jq -r 'length' <<<"$remaining")" -gt 0 ]; then
+  jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson remaining "$remaining" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:$remaining,continued:false,blocker_type:"unresolved_conflicts",blocker_summary:"unresolved git conflicts remain"}'
+  exit 1
+fi
 resolved_files="$(jq -c <<<"$initial_conflicts")"
-jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson resolved_files "$resolved_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],resolved_files:$resolved_files,needs_user_add:$resolved_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson resolved_files "$resolved_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:[],resolved_files:$resolved_files,needs_user_add:$resolved_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"
 timeout = "5m"
 
 [steps.script.env]
-TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
-TT_INSPECT = "{{inspect-conflicts.stdout}}"
-TT_LOCKFIX = "{{auto-resolve-lockfiles.stdout}}"
+TT_REPO_ROOT = "{{prepare-conflict-context.stdout.repo_root}}"
+TT_PREPARE = "{{prepare-conflict-context.stdout}}"
 
 [steps.validate]
 format = "json"
@@ -344,8 +261,8 @@ required = ["stdout"]
 id = "run-validation"
 title = "运行可选验证命令"
 execution = "script"
-depends_on = ["finalize-conflicts"]
-condition = "finalize-conflicts.stdout.resolved == true"
+depends_on = ["verify-conflict-resolution"]
+condition = "verify-conflict-resolution.stdout.resolved == true"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -356,12 +273,13 @@ cmd="${TT_VALIDATION_COMMAND:-}"
 if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then jq -cn '{attempted:false,success:true,command:"",stdout:"",stderr:"",exit_code:0}'; exit 0; fi
 out="$(bash -lc "$cmd" 2>&1)"; rc=$?
 jq -cn --arg command "$cmd" --arg output "$out" --argjson exit_code "$rc" '{attempted:true,success:($exit_code==0),command:$command,stdout:(if $exit_code==0 then $output else "" end),stderr:(if $exit_code==0 then "" else $output end),exit_code:$exit_code}'
+exit "$rc"
 """]
 format = "json"
 timeout = "20m"
 
 [steps.script.env]
-TT_REPO_ROOT = "{{inspect-conflicts.stdout.repo_root}}"
+TT_REPO_ROOT = "{{prepare-conflict-context.stdout.repo_root}}"
 TT_VALIDATION_COMMAND = "{{validation_command}}"
 
 [steps.validate]
@@ -371,30 +289,18 @@ required = ["stdout"]
 [[steps]]
 id = "final-report"
 title = "当前冲突修复报告"
-depends_on = ["inspect-conflicts", "list-conflict-files", "resolve-conflict-file", "check-remaining-conflicts", "auto-resolve-lockfiles", "finalize-conflicts", "run-validation"]
-input_context = ["inspect-conflicts.stdout", "list-conflict-files.stdout", "resolve-conflict-file", "check-remaining-conflicts.stdout", "auto-resolve-lockfiles.stdout", "finalize-conflicts.stdout", "run-validation.stdout"]
+depends_on = ["prepare-conflict-context", "resolve-conflict-file", "verify-conflict-resolution", "run-validation"]
+input_context = ["prepare-conflict-context.stdout", "resolve-conflict-file", "verify-conflict-resolution.stdout", "run-validation.stdout"]
 description = """
-输出中文最终报告，结论先行。
+输出中文最终报告，结论先行。只报告用户关心的结果，不复述内部约束。
 
 必须包含：
-- 当前 git 项目是否还有冲突，是否已解决
-- repo/current branch/operation/head
-- 总耗时：使用 finalize-conflicts.stdout.elapsed_seconds，同时给出 started_at/completed_at
-- 初始冲突文件 initial_conflicts，并用表格列出每个冲突文件
-- 冲突位置：从 list-conflict-files.stdout.items[].conflict_regions 提取行号范围；如果 conflict_regions 为空，说明“未记录具体行号/仅 index stage 冲突”
-- 解决方式：从 resolve-conflict-file 的每个子结果提取 resolution_summary、resolved、blocker_type；lockfile 使用 lockfile_resolution
-- resolved_files、needs_user_add 与 validation_command 结果
-- 不执行 merge/rebase/cherry-pick continue，只说明当前 operation 状态
-- 剩余冲突 remaining_conflicts 或 blocker_type/blocker_summary
+- 是否已解决所有冲突
+- 冲突文件与冲突位置
+- 每个文件的解决摘要
+- 总耗时
 - validation_command 结果
-
-报告结构必须包含这些小节：
-1. 结论
-2. 耗时
-3. 冲突文件与位置，表格列：文件、冲突位置、状态
-4. 解决方式，表格列：文件、解决摘要、是否已解决、blocker
-5. 验证与需要用户手动 git add 的文件
-6. 后续操作提示
+- 需要用户手动 git add 的文件
 
 不要输出长日志，不要重复粘贴各 step 原始 JSON，不要输出 context_file 中的大块 excerpt，不要编造 input_context 没有的信息。
 """
@@ -404,20 +310,3 @@ name = "reporter"
 
 [steps.validate]
 format = "markdown"
-
-[[steps]]
-id = "fail-if-unresolved-conflicts"
-title = "标记剩余冲突为失败"
-execution = "script"
-depends_on = ["finalize-conflicts", "final-report"]
-condition = "finalize-conflicts.stdout.resolved != true"
-description = "最终报告已生成后，如果仍有剩余冲突，则让 runtime status 反映失败/未完成，避免误导为 completed。"
-
-[steps.script]
-command = ["bash", "-lc", """
-set -euo pipefail
-printf '%s\n' '{"resolved":false,"error":"unresolved git conflicts remain; see final-report and finalize-conflicts outputs"}'
-exit 1
-"""]
-format = "json"
-timeout = "30s"
