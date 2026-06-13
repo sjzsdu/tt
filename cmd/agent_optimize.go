@@ -16,6 +16,7 @@ import (
 var (
 	agentOptimizeTarget         string
 	agentOptimizeBaseAgent      string
+	agentOptimizeSuggestion     string
 	agentOptimizeOutput         string
 	agentOptimizeForce          bool
 	agentOptimizeCopy           bool
@@ -31,41 +32,58 @@ var (
 
 var agentOptimizeCmd = &cobra.Command{
 	Use:   "optimize",
-	Short: "Optimize an agent for a target repository",
-	Long: `Analyze a local or remote repository, then generate an embedded-agent
-Markdown file that specializes an existing agent for that repository domain.
+	Short: "Optimize an existing agent",
+	Long: `Optimize an existing agent. You can optimize by:
+1. Analyzing a repository and distilling its knowledge into the agent (--target)
+2. Applying a natural language suggestion to improve the agent (--suggestion)
 
-First version: repository input only. Website ingestion is not implemented yet.`,
-	Example: `tt agent optimize --target ./repo --agent .tt/agents/custom.md
- tt agent optimize --target github.com/gin-gonic/gin --agent .tt/agents/custom.md --copy
- tt agent optimize --target ./repo --agent coder --copy`,
+These two approaches can be combined: provide both --target and --suggestion.`,
+	Example: `tt agent optimize --agent coder --target ./repo
+tt agent optimize --agent coder --suggestion "更注重性能优化"
+tt agent optimize --agent coder --target ./repo --suggestion "关注安全方面"
+tt agent optimize --agent .tt/agents/custom.md --target github.com/gin-gonic/gin --copy`,
 	RunE: runAgentOptimize,
 }
 
 func init() {
+	agentCmd.AddCommand(agentOptimizeCmd)
 	agentOptimizeCmd.Flags().StringVar(&agentOptimizeTarget, "target", "", "target repository path or cloneable URL")
 	agentOptimizeCmd.Flags().StringVar(&agentOptimizeBaseAgent, "agent", "", "base agent id or local .md agent file")
-	agentOptimizeCmd.Flags().StringVarP(&agentOptimizeOutput, "output", "o", "", "advanced: write generated embedded-agent Markdown to explicit file or directory")
+	agentOptimizeCmd.Flags().StringVar(&agentOptimizeSuggestion, "suggestion", "", "natural language suggestion for optimization")
+	agentOptimizeCmd.Flags().StringVarP(&agentOptimizeOutput, "output", "o", "", "write generated embedded-agent Markdown to explicit file or directory")
 	agentOptimizeCmd.Flags().BoolVarP(&agentOptimizeForce, "force", "f", false, "overwrite existing output file")
 	agentOptimizeCmd.Flags().BoolVar(&agentOptimizeCopy, "copy", false, "create a new optimized agent next to the source agent instead of updating it in place")
 	agentOptimizeCmd.Flags().StringVar(&agentOptimizeSession, "session", "cli:agent-optimize", "session key for agent optimization")
-	agentOptimizeCmd.Flags().StringVar(&agentOptimizeModel, "model", "", "model override for the embedded agent optimizer")
+	agentOptimizeCmd.Flags().StringVar(&agentOptimizeModel, "model", "", "model override for the agent optimizer")
 	agentOptimizeCmd.Flags().BoolVarP(&agentOptimizeDebug, "debug", "d", false, "enable debug logging")
 	agentOptimizeCmd.Flags().IntVar(&agentOptimizeMaxFiles, "max-files", 200, "maximum relevant files to collect")
 	agentOptimizeCmd.Flags().Int64Var(&agentOptimizeMaxFileSize, "max-file-size", 256*1024, "maximum bytes per collected file")
-	agentOptimizeCmd.Flags().IntVar(&agentOptimizeMaxPromptChars, "max-prompt-chars", 12000, "maximum characters allowed in the optimized agent prompt to prevent prompt bloat")
+	agentOptimizeCmd.Flags().IntVar(&agentOptimizeMaxPromptChars, "max-prompt-chars", 12000, "maximum characters allowed in the optimized agent prompt")
 	agentOptimizeCmd.Flags().DurationVar(&agentOptimizeTimeout, "timeout", 2*time.Minute, "timeout for repository preparation and optimization")
 	agentOptimizeCmd.Flags().BoolVar(&agentOptimizeKeepTemp, "keep-temp", false, "keep temporary cloned repository for debugging")
-	agentCmd.AddCommand(agentOptimizeCmd)
 }
 
 func runAgentOptimize(cmd *cobra.Command, args []string) error {
-	if strings.TrimSpace(agentOptimizeTarget) == "" {
-		return fmt.Errorf("--target is required")
-	}
-	if strings.TrimSpace(agentOptimizeBaseAgent) == "" {
+	agentID := strings.TrimSpace(agentOptimizeBaseAgent)
+	suggestion := strings.TrimSpace(agentOptimizeSuggestion)
+	target := strings.TrimSpace(agentOptimizeTarget)
+
+	if agentID == "" {
 		return fmt.Errorf("--agent is required")
 	}
+
+	if target == "" && suggestion == "" {
+		return fmt.Errorf("at least one of --target or --suggestion is required")
+	}
+
+	if target != "" {
+		return runAgentOptimizeWithRepo(cmd, agentID, target, suggestion)
+	}
+
+	return runAgentOptimizeWithSuggestion(cmd, agentID, suggestion)
+}
+
+func runAgentOptimizeWithRepo(cmd *cobra.Command, agentID, target, suggestion string) error {
 	loaded, err := loadTTConfig()
 	if err != nil {
 		return err
@@ -98,7 +116,7 @@ func runAgentOptimize(cmd *cobra.Command, args []string) error {
 	}
 	defer runner.Close()
 	optimizer := agentopt.New(agentOptimizeDirectProcessor{runner: runner, base: pcwrap.RunOptions{Session: agentOptimizeSession, Agent: agents.AgentOptimizerID, Model: merged.Agent.Model, Workspace: workspace, Debug: agentOptimizeDebug, Quiet: !agentOptimizeDebug, EmbeddedAgents: embedded}, debug: agentOptimizeDebug})
-	result, err := optimizer.Optimize(agentopt.Options{Target: agentOptimizeTarget, BaseAgent: agentOptimizeBaseAgent, OutputPath: agentOptimizeOutput, Force: agentOptimizeForce, Copy: agentOptimizeCopy, MaxFiles: agentOptimizeMaxFiles, MaxFileSize: agentOptimizeMaxFileSize, MaxPromptChars: agentOptimizeMaxPromptChars, Timeout: agentOptimizeTimeout, KeepTemp: agentOptimizeKeepTemp})
+	result, err := optimizer.Optimize(agentopt.Options{Target: target, BaseAgent: agentID, OutputPath: agentOptimizeOutput, Force: agentOptimizeForce, Copy: agentOptimizeCopy, MaxFiles: agentOptimizeMaxFiles, MaxFileSize: agentOptimizeMaxFileSize, MaxPromptChars: agentOptimizeMaxPromptChars, Timeout: agentOptimizeTimeout, KeepTemp: agentOptimizeKeepTemp})
 	if err != nil {
 		return err
 	}
@@ -113,6 +131,10 @@ func runAgentOptimize(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "generated optimized agent: %s\n", abs)
 	}
 	return nil
+}
+
+func runAgentOptimizeWithSuggestion(cmd *cobra.Command, agentID, suggestion string) error {
+	return runAgentCreateFromSuggestion(cmd, agentID, suggestion, true)
 }
 
 type agentOptimizeDirectProcessor struct {
