@@ -1,6 +1,6 @@
 formula = "git-resolve-conflicts"
 title = "Resolve current git conflicts"
-description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push，不重建依赖或执行包管理器。为每个冲突文件生成 base/ours/theirs 三方上下文，并发调用 merge-conflict-resolver 修复，并输出冲突解决报告。"
+description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push，不执行构建、生成或项目特定命令。为每个冲突文件生成 base/ours/theirs 三方上下文，并发调用 merge-conflict-resolver 修复，并输出冲突解决报告。"
 version = 3
 type = "workflow"
 category = "git"
@@ -33,7 +33,7 @@ require_repo = true
 message = "当前目录必须在 git 仓库内"
 
 [vars]
-validation_command = { description = "可选验证命令；冲突修复后执行，例如 npm test / go test ./...", default = "" }
+validation_command = { description = "可选验证命令；冲突修复后执行，例如 go test ./... / pytest / cargo test / npm test", default = "" }
 
 [[steps]]
 id = "prepare-conflict-context"
@@ -196,7 +196,7 @@ description = """
 - 能兼容时保留双方意图，并让最终代码符合当前项目模式。
 - 不能整块盲选一边，除非另一边明确过期/重复，并在 resolution_summary 说明。
 - 如果上下文被截断，或需要跨文件业务上下文才能判断，返回 resolved:false，blocker_type:"missing_context" 或 "semantic_uncertainty"，不要硬合。
-- lockfile 不要编造条目；不确定时 block。
+- 不要编造生成文件或机器生成内容；不确定时 block。
 
 要求：
 - 只修改 {{conflict_file.path}}，不要修改其他文件。
