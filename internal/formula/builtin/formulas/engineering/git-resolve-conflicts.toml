@@ -409,3 +409,20 @@ name = "reporter"
 
 [steps.validate]
 format = "markdown"
+
+[[steps]]
+id = "fail-if-unresolved-conflicts"
+title = "标记剩余冲突为失败"
+execution = "script"
+depends_on = ["finalize-conflicts", "final-report"]
+condition = "finalize-conflicts.stdout.resolved != true"
+description = "最终报告已生成后，如果仍有剩余冲突，则让 runtime status 反映失败/未完成，避免误导为 completed。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -euo pipefail
+printf '%s\n' '{"resolved":false,"error":"unresolved git conflicts remain; see final-report and finalize-conflicts outputs"}'
+exit 1
+"""]
+format = "json"
+timeout = "30s"
