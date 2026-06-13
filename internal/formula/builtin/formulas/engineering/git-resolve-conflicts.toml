@@ -76,7 +76,7 @@ def stage(path, n):
         return ""
     return stdout
 
-def hunks(path, radius=24, limit=32000):
+def hunks(path, radius=24, limit=160000):
     try: lines=open(path, encoding="utf-8", errors="replace").read().splitlines()
     except OSError: return ""
     ranges=[]
@@ -149,7 +149,7 @@ try:
         key=hashlib.sha1(path.encode()).hexdigest()[:12]
         context_file=str(ctx_dir / f"{key}.json")
         regions=conflict_regions(path)
-        payload={"path":path,"context_note":context_note,"conflict_regions":regions,"base_excerpt":trunc(base,16000),"ours_excerpt":trunc(ours,24000),"theirs_excerpt":trunc(theirs,24000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
+        payload={"path":path,"context_note":context_note,"conflict_regions":regions,"base_excerpt":trunc(base,40000),"ours_excerpt":trunc(ours,80000),"theirs_excerpt":trunc(theirs,80000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
         pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"conflict_regions":regions,"conflict_region_count":len(regions),"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
     started_at=os.environ.get("TT_STARTED_AT", "")
@@ -197,6 +197,7 @@ description = """
 - 不能整块盲选一边，除非另一边明确过期/重复，并在 resolution_summary 说明。
 - 如果上下文被截断，或需要跨文件业务上下文才能判断，返回 resolved:false，blocker_type:"missing_context" 或 "semantic_uncertainty"，不要硬合。
 - 不要编造生成文件或机器生成内容；不确定时 block。
+- 如果当前文件已经没有任何 conflict marker，且不需要进一步修改即可作为当前工作区的 resolved 内容，返回 resolved:true；不要仅因为 git index 仍处于 unmerged 状态而 block，因为本 formula 不执行 git add。
 
 要求：
 - 只修改 {{conflict_file.path}}，不要修改其他文件。
