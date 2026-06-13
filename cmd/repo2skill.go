@@ -142,7 +142,11 @@ func newRepo2SkillAgentAnalyzer() (repo2skillpkg.Analyzer, func(), error) {
 	if err != nil {
 		return nil, nil, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
-	embedded := []pcwrap.EmbeddedAgent{agents.Repo2Skill()}
+	repo2skillAgent, err := agents.Repo2Skill()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load repo2skill agent failed: %w", err)
+	}
+	embedded := []pcwrap.EmbeddedAgent{repo2skillAgent}
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: repo2skillAgentSession, Agent: agents.Repo2SkillID, Model: merged.Agent.Model, Workspace: workspace, Debug: repo2skillAgentDebug, Quiet: !repo2skillAgentDebug, EmbeddedAgents: embedded})
 	if err != nil {
 		return nil, nil, err

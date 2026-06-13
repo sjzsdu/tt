@@ -23,7 +23,10 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("embeddedAgentPaths() should include nested embedded/core/coder.md; got %v", paths)
 	}
 
-	core := Core()
+	core, err := Core()
+	if err != nil {
+		t.Fatalf("Core() error = %v", err)
+	}
 	if len(core) != 4 {
 		t.Fatalf("Core len = %d, want 4", len(core))
 	}
@@ -37,12 +40,18 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		}
 	}
 
-	all := All()
+	all, err := All()
+	if err != nil {
+		t.Fatalf("All() error = %v", err)
+	}
 	if len(all) < len(core) {
 		t.Fatalf("All len = %d, want at least %d", len(all), len(core))
 	}
 
-	translate := TranslateMaster()
+	translate, err := TranslateMaster()
+	if err != nil {
+		t.Fatalf("TranslateMaster() error = %v", err)
+	}
 	if translate.ID != TranslateMasterID {
 		t.Fatalf("TranslateMaster ID = %q, want %q", translate.ID, TranslateMasterID)
 	}
@@ -56,7 +65,10 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("TranslateMaster prompt and soul should be loaded")
 	}
 
-	stock := StockDiscussion()
+	stock, err := StockDiscussion()
+	if err != nil {
+		t.Fatalf("StockDiscussion() error = %v", err)
+	}
 	if len(stock) != 7 {
 		t.Fatalf("StockDiscussion len = %d, want 7", len(stock))
 	}
@@ -242,7 +254,10 @@ func TestCoreAgentMetadataContract(t *testing.T) {
 		CodeResearchID: {},
 	}
 
-	all := All()
+	all, err := All()
+	if err != nil {
+		t.Fatalf("All() error = %v", err)
+	}
 	seen := map[string]struct{}{}
 	for _, agent := range all {
 		if _, ok := wantIDs[agent.ID]; !ok {
@@ -264,7 +279,10 @@ func TestCoreAgentMetadataContract(t *testing.T) {
 }
 
 func TestAgentIDsAreUniqueAndPromptsReasonable(t *testing.T) {
-	agents := All()
+	all, err := All()
+	if err != nil {
+		t.Fatalf("All() error = %v", err)
+	}
 	seen := map[string]struct{}{}
 	coreMetadataAgents := map[string]struct{}{
 		CoderID:        {},
@@ -272,7 +290,7 @@ func TestAgentIDsAreUniqueAndPromptsReasonable(t *testing.T) {
 		TesterID:       {},
 		CodeResearchID: {},
 	}
-	for _, agent := range agents {
+	for _, agent := range all {
 		if strings.TrimSpace(agent.ID) == "" {
 			t.Fatalf("agent missing id: %+v", agent)
 		}

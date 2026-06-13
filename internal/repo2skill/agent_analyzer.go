@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/sjzsdu/tt/internal/util"
 )
 
 type DirectProcessor interface {
@@ -117,28 +119,9 @@ func compactCode(in []CodeFile) []CodeFile {
 }
 
 func limitSlice[T any](in []T, n int) []T {
-	if len(in) <= n {
-		return append([]T(nil), in...)
-	}
-	return append([]T(nil), in[:n]...)
+	return util.LimitSlice(in, n)
 }
 
 func extractJSONObject(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		lines := strings.Split(s, "\n")
-		if len(lines) >= 3 {
-			lines = lines[1:]
-			if strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-				lines = lines[:len(lines)-1]
-			}
-			s = strings.TrimSpace(strings.Join(lines, "\n"))
-		}
-	}
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start >= 0 && end >= start {
-		return s[start : end+1]
-	}
-	return s
+	return util.ExtractJSONObject(s)
 }

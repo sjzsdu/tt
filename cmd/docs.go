@@ -140,6 +140,11 @@ func runDocsAnalyze(cmd *cobra.Command, args []string) error {
 		loadingMessage = "正在分析代码并生成文档计划"
 	}
 	loading := startLLMLoading(loadingMessage, debug)
+	docsAnalyst, err := agents.DocsAnalyst()
+	if err != nil {
+		loading.Stop()
+		return fmt.Errorf("load docs analyst agent failed: %w", err)
+	}
 	dr, err := rt.NewDirectRunner(pcwrap.RunOptions{
 		Session:        docsAnalyzeSession,
 		Agent:          agents.DocsAnalystID,
@@ -147,7 +152,7 @@ func runDocsAnalyze(cmd *cobra.Command, args []string) error {
 		Workspace:      target.AnalysisDir,
 		Debug:          debug,
 		Quiet:          !debug,
-		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.DocsAnalyst()},
+		EmbeddedAgents: []pcwrap.EmbeddedAgent{docsAnalyst},
 	})
 	if err != nil {
 		loading.Stop()
@@ -164,7 +169,7 @@ func runDocsAnalyze(cmd *cobra.Command, args []string) error {
 		Workspace:      target.AnalysisDir,
 		Debug:          debug,
 		Quiet:          !debug,
-		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.DocsAnalyst()},
+		EmbeddedAgents: []pcwrap.EmbeddedAgent{docsAnalyst},
 	})
 	loading.Stop()
 	if err != nil {

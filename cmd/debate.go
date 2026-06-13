@@ -199,12 +199,17 @@ func runDebate(cmd *cobra.Command, args []string) error {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 
+	embeddedAgents, err := embeddedStockDiscussionAgents()
+	if err != nil {
+		return fmt.Errorf("load stock discussion agents failed: %w", err)
+	}
+
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{
 		Session:        req.Session,
 		Model:          req.Model,
 		Debug:          req.Debug,
 		Quiet:          !req.Debug,
-		EmbeddedAgents: embeddedStockDiscussionAgents(),
+		EmbeddedAgents: embeddedAgents,
 	})
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
@@ -265,7 +270,7 @@ func buildDebateRequest(topic string, merged ttconfig.Config) (DebateRequest, er
 	}, nil
 }
 
-func embeddedStockDiscussionAgents() []pcwrap.EmbeddedAgent {
+func embeddedStockDiscussionAgents() ([]pcwrap.EmbeddedAgent, error) {
 	return agents.StockDiscussion()
 }
 
@@ -308,7 +313,10 @@ func validateDebateRequest(req DebateRequest, rt *pcwrap.Runtime) error {
 	}
 	participants := []string{req.Agents[0], req.Agents[1], req.Judge}
 	availableAgents := uniqueNonEmpty(rt.Summary().Agents)
-	embeddedAgents := embeddedStockDiscussionAgents()
+	embeddedAgents, err := embeddedStockDiscussionAgents()
+	if err != nil {
+		return fmt.Errorf("load stock discussion agents failed: %w", err)
+	}
 	for _, name := range participants {
 		if _, err := rt.ResolveRunOptions(pcwrap.RunOptions{Session: req.Session, Agent: name, Model: req.Model, EmbeddedAgents: embeddedAgents}); err != nil {
 			return fmt.Errorf("resolve participant %q failed; available configured agents: %v: %w", name, availableAgents, err)

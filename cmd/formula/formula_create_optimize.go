@@ -30,7 +30,11 @@ func runFormulaCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer formulaRT.Close()
-	embedded := []pcwrap.EmbeddedAgent{agents.FormulaWriter()}
+	formulaWriter, err := agents.FormulaWriter()
+	if err != nil {
+		return fmt.Errorf("load formula writer agent failed: %w", err)
+	}
+	embedded := []pcwrap.EmbeddedAgent{formulaWriter}
 	session := "cli:formula:create:" + name
 	runner, err := formulaRT.Runtime.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 	if err != nil {
@@ -131,7 +135,11 @@ func runFormulaOptimize(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer formulaRT.Close()
-	embedded := []pcwrap.EmbeddedAgent{agents.FormulaWriter()}
+	formulaWriter, err := agents.FormulaWriter()
+	if err != nil {
+		return fmt.Errorf("load formula writer agent failed: %w", err)
+	}
+	embedded := []pcwrap.EmbeddedAgent{formulaWriter}
 	session := "cli:formula:optimize:" + name
 	runner, err := formulaRT.Runtime.NewDirectRunner(pcwrap.RunOptions{Session: session, Agent: agents.FormulaWriterID, Model: formulaModel, Workspace: formulaRT.Workspace, Debug: formulaDebug, Quiet: !formulaDebug, EmbeddedAgents: embedded})
 	if err != nil {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/sjzsdu/tt/internal/util"
 )
 
 type Files struct {
@@ -139,23 +141,9 @@ func ensureTrailingNewline(s string) string {
 }
 
 func compactStrings(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			out = append(out, value)
-		}
-	}
-	return out
+	return util.CompactStrings(values)
 }
 
 func yamlScalar(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return `""`
-	}
-	if regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(value) {
-		return value
-	}
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	return util.YamlScalar(value)
 }

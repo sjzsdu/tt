@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sjzsdu/tt/internal/util"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"gopkg.in/yaml.v3"
 )
@@ -47,56 +48,52 @@ type definition struct {
 	NoHistory   bool     `yaml:"no_history"`
 }
 
-func TranslateMaster() pcwrap.EmbeddedAgent {
-	return mustGet(TranslateMasterID)
+func TranslateMaster() (pcwrap.EmbeddedAgent, error) {
+	return Get(TranslateMasterID)
 }
 
-func Coder() pcwrap.EmbeddedAgent {
-	return mustGet(CoderID)
+func Coder() (pcwrap.EmbeddedAgent, error) {
+	return Get(CoderID)
 }
 
-func Reporter() pcwrap.EmbeddedAgent {
-	return mustGet(ReporterID)
+func Reporter() (pcwrap.EmbeddedAgent, error) {
+	return Get(ReporterID)
 }
 
-func Planner() pcwrap.EmbeddedAgent {
-	return mustGet(PlannerID)
+func Planner() (pcwrap.EmbeddedAgent, error) {
+	return Get(PlannerID)
 }
 
-func Tester() pcwrap.EmbeddedAgent {
-	return mustGet(TesterID)
+func Tester() (pcwrap.EmbeddedAgent, error) {
+	return Get(TesterID)
 }
 
-func Repo2Skill() pcwrap.EmbeddedAgent {
-	return mustGet(Repo2SkillID)
+func Repo2Skill() (pcwrap.EmbeddedAgent, error) {
+	return Get(Repo2SkillID)
 }
 
-func FormulaWriter() pcwrap.EmbeddedAgent {
-	return mustGet(FormulaWriterID)
+func FormulaWriter() (pcwrap.EmbeddedAgent, error) {
+	return Get(FormulaWriterID)
 }
 
-func DocsAnalyst() pcwrap.EmbeddedAgent {
-	return mustGet(DocsAnalystID)
+func DocsAnalyst() (pcwrap.EmbeddedAgent, error) {
+	return Get(DocsAnalystID)
 }
 
-func AgentOptimizer() pcwrap.EmbeddedAgent {
-	return mustGet(AgentOptimizerID)
+func AgentOptimizer() (pcwrap.EmbeddedAgent, error) {
+	return Get(AgentOptimizerID)
 }
 
-func Core() []pcwrap.EmbeddedAgent {
-	return mustGetMany(CoderID, CodeResearchID, PlannerID, TesterID)
+func Core() ([]pcwrap.EmbeddedAgent, error) {
+	return getMany(CoderID, CodeResearchID, PlannerID, TesterID)
 }
 
-func All() []pcwrap.EmbeddedAgent {
-	agents, err := List()
-	if err != nil {
-		panic(err)
-	}
-	return agents
+func All() ([]pcwrap.EmbeddedAgent, error) {
+	return List()
 }
 
-func StockDiscussion() []pcwrap.EmbeddedAgent {
-	return mustGetMany(
+func StockDiscussion() ([]pcwrap.EmbeddedAgent, error) {
+	return getMany(
 		StockBeginnerID,
 		StockOldHandID,
 		StockDiscussionHostID,
@@ -251,20 +248,16 @@ type foundAgentPath string
 
 func (p foundAgentPath) Error() string { return string(p) }
 
-func mustGet(id string) pcwrap.EmbeddedAgent {
-	agent, err := Get(id)
-	if err != nil {
-		panic(err)
-	}
-	return agent
-}
-
-func mustGetMany(ids ...string) []pcwrap.EmbeddedAgent {
+func getMany(ids ...string) ([]pcwrap.EmbeddedAgent, error) {
 	agents := make([]pcwrap.EmbeddedAgent, 0, len(ids))
 	for _, id := range ids {
-		agents = append(agents, mustGet(id))
+		agent, err := Get(id)
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, agent)
 	}
-	return agents
+	return agents, nil
 }
 
 func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
@@ -358,12 +351,5 @@ func splitFrontMatter(content string) (string, string, error) {
 }
 
 func compactStrings(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			out = append(out, value)
-		}
-	}
-	return out
+	return util.CompactStrings(values)
 }

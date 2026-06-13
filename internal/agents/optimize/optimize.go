@@ -13,6 +13,7 @@ import (
 	"github.com/sjzsdu/tt/internal/agents"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	repo2skillpkg "github.com/sjzsdu/tt/internal/repo2skill"
+	"github.com/sjzsdu/tt/internal/util"
 )
 
 type Collector interface {
@@ -274,24 +275,21 @@ func mergeOptimizedPrompt(existing, generated string, profile *repo2skillpkg.Rep
 }
 
 func limitSlice[T any](in []T, n int) []T {
-	if len(in) <= n {
-		return append([]T(nil), in...)
-	}
-	return append([]T(nil), in[:n]...)
+	return util.LimitSlice(in, n)
 }
 
 func parseAgentOutput(resp string, base pcwrap.EmbeddedAgent) (pcwrap.EmbeddedAgent, error) {
 	var out agentOutput
-	if err := json.Unmarshal([]byte(extractJSONObject(resp)), &out); err != nil {
+	if err := json.Unmarshal([]byte(util.ExtractJSONObject(resp)), &out); err != nil {
 		return pcwrap.EmbeddedAgent{}, fmt.Errorf("parse agent optimizer JSON: %w", err)
 	}
 	generated := pcwrap.EmbeddedAgent{
 		ID:        normalizeID(out.ID, base.ID),
-		Name:      firstNonEmpty(out.Name, strings.TrimSpace(base.Name)+" Optimized"),
+		Name:      util.FirstNonEmpty(out.Name, strings.TrimSpace(base.Name)+" Optimized"),
 		Prompt:    strings.TrimSpace(out.Prompt),
 		Soul:      strings.TrimSpace(out.Soul),
-		Skills:    compactStrings(out.Skills),
-		Tools:     compactStrings(out.Tools),
+		Skills:    util.CompactStrings(out.Skills),
+		Tools:     util.CompactStrings(out.Tools),
 		NoHistory: out.NoHistory,
 	}
 	if generated.Prompt == "" {
@@ -394,45 +392,4 @@ func writeOutput(path, content string, force bool) error {
 		return fmt.Errorf("write output file: %w", err)
 	}
 	return nil
-}
-
-func extractJSONObject(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		lines := strings.Split(s, "\n")
-		if len(lines) >= 3 {
-			lines = lines[1:]
-			if strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-				lines = lines[:len(lines)-1]
-			}
-			s = strings.TrimSpace(strings.Join(lines, "\n"))
-		}
-	}
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start >= 0 && end >= start {
-		return s[start : end+1]
-	}
-	return s
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func compactStrings(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			out = append(out, value)
-		}
-	}
-	return out
 }

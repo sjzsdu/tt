@@ -394,13 +394,19 @@ func translateSingle(rt *pcwrap.Runtime, input translateInput, target string, gl
 	loading := startLLMLoading(fmt.Sprintf("正在翻译 %s", input.Source), translateDebug)
 	defer loading.Stop()
 
+	translateMaster, err := agents.TranslateMaster()
+	if err != nil {
+		loading.Stop()
+		return nil, fmt.Errorf("load translate master agent failed: %w", err)
+	}
+
 	dr, err := rt.NewDirectRunner(pcwrap.RunOptions{
 		Session:        translateSession,
 		Agent:          agents.TranslateMasterID,
 		Model:          translateModel,
 		Debug:          translateDebug,
 		Quiet:          !translateDebug,
-		EmbeddedAgents: []pcwrap.EmbeddedAgent{agents.TranslateMaster()},
+		EmbeddedAgents: []pcwrap.EmbeddedAgent{translateMaster},
 		BeforeOutput:   loading.Stop,
 	})
 	if err != nil {

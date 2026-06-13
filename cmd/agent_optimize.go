@@ -109,7 +109,11 @@ func runAgentOptimizeWithRepo(cmd *cobra.Command, agentID, target, suggestion st
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
-	embedded := []pcwrap.EmbeddedAgent{agents.AgentOptimizer()}
+	agentOptimizer, err := agents.AgentOptimizer()
+	if err != nil {
+		return fmt.Errorf("load agent optimizer failed: %w", err)
+	}
+	embedded := []pcwrap.EmbeddedAgent{agentOptimizer}
 	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Session: agentOptimizeSession, Agent: agents.AgentOptimizerID, Model: merged.Agent.Model, Workspace: workspace, Debug: agentOptimizeDebug, Quiet: !agentOptimizeDebug, EmbeddedAgents: embedded})
 	if err != nil {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
