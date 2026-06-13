@@ -95,6 +95,10 @@ try {
   assert.equal(fetchNode?.data.kind, 'loop-body', 'expanded loop body should render as a graph node');
   assert.equal(summarizeNode?.data.kind, 'loop-body', 'expanded loop dependency target should render as a graph node');
   assert.ok(expanded.edges.some(edge => edge.source === fetchNodeID && edge.target === summarizeNodeID), 'loop body dependencies should render as graph edges');
+  const collectEntryEdge = expanded.edges.find(edge => edge.id === `collect-loop-entry-${fetchNodeID}`);
+  assert.equal(collectEntryEdge?.data.kind, 'loop-expand', 'expanded loop body island should have a visual parent connector edge');
+  assert.equal(collectEntryEdge?.data.sourcePort, 'left', 'parent connector should leave from the parent loop left side');
+  assert.equal(collectEntryEdge?.data.targetPort, 'right', 'parent connector should enter the child island from the right side');
   assert.equal(expanded.nodes.find(node => node.id === 'collect')?.data.expanded, true, 'loop node should still expose expanded state for the +/- badge');
   for (const collapsedNode of collapsed.nodes) {
     const expandedNode = expanded.nodes.find(node => node.id === collapsedNode.id);
@@ -146,6 +150,16 @@ try {
   assert.ok(nestedExpanded.nodes.some(node => node.id === innerLoopNodeID), 'nested loop body nodes should render as graph nodes in the parent loop island');
   assert.ok(nestedExpanded.nodes.some(node => node.id === innerFetchNodeID), 'nested loop descendants should render as their own independent graph island');
   assert.ok(nestedExpanded.edges.some(edge => edge.source === innerFetchNodeID && edge.target === innerSummarizeNodeID), 'nested loop body dependencies should render as edges');
+  assert.equal(
+    nestedExpanded.edges.find(edge => edge.id === `outer-loop-entry-${innerLoopNodeID}`)?.data.kind,
+    'loop-expand',
+    'outer loop should have a connector edge to its body island entry',
+  );
+  assert.equal(
+    nestedExpanded.edges.find(edge => edge.id === `${innerLoopNodeID}-loop-entry-${innerFetchNodeID}`)?.data.kind,
+    'loop-expand',
+    'nested loop should have a connector edge to its nested body island entry',
+  );
   assert.equal(nestedExpanded.combos.length, 0, 'expanded nested graph should not contain loop combos');
   assert.equal(nestedExpanded.nodes.find(node => node.id === 'outer')?.data.expanded, true, 'outer loop node should still expose expanded state');
   assert.ok(

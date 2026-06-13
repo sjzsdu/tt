@@ -177,6 +177,8 @@ function stepNodeStyle(step: FormulaDashboardStep, isDark: boolean, expanded?: b
       { key: 'top-right-1', placement: [0.62, 0], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
       { key: 'top-right-2', placement: [0.74, 0], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
       { key: 'top-right-3', placement: [0.86, 0], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'left', placement: [0, 0.5], r: 3.1, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
+      { key: 'right', placement: [1, 0.5], r: 3.1, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
       { key: 'bottom-left-3', placement: [0.14, 1], r: 2.5, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
       { key: 'bottom-left-2', placement: [0.26, 1], r: 2.6, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
       { key: 'bottom-left-1', placement: [0.38, 1], r: 2.8, fill: statusColor, stroke: isDark ? '#0f172a' : '#fff' },
@@ -230,10 +232,11 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
       targetPort: edgeData.targetPort,
       curveOffset: [laneOffset, -laneOffset],
       stroke: '#a855f7',
-      lineWidth: edgeData.kind === 'loop-expand' ? 2.2 : 1.8,
+      lineWidth: edgeData.kind === 'loop-expand' ? 2.4 : 1.8,
       endArrow: true,
       endArrowSize: 8,
-      lineDash: edgeData.kind === 'loop-expand' ? [10, 5] : [4, 5],
+      lineDash: edgeData.kind === 'loop-expand' ? [9, 5] : [4, 5],
+      opacity: edgeData.kind === 'loop-expand' ? 0.86 : 1,
     };
   }
 
@@ -393,7 +396,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
           <div className="graph-help-hero">
             <div>
               <strong>Execution graph</strong>
-              <p>Overview-first workflow map. Expanded loop bodies render as independent graph islands to the left of their loop step.</p>
+              <p>Overview-first workflow map. Expanded loop bodies render as connected graph islands to the left of their loop step.</p>
             </div>
             {runningTitle && (
               <div className="graph-help-live">
@@ -434,7 +437,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
               <li><b>Edges</b>: target step status. Cyan dashed edges are variable consumption. Hover a node to highlight related edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
-              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the independent loop-body graph on the left.</li>
+              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the connected loop-body graph on the left.</li>
             </ul>
           </div>
         </div>
@@ -526,7 +529,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         },
       },
       edge: {
-        type: 'cubic-vertical',
+        type: edge => edge.data?.kind === 'loop-expand' ? 'cubic-horizontal' : 'cubic-vertical',
         style: (edge: { data?: { status?: string; kind?: string; sourcePort?: string; targetPort?: string; laneOffset?: number }; style?: Record<string, unknown> }) => ({
           ...edgeStyle(edge.data, isDark),
           ...(edge.style || {}),

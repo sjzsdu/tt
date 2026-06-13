@@ -569,6 +569,19 @@ function placeLoopBodyGraphToLeft(bodyNodes: FormulaGraphNode[], parentNode: For
   shiftGraphNodes(bodyNodes, targetCenterX - bodyCenterX, targetCenterY - bodyCenterY);
 }
 
+function loopBodyEntryNodeIDs(bodyGraph: { nodes: FormulaGraphNode[]; edges: FormulaGraphEdge[] }) {
+  const dependencyTargets = new Set(
+    bodyGraph.edges
+      .filter(edge => edge.data?.kind !== 'variable-consume')
+      .map(edge => edge.target),
+  );
+  const bodyNodeIDs = bodyGraph.nodes
+    .filter(node => node.data.kind === 'loop-body')
+    .map(node => node.id);
+  const roots = bodyNodeIDs.filter(id => !dependencyTargets.has(id));
+  return roots.length ? roots : bodyNodeIDs.slice(0, 1);
+}
+
 export function computeGraphData(
   snapshot: FormulaDashboardSnapshot,
   expandedLoopIDs: Set<string>,
@@ -668,6 +681,19 @@ export function computeGraphData(
     for (const node of bodyGraph.nodes) {
       nodes.push(node);
       nodeByID.set(node.id, node);
+    }
+    for (const entryID of loopBodyEntryNodeIDs(bodyGraph)) {
+      edges.push({
+        id: `${parentNodeID}-loop-entry-${entryID}`,
+        source: parentNodeID,
+        target: entryID,
+        data: {
+          status: parentStep.status,
+          kind: 'loop-expand',
+          sourcePort: 'left',
+          targetPort: 'right',
+        },
+      });
     }
     edges.push(...bodyGraph.edges);
 
