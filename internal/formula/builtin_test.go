@@ -224,7 +224,7 @@ func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
 	}
 }
 
-func TestGitResolveConflictsFinalizeOnlyStagesInitialConflicts(t *testing.T) {
+func TestGitResolveConflictsFinalizeDoesNotStageFiles(t *testing.T) {
 	p := NewParser()
 	f, err := p.LoadByName("git-resolve-conflicts")
 	if err != nil {
@@ -275,12 +275,12 @@ func TestGitResolveConflictsFinalizeOnlyStagesInitialConflicts(t *testing.T) {
 		t.Fatalf("finalize-conflicts script failed: %v; raw=%s", err, string(out.Raw))
 	}
 	staged := runGitOutput(t, repo, "diff", "--cached", "--name-only")
-	if strings.TrimSpace(staged) != "conflict.txt" {
-		t.Fatalf("staged files = %q, want only conflict.txt", staged)
+	if strings.TrimSpace(staged) != "" {
+		t.Fatalf("staged files = %q, want none; formula should not git add", staged)
 	}
-	unstaged := runGitOutput(t, repo, "diff", "--name-only")
-	if strings.TrimSpace(unstaged) != "unrelated.txt" {
-		t.Fatalf("unstaged files = %q, want unrelated.txt to remain unstaged", unstaged)
+	unstaged := strings.Fields(runGitOutput(t, repo, "diff", "--name-only"))
+	if strings.Join(unstaged, ",") != "conflict.txt,unrelated.txt" {
+		t.Fatalf("unstaged files = %#v, want conflict.txt and unrelated.txt to remain unstaged", unstaged)
 	}
 	var wrapper map[string]any
 	if err := json.Unmarshal(out.Raw, &wrapper); err != nil {
@@ -291,9 +291,12 @@ func TestGitResolveConflictsFinalizeOnlyStagesInitialConflicts(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("unmarshal finalize stdout: %v; stdout=%s", err, stdout)
 	}
-	reported := asSlice(payload["staged_files"])
+	reported := asSlice(payload["needs_user_add"])
 	if len(reported) != 1 || asString(reported[0]) != "conflict.txt" {
-		t.Fatalf("reported staged_files = %#v, want [conflict.txt]", reported)
+		t.Fatalf("reported needs_user_add = %#v, want [conflict.txt]", reported)
+	}
+	if stagedFiles := asSlice(payload["staged_files"]); len(stagedFiles) != 0 {
+		t.Fatalf("staged_files should be omitted/empty, got %#v", stagedFiles)
 	}
 }
 

@@ -223,12 +223,12 @@ description = """
 - 能兼容时保留双方意图，并让最终代码符合当前项目模式。
 - 不能整块盲选一边，除非另一边明确过期/重复，并在 resolution_summary 说明。
 - 如果上下文被截断，或需要跨文件业务上下文才能判断，返回 resolved:false，blocker_type:"missing_context" 或 "semantic_uncertainty"，不要硬合。
-- lockfile 不要编造条目；不确定时 block，后续自动 lockfile 重建会处理。
+- lockfile 不要编造条目；不确定时 block。
 
 要求：
 - 只修改 {{conflict_file.path}}，不要修改其他文件。
-- 不要 checkout/switch/reset/merge/rebase/push/gh。
-- 解决所有冲突标记后 git add <file>。
+- 不要 checkout/switch/reset/merge/rebase/push/gh，不要执行 git add。
+- 解决所有冲突标记后，保持文件在工作区中；是否 `git add` 由用户决定。
 - resolution_summary 简要说明 ours/theirs 各自意图和你如何合并。
 
 输出 ONLY compact JSON object：
@@ -285,7 +285,7 @@ description = "安全边界：不运行 pnpm/yarn/npm，不自动重建 lockfile
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
-jq -cn '{attempted:false,resolved:false,lockfiles:[],remaining_conflicts:[],reason:"automatic lockfile regeneration disabled; only initial conflict files may be modified/staged"}'
+jq -cn '{attempted:false,resolved:false,lockfiles:[],remaining_conflicts:[],reason:"automatic lockfile regeneration disabled; only initial conflict files may be modified"}'
 """]
 format = "json"
 timeout = "10m"
@@ -302,7 +302,7 @@ id = "finalize-conflicts"
 title = "确认冲突已解决"
 execution = "script"
 depends_on = ["inspect-conflicts", "check-remaining-conflicts", "auto-resolve-lockfiles"]
-description = "确认无 unmerged 和冲突标记，并 stage 已解决文件；不执行 merge/rebase/cherry-pick --continue。"
+description = "确认无 unmerged 和冲突标记；不执行 git add，不执行 merge/rebase/cherry-pick --continue。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -325,13 +325,8 @@ unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | ma
 if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,head:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,head:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
-if [ "$(jq -r 'length' <<<"$initial_conflicts")" -gt 0 ]; then
-  jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r file; do
-    [ -n "$file" ] && git add -- "$file"
-  done
-fi
-staged="$(comm -12 <(git diff --cached --name-only | sort) <(jq -r '.[]' <<<"$initial_conflicts" | sort) | jq -R -s -c 'split("\n") | map(select(length>0))')"
-jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson staged "$staged" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],staged_files:$staged,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
+resolved_files="$(jq -c <<<"$initial_conflicts")"
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson resolved_files "$resolved_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],resolved_files:$resolved_files,needs_user_add:$resolved_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"
 timeout = "5m"
@@ -388,7 +383,7 @@ description = """
 - 初始冲突文件 initial_conflicts，并用表格列出每个冲突文件
 - 冲突位置：从 list-conflict-files.stdout.items[].conflict_regions 提取行号范围；如果 conflict_regions 为空，说明“未记录具体行号/仅 index stage 冲突”
 - 解决方式：从 resolve-conflict-file 的每个子结果提取 resolution_summary、resolved、blocker_type；lockfile 使用 lockfile_resolution
-- staged_files 与 validation_command 结果
+- resolved_files、needs_user_add 与 validation_command 结果
 - 不执行 merge/rebase/cherry-pick continue，只说明当前 operation 状态
 - 剩余冲突 remaining_conflicts 或 blocker_type/blocker_summary
 - validation_command 结果
@@ -398,7 +393,7 @@ description = """
 2. 耗时
 3. 冲突文件与位置，表格列：文件、冲突位置、状态
 4. 解决方式，表格列：文件、解决摘要、是否已解决、blocker
-5. 验证与 staged 文件
+5. 验证与需要用户手动 git add 的文件
 6. 后续操作提示
 
 不要输出长日志，不要重复粘贴各 step 原始 JSON，不要输出 context_file 中的大块 excerpt，不要编造 input_context 没有的信息。
