@@ -1,4 +1,4 @@
-package agentopt
+package optimize
 
 import (
 	"encoding/json"

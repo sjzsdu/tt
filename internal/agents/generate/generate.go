@@ -1,4 +1,4 @@
-package nvwa
+package generate
 
 import (
 	"fmt"
@@ -44,7 +44,7 @@ func BuildGenerationPrompt(opt PromptOptions) (string, error) {
 - soul.md 偏内在气质，让模型知道应该如何取舍、坚持什么、避免什么。
 - Agent.md 必须能回答：这个角色服务谁、负责什么、不负责什么、如何澄清需求、如何推进任务、交付物是什么、如何验收。
 - soul.md 必须体现职业信念、取舍偏好、反模式、压力下的判断，而不是重复操作步骤。
-- 禁止使用“专业、高效、负责”这类没有行为约束的空话。
+- 禁止使用"专业、高效、负责"这类没有行为约束的空话。
 - 禁止输出所有职业都能复用的通用段落。
 - 默认中文。
 - 只输出 <Agent.md>...</Agent.md> 和 <soul.md>...</soul.md> 两个标签。
@@ -104,7 +104,7 @@ func DefaultEmbeddedID(role string) string {
 	slug = regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(slug, "-")
 	slug = strings.Trim(slug, "-")
 	if slug == "" {
-		return "nvwa-agent"
+		return "agent"
 	}
 	return slug
 }

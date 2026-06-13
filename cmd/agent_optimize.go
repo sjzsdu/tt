@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sjzsdu/tt/internal/agentopt"
+	"github.com/sjzsdu/tt/internal/agents/optimize"
 	"github.com/sjzsdu/tt/internal/agents"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
@@ -115,8 +115,8 @@ func runAgentOptimizeWithRepo(cmd *cobra.Command, agentID, target, suggestion st
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	defer runner.Close()
-	optimizer := agentopt.New(agentOptimizeDirectProcessor{runner: runner, base: pcwrap.RunOptions{Session: agentOptimizeSession, Agent: agents.AgentOptimizerID, Model: merged.Agent.Model, Workspace: workspace, Debug: agentOptimizeDebug, Quiet: !agentOptimizeDebug, EmbeddedAgents: embedded}, debug: agentOptimizeDebug})
-	result, err := optimizer.Optimize(agentopt.Options{Target: target, BaseAgent: agentID, OutputPath: agentOptimizeOutput, Force: agentOptimizeForce, Copy: agentOptimizeCopy, MaxFiles: agentOptimizeMaxFiles, MaxFileSize: agentOptimizeMaxFileSize, MaxPromptChars: agentOptimizeMaxPromptChars, Timeout: agentOptimizeTimeout, KeepTemp: agentOptimizeKeepTemp})
+	optimizer := optimize.New(agentOptimizeDirectProcessor{runner: runner, base: pcwrap.RunOptions{Session: agentOptimizeSession, Agent: agents.AgentOptimizerID, Model: merged.Agent.Model, Workspace: workspace, Debug: agentOptimizeDebug, Quiet: !agentOptimizeDebug, EmbeddedAgents: embedded}, debug: agentOptimizeDebug})
+	result, err := optimizer.Optimize(optimize.Options{Target: target, BaseAgent: agentID, OutputPath: agentOptimizeOutput, Force: agentOptimizeForce, Copy: agentOptimizeCopy, MaxFiles: agentOptimizeMaxFiles, MaxFileSize: agentOptimizeMaxFileSize, MaxPromptChars: agentOptimizeMaxPromptChars, Timeout: agentOptimizeTimeout, KeepTemp: agentOptimizeKeepTemp})
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/agents"
-	"github.com/sjzsdu/tt/internal/nvwa"
+	"github.com/sjzsdu/tt/internal/agents/generate"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/spf13/cobra"
 )
@@ -85,7 +85,7 @@ func runAgentCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runAgentCreateFromRole(cmd *cobra.Command, role string) error {
-	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: role})
+	prompt, err := generate.BuildGenerationPrompt(generate.PromptOptions{Role: role})
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func runAgentCreateFromSuggestion(cmd *cobra.Command, name, suggestion string, i
 		return fmt.Errorf("suggestion is required")
 	}
 
-	id := nvwa.DefaultEmbeddedID(name)
+	id := generate.DefaultEmbeddedID(name)
 	displayName := strings.TrimSpace(agentCreateName)
 	if displayName == "" {
 		displayName = name
@@ -120,7 +120,7 @@ func runAgentCreateFromSuggestion(cmd *cobra.Command, name, suggestion string, i
 		}
 	}
 
-	prompt, err := nvwa.BuildGenerationPrompt(nvwa.PromptOptions{Role: name, Context: suggestion})
+	prompt, err := generate.BuildGenerationPrompt(generate.PromptOptions{Role: name, Context: suggestion})
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func runAgentCreateFromSuggestion(cmd *cobra.Command, name, suggestion string, i
 		return err
 	}
 
-	doc, err := nvwa.RenderEmbeddedMarkdown(files, nvwa.EmbeddedOptions{
+	doc, err := generate.RenderEmbeddedMarkdown(files, generate.EmbeddedOptions{
 		ID:        id,
 		Name:      displayName,
 		Skills:    agentCreateSkills,
@@ -168,14 +168,14 @@ func runAgentCreateFromSuggestion(cmd *cobra.Command, name, suggestion string, i
 	return nil
 }
 
-func generateAgentFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
+func generateAgentFiles(cmd *cobra.Command, prompt string) (generate.Files, error) {
 	loaded, err := loadTTConfig()
 	if err != nil {
-		return nvwa.Files{}, err
+		return generate.Files{}, err
 	}
 	workspace, err := ensureTTWorkspace()
 	if err != nil {
-		return nvwa.Files{}, err
+		return generate.Files{}, err
 	}
 	merged := loaded.Merged
 	if cmd.Flags().Changed("picoclaw-home") {
@@ -186,13 +186,13 @@ func generateAgentFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	}
 	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
 	if err != nil {
-		return nvwa.Files{}, err
+		return generate.Files{}, err
 	}
 	defer restoreStorage()
 	merged.Picoclaw.Home = resolvedHome
 	merged.Picoclaw.Config = resolvedConfig
 	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		return nvwa.Files{}, err
+		return generate.Files{}, err
 	}
 
 	rt, err := pcwrap.Load(pcwrap.Options{
@@ -202,7 +202,7 @@ func generateAgentFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 		TTSources: loaded.Sources,
 	})
 	if err != nil {
-		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		return generate.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	loading := startLLMLoading("正在生成 agent 提示词", agentCreateDebug)
 	designer := promptDesignerAgent()
@@ -217,7 +217,7 @@ func generateAgentFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	})
 	if err != nil {
 		loading.Stop()
-		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		return generate.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	defer dr.Close()
 
@@ -233,11 +233,11 @@ func generateAgentFiles(cmd *cobra.Command, prompt string) (nvwa.Files, error) {
 	})
 	loading.Stop()
 	if err != nil {
-		return nvwa.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		return generate.Files{}, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
-	files, err := nvwa.ParseResponse(response)
+	files, err := generate.ParseResponse(response)
 	if err != nil {
-		return nvwa.Files{}, fmt.Errorf("parse agent output failed: %w\n\nRaw output:\n%s", err, response)
+		return generate.Files{}, fmt.Errorf("parse agent output failed: %w\n\nRaw output:\n%s", err, response)
 	}
 	return files, nil
 }
@@ -296,7 +296,7 @@ func agentResearchTools(enabled bool) []string {
 	return []string{"skills", "find_skills", "web_search", "web_fetch", "exec"}
 }
 
-func writeAgentFiles(files nvwa.Files, format, dir string, force bool) error {
+func writeAgentFiles(files generate.Files, format, dir string, force bool) error {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
