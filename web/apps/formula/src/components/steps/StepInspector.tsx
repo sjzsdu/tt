@@ -4,7 +4,7 @@ import type { FormulaDashboardSnapshot, FormulaDashboardStep, FormulaStepActivit
 import { OutputSurface } from '../OutputSurface';
 import { api, type AgentSessionTranscript } from '../../api';
 import { activityShortId, formatDuration, statusLabel, statusTone } from '../../utils/status';
-import { collectStepInputValues, groupLoopActivities, latestLoopActivity, loopActivityIteration, sameOutput, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
+import { collectStepInputValues, groupLoopActivities, latestLoopActivity, loopActivityIteration, resolveLoopIterationInput, sameOutput, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
 
 export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step: FormulaDashboardStep | null; snapshot: FormulaDashboardSnapshot | null; open: boolean; onClose: () => void; onRetry: (step: FormulaDashboardStep) => void }) {
   const [selectedSession, setSelectedSession] = useState<AgentSessionView | null>(null);
@@ -78,6 +78,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
 
   const loopActivityItems = loopActivityGroups.map(group => {
     const key = group.iteration || 'step';
+    const iterationInput = resolveLoopIterationInput(step, snapshot, group.iteration);
     const statusCounts = group.activities.reduce<Record<string, number>>((acc, activity) => {
       acc[activity.status] = (acc[activity.status] || 0) + 1;
       return acc;
@@ -93,7 +94,21 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           {key === defaultOpenLoopActivityKey && <Tag color={running ? 'processing' : 'blue'}>{running ? 'current' : 'latest'}</Tag>}
         </div>
       ),
-      children: <div className="step-activity-list loop-activity-list">{group.activities.map(renderActivityRow)}</div>,
+      children: (
+        <div className="step-activity-list loop-activity-list">
+          {iterationInput && (
+            <Collapse
+              className="step-iteration-input-collapse"
+              items={[{
+                key: 'iteration-input',
+                label: sectionLabel('📥', `Iteration ${iterationInput.iteration} input`, `${iterationInput.key} · ${iterationInput.source}`),
+                children: <OutputSurface content={iterationInput.value} className="step-input-output" />,
+              }]}
+            />
+          )}
+          {group.activities.map(renderActivityRow)}
+        </div>
+      ),
     };
   });
 

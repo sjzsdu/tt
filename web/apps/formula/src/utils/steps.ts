@@ -70,20 +70,60 @@ export function collectStepInputValues(step: FormulaDashboardStep, snapshot: For
   }).filter((item): item is { key: string; source: string; value: string } => !!item);
 }
 
+export function resolveLoopIterationInput(step: FormulaDashboardStep, snapshot: FormulaDashboardSnapshot | null, iteration: string) {
+  if (!snapshot || !step.loop?.for_each || !iteration) return null;
+  const index = Number.parseInt(iteration, 10) - 1;
+  if (!Number.isFinite(index) || index < 0) return null;
+  const byID = new Map(snapshot.steps.map(item => [item.id, item]));
+  const key = step.loop.for_each;
+  const root = key.split('.')[0];
+  const sourceStep = byID.get(root);
+  const value = resolveStepInputUnknown(key, sourceStep?.output);
+  if (!Array.isArray(value) || index >= value.length) return null;
+  const item = value[index];
+  return {
+    key: step.loop.var || 'item',
+    source: key,
+    iteration,
+    value: typeof item === 'string' ? item : JSON.stringify(item, null, 2),
+  };
+}
+
 function resolveStepInputValue(key: string, output?: string) {
   if (!output) return '';
   const parts = key.split('.').slice(1);
   if (!parts.length) return output;
   try {
-    let current: unknown = JSON.parse(output);
-    for (const part of parts) {
-      if (!current || typeof current !== 'object' || !(part in current)) return output;
-      current = (current as Record<string, unknown>)[part];
-    }
+    const current = resolvePath(JSON.parse(output), parts);
+    if (current === undefined) return output;
     return typeof current === 'string' ? current : JSON.stringify(current, null, 2);
   } catch {
     return output;
   }
+}
+
+function resolveStepInputUnknown(key: string, output?: string): unknown {
+  if (!output) return undefined;
+  const parts = key.split('.').slice(1);
+  try {
+    const parsed: unknown = JSON.parse(output);
+    return parts.length ? resolvePath(parsed, parts) : parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolvePath(value: unknown, parts: string[]) {
+  let current = value;
+  for (const part of parts) {
+    if (Array.isArray(current) && /^\d+$/.test(part)) {
+      current = current[Number.parseInt(part, 10)];
+      continue;
+    }
+    if (!current || typeof current !== 'object' || !(part in current)) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
 }
 
 export function attentionStep(snapshot: FormulaDashboardSnapshot) {
