@@ -220,7 +220,7 @@ id = "verify-conflict-resolution"
 title = "确认冲突已解决"
 execution = "script"
 depends_on = ["prepare-conflict-context", "resolve-conflict-file"]
-description = "检查剩余 unmerged 文件和 conflict markers；不执行 git add。若仍有冲突，直接失败中断。"
+description = "检查工作区剩余 conflict markers 和 resolver 结果；不执行 git add，也不要求 index 已标记 resolved。若仍有冲突，直接失败中断。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -228,7 +228,9 @@ set -euo pipefail
 repo_root="${TT_REPO_ROOT:-}"
 [ -n "$repo_root" ] && cd "$repo_root"
 prepare_raw="${TT_PREPARE:-}"
+resolve_raw="${TT_RESOLVE:-}"
 prepare_json="$(jq -cn --arg s "$prepare_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type=="object") then .stdout elif type=="object" and (.stdout|type=="string") then ((.stdout|fromjson?)//.) else . end')"
+resolve_json="$(jq -cn --arg s "$resolve_raw" 'if ($s|length)==0 then [] else (($s|fromjson?)//[]) end | if type=="object" and (.stdout|type)=="array" then .stdout elif type=="object" and (.stdout|type)=="string" then ((.stdout|fromjson?)//[]) elif type=="array" then . else [] end')"
 initial_conflicts="$(jq -c '.files // .conflicted_files // []' <<<"$prepare_json")"
 operation="$(jq -r '.operation // "none"' <<<"$prepare_json")"
 started_at="$(jq -r '.started_at // ""' <<<"$prepare_json")"
@@ -236,15 +238,16 @@ started_epoch="$(jq -r '.started_epoch // 0' <<<"$prepare_json")"
 completed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 completed_epoch="$(date +%s)"
 elapsed_seconds=$(( completed_epoch - started_epoch )); [ "$elapsed_seconds" -lt 0 ] && elapsed_seconds=0
-unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-remaining="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
+unmerged_index_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+marker_files="$(jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
+resolver_unresolved="$(jq -c '[.[] | select((.resolved != true) or ((.blocker_type // "none") != "none")) | (.conflicted_files // .touched_files // [])[]] | unique' <<<"$resolve_json")"
+remaining="$(jq -cn --argjson a "$marker_files" --argjson b "$resolver_unresolved" '($a+$b)|unique')"
 if [ "$(jq -r 'length' <<<"$remaining")" -gt 0 ]; then
-  jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson remaining "$remaining" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:$remaining,continued:false,blocker_type:"unresolved_conflicts",blocker_summary:"unresolved git conflicts remain"}'
+  jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson remaining "$remaining" --argjson marker_files "$marker_files" --argjson resolver_unresolved "$resolver_unresolved" --argjson unmerged_index_files "$unmerged_index_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:$remaining,remaining_marker_files:$marker_files,resolver_unresolved_files:$resolver_unresolved,unmerged_index_files:$unmerged_index_files,continued:false,blocker_type:"unresolved_conflicts",blocker_summary:"conflict markers or unresolved resolver results remain"}'
   exit 1
 fi
 resolved_files="$(jq -c <<<"$initial_conflicts")"
-jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson resolved_files "$resolved_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:[],resolved_files:$resolved_files,needs_user_add:$resolved_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson resolved_files "$resolved_files" --argjson unmerged_index_files "$unmerged_index_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:[],remaining_marker_files:[],resolver_unresolved_files:[],resolved_files:$resolved_files,needs_user_add:$resolved_files,unmerged_index_files:$unmerged_index_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"
 timeout = "5m"
@@ -252,6 +255,7 @@ timeout = "5m"
 [steps.script.env]
 TT_REPO_ROOT = "{{prepare-conflict-context.stdout.repo_root}}"
 TT_PREPARE = "{{prepare-conflict-context.stdout}}"
+TT_RESOLVE = "{{resolve-conflict-file}}"
 
 [steps.validate]
 format = "json"
