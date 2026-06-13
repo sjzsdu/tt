@@ -190,6 +190,7 @@ description = """
 上下文说明：
 - 三方上下文已写入 {{conflict_file.context_file}}，开始前必须读取该 JSON 文件。
 - JSON 中的 base_excerpt 是 merge base，ours_excerpt 是当前 side，theirs_excerpt 是 incoming side，conflict_hunks 是带行号的冲突片段。
+- 如果 JSON 中出现 truncated，或者你认为上下文不足，必须先主动补充上下文：读取当前完整文件，并可使用 `git show :1:{{conflict_file.path}}`、`git show :2:{{conflict_file.path}}`、`git show :3:{{conflict_file.path}}` 查看完整 base/ours/theirs；必要时搜索同目录相关符号。只有补充后仍无法判断，才允许 block。
 
 合并原则：
 - 先根据 base/ours/theirs 判断双方各自改了什么。
@@ -203,6 +204,7 @@ description = """
 - 只修改 {{conflict_file.path}}，不要修改其他文件。
 - 不要 checkout/switch/reset/merge/rebase/push/gh，不要执行 git add。
 - 解决所有冲突标记后，保持文件在工作区中；是否 `git add` 由用户决定。
+- 判断冲突标记必须使用精确行首规则，例如 `git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- <file>`；不要用宽泛的 `grep =======`，避免把普通分隔注释误判为冲突。
 - resolution_summary 简要说明 ours/theirs 各自意图和你如何合并。
 
 输出 ONLY compact JSON object：
@@ -222,7 +224,7 @@ id = "verify-conflict-resolution"
 title = "确认冲突已解决"
 execution = "script"
 depends_on = ["prepare-conflict-context", "resolve-conflict-file"]
-description = "检查工作区剩余 conflict markers 和 resolver 结果；不执行 git add，也不要求 index 已标记 resolved。若仍有冲突，直接失败中断。"
+description = "检查工作区剩余 conflict markers；不执行 git add，也不要求 index 已标记 resolved。resolver 的 unresolved 结果只报告，不作为硬失败。若仍有冲突标记，直接失败中断。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -243,13 +245,13 @@ elapsed_seconds=$(( completed_epoch - started_epoch )); [ "$elapsed_seconds" -lt
 unmerged_index_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
 marker_files="$(jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 resolver_unresolved="$(jq -c '[.[] | select((.resolved != true) or ((.blocker_type // "none") != "none")) | (.conflicted_files // .touched_files // [])[]] | unique' <<<"$resolve_json")"
-remaining="$(jq -cn --argjson a "$marker_files" --argjson b "$resolver_unresolved" '($a+$b)|unique')"
+remaining="$(jq -cn --argjson a "$marker_files" '$a|unique')"
 if [ "$(jq -r 'length' <<<"$remaining")" -gt 0 ]; then
-  jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson remaining "$remaining" --argjson marker_files "$marker_files" --argjson resolver_unresolved "$resolver_unresolved" --argjson unmerged_index_files "$unmerged_index_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:$remaining,remaining_marker_files:$marker_files,resolver_unresolved_files:$resolver_unresolved,unmerged_index_files:$unmerged_index_files,continued:false,blocker_type:"unresolved_conflicts",blocker_summary:"conflict markers or unresolved resolver results remain"}'
+  jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson remaining "$remaining" --argjson marker_files "$marker_files" --argjson resolver_unresolved "$resolver_unresolved" --argjson unmerged_index_files "$unmerged_index_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:$remaining,remaining_marker_files:$marker_files,resolver_unresolved_files:$resolver_unresolved,unmerged_index_files:$unmerged_index_files,continued:false,blocker_type:"unresolved_conflict_markers",blocker_summary:"conflict markers remain in working tree"}'
   exit 1
 fi
 resolved_files="$(jq -c <<<"$initial_conflicts")"
-jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson resolved_files "$resolved_files" --argjson unmerged_index_files "$unmerged_index_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:[],remaining_marker_files:[],resolver_unresolved_files:[],resolved_files:$resolved_files,needs_user_add:$resolved_files,unmerged_index_files:$unmerged_index_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
+jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson resolved_files "$resolved_files" --argjson resolver_unresolved "$resolver_unresolved" --argjson unmerged_index_files "$unmerged_index_files" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,remaining_conflicts:[],remaining_marker_files:[],resolver_unresolved_files:$resolver_unresolved,resolved_files:$resolved_files,needs_user_add:$resolved_files,unmerged_index_files:$unmerged_index_files,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"
 timeout = "5m"
