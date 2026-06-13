@@ -107,9 +107,21 @@ const PORT_INDEX_BY_TOTAL: Record<number, number[]> = {
 const LANE_STEP = 12;
 const NODE_X_GAP = 560;
 const NODE_Y_GAP = 250;
+const LOOP_BODY_NODE_X_GAP = 500;
+const LOOP_BODY_NODE_Y_GAP = 230;
+const LOOP_ISLAND_GAP = 120;
+const STEP_NODE_WIDTH = 540;
+const LOOP_BODY_NODE_WIDTH = 460;
+const VARIABLE_NODE_WIDTH = 220;
+const STEP_NODE_HEIGHT = 124;
+const VARIABLE_NODE_HEIGHT = 54;
 
 function variableNodeID(key: string) {
   return `var::${key.replace(/[^a-zA-Z0-9_.:-]/g, '_')}`;
+}
+
+function scopedVariableNodeID(scopeID: string, key: string) {
+  return `${scopeID}__${variableNodeID(key)}`;
 }
 
 function consumedVariables(step: FormulaDashboardStep) {
@@ -318,7 +330,9 @@ function assignLayoutOrder(nodes: FormulaGraphNode[], edges: FormulaGraphEdge[])
   ));
 }
 
-function assignLayoutPositions(nodes: FormulaGraphNode[]) {
+function assignLayoutPositions(nodes: FormulaGraphNode[], options: { xGap?: number; yGap?: number } = {}) {
+  const xGap = options.xGap || NODE_X_GAP;
+  const yGap = options.yGap || NODE_Y_GAP;
   const ranks = new Map<number, FormulaGraphNode[]>();
   for (const node of nodes) {
     const rank = node.data.layoutRank || 0;
@@ -330,8 +344,8 @@ function assignLayoutPositions(nodes: FormulaGraphNode[]) {
     const rankNodes = ranks.get(rank)!.sort((a, b) => (a.data.layoutOrder || 0) - (b.data.layoutOrder || 0));
     const center = (rankNodes.length - 1) / 2;
     rankNodes.forEach((node, index) => {
-      const x = (index - center) * NODE_X_GAP;
-      const y = rank * NODE_Y_GAP;
+      const x = (index - center) * xGap;
+      const y = rank * yGap;
       node.data = { ...node.data, layoutX: x, layoutY: y };
       node.style = { ...(node.style || {}), x, y };
     });
@@ -409,6 +423,150 @@ export function loopBodyStep(parent: FormulaDashboardStep, body: FormulaDashboar
     depth: (parent.depth || 0) + 1,
     index,
   };
+}
+
+export function materializeLoopBodySteps(parentStep: FormulaDashboardStep, parentNodeID = parentStep.id, activitySource = parentStep) {
+  return (parentStep.loop?.body || []).map((body, index) => {
+    const bodyStep = loopBodyStep(parentStep, body, index, activitySource);
+    bodyStep.id = loopBodyGraphID(parentNodeID, body.id);
+    bodyStep.depth = (parentStep.depth || 0) + 1;
+    return bodyStep;
+  });
+}
+
+export function computeLoopBodyGraphData(
+  parentStep: FormulaDashboardStep,
+  parentNodeID = parentStep.id,
+  activitySource = parentStep,
+  expandedLoopIDs: Set<string> = new Set(),
+): { nodes: FormulaGraphNode[]; edges: FormulaGraphEdge[]; combos: FormulaGraphCombo[]; bodySteps: FormulaDashboardStep[] } {
+  const bodySteps = materializeLoopBodySteps(parentStep, parentNodeID, activitySource);
+  const bodyIDToNodeID = new Map(
+    (parentStep.loop?.body || []).map(body => [body.id, loopBodyGraphID(parentNodeID, body.id)]),
+  );
+  const stepMap = new Map(bodySteps.map(step => [step.id, step]));
+  const nodes: FormulaGraphNode[] = [];
+  const edges: FormulaGraphEdge[] = [];
+  const variableConsumers = new Map<string, string[]>();
+
+  const addVariableConsumers = (step: FormulaDashboardStep, nodeID: string) => {
+    for (const key of consumedVariables(step)) {
+      if (!variableConsumers.has(key)) variableConsumers.set(key, []);
+      variableConsumers.get(key)!.push(nodeID);
+    }
+  };
+
+  for (let index = 0; index < bodySteps.length; index++) {
+    const step = bodySteps[index];
+    nodes.push({
+      id: step.id,
+      data: {
+        step,
+        kind: 'loop-body',
+        parentStep,
+        body: parentStep.loop?.body?.[index],
+        expanded: expandedLoopIDs.has(step.id),
+      },
+    });
+
+    addVariableConsumers(step, step.id);
+  }
+
+  const edgeIDs = new Set<string>();
+  for (const step of bodySteps) {
+    for (const dep of step.depends_on || []) {
+      const sourceID = bodyIDToNodeID.get(dep) || dep;
+      if (!stepMap.has(sourceID)) continue;
+      const edgeID = `${sourceID}-${step.id}`;
+      if (edgeIDs.has(edgeID)) continue;
+      edgeIDs.add(edgeID);
+      edges.push({
+        id: edgeID,
+        source: sourceID,
+        target: step.id,
+        data: { status: step.status, kind: 'dependency' },
+      });
+    }
+  }
+
+  for (const [key, consumers] of variableConsumers) {
+    const variableID = scopedVariableNodeID(parentNodeID, key);
+    nodes.push({
+      id: variableID,
+      data: {
+        kind: 'variable',
+        key,
+        consumers,
+      },
+    });
+
+    for (const consumerID of consumers) {
+      edges.push({
+        id: `${variableID}-${consumerID}`,
+        source: variableID,
+        target: consumerID,
+        data: { kind: 'variable-consume', variable: key },
+      });
+    }
+  }
+
+  assignLayoutOrder(nodes, edges);
+  assignLayoutPositions(nodes, { xGap: LOOP_BODY_NODE_X_GAP, yGap: LOOP_BODY_NODE_Y_GAP });
+  applyEdgeLanes(edges, nodes);
+
+  return { nodes, edges, combos: [], bodySteps };
+}
+
+function approximateNodeSize(node: FormulaGraphNode): [number, number] {
+  if (node.data.kind === 'variable') return [VARIABLE_NODE_WIDTH, VARIABLE_NODE_HEIGHT];
+  if (node.data.kind === 'loop-group') return [LOOP_BODY_NODE_WIDTH, STEP_NODE_HEIGHT];
+  return [node.data.kind === 'loop-body' ? LOOP_BODY_NODE_WIDTH : STEP_NODE_WIDTH, STEP_NODE_HEIGHT];
+}
+
+function graphNodeBounds(nodes: FormulaGraphNode[]) {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const node of nodes) {
+    const [width, height] = approximateNodeSize(node);
+    const x = node.style?.x ?? node.data.layoutX ?? 0;
+    const y = node.style?.y ?? node.data.layoutY ?? 0;
+    minX = Math.min(minX, x - width / 2);
+    minY = Math.min(minY, y - height / 2);
+    maxX = Math.max(maxX, x + width / 2);
+    maxY = Math.max(maxY, y + height / 2);
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
+  }
+
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function shiftGraphNodes(nodes: FormulaGraphNode[], dx: number, dy: number) {
+  for (const node of nodes) {
+    const x = (node.style?.x ?? node.data.layoutX ?? 0) + dx;
+    const y = (node.style?.y ?? node.data.layoutY ?? 0) + dy;
+    node.data = { ...node.data, layoutX: x, layoutY: y };
+    node.style = { ...(node.style || {}), x, y };
+  }
+}
+
+function placeLoopBodyGraphToLeft(bodyNodes: FormulaGraphNode[], parentNode: FormulaGraphNode) {
+  if (!bodyNodes.length) return;
+  const bounds = graphNodeBounds(bodyNodes);
+  const [parentWidth] = approximateNodeSize(parentNode);
+  const parentX = parentNode.style?.x ?? parentNode.data.layoutX ?? 0;
+  const parentY = parentNode.style?.y ?? parentNode.data.layoutY ?? 0;
+  const bodyCenterX = (bounds.minX + bounds.maxX) / 2;
+  const bodyCenterY = (bounds.minY + bounds.maxY) / 2;
+  const targetCenterX = parentX - parentWidth / 2 - LOOP_ISLAND_GAP - bounds.width / 2;
+  const targetCenterY = parentY;
+
+  shiftGraphNodes(bodyNodes, targetCenterX - bodyCenterX, targetCenterY - bodyCenterY);
 }
 
 export function computeGraphData(
@@ -489,6 +647,40 @@ export function computeGraphData(
   assignLayoutPositions(nodes);
   applyEdgeLanes(edges, nodes);
 
+  const nodeByID = new Map(nodes.map(node => [node.id, node]));
+  const appendedLoopIDs = new Set<string>();
+
+  const appendExpandedLoopBodyGraph = (
+    parentNodeID: string,
+    parentStep: FormulaDashboardStep,
+    activitySource: FormulaDashboardStep,
+  ) => {
+    if (!parentStep.loop?.body?.length || !expandedLoopIDs.has(parentNodeID) || appendedLoopIDs.has(parentNodeID)) return;
+    const parentNode = nodeByID.get(parentNodeID);
+    if (!parentNode) return;
+
+    appendedLoopIDs.add(parentNodeID);
+    const bodyGraph = computeLoopBodyGraphData(parentStep, parentNodeID, activitySource, expandedLoopIDs);
+    if (!bodyGraph.nodes.length) return;
+
+    placeLoopBodyGraphToLeft(bodyGraph.nodes, parentNode);
+
+    for (const node of bodyGraph.nodes) {
+      nodes.push(node);
+      nodeByID.set(node.id, node);
+    }
+    edges.push(...bodyGraph.edges);
+
+    for (const node of bodyGraph.nodes) {
+      if (node.data.kind === 'variable' || node.data.kind === 'loop-group' || !node.data.step.loop?.body?.length) continue;
+      appendExpandedLoopBodyGraph(node.id, node.data.step, activitySource);
+    }
+  };
+
+  for (const step of snapshot.steps) {
+    appendExpandedLoopBodyGraph(step.id, step, step);
+  }
+
   return { nodes, edges, combos };
 }
 
@@ -497,6 +689,6 @@ export function resolveClickedStep(
   nodeData: StepNodeData | undefined,
   snapshot: FormulaDashboardSnapshot,
 ): FormulaDashboardStep | undefined {
-  if (nodeData?.kind === 'loop-body') return nodeData.parentStep;
+  if (nodeData?.kind === 'loop-body') return nodeData.step;
   return nodeData?.step || snapshot.steps.find(step => step.id === nodeID);
 }

@@ -5,7 +5,7 @@ import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { graphShortId } from '../../utils/status';
 import { stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
-import { computeGraphData, loopBodyGraphID, loopBodyStep, resolveClickedStep, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
+import { computeGraphData, loopBodyGraphID, resolveClickedStep, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'rgba(148, 163, 184, 0.82)',
@@ -362,7 +362,7 @@ function eventCanvasPoint(graph: Graph, evt: GraphNodePointerEvent): [number, nu
 }
 
 function isLoopToggleClick(graph: Graph, nodeData: StepNodeData | undefined, evt: GraphNodePointerEvent) {
-  if (!nodeData?.step.loop?.body?.length) return false;
+  if (!nodeData?.step?.loop?.body?.length) return false;
   if (isBadgeClick(evt)) return true;
 
   const point = eventCanvasPoint(graph, evt);
@@ -383,181 +383,6 @@ function isLoopToggleClick(graph: Graph, nodeData: StepNodeData | undefined, evt
   ));
 }
 
-
-function statusClassName(status?: string) {
-  return (status || 'pending').replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
-function loopSummaryTags(step: FormulaDashboardStep) {
-  const loop = step.loop;
-  if (!loop) return [];
-
-  return [
-    `${loop.body?.length || 0} body`,
-    loop.until ? `until ${loop.until}` : '',
-    loop.max ? `max ${loop.max}` : '',
-    loop.count ? `count ${loop.count}` : '',
-    loop.range ? `range ${loop.range}` : '',
-    loop.for_each ? `for_each ${loop.for_each}` : '',
-    loop.var ? `var ${loop.var}` : '',
-    loop.parallel ? 'parallel' : '',
-    loop.max_concurrency ? `concurrency ${loop.max_concurrency}` : '',
-  ].filter(Boolean);
-}
-
-function materializeLoopBodySteps(parentStep: FormulaDashboardStep, parentNodeID: string, activitySource: FormulaDashboardStep) {
-  return (parentStep.loop?.body || []).map((body, index) => {
-    const bodyStep = loopBodyStep(parentStep, body, index, activitySource);
-    bodyStep.id = loopBodyGraphID(parentNodeID, body.id);
-    bodyStep.depth = (parentStep.depth || 0) + 1;
-    return bodyStep;
-  });
-}
-
-function LoopBodyList({
-  parentStep,
-  parentNodeID,
-  activitySource,
-  expandedLoopIDs,
-  toggleLoop,
-  onSelect,
-}: {
-  parentStep: FormulaDashboardStep;
-  parentNodeID: string;
-  activitySource: FormulaDashboardStep;
-  expandedLoopIDs: Set<string>;
-  toggleLoop: (stepID: string) => void;
-  onSelect: (step: FormulaDashboardStep) => void;
-}) {
-  const bodySteps = materializeLoopBodySteps(parentStep, parentNodeID, activitySource);
-
-  return (
-    <div className="graph-loop-body-list">
-      {bodySteps.map((bodyStep, index) => {
-        const executionKind = stepExecutionKind(bodyStep);
-        const hasNestedLoop = !!bodyStep.loop?.body?.length;
-        const isExpanded = expandedLoopIDs.has(bodyStep.id);
-        return (
-          <div className={`graph-loop-body-card ${statusClassName(bodyStep.status)}`} key={bodyStep.id}>
-            <div className="graph-loop-body-row">
-              <button type="button" className="graph-loop-body-main" onClick={() => onSelect(bodyStep)}>
-                <span className="graph-loop-body-index">#{index + 1}</span>
-                <span className="graph-loop-body-title">
-                  <strong>{bodyStep.title || graphShortId(bodyStep.id)}</strong>
-                  <code>{graphShortId(bodyStep.id)}</code>
-                </span>
-                <span className={`graph-loop-body-status ${statusClassName(bodyStep.status)}`}>{bodyStep.status || 'pending'}</span>
-              </button>
-              {hasNestedLoop && (
-                <button
-                  type="button"
-                  className="graph-loop-nested-toggle"
-                  onClick={() => toggleLoop(bodyStep.id)}
-                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} nested loop ${bodyStep.title || bodyStep.id}`}
-                >
-                  {isExpanded ? '−' : '+'}
-                </button>
-              )}
-            </div>
-            <div className="graph-loop-body-meta">
-              <span>{KIND_MARKS[executionKind] || KIND_MARKS.step} {stepExecutionLabel(executionKind)}</span>
-              {bodyStep.condition && <span>if {bodyStep.condition}</span>}
-              {bodyStep.output_key && <span>out {bodyStep.output_key}</span>}
-              {!!bodyStep.input_ctx?.length && <span>ctx {bodyStep.input_ctx.length}</span>}
-            </div>
-            {bodyStep.description && <p className="graph-loop-body-desc">{bodyStep.description}</p>}
-            {hasNestedLoop && isExpanded && (
-              <div className="graph-loop-nested-body">
-                <LoopBodyList
-                  parentStep={bodyStep}
-                  parentNodeID={bodyStep.id}
-                  activitySource={activitySource}
-                  expandedLoopIDs={expandedLoopIDs}
-                  toggleLoop={toggleLoop}
-                  onSelect={onSelect}
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function LoopExpansionSection({
-  step,
-  expandedLoopIDs,
-  toggleLoop,
-  onSelect,
-}: {
-  step: FormulaDashboardStep;
-  expandedLoopIDs: Set<string>;
-  toggleLoop: (stepID: string) => void;
-  onSelect: (step: FormulaDashboardStep) => void;
-}) {
-  return (
-    <section className={`graph-loop-section ${statusClassName(step.status)}`}>
-      <div className="graph-loop-section-head">
-        <div>
-          <span className="graph-loop-eyebrow">Independent loop area</span>
-          <strong>↻ {step.title || graphShortId(step.id)}</strong>
-          <code>{step.id}</code>
-        </div>
-        <button type="button" onClick={() => toggleLoop(step.id)}>Collapse</button>
-      </div>
-      {step.loop?.summary && <p className="graph-loop-summary">{step.loop.summary}</p>}
-      <div className="graph-loop-tags">
-        {loopSummaryTags(step).map(tag => <span key={tag}>{tag}</span>)}
-      </div>
-      <LoopBodyList
-        parentStep={step}
-        parentNodeID={step.id}
-        activitySource={step}
-        expandedLoopIDs={expandedLoopIDs}
-        toggleLoop={toggleLoop}
-        onSelect={onSelect}
-      />
-    </section>
-  );
-}
-
-function LoopSidecar({
-  snapshot,
-  expandedLoopIDs,
-  toggleLoop,
-  onSelect,
-}: {
-  snapshot: FormulaDashboardSnapshot;
-  expandedLoopIDs: Set<string>;
-  toggleLoop: (stepID: string) => void;
-  onSelect: (step: FormulaDashboardStep) => void;
-}) {
-  const expandedLoops = snapshot.steps.filter(step => !!step.loop?.body?.length && expandedLoopIDs.has(step.id));
-  if (!expandedLoops.length) return null;
-
-  return (
-    <aside className="graph-loop-sidecar" aria-label="Expanded loop details">
-      <div className="graph-loop-sidecar-head">
-        <span>Loop expansion</span>
-        <strong>{expandedLoops.length} open</strong>
-        <p>Loop bodies render here, outside the main graph layout.</p>
-      </div>
-      <div className="graph-loop-sidecar-scroll">
-        {expandedLoops.map(step => (
-          <LoopExpansionSection
-            key={step.id}
-            step={step}
-            expandedLoopIDs={expandedLoopIDs}
-            toggleLoop={toggleLoop}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-    </aside>
-  );
-}
-
 function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expandedLoopCount }: { runningTitle?: string; nodeCount: number; edgeCount: number; loopCount: number; expandedLoopCount: number }) {
   return (
     <Popover
@@ -568,7 +393,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
           <div className="graph-help-hero">
             <div>
               <strong>Execution graph</strong>
-              <p>Overview-first workflow map. Loop bodies open in an independent right-side area so the main graph layout stays stable.</p>
+              <p>Overview-first workflow map. Expanded loop bodies render as independent graph islands to the left of their loop step.</p>
             </div>
             {runningTitle && (
               <div className="graph-help-live">
@@ -609,7 +434,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
               <li><b>Edges</b>: target step status. Cyan dashed edges are variable consumption. Hover a node to highlight related edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
-              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the loop body in the right-side loop area.</li>
+              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the independent loop-body graph on the left.</li>
             </ul>
           </div>
         </div>
@@ -944,7 +769,6 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
   const allLoopIDs = loopStepIDs(snapshot);
   const loopSteps = allLoopIDs.length;
   const expandedLoopCount = allLoopIDs.filter(id => expandedLoopIDs.has(id)).length;
-  const hasExpandedLoopSidecar = snapshot.steps.some(step => !!step.loop?.body?.length && expandedLoopIDs.has(step.id));
   const metricNodeCount = graphData.nodes.length;
   const metricEdgeCount = graphData.edges.length;
 
@@ -968,7 +792,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
           </div>
         </div>
       </div>
-      <div className={`graph-workspace ${hasExpandedLoopSidecar ? 'has-loop-sidecar' : ''}`}>
+      <div className="graph-workspace">
         <div className="graph-canvas g6-canvas">
           {graphError ? (
             <div className="graph-runtime-warning" role="status">
@@ -977,12 +801,6 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
           ) : null}
           <div ref={containerRef} className="g6-container" />
         </div>
-        <LoopSidecar
-          snapshot={snapshot}
-          expandedLoopIDs={expandedLoopIDs}
-          toggleLoop={toggleLoop}
-          onSelect={onSelect}
-        />
       </div>
     </div>
   );

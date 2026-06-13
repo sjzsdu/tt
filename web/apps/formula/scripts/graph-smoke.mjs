@@ -30,6 +30,7 @@ await writeFile(outfile, transpiled);
 try {
   const {
     computeGraphData,
+    computeLoopBodyGraphData,
     loopBodyGraphID,
     loopBodyStep,
     resolveClickedStep,
@@ -86,19 +87,34 @@ try {
   const summarizeNodeID = loopBodyGraphID('collect', 'summarize');
   const fetchBodyStep = loopBodyStep(loopStep, loopStep.loop.body[0], 0, loopStep);
 
-  assert.equal(expanded.nodes.length, 4, 'expanded graph should keep loop bodies out of the main graph layout');
+  assert.equal(expanded.nodes.length, 6, 'expanded graph should add loop body nodes as an independent graph island');
   assert.equal(expanded.combos.length, 0, 'expanded graph should not create loop combos in the main graph');
-  assert.ok(!expanded.nodes.some(node => node.id === fetchNodeID), 'loop body nodes should render in the independent side area, not the main graph');
-  assert.ok(!expanded.edges.some(edge => edge.source === fetchNodeID || edge.target === summarizeNodeID), 'loop body edges should not participate in main graph edge routing');
+  const fetchNode = expanded.nodes.find(node => node.id === fetchNodeID);
+  const summarizeNode = expanded.nodes.find(node => node.id === summarizeNodeID);
+  const collectNode = expanded.nodes.find(node => node.id === 'collect');
+  assert.equal(fetchNode?.data.kind, 'loop-body', 'expanded loop body should render as a graph node');
+  assert.equal(summarizeNode?.data.kind, 'loop-body', 'expanded loop dependency target should render as a graph node');
+  assert.ok(expanded.edges.some(edge => edge.source === fetchNodeID && edge.target === summarizeNodeID), 'loop body dependencies should render as graph edges');
   assert.equal(expanded.nodes.find(node => node.id === 'collect')?.data.expanded, true, 'loop node should still expose expanded state for the +/- badge');
-  assert.deepEqual(
-    expanded.nodes.map(node => [node.id, node.style.x, node.style.y]),
-    collapsed.nodes.map(node => [node.id, node.style.x, node.style.y]),
-    'expanding a loop should not change the original graph node coordinates',
-  );
-  assert.equal(fetchBodyStep.id, fetchNodeID, 'loop body helper should still materialize the side-area body id');
+  for (const collapsedNode of collapsed.nodes) {
+    const expandedNode = expanded.nodes.find(node => node.id === collapsedNode.id);
+    assert.deepEqual(
+      [expandedNode?.style.x, expandedNode?.style.y],
+      [collapsedNode.style.x, collapsedNode.style.y],
+      `expanding a loop should not change top-level coordinates for ${collapsedNode.id}`,
+    );
+  }
+  assert.ok(fetchNode.style.x < collectNode.style.x, 'loop body graph island should be positioned to the left of its parent loop step');
+  assert.ok(summarizeNode.style.y > fetchNode.style.y, 'loop body graph should use its own dependency-depth layout');
+  assert.equal(fetchBodyStep.id, fetchNodeID, 'loop body helper should still materialize the graph-island body id');
   assert.equal(fetchBodyStep.status, 'completed', 'loop body helper should inherit latest matching activity status');
   assert.equal(fetchBodyStep.metadata.iteration, '2', 'loop body helper should expose latest iteration metadata');
+  const independentBodyGraph = computeLoopBodyGraphData(loopStep, 'collect', loopStep, new Set(['collect']));
+  assert.deepEqual(
+    independentBodyGraph.nodes.map(node => node.id).sort(),
+    [fetchNodeID, summarizeNodeID].sort(),
+    'loop body graph helper should model only the loop body island',
+  );
 
   const nestedLoopStep = {
     id: 'outer',
@@ -125,14 +141,21 @@ try {
   const nestedSnapshot = { recipe_name: 'nested', status: 'running', logs: [], edges: [], steps: [nestedLoopStep] };
   const innerLoopNodeID = loopBodyGraphID('outer', 'inner-loop');
   const innerFetchNodeID = loopBodyGraphID(innerLoopNodeID, 'inner-fetch');
+  const innerSummarizeNodeID = loopBodyGraphID(innerLoopNodeID, 'inner-summarize');
   const nestedExpanded = computeGraphData(nestedSnapshot, new Set(['outer', innerLoopNodeID]));
-  assert.ok(!nestedExpanded.nodes.some(node => node.id === innerLoopNodeID), 'nested loop body nodes should stay out of the main graph layout');
-  assert.ok(!nestedExpanded.nodes.some(node => node.id === innerFetchNodeID), 'nested loop descendants should render only in the independent side area');
+  assert.ok(nestedExpanded.nodes.some(node => node.id === innerLoopNodeID), 'nested loop body nodes should render as graph nodes in the parent loop island');
+  assert.ok(nestedExpanded.nodes.some(node => node.id === innerFetchNodeID), 'nested loop descendants should render as their own independent graph island');
+  assert.ok(nestedExpanded.edges.some(edge => edge.source === innerFetchNodeID && edge.target === innerSummarizeNodeID), 'nested loop body dependencies should render as edges');
   assert.equal(nestedExpanded.combos.length, 0, 'expanded nested graph should not contain loop combos');
   assert.equal(nestedExpanded.nodes.find(node => node.id === 'outer')?.data.expanded, true, 'outer loop node should still expose expanded state');
+  assert.ok(
+    nestedExpanded.nodes.find(node => node.id === innerFetchNodeID).style.x
+      < nestedExpanded.nodes.find(node => node.id === innerLoopNodeID).style.x,
+    'nested loop graph island should be placed to the left of the nested loop node',
+  );
 
   const selectedFromBody = resolveClickedStep(fetchNodeID, { kind: 'loop-body', parentStep: loopStep, step: fetchBodyStep }, snapshot);
-  assert.equal(selectedFromBody?.id, 'collect', 'clicking a synthetic loop body should select its parent loop step');
+  assert.equal(selectedFromBody?.id, fetchNodeID, 'clicking a loop body graph node should select the body step itself');
 
   const loopNode = expanded.nodes.find(node => node.id === 'collect');
   const selectedFromLoop = resolveClickedStep('collect', loopNode.data, snapshot);
@@ -215,8 +238,10 @@ try {
   };
   const bodyVarsGraph = computeGraphData(bodyVarsSnapshot, new Set(['loop-step']));
   const bodyVar = bodyVarsGraph.nodes.find(node => node.id === 'var::repo');
-  assert.equal(bodyVar, undefined, 'loop body template variables should not alter the main graph variable layout');
-  assert.ok(!bodyVarsGraph.nodes.some(node => node.id === loopBodyGraphID('loop-step', 'fetch')), 'loop body consumer should stay out of the main graph');
+  const scopedBodyVar = bodyVarsGraph.nodes.find(node => node.id === 'loop-step__var::repo');
+  assert.equal(bodyVar, undefined, 'loop body template variables should not create global variable nodes in the main layout');
+  assert.equal(scopedBodyVar?.data.kind, 'variable', 'loop body template variables should render inside the scoped loop graph island');
+  assert.ok(bodyVarsGraph.nodes.some(node => node.id === loopBodyGraphID('loop-step', 'fetch')), 'loop body consumer should render inside the independent loop graph island');
   assert.ok(!bodyVarsGraph.nodes.some(node => node.id === 'var::seed'), 'only backend-provided var_refs should become variable nodes');
 
   const collisionSnapshot = {
