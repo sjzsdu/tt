@@ -1,6 +1,6 @@
 formula = "git-resolve-conflicts"
 title = "Resolve current git conflicts"
-description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push。为每个冲突文件生成 base/ours/theirs 三方上下文，并发调用 merge-conflict-resolver 修复，自动重建 lockfile，并输出冲突解决报告。"
+description = "通用 Git 冲突修复公式：只接管当前 git 项目中已经存在的代码冲突，不负责 checkout/merge/rebase/cherry-pick continue/push，不重建依赖或执行包管理器。为每个冲突文件生成 base/ours/theirs 三方上下文，并发调用 merge-conflict-resolver 修复，并输出冲突解决报告。"
 version = 3
 type = "workflow"
 category = "git"
@@ -276,37 +276,16 @@ required = ["stdout"]
 
 [[steps]]
 id = "auto-resolve-lockfiles"
-title = "自动重建剩余 lockfile 冲突"
+title = "跳过 lockfile 自动重建"
 execution = "script"
 depends_on = ["inspect-conflicts", "check-remaining-conflicts"]
 condition = "inspect-conflicts.stdout.needs_resolution == true"
-description = "如果只剩 pnpm/yarn/npm lockfile 冲突，基于 package manifest 重新生成 lockfile 并 git add。"
+description = "安全边界：不运行 pnpm/yarn/npm，不自动重建 lockfile。lockfile 只作为普通初始冲突文件处理。"
 
 [steps.script]
 command = ["bash", "-lc", """
 set -euo pipefail
-repo_root="${TT_REPO_ROOT:-}"
-[ -n "$repo_root" ] && cd "$repo_root"
-lock_re='(^|/)(pnpm-lock\\.yaml|package-lock\\.json|yarn\\.lock)$'
-unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-remaining="$(jq -cn --argjson a "$unmerged" --argjson b "$marker_files" '($a+$b)|unique')"
-if [ "$(jq -r 'length' <<<"$remaining")" -eq 0 ]; then jq -cn '{attempted:false,resolved:true,lockfiles:[],reason:"no remaining conflicts"}'; exit 0; fi
-non_lock="$(jq -r '.[]' <<<"$remaining" | grep -Ev "$lock_re" || true)"
-if [ -n "$non_lock" ]; then jq -cn --argjson remaining "$remaining" '{attempted:false,resolved:false,lockfiles:[],remaining_conflicts:$remaining,reason:"non-lockfile conflicts remain"}'; exit 0; fi
-lockfiles="$(jq -c <<<"$remaining")"
-for f in $(jq -r '.[]' <<<"$remaining"); do
-  case "$f" in
-    */pnpm-lock.yaml|pnpm-lock.yaml) rm -f "$f"; d="$(dirname "$f")"; [ -f "$d/package.json" ] || d="."; (cd "$d" && pnpm install --lockfile-only --ignore-scripts); git add "$f" ;;
-    */package-lock.json|package-lock.json) rm -f "$f"; d="$(dirname "$f")"; [ -f "$d/package.json" ] || d="."; (cd "$d" && npm install --package-lock-only --ignore-scripts); git add "$f" ;;
-    */yarn.lock|yarn.lock) rm -f "$f"; d="$(dirname "$f")"; [ -f "$d/package.json" ] || d="."; (cd "$d" && yarn install --mode=update-lockfile --ignore-scripts); git add "$f" ;;
-  esac
-done
-post_unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-post_markers="$(jq -r '.[]' <<<"$lockfiles" | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-resolved=false; [ "$post_unmerged" = "[]" ] && [ "$post_markers" = "[]" ] && resolved=true
-remaining_after="$(jq -cn --argjson a "$post_unmerged" --argjson b "$post_markers" '($a+$b)|unique')"
-jq -cn --argjson lockfiles "$lockfiles" --argjson remaining "$remaining_after" --argjson resolved "$resolved" '{attempted:true,resolved:$resolved,lockfiles:$lockfiles,remaining_conflicts:$remaining,reason:(if $resolved then "lockfiles regenerated" else "lockfile regeneration left conflicts" end)}'
+jq -cn '{attempted:false,resolved:false,lockfiles:[],remaining_conflicts:[],reason:"automatic lockfile regeneration disabled; only initial conflict files may be modified/staged"}'
 """]
 format = "json"
 timeout = "10m"
@@ -346,8 +325,12 @@ unmerged="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | ma
 if [ "$unmerged" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson unmerged "$unmerged" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$unmerged,continued:false,head:"",blocker_type:"unmerged_files",blocker_summary:"unmerged files remain"}'; exit 0; fi
 marker_files="$(git diff --name-only HEAD | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 if [ "$marker_files" != "[]" ]; then jq -cn --arg operation "$operation" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson marker_files "$marker_files" '{resolved:false,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:$marker_files,continued:false,head:"",blocker_type:"conflict_markers",blocker_summary:"conflict markers remain"}'; exit 0; fi
-git add -u
-staged="$(git diff --cached --name-only | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$(jq -r 'length' <<<"$initial_conflicts")" -gt 0 ]; then
+  jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r file; do
+    [ -n "$file" ] && git add -- "$file"
+  done
+fi
+staged="$(comm -12 <(git diff --cached --name-only | sort) <(jq -r '.[]' <<<"$initial_conflicts" | sort) | jq -R -s -c 'split("\n") | map(select(length>0))')"
 jq -cn --arg operation "$operation" --arg head "$(git rev-parse HEAD)" --arg started_at "$started_at" --arg completed_at "$completed_at" --argjson elapsed_seconds "$elapsed_seconds" --argjson initial_conflicts "$initial_conflicts" --argjson lockfix "$lockfix_summary" --argjson staged "$staged" '{resolved:true,operation:$operation,started_at:$started_at,completed_at:$completed_at,elapsed_seconds:$elapsed_seconds,initial_conflicts:$initial_conflicts,lockfile_resolution:$lockfix,remaining_conflicts:[],staged_files:$staged,continued:false,head:$head,blocker_type:"none",blocker_summary:""}'
 """]
 format = "json"

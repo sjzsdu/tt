@@ -224,6 +224,79 @@ func TestGitResolveConflictsListConflictFilesScript(t *testing.T) {
 	}
 }
 
+func TestGitResolveConflictsFinalizeOnlyStagesInitialConflicts(t *testing.T) {
+	p := NewParser()
+	f, err := p.LoadByName("git-resolve-conflicts")
+	if err != nil {
+		t.Fatalf("LoadByName(git-resolve-conflicts) error = %v", err)
+	}
+	var finalizeStep *spec.Step
+	for _, step := range f.Steps {
+		if step.ID == "finalize-conflicts" {
+			finalizeStep = step
+			break
+		}
+	}
+	if finalizeStep == nil || finalizeStep.Script == nil {
+		t.Fatalf("finalize-conflicts script step not found")
+	}
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "conflict.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "conflict.txt", "unrelated.txt")
+	runGit(t, repo, "commit", "-m", "base")
+	if err := os.WriteFile(filepath.Join(repo, "conflict.txt"), []byte("resolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte("user work in progress\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inspect := `{"conflicted_files":["conflict.txt"],"operation":"merge","started_at":"2026-01-01T00:00:00Z","started_epoch":1767225600}`
+	lockfix := `{"attempted":false,"resolved":true,"lockfiles":[],"reason":"no remaining conflicts"}`
+	out, err := (formularuntime.ScriptCapability{DefaultTimeout: 5 * time.Second}).RunScript(context.Background(), steps.ScriptRequest{
+		Command: finalizeStep.Script.Command,
+		Env: map[string]string{
+			"TT_REPO_ROOT": repo,
+			"TT_INSPECT":   inspect,
+			"TT_LOCKFIX":   lockfix,
+		},
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("finalize-conflicts script failed: %v; raw=%s", err, string(out.Raw))
+	}
+	staged := runGitOutput(t, repo, "diff", "--cached", "--name-only")
+	if strings.TrimSpace(staged) != "conflict.txt" {
+		t.Fatalf("staged files = %q, want only conflict.txt", staged)
+	}
+	unstaged := runGitOutput(t, repo, "diff", "--name-only")
+	if strings.TrimSpace(unstaged) != "unrelated.txt" {
+		t.Fatalf("unstaged files = %q, want unrelated.txt to remain unstaged", unstaged)
+	}
+	var wrapper map[string]any
+	if err := json.Unmarshal(out.Raw, &wrapper); err != nil {
+		t.Fatalf("unmarshal script wrapper: %v; raw=%s", err, string(out.Raw))
+	}
+	stdout := asString(wrapper["stdout"])
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal finalize stdout: %v; stdout=%s", err, stdout)
+	}
+	reported := asSlice(payload["staged_files"])
+	if len(reported) != 1 || asString(reported[0]) != "conflict.txt" {
+		t.Fatalf("reported staged_files = %#v, want [conflict.txt]", reported)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -232,6 +305,17 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
+}
+
+func runGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
+	}
+	return string(out)
 }
 
 func TestBuiltinAtomicFormulasAreHiddenButLoadable(t *testing.T) {
