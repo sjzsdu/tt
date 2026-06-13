@@ -35,11 +35,12 @@ When asked to create or optimize a formula:
 2. Include root fields: `formula`, `description`, `version`, `type = "workflow"`.
 3. Use short stable local step ids: `fetch-pr`, `classify`, `run-tests`, `report`.
 4. Make execution order explicit with `depends_on`.
-5. Make data flow explicit with `input_context` for agent consumers.
+5. Make data flow explicit with `input_context` for agent consumers, but only pass data the agent actually needs.
 6. Prefer deterministic `tool`, `aggregate`, or `script` steps before agent steps.
 7. Use `[steps.validate]` for JSON that drives downstream structure, conditions, loops, or tools.
 8. Use top-level `[preflight]` for required CLI/env/repo prerequisites; do not model prerequisite checks as workflow steps unless their output is needed downstream.
-9. Validate with `tt formula validate`, `tt formula compile`, and, when safe, `tt formula run --dry-run`.
+9. Keep the workflow product-facing: internal safety constraints belong in step instructions, not in user-facing final reports.
+10. Validate with `tt formula validate`, `tt formula compile`, and, when safe, `tt formula run --dry-run`.
 
 ## Methodology: design before TOML
 
@@ -91,7 +92,35 @@ Rules:
 - Treat each step output as a delta contract: include only information unique to that step. Do not repeat upstream fields unless a downstream `condition`, `loop.until`, `aggregate`, or report explicitly needs them.
 - For final reports, pass curated summaries or manifests, not full raw stdout/stderr/diffs/logs. A reporter must synthesize conclusions instead of pasting upstream JSON or child reports.
 
-### 4. Move deterministic work out of agents
+### 4. Keep the formula simple and product-facing
+
+Design from the user's mental model, not from implementation plumbing. A formula should feel like one repeatable capability, not a transcript of every internal helper.
+
+Rules:
+
+- Do not expose internal safety constraints in the final report unless they materially affect the user's next action. Put constraints like "do not push", "do not checkout", "do not continue rebase", or "only touch these files" in step instructions, not in the user report.
+- The final report should answer user-facing questions: what happened, what files/items changed, what remains blocked, what validation ran, what to do next.
+- Not every upstream step belongs in `final-report.input_context`. Prefer one curated summary/report-data step plus optional validation output.
+- If multiple deterministic script steps are only mechanical plumbing and no downstream agent/user needs their intermediate outputs, combine them into one step.
+- Split steps only when it improves retry/failure semantics, enables branching/looping, provides a meaningful UI milestone, produces a reusable data contract, or separates deterministic collection from agent judgment.
+- Avoid "placeholder" steps that only say something was skipped. If a behavior is intentionally disabled, remove the step or encode that in the summary data only when the user needs to know.
+- For side-effect workflows, keep the boundary narrow: operate only on explicitly scoped inputs. Do not run broad commands like `git add -u`, package-manager regeneration, cleanup, checkout/reset, or push unless the formula's explicit user-facing purpose requires it.
+
+Preferred reporting pattern:
+
+```text
+collect/act deterministic steps -> summarize-result JSON -> final-report agent
+```
+
+The reporter should usually consume:
+
+```toml
+input_context = ["summarize-result.stdout", "run-validation.stdout"]
+```
+
+instead of every raw upstream step.
+
+### 5. Move deterministic work out of agents
 
 Do **not** ask an agent to:
 

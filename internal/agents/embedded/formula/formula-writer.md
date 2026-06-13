@@ -48,12 +48,13 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 1. root 包含 `formula`, `description`, `version`, `type = "workflow"`。
 2. step id 是稳定短 local id，例如 `fetch-pr`, `classify`, `run-tests`, `report`。
 3. `depends_on` 引用同一 formula 内存在的 local step id。
-4. 下游 agent 消费数据时用 `input_context = ["producer-step"]`。
+4. 下游 agent 消费数据时用 `input_context = ["producer-step"]`，但只传 agent 真正需要的数据。
 5. 优先使用 `execution = "tool"`、`execution = "aggregate"`、`execution = "script"` 表达确定性步骤。
 6. 只有判断、综合、代码推理、报告等才用 agent step。
 7. `condition` / `loop.until` / `aggregate` / tool 依赖的结构化输出必须配置 `[steps.validate]`。
 8. 对 CLI/env/git/path 等运行前置条件，使用顶层 `[preflight]`，不要为了检查 CLI 是否存在而创建 workflow step。
-9. 完成前运行 `tt formula validate`、`tt formula compile`、必要时 `tt formula run --dry-run`。
+9. formula 要面向用户任务保持简单；内部安全约束写在 step instruction，不要默认写进最终报告。
+10. 完成前运行 `tt formula validate`、`tt formula compile`、必要时 `tt formula run --dry-run`。
 
 ## 方法论：先设计 SOP，再写 TOML
 
@@ -97,6 +98,34 @@ fetch-data -> aggregate-manifest -> write-files -> report
 - 不要把巨大正文传给最终报告 agent；先用 `tool write_files` 落盘，再用 `aggregate` 给 manifest。
 - 每个 step 的输出都应视为“增量数据契约”：只输出该 step 独有的信息。除非下游 `condition`、`loop.until`、`aggregate` 或报告明确需要，否则不要重复上游字段。
 - 最终报告只接收精简摘要或 manifest，不要接收完整 stdout/stderr/diff/log；reporter 必须综合结论，不能粘贴上游 JSON 或子流程完整报告。
+
+### 4. 保持 formula 简单、面向用户任务
+
+从用户心智模型出发设计 formula，不要从内部实现 plumbing 出发。一个 formula 应该像一个可复用能力，而不是把每个内部 helper 都暴露成用户必须理解的执行日志。
+
+规则：
+
+- final report 不要默认复述内部安全约束。比如“不要 push / 不要 checkout / 不要 continue rebase / 只允许改这些文件”应写在对应 step instruction 里，只有当它影响用户下一步操作时才在报告里一句话说明。
+- final report 回答用户关心的问题：发生了什么、哪些文件/对象被处理、还有什么 blocker、跑了什么验证、下一步做什么。
+- 不是所有上游 step 输出都应该进入 `final-report.input_context`。优先做一个确定性的 summary/report-data step，再让 reporter 只读这个摘要和可选 validation 输出。
+- 多个确定性 script step 如果只是机械 plumbing，且中间输出不需要被 downstream agent/user 单独消费，应合并成一个 step。
+- 只有在这些情况下才拆 step：更好的失败/重试语义、需要分支/循环、是有意义的 UI 里程碑、产出可复用数据契约、或要把确定性采集和 agent 判断隔离。
+- 避免“占位式 skip step”。如果某个行为被禁用，优先删除这个 step；只有用户需要知道时，才把禁用原因写入 summary 数据。
+- 有副作用的 workflow 必须收窄边界：只操作显式声明的输入。不要使用 `git add -u`、包管理器重建、cleanup、checkout/reset、push 等宽泛命令，除非这正是 formula 明确的用户目标。
+
+推荐报告模式：
+
+```text
+collect/act deterministic steps -> summarize-result JSON -> final-report agent
+```
+
+reporter 通常只需要：
+
+```toml
+input_context = ["summarize-result.stdout", "run-validation.stdout"]
+```
+
+而不是所有原始上游 step。
 
 ## 外部 agent step
 
