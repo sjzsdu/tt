@@ -190,25 +190,25 @@ description = """
 上下文说明：
 - 三方上下文已写入 {{conflict_file.context_file}}，开始前必须读取该 JSON 文件。
 - JSON 中的 base_excerpt 是 merge base，ours_excerpt 是当前 side，theirs_excerpt 是 incoming side，conflict_hunks 是带行号的冲突片段。
-- 如果 JSON 中出现 truncated，或者你认为上下文不足，必须先主动补充上下文：读取当前完整文件，并可使用 `git show :1:{{conflict_file.path}}`、`git show :2:{{conflict_file.path}}`、`git show :3:{{conflict_file.path}}` 查看完整 base/ours/theirs；必要时搜索同目录相关符号。只有补充后仍无法判断，才允许 block。
+- 如果 JSON 中出现 truncated，或者你认为上下文不足，必须先主动补充上下文：读取当前完整文件，并可使用 `git show :1:{{conflict_file.path}}`、`git show :2:{{conflict_file.path}}`、`git show :3:{{conflict_file.path}}` 查看完整 base/ours/theirs；必要时搜索同目录相关符号。即使仍有语义不确定，也要给出保守合并并清除 conflict markers，把不确定点写入 resolution_summary/blocker_summary。
 
 合并原则：
 - 先根据 base/ours/theirs 判断双方各自改了什么。
 - 能兼容时保留双方意图，并让最终代码符合当前项目模式。
 - 不能整块盲选一边，除非另一边明确过期/重复，并在 resolution_summary 说明。
-- 如果上下文被截断，或需要跨文件业务上下文才能判断，返回 resolved:false，blocker_type:"missing_context" 或 "semantic_uncertainty"，不要硬合。
-- 不要编造生成文件或机器生成内容；不确定时 block。
+- 本 formula 的首要目标是清除工作区 conflict markers。复杂业务语义不确定时，选择保守、可编译倾向的合并：优先保留当前架构主线，吸收 incoming 中独立且兼容的守卫/补充逻辑；无法完全证明的风险写入 resolution_summary，不要留下 conflict markers。
+- 不要编造不存在的 API、导入或机器生成内容；如必须在两边选择，优先选择当前文件已有导入和当前 side 的架构，说明舍弃另一边的原因。
 - 如果当前文件已经没有任何 conflict marker，且不需要进一步修改即可作为当前工作区的 resolved 内容，返回 resolved:true；不要仅因为 git index 仍处于 unmerged 状态而 block，因为本 formula 不执行 git add。
 
 要求：
 - 只修改 {{conflict_file.path}}，不要修改其他文件。
 - 不要 checkout/switch/reset/merge/rebase/push/gh，不要执行 git add。
-- 解决所有冲突标记后，保持文件在工作区中；是否 `git add` 由用户决定。
+- 解决所有冲突标记后，保持文件在工作区中；是否 `git add` 由用户决定。除非读取/写入文件失败，否则不要返回 resolved:false。
 - 判断冲突标记必须使用精确行首规则，例如 `git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- <file>`；不要用宽泛的 `grep =======`，避免把普通分隔注释误判为冲突。
 - resolution_summary 简要说明 ours/theirs 各自意图和你如何合并。
 
 输出 ONLY compact JSON object：
-{"input":{"path":"{{conflict_file.path}}","context_file":"{{conflict_file.context_file}}","conflict_region_count":{{conflict_file.conflict_region_count}},"conflict_regions":[{"start_line":1,"separator_line":2,"end_line":3,"summary":"lines 1-3"}],"file_kind":"{{conflict_file.file_kind}}"},"attempted":true,"resolved":true,"conflicted_files":["{{conflict_file.path}}"],"touched_files":["{{conflict_file.path}}"],"extra_touched_files":[],"resolution_summary":"","validations_run":[],"blocker_type":"none|semantic_uncertainty|missing_context|validation_failed|unknown","blocker_summary":""}
+{"input":{"path":"{{conflict_file.path}}","context_file":"{{conflict_file.context_file}}","conflict_region_count":{{conflict_file.conflict_region_count}},"conflict_regions":[{"start_line":1,"separator_line":2,"end_line":3,"summary":"lines 1-3"}],"file_kind":"{{conflict_file.file_kind}}"},"attempted":true,"resolved":true,"conflicted_files":["{{conflict_file.path}}"],"touched_files":["{{conflict_file.path}}"],"extra_touched_files":[],"resolution_summary":"","validations_run":[],"assumptions":[],"blocker_type":"none|io_error|validation_failed|unknown","blocker_summary":""}
 其中 input 必须回显本次 iteration 的输入摘要；conflict_regions 请从 conflict_file/context_file 中复制真实数组，不要使用上面的示例行号。
 """
 
@@ -306,6 +306,7 @@ description = """
 - 是否已解决所有冲突
 - 冲突文件与冲突位置
 - 每个文件的解决摘要
+- 每个文件如有 assumptions、blocker_summary 或 resolver_unresolved_files，必须作为“语义风险/待复核点”列出；不要把清除 conflict marker 伪装成业务完全正确。
 - 总耗时
 - validation_command 结果
 - 需要用户手动 git add 的文件
