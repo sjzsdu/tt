@@ -125,61 +125,8 @@ input_context = ["prepare-review-summary.summary_comment", "prepare-review-summa
 condition = "prepare-review-summary.submit_review == true"
 
 [steps.script]
-command = ["python3", "-c", """
-import json, subprocess, sys, traceback
-
-def emit(result):
-    print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
-
-result = {'submitted': False, 'review_action': 'COMMENT', 'summary_comment': '', 'submitted_comments': [], 'failed_comments': [], 'conversation_comments_requested': 0, 'review_error': ''}
-try:
-    pr_ref = sys.argv[1] if len(sys.argv) > 1 else ''
-    repo_hint = (sys.argv[2] if len(sys.argv) > 2 else '').strip()
-    raw_plan = sys.argv[3] if len(sys.argv) > 3 else '{}'
-    try:
-        review_plan = json.loads(raw_plan or '{}')
-    except Exception as exc:
-        result['review_error'] = f'invalid review plan JSON: {exc}'
-        result['raw_plan_preview'] = raw_plan[:1200]
-        emit(result)
-        raise SystemExit(0)
-    result['summary_comment'] = review_plan.get('summary_comment', '')
-    conversation_comments = review_plan.get('conversation_comments') or []
-    result['conversation_comments_requested'] = len(conversation_comments)
-    repo_args = ['--repo', repo_hint] if repo_hint else []
-    if not pr_ref:
-        result['review_error'] = 'missing pr_ref'
-        emit(result)
-        raise SystemExit(0)
-    if not review_plan.get('has_findings', False):
-        result['reason'] = 'No findings to submit'
-        emit(result)
-        raise SystemExit(0)
-
-    body = (review_plan.get('summary_comment') or '').strip() or 'Automated PR review summary.'
-    res = subprocess.run(['gh', 'pr', 'review', pr_ref, '--comment', '--body', body] + repo_args, capture_output=True, text=True)
-    if res.returncode == 0:
-        result['submitted'] = True
-        result['submitted_review_body'] = True
-    else:
-        result['review_error'] = res.stderr.strip() or res.stdout.strip() or 'gh pr review failed'
-
-    for item in conversation_comments:
-        cbody = (item.get('body') or '').strip()
-        if not cbody:
-            continue
-        cres = subprocess.run(['gh', 'pr', 'comment', pr_ref, '--body', cbody] + repo_args, capture_output=True, text=True)
-        if cres.returncode == 0:
-            result['submitted_comments'].append({'id': item.get('id'), 'type': 'conversation'})
-        else:
-            result['failed_comments'].append({'id': item.get('id'), 'type': 'conversation', 'error': cres.stderr.strip() or cres.stdout.strip() or 'gh pr comment failed'})
-except SystemExit:
-    raise
-except Exception as exc:
-    result['review_error'] = f'submit summary script failed: {exc}'
-    result['traceback'] = traceback.format_exc()[-2000:]
-emit(result)
-""", "{{pr_ref}}", "{{repo_hint}}", "{{prepare-review-summary}}"]
+script = "./scripts/submit-review-comments.py"
+args = ["{{pr_ref}}", "{{repo_hint}}", "{{prepare-review-summary}}"]
 format = "json"
 timeout = "120s"
 continue_on_error = true
@@ -206,63 +153,7 @@ condition = "prepare-review-summary.submit_review == true"
   input_context = ["review_comment", "fetch-pr.pr.stdout.head_sha", "fetch-pr.pr.stdout.repo_hint"]
 
     [steps.loop.body.script]
-    command = ["python3", "-c", """
-import json, os, subprocess, sys, traceback
-
-def emit(result):
-    print(json.dumps(result, ensure_ascii=False, separators=(',', ':')))
-
-result = {'submitted': False, 'id': '', 'type': 'line', 'path': '', 'line': None, 'side': 'RIGHT', 'error': ''}
-try:
-    pr_ref = os.environ.get('TT_PR_REF', '').strip()
-    repo_hint = os.environ.get('TT_REPO_HINT', '').strip()
-    head_sha = os.environ.get('TT_HEAD_SHA', '').strip()
-    raw_comment = os.environ.get('TT_REVIEW_COMMENT') or '{}'
-    try:
-        item = json.loads(raw_comment)
-    except Exception as exc:
-        result['error'] = f'invalid review_comment JSON: {exc}'
-        result['raw_comment_preview'] = raw_comment[:1200]
-        emit(result)
-        raise SystemExit(0)
-    result.update({'id': item.get('id') or '', 'path': item.get('path') or '', 'line': item.get('line'), 'side': item.get('side') or 'RIGHT'})
-    body = (item.get('body') or '').strip()
-    if not pr_ref:
-        result['error'] = 'missing pr_ref'
-        emit(result)
-        raise SystemExit(0)
-    if not head_sha:
-        result['error'] = 'missing head_sha'
-        emit(result)
-        raise SystemExit(0)
-    if not body or not result['path'] or result['line'] is None:
-        result['error'] = 'missing body/path/line'
-        emit(result)
-        raise SystemExit(0)
-    try:
-        line = int(result['line'])
-    except Exception:
-        result['error'] = 'line must be an integer'
-        emit(result)
-        raise SystemExit(0)
-    if repo_hint and '/' in repo_hint:
-        owner, name = repo_hint.split('/', 1)
-        endpoint = f'repos/{owner}/{name}/pulls/{pr_ref}/comments'
-    else:
-        endpoint = f'repos/:owner/:repo/pulls/{pr_ref}/comments'
-    cmd = ['gh', 'api', '--method', 'POST', endpoint, '-f', f'body={body}', '-f', f'commit_id={head_sha}', '-f', f'path={result["path"]}', '-F', f'line={line}', '-f', f'side={result["side"]}']
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode == 0:
-        result['submitted'] = True
-    else:
-        result['error'] = res.stderr.strip() or res.stdout.strip() or 'gh api inline comment failed'
-except SystemExit:
-    raise
-except Exception as exc:
-    result['error'] = f'inline comment script failed: {exc}'
-    result['traceback'] = traceback.format_exc()[-2000:]
-emit(result)
-"""]
+    script = "./scripts/submit-inline-comment.py"
     format = "json"
     timeout = "60s"
     continue_on_error = true
@@ -304,7 +195,7 @@ description = """
 
 必须包含：PR 概览、改动文件与模块、关键行为变化、影响范围、主要风险、评论提交结果、最终结论。
 
-“评论提交结果”必须包含 Markdown 表格，列至少为：ID、Severity、Category、Location、Status、Summary。
+"评论提交结果"必须包含 Markdown 表格，列至少为：ID、Severity、Category、Location、Status、Summary。
 
 生成规则：
 - 表格基于 prepare-review-summary.table_rows。
@@ -312,7 +203,7 @@ description = """
 - 如果 prepare-review-summary.submit_review=false：所有问题标记为 draft-only。
 - 如果没有问题，仍然输出 no-issue 行。
 - 明确区分：哪些问题已真实通过 gh 发出，哪些只是草稿，哪些提交失败。
-- 如果 formula_repairs.submit-review-comments 可用，必须在报告中增加“运行时脚本自修复”提示，说明本次使用了临时 fixed_command，并建议更新 github-pr-review formula 文档。
+- 如果 formula_repairs.submit-review-comments 可用，必须在报告中增加"运行时脚本自修复"提示，说明本次使用了临时 fixed_command，并建议更新 github-pr-review formula 文档。
 - 如果 fetch-pr.pr.stdout.ready=false，直接报告 PR 元数据获取失败和 fetch-pr.pr.stdout.error，不要继续编造 review 结果。
 
 - 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。

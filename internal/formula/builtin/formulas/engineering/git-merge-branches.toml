@@ -52,99 +52,7 @@ execution = "script"
 description = "从当前分支或指定 base_branch 创建目标 tmp 分支，并把逗号分隔的 branches 解析成顺序合并清单。要求当前没有未提交修改，也没有 merge/rebase/cherry-pick 进行中。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -euo pipefail
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
-branches_raw="${TT_BRANCHES:-}"
-target_input="${TT_TARGET_BRANCH:-}"
-base_input="${TT_BASE_BRANCH:-}"
-if [ -z "${branches_raw//[[:space:],]/}" ]; then
-  jq -cn '{ok:false,error:"branches is required",items:[]}'
-  exit 1
-fi
-if [ -f "$(git rev-parse --git-path MERGE_HEAD)" ] || [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || [ -f "$(git rev-parse --git-path CHERRY_PICK_HEAD)" ]; then
-  jq -cn '{ok:false,error:"git operation already in progress; finish or abort it before running this formula",items:[]}'
-  exit 1
-fi
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  jq -cn '{ok:false,error:"working tree or index is not clean; commit/stash changes before creating merge branch",items:[]}'
-  exit 1
-fi
-fetch_origin=false
-fetch_output=""
-if [ "${base_input#origin/}" != "$base_input" ] || printf '%s' "$branches_raw" | grep -Eq '(^|[,[:space:]])origin/'; then
-  fetch_origin=true
-  if ! fetch_output="$(git fetch origin --prune 2>&1)"; then
-    jq -cn --arg output "$fetch_output" '{ok:false,error:"git fetch origin --prune failed",fetch_origin:true,fetch_output:$output,items:[]}'
-    exit 1
-  fi
-fi
-current_branch="$(git branch --show-current)"
-base_branch="$current_branch"
-base_ref="$current_branch"
-if [ -n "$base_input" ] && [ "$base_input" != "-" ]; then
-  base_ref="$base_input"
-  base_branch="$base_input"
-fi
-if [ -z "$base_ref" ]; then
-  base_ref="HEAD"
-  base_branch="$(git rev-parse --short HEAD)"
-fi
-if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
-  jq -cn --arg base_ref "$base_ref" '{ok:false,error:("base_branch cannot be resolved: " + $base_ref),items:[]}'
-  exit 1
-fi
-base_head="$(git rev-parse "$base_ref^{commit}")"
-target="$target_input"
-if [ -z "$target" ] || [ "$target" = "-" ]; then
-  target="tmp-merge-$(date +%Y%m%d-%H%M%S)"
-fi
-case "$target" in
-  tmp*) ;;
-  *) target="tmp-$target" ;;
-esac
-if git show-ref --verify --quiet "refs/heads/$target"; then
-  jq -cn --arg target "$target" '{ok:false,error:("target branch already exists: " + $target),items:[]}'
-  exit 1
-fi
-items_json="$(python3 - <<'PY' "$branches_raw"
-import json, sys
-raw = sys.argv[1]
-seen = set()
-items = []
-for part in raw.split(','):
-    branch = part.strip()
-    if not branch or branch in seen:
-        continue
-    seen.add(branch)
-    items.append({"branch": branch, "index": len(items) + 1})
-print(json.dumps(items, ensure_ascii=False))
-PY
-)"
-if [ "$(jq 'length' <<<"$items_json")" = "0" ]; then
-  jq -cn '{ok:false,error:"no valid branches parsed from comma-separated input",items:[]}'
-  exit 1
-fi
-missing="$(jq -r '.[].branch' <<<"$items_json" | while IFS= read -r b; do git rev-parse --verify --quiet "$b^{commit}" >/dev/null || printf '%s\n' "$b"; done | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$(jq 'length' <<<"$missing")" != "0" ]; then
-  jq -cn --argjson missing "$missing" '{ok:false,error:"one or more branches cannot be resolved",missing_branches:$missing,items:[]}'
-  exit 1
-fi
-git switch -c "$target" "$base_ref" >/dev/null 2>&1
-jq -cn \
-  --arg repo_root "$repo_root" \
-  --arg base_branch "$base_branch" \
-  --arg base_ref "$base_ref" \
-  --arg base_head "$base_head" \
-  --arg current_branch "$current_branch" \
-  --arg target_branch "$target" \
-  --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --argjson fetch_origin "$fetch_origin" \
-  --arg fetch_output "$fetch_output" \
-  --argjson items "$items_json" \
-  '{ok:true,repo_root:$repo_root,current_branch:$current_branch,base_branch:$base_branch,base_ref:$base_ref,base_head:$base_head,target_branch:$target_branch,created_at:$created_at,fetch_origin:$fetch_origin,fetch_output:$fetch_output,items:$items,total:($items|length)}'
-"""]
+script = "../scripts/git/prepare-merge-branch.sh"
 format = "json"
 timeout = "60s"
 
@@ -175,28 +83,7 @@ execution = "script"
 description = "尝试合并当前分支。成功则继续下一项；冲突则交给 git-resolve-conflicts。脚本本身不因普通 merge 冲突失败。"
 
 [steps.loop.body.script]
-command = ["bash", "-lc", """
-set -u
-repo_root="${TT_REPO_ROOT:-}"
-branch="${TT_BRANCH:-}"
-index="${TT_INDEX:-}"
-cd "$repo_root" 2>/dev/null || { jq -cn --arg branch "$branch" --arg index "$index" '{branch:$branch,index:($index|tonumber? // 0),attempted:false,merged:false,conflict:false,skipped:true,error:"repo root missing",conflict_files:[]}'; exit 0; }
-before_head="$(git rev-parse HEAD 2>/dev/null || true)"
-started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-out="$(git merge "$branch" 2>&1)"
-rc=$?
-after_head="$(git rev-parse HEAD 2>/dev/null || true)"
-conflict_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$rc" -eq 0 ]; then
-  jq -cn --arg branch "$branch" --arg index "$index" --arg before_head "$before_head" --arg after_head "$after_head" --arg started_at "$started_at" --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg output "$out" '{branch:$branch,index:($index|tonumber? // 0),attempted:true,merged:true,conflict:false,skipped:false,before_head:$before_head,after_head:$after_head,started_at:$started_at,completed_at:$completed_at,stdout:$output,error:"",conflict_files:[]}'
-  exit 0
-fi
-if [ "$(jq 'length' <<<"$conflict_files")" != "0" ] || [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then
-  jq -cn --arg branch "$branch" --arg index "$index" --arg before_head "$before_head" --arg after_head "$after_head" --arg started_at "$started_at" --arg output "$out" --argjson conflict_files "$conflict_files" '{branch:$branch,index:($index|tonumber? // 0),attempted:true,merged:false,conflict:true,needs_resolution:true,skipped:false,before_head:$before_head,after_head:$after_head,started_at:$started_at,stdout:$output,error:$output,conflict_files:$conflict_files}'
-  exit 0
-fi
-jq -cn --arg branch "$branch" --arg index "$index" --arg before_head "$before_head" --arg after_head "$after_head" --arg started_at "$started_at" --arg output "$out" '{branch:$branch,index:($index|tonumber? // 0),attempted:true,merged:false,conflict:false,needs_resolution:false,skipped:true,before_head:$before_head,after_head:$after_head,started_at:$started_at,stdout:$output,error:$output,conflict_files:[]}'
-"""]
+script = "../scripts/git/attempt-merge.sh"
 format = "json"
 timeout = "120s"
 
@@ -229,47 +116,7 @@ depends_on = ["attempt-merge", "resolve-merge-conflicts"]
 description = "若无冲突则确认成功；若冲突已清除则只 stage 当前 unmerged 文件并完成 merge；若仍有冲突或 resolver 失败，则 abort 本次 merge 并标记该分支 skipped，继续后续分支。"
 
 [steps.loop.body.script]
-command = ["bash", "-lc", """
-set -u
-repo_root="${TT_REPO_ROOT:-}"
-branch="${TT_BRANCH:-}"
-index="${TT_INDEX:-}"
-attempt_raw="${TT_ATTEMPT:-}"
-resolve_raw="${TT_RESOLVE:-}"
-cd "$repo_root" 2>/dev/null || { jq -cn --arg branch "$branch" '{branch:$branch,merged:false,skipped:true,error:"repo root missing"}'; exit 0; }
-attempt="$(jq -cn --arg s "$attempt_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type)=="object" then .stdout elif type=="object" and (.stdout|type)=="string" then ((.stdout|fromjson?)//.) else . end')"
-needs_resolution="$(jq -r '.needs_resolution // false' <<<"$attempt")"
-if [ "$needs_resolution" != true ]; then
-  merged="$(jq -r '.merged // false' <<<"$attempt")"
-  skipped="$(jq -r '.skipped // false' <<<"$attempt")"
-  jq -cn --arg branch "$branch" --arg index "$index" --argjson attempt "$attempt" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:($attempt.merged // false),conflict:false,skipped:($attempt.skipped // false),skip_reason:(if ($attempt.skipped // false) then ($attempt.error // "merge_failed") else "" end),conflict_files:[],resolved_files:[],head:$head,attempt:$attempt,resolve:{},continue_output:""}'
-  exit 0
-fi
-initial_conflicts="$(jq -c '.conflict_files // []' <<<"$attempt")"
-marker_files="$(jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r f; do [ -f "$f" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$f" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
-unmerged_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-if [ "$(jq 'length' <<<"$marker_files")" != "0" ]; then
-  abort_out="$(git merge --abort 2>&1)"
-  jq -cn --arg branch "$branch" --arg index "$index" --arg abort_output "$abort_out" --argjson attempt "$attempt" --arg resolve_raw "$resolve_raw" --argjson conflict_files "$initial_conflicts" --argjson remaining_marker_files "$marker_files" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:false,conflict:true,skipped:true,skip_reason:"conflict_markers_remain",conflict_files:$conflict_files,remaining_marker_files:$remaining_marker_files,resolved_files:[],head:"",attempt:$attempt,resolve_raw:$resolve_raw,abort_output:$abort_output,continue_output:""}'
-  exit 0
-fi
-if [ "$(jq 'length' <<<"$unmerged_files")" != "0" ]; then
-  jq -r '.[]' <<<"$unmerged_files" | while IFS= read -r f; do [ -n "$f" ] && git add -- "$f"; done
-fi
-if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then
-  cont_out="$(GIT_EDITOR=true git merge --continue 2>&1)"
-  cont_rc=$?
-else
-  cont_out="merge already completed"
-  cont_rc=0
-fi
-if [ "$cont_rc" -eq 0 ]; then
-  jq -cn --arg branch "$branch" --arg index "$index" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" --arg continue_output "$cont_out" --argjson attempt "$attempt" --arg resolve_raw "$resolve_raw" --argjson conflict_files "$initial_conflicts" --argjson resolved_files "$unmerged_files" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:true,conflict:true,skipped:false,skip_reason:"",conflict_files:$conflict_files,resolved_files:$resolved_files,head:$head,attempt:$attempt,resolve_raw:$resolve_raw,continue_output:$continue_output}'
-  exit 0
-fi
-abort_out="$(git merge --abort 2>&1)"
-jq -cn --arg branch "$branch" --arg index "$index" --arg continue_output "$cont_out" --arg abort_output "$abort_out" --argjson attempt "$attempt" --arg resolve_raw "$resolve_raw" --argjson conflict_files "$initial_conflicts" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:false,conflict:true,skipped:true,skip_reason:"merge_continue_failed",conflict_files:$conflict_files,resolved_files:[],head:"",attempt:$attempt,resolve_raw:$resolve_raw,continue_output:$continue_output,abort_output:$abort_output}'
-"""]
+script = "../scripts/git/finalize-merge.sh"
 format = "json"
 timeout = "120s"
 

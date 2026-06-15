@@ -69,90 +69,7 @@ depends_on = ["fetch-pr-metadata"]
 description = "检查当前目录或其它 worktree 是否已 checkout 到该 PR 的 head 分支。当前目录在 PR 分支时允许直接复用继续推进；其它 worktree 在 PR 分支时仍短路，避免并发操作同一分支。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -u
-meta="${TT_PR_META:-{}}"
-root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}"
-ok="$(jq -r '.ok // false' <<<"$meta")"
-if [ "$ok" != true ]; then
-  jq -cn --arg error "pr metadata unavailable" --arg metadata_raw "$meta" '{ok:false,already_on_pr_branch:false,error:$error,metadata_raw:$metadata_raw,current_branch:"",head_branch:"",worktree_path:""}'
-  exit 0
-fi
-head="$(jq -r '.headRefName // empty' <<<"$meta")"
-number="$(jq -r '.number // empty' <<<"$meta")"
-if [ -z "$head" ]; then
-  jq -cn --arg error "missing PR head branch" '{ok:false,already_on_pr_branch:false,error:$error,current_branch:"",head_branch:"",worktree_path:""}'
-  exit 0
-fi
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  jq -cn --arg head_branch "$head" '{ok:true,already_on_pr_branch:false,error:"current directory is not inside a git repository",current_branch:"",head_branch:$head_branch,worktree_path:""}'
-  exit 0
-fi
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-repo_root_real="$(cd "$repo_root" && pwd -P)"
-current_branch="$(git branch --show-current 2>/dev/null || true)"
-invocation_dir="$(pwd)"
-safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
-expected_root="$root_input"
-case "$expected_root" in /*) ;; *) expected_root="$invocation_dir/$expected_root" ;; esac
-expected_path="$expected_root/pr-${number}-${safe_head}"
-expected_path_real="$(cd "$expected_path" 2>/dev/null && pwd -P || printf '%s' "$expected_path")"
-match_path=""
-match_head=""
-current_path=""
-current_head=""
-while IFS= read -r line; do
-  case "$line" in
-    worktree' '*) current_path="${line#worktree }" ;;
-    HEAD' '*) current_head="${line#HEAD }" ;;
-    branch' 'refs/heads/*)
-      branch="${line#branch refs/heads/}"
-      if [ "$branch" = "$head" ]; then
-        match_path="$current_path"
-        match_head="$current_head"
-      fi
-      ;;
-    "")
-      if [ -n "$match_path" ]; then break; fi
-      current_path=""
-      current_head=""
-      ;;
-  esac
-done < <(git -C "$repo_root" worktree list --porcelain)
-if [ -n "$match_path" ]; then
-  match_path_real="$(cd "$match_path" 2>/dev/null && pwd -P || printf '%s' "$match_path")"
-  if [ "$match_path_real" = "$repo_root_real" ]; then
-    jq -cn \
-      --arg current_branch "$head" \
-      --arg head_branch "$head" \
-      --arg worktree_path "$repo_root" \
-      --arg head_sha "$match_head" \
-      '{ok:true,already_on_pr_branch:false,current_on_pr_branch:true,error:"",reason:"current workspace is already on the PR head branch",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path,head_sha:$head_sha}'
-    exit 0
-  fi
-  if [ "$match_path_real" = "$expected_path_real" ]; then
-    jq -cn \
-      --arg current_branch "$current_branch" \
-      --arg head_branch "$head" \
-      --arg worktree_path "$match_path" \
-      --arg head_sha "$match_head" \
-      '{ok:true,already_on_pr_branch:false,current_on_pr_branch:false,target_worktree_on_pr_branch:true,error:"",reason:"formula target worktree is already on the PR head branch and will be reused",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path,head_sha:$head_sha}'
-    exit 0
-  fi
-  jq -cn \
-    --arg current_branch "$head" \
-    --arg head_branch "$head" \
-    --arg worktree_path "$match_path" \
-    --arg head_sha "$match_head" \
-    '{ok:true,already_on_pr_branch:true,current_on_pr_branch:false,error:"",reason:"an existing worktree is already on the PR head branch",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path,head_sha:$head_sha}'
-  exit 0
-fi
-jq -cn \
-  --arg current_branch "$current_branch" \
-  --arg head_branch "$head" \
-  --arg worktree_path "$repo_root" \
-  '{ok:true,already_on_pr_branch:false,current_on_pr_branch:false,error:"",current_branch:$current_branch,head_branch:$head_branch,worktree_path:$worktree_path}'
-"""]
+script = "./scripts/check-pr-worktree.sh"
 format = "json"
 timeout = "30s"
 
@@ -173,148 +90,7 @@ condition = "check-current-pr-worktree.stdout.already_on_pr_branch != true"
 description = "在执行命令目录的 .tt/worktrees 下创建隔离 worktree，使用 gh pr checkout 拉取 PR 分支，不污染当前工作区。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -u
-meta="${TT_PR_META:-{}}"
-repo_hint="${TT_REPO_HINT:-}"
-base_override="${TT_BASE_BRANCH:-}"
-root_input="${TT_WORKTREE_ROOT:-.tt/worktrees/github-pr-rebase-main}"
-current_check="${TT_CURRENT_CHECK:-{}}"
-ok="$(jq -r '.ok // false' <<<"$meta")"
-if [ "$ok" != true ]; then
-  jq -cn --arg error "pr metadata unavailable" --arg metadata_raw "$meta" '{ok:false,error:$error,metadata_raw:$metadata_raw,worktree_path:"",base_branch:"",head_branch:""}'
-  exit 0
-fi
-number="$(jq -r '.number // empty' <<<"$meta")"
-head="$(jq -r '.headRefName // empty' <<<"$meta")"
-base="$(jq -r '.baseRefName // empty' <<<"$meta")"
-if [ -n "$base_override" ] && [ "$base_override" != "-" ]; then base="$base_override"; fi
-if [ -z "$number" ] || [ -z "$head" ] || [ -z "$base" ]; then
-  jq -cn --arg error "missing PR number/head/base" --arg metadata_raw "$meta" '{ok:false,error:$error,metadata_raw:$metadata_raw,worktree_path:"",base_branch:"",head_branch:""}'
-  exit 0
-fi
-invocation_dir="$(pwd)"
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
-if [ -z "$repo_root" ]; then
-  jq -cn '{ok:false,error:"current directory is not inside a git repository",worktree_path:"",base_branch:"",head_branch:""}'
-  exit 0
-fi
-if [ "$(jq -r '.current_on_pr_branch // false' <<<"$current_check")" = true ]; then
-  worktree_path="$(jq -r '.worktree_path // empty' <<<"$current_check")"
-  [ -n "$worktree_path" ] || worktree_path="$repo_root"
-  safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
-  worktree_root="$root_input"
-  case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
-  stale_target="$worktree_root/pr-${number}-${safe_head}"
-  stale_target_real="$(cd "$stale_target" 2>/dev/null && pwd -P || printf '%s' "$stale_target")"
-  worktree_path_real="$(cd "$worktree_path" 2>/dev/null && pwd -P || printf '%s' "$worktree_path")"
-  if [ "$stale_target_real" = "$worktree_path_real" ]; then
-    stale_target=""
-  elif [ ! -d "$stale_target/.git" ] && [ ! -f "$stale_target/.git" ]; then
-    stale_target=""
-  fi
-  cd "$worktree_path"
-  git fetch origin "$base" --prune >/dev/null 2>&1
-  current_branch="$(git branch --show-current)"
-  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
-  head_sha="$(git rev-parse HEAD)"
-  base_sha="$(git rev-parse "origin/$base" 2>/dev/null || true)"
-  jq -cn \
-    --arg worktree_path "$worktree_path" \
-    --arg worktree_root "" \
-    --arg invocation_dir "$invocation_dir" \
-    --arg repo_root "$repo_root" \
-    --arg base_branch "$base" \
-    --arg head_branch "$head" \
-    --arg current_branch "$current_branch" \
-    --arg upstream "$upstream" \
-    --arg head_sha "$head_sha" \
-    --arg base_sha "$base_sha" \
-    --arg stale_target_worktree_path "$stale_target" \
-    '{ok:true,error:"",worktree_path:$worktree_path,worktree_root:$worktree_root,invocation_dir:$invocation_dir,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:"",reused:true,created:false,reused_current:true,stale_target_worktree_path:$stale_target_worktree_path}'
-  exit 0
-fi
-cd "$repo_root"
-safe_head="$(printf '%s' "$head" | tr -c 'A-Za-z0-9._-' '-')"
-worktree_root="$root_input"
-case "$worktree_root" in /*) ;; *) worktree_root="$invocation_dir/$worktree_root" ;; esac
-worktree_path="$worktree_root/pr-${number}-${safe_head}"
-local_branch="$head"
-pr_head_ref="refs/tt/pr-rebase/${number}/head"
-mkdir -p "$worktree_root"
-reused=false
-created=false
-reused_current=false
-fetch_out=""
-if [ -d "$worktree_path/.git" ] || [ -f "$worktree_path/.git" ]; then
-  if git -C "$worktree_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    reused=true
-  else
-    jq -cn --arg error "existing path is not a valid git worktree" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
-    exit 0
-  fi
-else
-  if ! fetch_out="$(git fetch origin "+refs/pull/${number}/head:${pr_head_ref}" "$base" --prune 2>&1)"; then
-    jq -cn --arg error "$fetch_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
-    exit 0
-  fi
-  git branch -D "$local_branch" >/dev/null 2>&1 || true
-  if ! git worktree add -B "$local_branch" "$worktree_path" "$pr_head_ref" >/tmp/tt-pr-rebase-worktree.log 2>&1; then
-    err="$(cat /tmp/tt-pr-rebase-worktree.log)"
-    jq -cn --arg error "$err" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
-    exit 0
-  fi
-  created=true
-fi
-cd "$worktree_path"
-if [ "$reused" = true ]; then
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    jq -cn --arg error "existing target worktree has uncommitted changes before PR checkout" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:true,created:false}'
-    exit 0
-  fi
-  if ! fetch_out="$(git -C "$repo_root" fetch origin "+refs/pull/${number}/head:${pr_head_ref}" "$base" --prune 2>&1)"; then
-    jq -cn --arg error "$fetch_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:true,created:false}'
-    exit 0
-  fi
-  current_branch_before="$(git branch --show-current 2>/dev/null || true)"
-  if [ "$current_branch_before" != "$head" ]; then
-    checkout_out="$(git checkout -B "$local_branch" "$pr_head_ref" 2>&1)"
-    checkout_rc=$?
-    if [ "$checkout_rc" -ne 0 ]; then
-      jq -cn --arg error "$checkout_out" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:true,created:false}'
-      exit 0
-    fi
-  else
-    checkout_out="target worktree already on PR head branch; fetched ${pr_head_ref}"
-  fi
-else
-  checkout_out="$fetch_out"
-fi
-current_branch="$(git branch --show-current)"
-if [ "$current_branch" != "$head" ]; then
-  jq -cn --arg error "target worktree is on unexpected branch: $current_branch" --arg worktree_path "$worktree_path" --arg base_branch "$base" --arg head_branch "$head" '{ok:false,error:$error,worktree_path:$worktree_path,base_branch:$base_branch,head_branch:$head_branch,reused:false,created:false}'
-  exit 0
-fi
-git fetch origin "$base" --prune >/dev/null 2>&1
-upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
-head_sha="$(git rev-parse HEAD)"
-base_sha="$(git rev-parse "origin/$base" 2>/dev/null || true)"
-jq -cn \
-  --arg worktree_path "$worktree_path" \
-  --arg worktree_root "$worktree_root" \
-  --arg invocation_dir "$invocation_dir" \
-  --arg repo_root "$repo_root" \
-  --arg base_branch "$base" \
-  --arg head_branch "$head" \
-  --arg current_branch "$current_branch" \
-  --arg upstream "$upstream" \
-  --arg head_sha "$head_sha" \
-  --arg base_sha "$base_sha" \
-  --arg checkout_output "$checkout_out" \
-  --argjson reused "$reused" \
-  --argjson created "$created" \
-  '{ok:true,error:"",worktree_path:$worktree_path,worktree_root:$worktree_root,invocation_dir:$invocation_dir,repo_root:$repo_root,base_branch:$base_branch,head_branch:$head_branch,current_branch:$current_branch,upstream:$upstream,head_sha:$head_sha,base_sha:$base_sha,checkout_output:$checkout_output,reused:$reused,created:$created,reused_current:false}'
-"""]
+script = "./scripts/prepare-rebase-worktree.sh"
 format = "json"
 timeout = "120s"
 
@@ -338,33 +114,7 @@ condition = "prepare-rebase-worktree.stdout.ok == true"
 description = "在隔离 worktree 中执行 git rebase origin/<base>；若冲突则输出冲突文件并等待 agent 修复。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -u
-wt="${TT_WORKTREE_PATH:-}"
-base="${TT_BASE_BRANCH:-main}"
-if [ -z "$wt" ] || [ ! -d "$wt" ]; then
-  jq -cn --arg error "worktree path missing" '{attempted:false,success:false,conflict:false,error:$error,conflict_files:[]}'
-  exit 0
-fi
-cd "$wt"
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  jq -cn '{attempted:false,success:false,conflict:false,error:"worktree has uncommitted changes before rebase",conflict_files:[]}'
-  exit 0
-fi
-git fetch origin "$base" --prune >/dev/null 2>&1
-out="$(git rebase "origin/$base" 2>&1)"
-rc=$?
-if [ "$rc" -eq 0 ]; then
-  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,conflict:false,in_rebase:false,needs_resolution:false,error:"",stdout:$output,head:$head,conflict_files:[]}'
-  exit 0
-fi
-files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
-in_rebase=false
-if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then
-  in_rebase=true
-fi
-jq -cn --arg output "$out" --argjson conflict_files "$files" --argjson in_rebase "$in_rebase" '{attempted:true,success:false,conflict:($conflict_files|length>0),in_rebase:$in_rebase,needs_resolution:(($conflict_files|length>0) or $in_rebase),error:$output,stdout:$output,conflict_files:$conflict_files}'
-"""]
+script = "./scripts/attempt-rebase.sh"
 format = "json"
 timeout = "120s"
 
@@ -418,32 +168,7 @@ condition = "resolve-conflicts.resolved == true"
 description = "冲突 agent 会循环解决冲突并推进 rebase；这里用确定性脚本做最终确认，必要时再执行一次 git rebase --continue。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -u
-wt="${TT_WORKTREE_PATH:-}"
-cd "$wt" 2>/dev/null || { jq -cn '{attempted:false,success:false,error:"worktree path missing",conflict_files:[]}'; exit 0; }
-remaining="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
-if [ "$(jq 'length' <<<"$remaining")" != "0" ]; then
-  jq -cn --argjson conflict_files "$remaining" '{attempted:false,success:false,error:"unresolved conflict files remain",conflict_files:$conflict_files}'
-  exit 0
-fi
-in_rebase=false
-if [ -d "$(git rev-parse --git-path rebase-merge 2>/dev/null)" ] || [ -d "$(git rev-parse --git-path rebase-apply 2>/dev/null)" ]; then
-  in_rebase=true
-fi
-if [ "$in_rebase" != true ]; then
-  jq -cn --arg head "$(git rev-parse HEAD)" '{attempted:false,success:true,error:"",stdout:"rebase already completed by conflict resolver",head:$head,conflict_files:[]}'
-  exit 0
-fi
-out="$(GIT_EDITOR=true git rebase --continue 2>&1)"
-rc=$?
-if [ "$rc" -eq 0 ]; then
-  jq -cn --arg output "$out" --arg head "$(git rev-parse HEAD)" '{attempted:true,success:true,error:"",stdout:$output,head:$head,conflict_files:[]}'
-  exit 0
-fi
-files="$(git diff --name-only --diff-filter=U | jq -R . | jq -s .)"
-jq -cn --arg output "$out" --argjson conflict_files "$files" '{attempted:true,success:false,error:$output,stdout:$output,conflict_files:$conflict_files}'
-"""]
+script = "./scripts/continue-rebase.sh"
 format = "json"
 timeout = "120s"
 
@@ -463,42 +188,7 @@ condition = "check-current-pr-worktree.stdout.already_on_pr_branch != true"
 description = "统一判断 rebase 是否完成、是否仍被冲突阻塞。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -euo pipefail
-jq -cn \
-  --arg metadata "${TT_METADATA:-}" \
-  --arg prepare "${TT_PREPARE:-}" \
-  --arg attempt "${TT_ATTEMPT:-}" \
-  --arg resolve "${TT_RESOLVE:-}" \
-  --arg cont "${TT_CONTINUE:-}" '
-  def obj($s): if $s == null or ($s|length)==0 then {} else (($s|fromjson?) // {}) end;
-  obj($metadata) as $m |
-  obj($prepare) as $p |
-  obj($attempt) as $a |
-  obj($resolve) as $r |
-  obj($cont) as $c |
-  (($a.success == true) or ($c.success == true)) as $done |
-  (($m.ok == false) and (($m.error // "") != "")) as $metadata_failed |
-  (($p.ok == false) and (($p.error // "") != "")) as $prepare_failed |
-  (($r.blocker // "") != "") as $resolver_blocked |
-  (($a.conflict == true) or ($a.in_rebase == true)) as $rebase_interrupted |
-  {
-    rebase_done:$done,
-    conflict_seen:$rebase_interrupted,
-    blocked:(($done|not) and ($metadata_failed or $prepare_failed or $rebase_interrupted or $resolver_blocked or (($a.error // "") != "") or (($c.error // "") != ""))),
-    blocker:(
-      if $done then ""
-      elif $metadata_failed then ("PR metadata unavailable: " + ($m.error // ""))
-      elif $prepare_failed then ("prepare rebase worktree failed: " + ($p.error // ""))
-      elif $resolver_blocked then ($r.blocker // "")
-      elif ($c.error // "") != "" then $c.error
-      elif ($a.error // "") != "" then $a.error
-      else "rebase did not complete" end
-    ),
-    head:($c.head // $a.head // $p.head_sha // ""),
-    conflict_files:($c.conflict_files // $r.remaining_conflicts // $a.conflict_files // [])
-  }'
-"""]
+script = "./scripts/summarize-rebase-state.sh"
 format = "json"
 timeout = "30s"
 
@@ -533,40 +223,7 @@ condition = "summarize-rebase-state.stdout.rebase_done == true"
 description = "验证通过或未请求验证时，按 push 变量决定是否 git push --no-verify --force-with-lease 回 PR 分支；默认 push=true。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -u
-push_flag="${TT_PUSH:-true}"
-wt="${TT_WORKTREE_PATH:-}"
-head_branch="${TT_HEAD_BRANCH:-}"
-validation="${TT_VALIDATION:-}"
-validation_success="$(jq -r 'if length==0 then true else (.success // false) end' <<<"$validation")"
-if [ "$push_flag" != true ]; then
-  jq -cn '{requested:false,pushed:false,skipped_reason:"push=false",stdout:"",stderr:""}'
-  exit 0
-fi
-if [ "$validation_success" != true ]; then
-  jq -cn --arg stderr "validation failed; push skipped" '{requested:true,pushed:false,skipped_reason:"validation_failed",stdout:"",stderr:$stderr}'
-  exit 0
-fi
-cd "$wt" 2>/dev/null || { jq -cn '{requested:true,pushed:false,skipped_reason:"",stdout:"",stderr:"worktree path missing"}'; exit 0; }
-upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
-remote="origin"
-remote_branch="$head_branch"
-if [ -n "$upstream" ] && printf '%s' "$upstream" | grep -q '/'; then
-  remote="${upstream%%/*}"
-  remote_branch="${upstream#*/}"
-fi
-[ -n "$remote_branch" ] || remote_branch="$(git branch --show-current)"
-out="$(git push --no-verify --force-with-lease "$remote" "HEAD:$remote_branch" 2>&1)"
-rc=$?
-jq -cn \
-  --arg remote "$remote" \
-  --arg remote_branch "$remote_branch" \
-  --arg output "$out" \
-  --arg head "$(git rev-parse HEAD)" \
-  --argjson pushed "$([ "$rc" -eq 0 ] && echo true || echo false)" \
-  '{requested:true,pushed:$pushed,remote:$remote,remote_branch:$remote_branch,head:$head,stdout:(if $pushed then $output else "" end),stderr:(if $pushed then "" else $output end),skipped_reason:""}'
-"""]
+script = "./scripts/push-rebased-branch.sh"
 format = "json"
 timeout = "120s"
 
@@ -589,45 +246,7 @@ condition = "prepare-rebase-worktree.stdout.worktree_path != \"\""
 description = "rebase 完成后移除隔离 worktree；若仍被冲突阻塞，则保留 worktree 以便继续修复。复用当前工作区时不删除当前目录。只移除 worktree，不删除分支。"
 
 [steps.script]
-command = ["bash", "-lc", """
-set -u
-wt="${TT_WORKTREE_PATH:-}"
-repo_root="${TT_REPO_ROOT:-}"
-reused_current="${TT_REUSED_CURRENT:-false}"
-stale_target="${TT_STALE_TARGET_WORKTREE_PATH:-}"
-rebase_blocked="${TT_REBASE_BLOCKED:-false}"
-if [ -z "$wt" ]; then
-  jq -cn '{attempted:false,removed:false,worktree_path:"",stdout:"",stderr:"missing worktree_path"}'
-  exit 0
-fi
-if [ "$rebase_blocked" = true ]; then
-  jq -cn --arg worktree_path "$wt" '{attempted:true,removed:false,skipped_reason:"rebase_blocked",worktree_path:$worktree_path,stdout:"",stderr:""}'
-  exit 0
-fi
-if [ "$reused_current" = true ]; then
-  if [ -n "$stale_target" ] && [ -e "$stale_target" ]; then
-    stale_out="$(git -C "$repo_root" worktree remove --force --force "$stale_target" 2>&1)"
-    stale_rc=$?
-    git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
-    jq -cn --arg worktree_path "$wt" --arg stale_target_worktree_path "$stale_target" --arg output "$stale_out" --argjson stale_removed "$([ "$stale_rc" -eq 0 ] && echo true || echo false)" '{attempted:true,removed:false,skipped_reason:"reused_current_workspace",worktree_path:$worktree_path,stale_target_worktree_path:$stale_target_worktree_path,stale_target_removed:$stale_removed,stdout:(if $stale_removed then $output else "" end),stderr:(if $stale_removed then "" else $output end)}'
-    exit 0
-  fi
-  jq -cn --arg worktree_path "$wt" '{attempted:true,removed:false,skipped_reason:"reused_current_workspace",worktree_path:$worktree_path,stdout:"",stderr:""}'
-  exit 0
-fi
-if [ -z "$repo_root" ] || [ ! -d "$repo_root/.git" ]; then
-  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-fi
-if [ ! -e "$wt" ]; then
-  git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
-  jq -cn --arg worktree_path "$wt" '{attempted:true,removed:true,already_absent:true,worktree_path:$worktree_path,stdout:"",stderr:""}'
-  exit 0
-fi
-out="$(git -C "$repo_root" worktree remove --force --force "$wt" 2>&1)"
-rc=$?
-git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
-jq -cn --arg worktree_path "$wt" --arg output "$out" --argjson removed "$([ "$rc" -eq 0 ] && echo true || echo false)" '{attempted:true,removed:$removed,already_absent:false,worktree_path:$worktree_path,stdout:(if $removed then $output else "" end),stderr:(if $removed then "" else $output end)}'
-"""]
+script = "./scripts/cleanup-worktree.sh"
 format = "json"
 timeout = "60s"
 continue_on_error = true
