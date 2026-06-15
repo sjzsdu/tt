@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Empty, Popover } from 'antd';
-import { QuestionCircleOutlined } from '@ant-design/icons';
+import { Empty, Popover, Switch } from 'antd';
+import { EyeOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { graphShortId } from '../../utils/status';
@@ -450,12 +450,61 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
   );
 }
 
+function GraphDisplayToggle({
+  showVariables,
+  showEdges,
+  onShowVariablesChange,
+  onShowEdgesChange,
+}: {
+  showVariables: boolean;
+  showEdges: boolean;
+  onShowVariablesChange: (value: boolean) => void;
+  onShowEdgesChange: (value: boolean) => void;
+}) {
+  return (
+    <Popover
+      trigger="click"
+      placement="bottomRight"
+      content={(
+        <div className="graph-display-popover">
+          <strong>Graph display</strong>
+          <label className="graph-display-row">
+            <span>
+              <b>Variables</b>
+              <em>$ var nodes and variable-consume edges</em>
+            </span>
+            <Switch size="small" checked={showVariables} onChange={onShowVariablesChange} />
+          </label>
+          <label className="graph-display-row">
+            <span>
+              <b>Edges</b>
+              <em>Dependency, loop and variable lines</em>
+            </span>
+            <Switch size="small" checked={showEdges} onChange={onShowEdgesChange} />
+          </label>
+        </div>
+      )}
+    >
+      <button
+        type="button"
+        className={`graph-display-button${showVariables && showEdges ? '' : ' active'}`}
+        aria-label="Toggle graph variables and edges"
+        title="Toggle graph variables and edges"
+      >
+        <EyeOutlined />
+      </button>
+    </Popover>
+  );
+}
+
 export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDashboardSnapshot; onSelect: (step: FormulaDashboardStep) => void; theme: 'light' | 'dark' }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
   const renderGraphRef = useRef<(() => void) | null>(null);
   const [graphError, setGraphError] = useState('');
   const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set(loopStepIDs(snapshot)));
+  const [showVariables, setShowVariables] = useState(true);
+  const [showEdges, setShowEdges] = useState(true);
 
   const toggleLoop = (stepID: string) => {
     setExpandedLoopIDs(current => {
@@ -468,7 +517,21 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
 
   const isDark = theme === 'dark';
 
-  const graphData = useMemo(() => computeGraphData(snapshot, expandedLoopIDs), [snapshot, expandedLoopIDs]);
+  const rawGraphData = useMemo(() => computeGraphData(snapshot, expandedLoopIDs), [snapshot, expandedLoopIDs]);
+  const graphData = useMemo(() => {
+    const nodes = showVariables
+      ? rawGraphData.nodes
+      : rawGraphData.nodes.filter(node => node.data.kind !== 'variable');
+    const visibleNodeIDs = new Set(nodes.map(node => node.id));
+    const edges = showEdges
+      ? rawGraphData.edges.filter(edge => (
+          visibleNodeIDs.has(edge.source)
+          && visibleNodeIDs.has(edge.target)
+          && (showVariables || edge.data?.kind !== 'variable-consume')
+        ))
+      : [];
+    return { nodes, edges, combos: rawGraphData.combos };
+  }, [rawGraphData, showEdges, showVariables]);
   const graphDataRef = useRef(graphData);
   const snapshotRef = useRef(snapshot);
   const onSelectRef = useRef(onSelect);
@@ -785,6 +848,12 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         <div>
           <div className="graph-title-row">
             <h3>Execution graph</h3>
+            <GraphDisplayToggle
+              showVariables={showVariables}
+              showEdges={showEdges}
+              onShowVariablesChange={setShowVariables}
+              onShowEdgesChange={setShowEdges}
+            />
             <GraphHelpPopover
               runningTitle={running?.title}
               nodeCount={metricNodeCount}

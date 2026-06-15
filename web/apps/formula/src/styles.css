@@ -104,8 +104,15 @@ button, input, textarea { font: inherit; }
 .graph-header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .graph-title-row { display: flex; align-items: center; gap: 8px; }
 .graph-title-row h3 { margin: 0; }
-.graph-help-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--soft-bg); color: var(--text-muted); cursor: pointer; transition: color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
-.graph-help-button:hover { color: var(--ant-color-primary); border-color: var(--ant-color-primary); box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12); transform: translateY(-1px); }
+.graph-help-button, .graph-display-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--soft-bg); color: var(--text-muted); cursor: pointer; transition: color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.graph-help-button:hover, .graph-display-button:hover, .graph-display-button.active { color: var(--ant-color-primary); border-color: var(--ant-color-primary); box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12); transform: translateY(-1px); }
+.graph-display-button.active { background: color-mix(in srgb, var(--ant-color-primary) 12%, var(--soft-bg)); }
+.graph-display-popover { width: min(300px, calc(100vw - 48px)); display: grid; gap: 12px; color: var(--text-main); }
+.graph-display-popover > strong { font-size: 14px; }
+.graph-display-row { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--panel-border); cursor: pointer; }
+.graph-display-row span { display: grid; gap: 3px; min-width: 0; }
+.graph-display-row b { font-size: 13px; }
+.graph-display-row em { color: var(--text-muted); font-size: 12px; font-style: normal; line-height: 1.35; }
 .graph-help-popover { width: min(560px, calc(100vw - 48px)); display: grid; gap: 14px; color: var(--text-main); }
 .graph-help-hero { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 14px; border: 1px solid var(--panel-border); border-radius: 14px; background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(168, 85, 247, 0.10)); }
 .graph-help-hero strong { display: block; margin-bottom: 4px; font-size: 15px; }
