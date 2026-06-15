@@ -52,6 +52,16 @@ func TestContextStoreGetUsesLongestStoredPrefixForDottedStepIDs(t *testing.T) {
 	if !got {
 		t.Fatal("ok = false, want true")
 	}
+	if actual, ok := lookupConditionValue(store, "run-pr-rebase.prepare-rebase-worktree.stdout.ok"); !ok || actual != "true" {
+		t.Fatalf("condition value = %q, %v; want true, true", actual, ok)
+	}
+	matched, err := shouldRunStep("run-pr-rebase.prepare-rebase-worktree.stdout.ok == true", store)
+	if err != nil {
+		t.Fatalf("shouldRunStep error = %v", err)
+	}
+	if !matched {
+		t.Fatal("shouldRunStep = false, want true")
+	}
 }
 
 func TestContextStoreGetReadsArrayIndexPath(t *testing.T) {

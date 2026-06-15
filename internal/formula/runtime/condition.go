@@ -45,6 +45,9 @@ func lookupConditionValue(context *ContextStore, path string) (string, bool) {
 	if context == nil {
 		return "", false
 	}
+	if value, ok := context.Get(path); ok {
+		return conditionValueString(value), true
+	}
 	parts := strings.Split(path, ".")
 	if len(parts) == 0 {
 		return "", false
