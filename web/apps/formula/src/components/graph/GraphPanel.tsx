@@ -435,7 +435,11 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>Border</b>: node status. Running nodes also have a soft pulsing border.</li>
               <li><b>Background</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
               <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
-              <li><b>Edges</b>: target step status. Cyan dashed edges are variable consumption. Hover a node to highlight related edges.</li>
+              <li><b>Solid edges</b>: execution dependencies, meaning the target step waits for or follows the source step.</li>
+              <li><b>Purple dashed edges</b>: loop expansion/loop-body flow, connecting a loop step to its expanded internal steps.</li>
+              <li><b>Cyan dashed edges</b>: variable consumption, meaning the target step references a formula var such as <b>{'{{repo}}'}</b>.</li>
+              <li><b>Other dashed edges</b>: non-normal execution state such as running/skipped, or separated lanes used to reduce overlap.</li>
+              <li><b>Hover</b>: hover a node to highlight related upstream/downstream edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
               <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the connected loop-body graph on the left.</li>
             </ul>
