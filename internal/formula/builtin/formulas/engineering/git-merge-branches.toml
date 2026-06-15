@@ -1,6 +1,6 @@
 formula = "git-merge-branches"
 title = "Merge multiple branches into a temporary branch"
-description = "从当前 Git 分支切出一个 tmp 开头的新分支，按逗号分隔的分支列表顺序合并；允许 fast-forward，冲突时复用 git-resolve-conflicts，无法解决的分支会 abort 本次 merge 后跳过，并在报告中呈现。"
+description = "从当前 Git 分支或指定 base_branch 切出一个 tmp 开头的新分支，按逗号分隔的分支列表顺序合并；允许 fast-forward，冲突时复用 git-resolve-conflicts，无法解决的分支会 abort 本次 merge 后跳过，并在报告中呈现。"
 version = 1
 type = "workflow"
 category = "git"
@@ -40,6 +40,7 @@ message = "当前目录必须在 git 仓库内"
 
 [vars]
 branches = { description = "待合并分支列表，使用逗号分隔，例如 feature/a,feature/b,origin/feature/c", required = true }
+base_branch = { description = "可选起始 ref/branch；为空时从当前分支/当前 HEAD 切出 tmp 分支", default = "" }
 target_branch = { description = "可选目标分支名；为空时自动生成 tmp-merge-YYYYmmdd-HHMMSS", default = "" }
 validation_command = { description = "全部可合并分支处理完成后的可选验证命令；为空或 - 表示跳过", default = "" }
 
@@ -47,7 +48,7 @@ validation_command = { description = "全部可合并分支处理完成后的可
 id = "prepare-merge-branch"
 title = "创建临时合并分支"
 execution = "script"
-description = "从当前分支创建目标 tmp 分支，并把逗号分隔的 branches 解析成顺序合并清单。要求当前没有未提交修改，也没有 merge/rebase/cherry-pick 进行中。"
+description = "从当前分支或指定 base_branch 创建目标 tmp 分支，并把逗号分隔的 branches 解析成顺序合并清单。要求当前没有未提交修改，也没有 merge/rebase/cherry-pick 进行中。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -56,6 +57,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 branches_raw="${TT_BRANCHES:-}"
 target_input="${TT_TARGET_BRANCH:-}"
+base_input="${TT_BASE_BRANCH:-}"
 if [ -z "${branches_raw//[[:space:],]/}" ]; then
   jq -cn '{ok:false,error:"branches is required",items:[]}'
   exit 1
@@ -68,12 +70,22 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   jq -cn '{ok:false,error:"working tree or index is not clean; commit/stash changes before creating merge branch",items:[]}'
   exit 1
 fi
-base_branch="$(git branch --show-current)"
-base_ref="$base_branch"
-if [ -z "$base_ref" ]; then
-  base_ref="$(git rev-parse --short HEAD)"
+current_branch="$(git branch --show-current)"
+base_branch="$current_branch"
+base_ref="$current_branch"
+if [ -n "$base_input" ] && [ "$base_input" != "-" ]; then
+  base_ref="$base_input"
+  base_branch="$base_input"
 fi
-base_head="$(git rev-parse HEAD)"
+if [ -z "$base_ref" ]; then
+  base_ref="HEAD"
+  base_branch="$(git rev-parse --short HEAD)"
+fi
+if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
+  jq -cn --arg base_ref "$base_ref" '{ok:false,error:("base_branch cannot be resolved: " + $base_ref),items:[]}'
+  exit 1
+fi
+base_head="$(git rev-parse "$base_ref^{commit}")"
 target="$target_input"
 if [ -z "$target" ] || [ "$target" = "-" ]; then
   target="tmp-merge-$(date +%Y%m%d-%H%M%S)"
@@ -109,16 +121,17 @@ if [ "$(jq 'length' <<<"$missing")" != "0" ]; then
   jq -cn --argjson missing "$missing" '{ok:false,error:"one or more branches cannot be resolved",missing_branches:$missing,items:[]}'
   exit 1
 fi
-git switch -c "$target" >/dev/null 2>&1
+git switch -c "$target" "$base_ref" >/dev/null 2>&1
 jq -cn \
   --arg repo_root "$repo_root" \
   --arg base_branch "$base_branch" \
   --arg base_ref "$base_ref" \
   --arg base_head "$base_head" \
+  --arg current_branch "$current_branch" \
   --arg target_branch "$target" \
   --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson items "$items_json" \
-  '{ok:true,repo_root:$repo_root,base_branch:$base_branch,base_ref:$base_ref,base_head:$base_head,target_branch:$target_branch,created_at:$created_at,items:$items,total:($items|length)}'
+  '{ok:true,repo_root:$repo_root,current_branch:$current_branch,base_branch:$base_branch,base_ref:$base_ref,base_head:$base_head,target_branch:$target_branch,created_at:$created_at,items:$items,total:($items|length)}'
 """]
 format = "json"
 timeout = "60s"
@@ -126,6 +139,7 @@ timeout = "60s"
 [steps.script.env]
 TT_BRANCHES = "{{branches}}"
 TT_TARGET_BRANCH = "{{target_branch}}"
+TT_BASE_BRANCH = "{{base_branch}}"
 
 [steps.validate]
 format = "json"
