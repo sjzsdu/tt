@@ -396,7 +396,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
           <div className="graph-help-hero">
             <div>
               <strong>Execution graph</strong>
-              <p>Overview-first workflow map. Expanded loop bodies render as connected graph islands to the left of their loop step.</p>
+              <p>Overview-first workflow map. Expanded loop bodies render as connected graph islands to the right of their loop step.</p>
             </div>
             {runningTitle && (
               <div className="graph-help-live">
@@ -441,7 +441,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>Other dashed edges</b>: non-normal execution state such as running/skipped, or separated lanes used to reduce overlap.</li>
               <li><b>Hover</b>: hover a node to highlight related upstream/downstream edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
-              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the connected loop-body graph on the left.</li>
+              <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the connected loop-body graph on the right.</li>
             </ul>
           </div>
         </div>

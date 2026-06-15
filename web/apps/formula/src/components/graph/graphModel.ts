@@ -555,7 +555,7 @@ function shiftGraphNodes(nodes: FormulaGraphNode[], dx: number, dy: number) {
   }
 }
 
-function placeLoopBodyGraphToLeft(bodyNodes: FormulaGraphNode[], parentNode: FormulaGraphNode) {
+function placeLoopBodyGraphToRight(bodyNodes: FormulaGraphNode[], parentNode: FormulaGraphNode) {
   if (!bodyNodes.length) return;
   const bounds = graphNodeBounds(bodyNodes);
   const [parentWidth] = approximateNodeSize(parentNode);
@@ -563,7 +563,7 @@ function placeLoopBodyGraphToLeft(bodyNodes: FormulaGraphNode[], parentNode: For
   const parentY = parentNode.style?.y ?? parentNode.data.layoutY ?? 0;
   const bodyCenterX = (bounds.minX + bounds.maxX) / 2;
   const bodyCenterY = (bounds.minY + bounds.maxY) / 2;
-  const targetCenterX = parentX - parentWidth / 2 - LOOP_ISLAND_GAP - bounds.width / 2;
+  const targetCenterX = parentX + parentWidth / 2 + LOOP_ISLAND_GAP + bounds.width / 2;
   const targetCenterY = parentY;
 
   shiftGraphNodes(bodyNodes, targetCenterX - bodyCenterX, targetCenterY - bodyCenterY);
@@ -676,7 +676,7 @@ export function computeGraphData(
     const bodyGraph = computeLoopBodyGraphData(parentStep, parentNodeID, activitySource, expandedLoopIDs);
     if (!bodyGraph.nodes.length) return;
 
-    placeLoopBodyGraphToLeft(bodyGraph.nodes, parentNode);
+    placeLoopBodyGraphToRight(bodyGraph.nodes, parentNode);
 
     for (const node of bodyGraph.nodes) {
       nodes.push(node);
@@ -690,8 +690,8 @@ export function computeGraphData(
         data: {
           status: parentStep.status,
           kind: 'loop-expand',
-          sourcePort: 'left',
-          targetPort: 'right',
+          sourcePort: 'right',
+          targetPort: 'left',
         },
       });
     }

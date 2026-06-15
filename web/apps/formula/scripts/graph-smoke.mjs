@@ -97,8 +97,8 @@ try {
   assert.ok(expanded.edges.some(edge => edge.source === fetchNodeID && edge.target === summarizeNodeID), 'loop body dependencies should render as graph edges');
   const collectEntryEdge = expanded.edges.find(edge => edge.id === `collect-loop-entry-${fetchNodeID}`);
   assert.equal(collectEntryEdge?.data.kind, 'loop-expand', 'expanded loop body island should have a visual parent connector edge');
-  assert.equal(collectEntryEdge?.data.sourcePort, 'left', 'parent connector should leave from the parent loop left side');
-  assert.equal(collectEntryEdge?.data.targetPort, 'right', 'parent connector should enter the child island from the right side');
+  assert.equal(collectEntryEdge?.data.sourcePort, 'right', 'parent connector should leave from the parent loop right side');
+  assert.equal(collectEntryEdge?.data.targetPort, 'left', 'parent connector should enter the child island from the left side');
   assert.equal(expanded.nodes.find(node => node.id === 'collect')?.data.expanded, true, 'loop node should still expose expanded state for the +/- badge');
   for (const collapsedNode of collapsed.nodes) {
     const expandedNode = expanded.nodes.find(node => node.id === collapsedNode.id);
@@ -108,7 +108,7 @@ try {
       `expanding a loop should not change top-level coordinates for ${collapsedNode.id}`,
     );
   }
-  assert.ok(fetchNode.style.x < collectNode.style.x, 'loop body graph island should be positioned to the left of its parent loop step');
+  assert.ok(fetchNode.style.x > collectNode.style.x, 'loop body graph island should be positioned to the right of its parent loop step');
   assert.ok(summarizeNode.style.y > fetchNode.style.y, 'loop body graph should use its own dependency-depth layout');
   assert.equal(fetchBodyStep.id, fetchNodeID, 'loop body helper should still materialize the graph-island body id');
   assert.equal(fetchBodyStep.status, 'completed', 'loop body helper should inherit latest matching activity status');
@@ -164,8 +164,8 @@ try {
   assert.equal(nestedExpanded.nodes.find(node => node.id === 'outer')?.data.expanded, true, 'outer loop node should still expose expanded state');
   assert.ok(
     nestedExpanded.nodes.find(node => node.id === innerFetchNodeID).style.x
-      < nestedExpanded.nodes.find(node => node.id === innerLoopNodeID).style.x,
-    'nested loop graph island should be placed to the left of the nested loop node',
+      > nestedExpanded.nodes.find(node => node.id === innerLoopNodeID).style.x,
+    'nested loop graph island should be placed to the right of the nested loop node',
   );
 
   const selectedFromBody = resolveClickedStep(fetchNodeID, { kind: 'loop-body', parentStep: loopStep, step: fetchBodyStep }, snapshot);
