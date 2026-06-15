@@ -39,7 +39,7 @@ validation_command = { description = "可选验证命令；冲突修复后执行
 id = "prepare-conflict-context"
 title = "准备冲突上下文"
 execution = "script"
-description = "检查当前 repo 的冲突文件，并为每个冲突文件生成三方上下文；不修改文件，不执行 git add。"
+description = "检查当前 repo 的冲突文件，并为每个冲突文件生成三方上下文；context JSON 写入执行命令目录的 .tt/conflict-context/git-resolve-conflicts；不修改文件，不执行 git add。"
 
 [steps.script]
 command = ["bash", "-lc", """
@@ -136,7 +136,8 @@ try:
                 marker_files.append(candidate)
     files=sorted(set(unmerged_files + marker_files))
     unmerged_set=set(unmerged_files)
-    ctx_dir=pathlib.Path(".tt/conflict-context/git-resolve-conflicts")
+    invocation_cwd=os.environ.get("TT_INVOCATION_CWD", "").strip() or os.getcwd()
+    ctx_dir=pathlib.Path(invocation_cwd) / ".tt/conflict-context/git-resolve-conflicts"
     ctx_dir.mkdir(parents=True, exist_ok=True)
     items=[]
     for path in files:
@@ -154,7 +155,7 @@ try:
         items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"conflict_regions":regions,"conflict_region_count":len(regions),"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
     started_at=os.environ.get("TT_STARTED_AT", "")
     started_epoch=int(os.environ.get("TT_STARTED_EPOCH", "0") or "0")
-    print(json.dumps({"ok":True,"repo_root":repo_root,"current_branch":current_branch,"operation":operation,"started_at":started_at,"started_epoch":started_epoch,"needs_resolution":len(files)>0,"done":len(files)==0,"files":files,"items":items,"conflicted_files":files,"unmerged_files":unmerged_files,"marker_files":sorted(set(marker_files)),"blocker_type":"none" if files else "none","blocker_summary":"" if files else "no current git conflict detected"}, ensure_ascii=False))
+    print(json.dumps({"ok":True,"repo_root":repo_root,"invocation_cwd":invocation_cwd,"context_dir":str(ctx_dir),"current_branch":current_branch,"operation":operation,"started_at":started_at,"started_epoch":started_epoch,"needs_resolution":len(files)>0,"done":len(files)==0,"files":files,"items":items,"conflicted_files":files,"unmerged_files":unmerged_files,"marker_files":sorted(set(marker_files)),"blocker_type":"none" if files else "none","blocker_summary":"" if files else "no current git conflict detected"}, ensure_ascii=False))
 except Exception as exc:
     print(json.dumps({"ok":False,"needs_resolution":False,"done":False,"files":[],"items":[],"error":str(exc),"traceback":traceback.format_exc(limit=6)}, ensure_ascii=False))
     sys.exit(1)
