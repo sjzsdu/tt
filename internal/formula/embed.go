@@ -462,6 +462,13 @@ func rewriteEmbeddedStepTemplates(step *spec.Step, mapping map[string]string, pr
 		tool.Name = rewriteContextRefsInString(tool.Name, mapping, protectedTemplateRoots)
 		step.Tool = &tool
 	}
+	if step.Aggregate != nil {
+		aggregate := *step.Aggregate
+		if rewritten, ok := rewriteContextRef(aggregate.Source, mapping); ok {
+			aggregate.Source = rewritten
+		}
+		step.Aggregate = &aggregate
+	}
 }
 
 func rewriteStringSliceContextRefs(values []string, mapping map[string]string, protectedTemplateRoots map[string]bool) []string {

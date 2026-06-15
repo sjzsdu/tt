@@ -253,6 +253,78 @@ title = "Loop"
 	t.Fatalf("expanded loop body missing embedded.show: %+v", expanded[0].Loop.Body)
 }
 
+func TestEmbedRewritesAggregateSource(t *testing.T) {
+	dir := t.TempDir()
+	writeFormula := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, name+".toml")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	writeFormula("child", `formula = "child"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "collect"
+title = "Collect"
+execution = "script"
+
+[steps.script]
+command = ["echo", "{}"]
+format = "json"
+
+[[steps]]
+id = "manifest"
+title = "Manifest"
+depends_on = ["collect"]
+execution = "aggregate"
+
+[steps.aggregate]
+source = "collect"
+as = "items"
+require = ["ok"]
+`)
+
+	writeFormula("parent", `formula = "parent"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "embedded"
+title = "Embedded child"
+embed = "child"
+`)
+
+	parser := NewParser(dir)
+	resolved, err := parser.LoadByName("parent")
+	if err != nil {
+		t.Fatalf("LoadByName(parent) error = %v", err)
+	}
+	resolved, err = parser.Resolve(resolved)
+	if err != nil {
+		t.Fatalf("Resolve(parent) error = %v", err)
+	}
+	expanded, err := ApplyEmbedsWithVars(resolved.Steps, parser, nil, []string{"parent"})
+	if err != nil {
+		t.Fatalf("ApplyEmbedsWithVars error = %v", err)
+	}
+	for _, step := range expanded {
+		if step.ID == "embedded.manifest" {
+			if step.Aggregate == nil {
+				t.Fatalf("embedded manifest missing aggregate spec")
+			}
+			if got, want := step.Aggregate.Source, "embedded.collect"; got != want {
+				t.Fatalf("aggregate source = %q, want %q", got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("expanded steps missing embedded.manifest: %+v", expanded)
+}
+
 func TestNestedEmbedVarsPreserveCallerLoopVarWhenChildStepIDCollides(t *testing.T) {
 	dir := t.TempDir()
 	writeFormula := func(name, content string) {
