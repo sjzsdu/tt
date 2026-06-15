@@ -1,0 +1,303 @@
+formula = "git-merge-branches"
+title = "Merge multiple branches into a temporary branch"
+description = "从当前 Git 分支切出一个 tmp 开头的新分支，按逗号分隔的分支列表顺序合并；允许 fast-forward，冲突时复用 git-resolve-conflicts，无法解决的分支会 abort 本次 merge 后跳过，并在报告中呈现。"
+version = 1
+type = "workflow"
+category = "git"
+tags = ["git", "merge", "branch", "conflict"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "bash"
+command = "bash"
+message = "需要安装 bash"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
+[[preflight.checks]]
+type = "command"
+name = "jq"
+command = "jq"
+message = "需要安装 jq"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+message = "当前目录必须在 git 仓库内"
+
+[vars]
+branches = { description = "待合并分支列表，使用逗号分隔，例如 feature/a,feature/b,origin/feature/c", required = true }
+target_branch = { description = "可选目标分支名；为空时自动生成 tmp-merge-YYYYmmdd-HHMMSS", default = "" }
+validation_command = { description = "全部可合并分支处理完成后的可选验证命令；为空或 - 表示跳过", default = "" }
+
+[[steps]]
+id = "prepare-merge-branch"
+title = "创建临时合并分支"
+execution = "script"
+description = "从当前分支创建目标 tmp 分支，并把逗号分隔的 branches 解析成顺序合并清单。要求当前没有未提交修改，也没有 merge/rebase/cherry-pick 进行中。"
+
+[steps.script]
+command = ["bash", "-lc", """
+set -euo pipefail
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+branches_raw="${TT_BRANCHES:-}"
+target_input="${TT_TARGET_BRANCH:-}"
+if [ -z "${branches_raw//[[:space:],]/}" ]; then
+  jq -cn '{ok:false,error:"branches is required",items:[]}'
+  exit 1
+fi
+if [ -f "$(git rev-parse --git-path MERGE_HEAD)" ] || [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || [ -f "$(git rev-parse --git-path CHERRY_PICK_HEAD)" ]; then
+  jq -cn '{ok:false,error:"git operation already in progress; finish or abort it before running this formula",items:[]}'
+  exit 1
+fi
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  jq -cn '{ok:false,error:"working tree or index is not clean; commit/stash changes before creating merge branch",items:[]}'
+  exit 1
+fi
+base_branch="$(git branch --show-current)"
+base_ref="$base_branch"
+if [ -z "$base_ref" ]; then
+  base_ref="$(git rev-parse --short HEAD)"
+fi
+base_head="$(git rev-parse HEAD)"
+target="$target_input"
+if [ -z "$target" ] || [ "$target" = "-" ]; then
+  target="tmp-merge-$(date +%Y%m%d-%H%M%S)"
+fi
+case "$target" in
+  tmp*) ;;
+  *) target="tmp-$target" ;;
+esac
+if git show-ref --verify --quiet "refs/heads/$target"; then
+  jq -cn --arg target "$target" '{ok:false,error:("target branch already exists: " + $target),items:[]}'
+  exit 1
+fi
+items_json="$(python3 - <<'PY' "$branches_raw"
+import json, sys
+raw = sys.argv[1]
+seen = set()
+items = []
+for part in raw.split(','):
+    branch = part.strip()
+    if not branch or branch in seen:
+        continue
+    seen.add(branch)
+    items.append({"branch": branch, "index": len(items) + 1})
+print(json.dumps(items, ensure_ascii=False))
+PY
+)"
+if [ "$(jq 'length' <<<"$items_json")" = "0" ]; then
+  jq -cn '{ok:false,error:"no valid branches parsed from comma-separated input",items:[]}'
+  exit 1
+fi
+missing="$(jq -r '.[].branch' <<<"$items_json" | while IFS= read -r b; do git rev-parse --verify --quiet "$b^{commit}" >/dev/null || printf '%s\n' "$b"; done | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$(jq 'length' <<<"$missing")" != "0" ]; then
+  jq -cn --argjson missing "$missing" '{ok:false,error:"one or more branches cannot be resolved",missing_branches:$missing,items:[]}'
+  exit 1
+fi
+git switch -c "$target" >/dev/null 2>&1
+jq -cn \
+  --arg repo_root "$repo_root" \
+  --arg base_branch "$base_branch" \
+  --arg base_ref "$base_ref" \
+  --arg base_head "$base_head" \
+  --arg target_branch "$target" \
+  --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson items "$items_json" \
+  '{ok:true,repo_root:$repo_root,base_branch:$base_branch,base_ref:$base_ref,base_head:$base_head,target_branch:$target_branch,created_at:$created_at,items:$items,total:($items|length)}'
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_BRANCHES = "{{branches}}"
+TT_TARGET_BRANCH = "{{target_branch}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "merge-branches"
+title = "顺序合并分支"
+depends_on = ["prepare-merge-branch"]
+condition = "prepare-merge-branch.stdout.ok == true"
+
+[steps.loop]
+for_each = "prepare-merge-branch.stdout.items"
+var = "merge_item"
+parallel = false
+
+[[steps.loop.body]]
+id = "attempt-merge"
+title = "合并 {{merge_item.branch}}"
+execution = "script"
+description = "尝试合并当前分支。成功则继续下一项；冲突则交给 git-resolve-conflicts。脚本本身不因普通 merge 冲突失败。"
+
+[steps.loop.body.script]
+command = ["bash", "-lc", """
+set -u
+repo_root="${TT_REPO_ROOT:-}"
+branch="${TT_BRANCH:-}"
+index="${TT_INDEX:-}"
+cd "$repo_root" 2>/dev/null || { jq -cn --arg branch "$branch" --arg index "$index" '{branch:$branch,index:($index|tonumber? // 0),attempted:false,merged:false,conflict:false,skipped:true,error:"repo root missing",conflict_files:[]}'; exit 0; }
+before_head="$(git rev-parse HEAD 2>/dev/null || true)"
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+out="$(git merge "$branch" 2>&1)"
+rc=$?
+after_head="$(git rev-parse HEAD 2>/dev/null || true)"
+conflict_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$rc" -eq 0 ]; then
+  jq -cn --arg branch "$branch" --arg index "$index" --arg before_head "$before_head" --arg after_head "$after_head" --arg started_at "$started_at" --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg output "$out" '{branch:$branch,index:($index|tonumber? // 0),attempted:true,merged:true,conflict:false,skipped:false,before_head:$before_head,after_head:$after_head,started_at:$started_at,completed_at:$completed_at,stdout:$output,error:"",conflict_files:[]}'
+  exit 0
+fi
+if [ "$(jq 'length' <<<"$conflict_files")" != "0" ] || [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then
+  jq -cn --arg branch "$branch" --arg index "$index" --arg before_head "$before_head" --arg after_head "$after_head" --arg started_at "$started_at" --arg output "$out" --argjson conflict_files "$conflict_files" '{branch:$branch,index:($index|tonumber? // 0),attempted:true,merged:false,conflict:true,needs_resolution:true,skipped:false,before_head:$before_head,after_head:$after_head,started_at:$started_at,stdout:$output,error:$output,conflict_files:$conflict_files}'
+  exit 0
+fi
+jq -cn --arg branch "$branch" --arg index "$index" --arg before_head "$before_head" --arg after_head "$after_head" --arg started_at "$started_at" --arg output "$out" '{branch:$branch,index:($index|tonumber? // 0),attempted:true,merged:false,conflict:false,needs_resolution:false,skipped:true,before_head:$before_head,after_head:$after_head,started_at:$started_at,stdout:$output,error:$output,conflict_files:[]}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.loop.body.script.env]
+TT_REPO_ROOT = "{{prepare-merge-branch.stdout.repo_root}}"
+TT_BRANCH = "{{merge_item.branch}}"
+TT_INDEX = "{{merge_item.index}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps.loop.body]]
+id = "resolve-merge-conflicts"
+title = "修复 {{merge_item.branch}} 的 merge 冲突"
+depends_on = ["attempt-merge"]
+condition = "attempt-merge.stdout.needs_resolution == true"
+embed = "git-resolve-conflicts"
+continue_on_error = true
+
+[steps.loop.body.embed_vars]
+validation_command = "-"
+
+[[steps.loop.body]]
+id = "finalize-merge"
+title = "收口 {{merge_item.branch}} 的合并结果"
+execution = "script"
+depends_on = ["attempt-merge", "resolve-merge-conflicts"]
+description = "若无冲突则确认成功；若冲突已清除则只 stage 当前 unmerged 文件并完成 merge；若仍有冲突或 resolver 失败，则 abort 本次 merge 并标记该分支 skipped，继续后续分支。"
+
+[steps.loop.body.script]
+command = ["bash", "-lc", """
+set -u
+repo_root="${TT_REPO_ROOT:-}"
+branch="${TT_BRANCH:-}"
+index="${TT_INDEX:-}"
+attempt_raw="${TT_ATTEMPT:-}"
+resolve_raw="${TT_RESOLVE:-}"
+cd "$repo_root" 2>/dev/null || { jq -cn --arg branch "$branch" '{branch:$branch,merged:false,skipped:true,error:"repo root missing"}'; exit 0; }
+attempt="$(jq -cn --arg s "$attempt_raw" 'if ($s|length)==0 then {} else (($s|fromjson?)//{}) end | if type=="object" and (.stdout|type)=="object" then .stdout elif type=="object" and (.stdout|type)=="string" then ((.stdout|fromjson?)//.) else . end')"
+needs_resolution="$(jq -r '.needs_resolution // false' <<<"$attempt")"
+if [ "$needs_resolution" != true ]; then
+  merged="$(jq -r '.merged // false' <<<"$attempt")"
+  skipped="$(jq -r '.skipped // false' <<<"$attempt")"
+  jq -cn --arg branch "$branch" --arg index "$index" --argjson attempt "$attempt" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:($attempt.merged // false),conflict:false,skipped:($attempt.skipped // false),skip_reason:(if ($attempt.skipped // false) then ($attempt.error // "merge_failed") else "" end),conflict_files:[],resolved_files:[],head:$head,attempt:$attempt,resolve:{},continue_output:""}'
+  exit 0
+fi
+initial_conflicts="$(jq -c '.conflict_files // []' <<<"$attempt")"
+marker_files="$(jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r f; do [ -f "$f" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$f" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
+unmerged_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
+if [ "$(jq 'length' <<<"$marker_files")" != "0" ]; then
+  abort_out="$(git merge --abort 2>&1)"
+  jq -cn --arg branch "$branch" --arg index "$index" --arg abort_output "$abort_out" --argjson attempt "$attempt" --arg resolve_raw "$resolve_raw" --argjson conflict_files "$initial_conflicts" --argjson remaining_marker_files "$marker_files" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:false,conflict:true,skipped:true,skip_reason:"conflict_markers_remain",conflict_files:$conflict_files,remaining_marker_files:$remaining_marker_files,resolved_files:[],head:"",attempt:$attempt,resolve_raw:$resolve_raw,abort_output:$abort_output,continue_output:""}'
+  exit 0
+fi
+if [ "$(jq 'length' <<<"$unmerged_files")" != "0" ]; then
+  jq -r '.[]' <<<"$unmerged_files" | while IFS= read -r f; do [ -n "$f" ] && git add -- "$f"; done
+fi
+if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ]; then
+  cont_out="$(GIT_EDITOR=true git merge --continue 2>&1)"
+  cont_rc=$?
+else
+  cont_out="merge already completed"
+  cont_rc=0
+fi
+if [ "$cont_rc" -eq 0 ]; then
+  jq -cn --arg branch "$branch" --arg index "$index" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" --arg continue_output "$cont_out" --argjson attempt "$attempt" --arg resolve_raw "$resolve_raw" --argjson conflict_files "$initial_conflicts" --argjson resolved_files "$unmerged_files" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:true,conflict:true,skipped:false,skip_reason:"",conflict_files:$conflict_files,resolved_files:$resolved_files,head:$head,attempt:$attempt,resolve_raw:$resolve_raw,continue_output:$continue_output}'
+  exit 0
+fi
+abort_out="$(git merge --abort 2>&1)"
+jq -cn --arg branch "$branch" --arg index "$index" --arg continue_output "$cont_out" --arg abort_output "$abort_out" --argjson attempt "$attempt" --arg resolve_raw "$resolve_raw" --argjson conflict_files "$initial_conflicts" '{branch:$branch,index:($index|tonumber? // 0),final:true,merged:false,conflict:true,skipped:true,skip_reason:"merge_continue_failed",conflict_files:$conflict_files,resolved_files:[],head:"",attempt:$attempt,resolve_raw:$resolve_raw,continue_output:$continue_output,abort_output:$abort_output}'
+"""]
+format = "json"
+timeout = "120s"
+
+[steps.loop.body.script.env]
+TT_REPO_ROOT = "{{prepare-merge-branch.stdout.repo_root}}"
+TT_BRANCH = "{{merge_item.branch}}"
+TT_INDEX = "{{merge_item.index}}"
+TT_ATTEMPT = "{{attempt-merge.stdout}}"
+TT_RESOLVE = "{{resolve-merge-conflicts}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "merge-results"
+title = "汇总分支合并结果"
+depends_on = ["merge-branches"]
+execution = "aggregate"
+
+[steps.aggregate]
+source = "merge-branches"
+as = "results"
+require = ["branch", "merged", "skipped", "final"]
+
+[steps.validate]
+format = "json"
+required = ["results"]
+
+[[steps]]
+id = "run-validation"
+title = "运行可选验证"
+depends_on = ["merge-results"]
+condition = "validation_command != '' && validation_command != '-'"
+embed = "run-validation"
+
+[steps.embed_vars]
+repo_path = "{{prepare-merge-branch.stdout.repo_root}}"
+command = "{{validation_command}}"
+
+[[steps]]
+id = "final-report"
+title = "输出多分支合并报告"
+depends_on = ["prepare-merge-branch", "merge-results", "run-validation"]
+input_context = ["prepare-merge-branch.stdout", "merge-results.stdout", "run-validation.validation.stdout"]
+description = """
+输出中文最终报告，结论先行。
+
+必须包含：
+1. 目标分支、起始分支/HEAD、最终 HEAD。
+2. 分支合并总览：成功合并、跳过、发生冲突后成功解决、发生冲突但跳过。
+3. 对每个分支列出状态：merged/skipped、是否发生冲突、冲突文件、skip_reason。
+4. 如果有 skipped 分支，明确说明它们没有进入目标分支，后续需要人工处理或重跑。
+5. validation_command 是否执行，以及结果。
+
+不要重复粘贴上游完整 JSON、stdout/stderr 或 git 输出，只提炼关键状态和文件列表。
+"""
+agent.name = "planner"
