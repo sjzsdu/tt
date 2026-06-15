@@ -40,5 +40,6 @@ type StepDecl struct {
 	DependsOn  []string
 	Raw        json.RawMessage
 	Source     SourcePos
-	Idempotent bool `json:"idempotent,omitempty"`
+	Idempotent bool   `json:"idempotent,omitempty"`
+	SourceDir  string // Base directory for resolving relative paths (e.g., script files)
 }

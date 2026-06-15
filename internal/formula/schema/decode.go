@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -52,6 +53,11 @@ func LoadFile(path string) (*ast.Document, error) {
 		return nil, err
 	}
 	doc.Source.File = path
+	// Set SourceDir for resolving relative paths in steps
+	sourceDir := filepath.Dir(path)
+	for i := range doc.Steps {
+		doc.Steps[i].SourceDir = sourceDir
+	}
 	return doc, nil
 }
 

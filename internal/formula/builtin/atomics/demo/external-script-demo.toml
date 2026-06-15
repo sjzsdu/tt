@@ -1,0 +1,23 @@
+formula = "external-script-demo"
+description = "Demo formula showing external script support"
+version = 1
+type = "atomic"
+category = "demo"
+tags = ["demo", "external-script"]
+
+[vars]
+name = { description = "Name to greet", default = "World" }
+greeting = { description = "Greeting message", default = "Hello" }
+
+[[steps]]
+id = "greet"
+title = "External Script Greeting"
+execution = "script"
+description = "Run external Python script"
+
+[steps.script]
+script = "./scripts/greet.py"
+
+[steps.script.env]
+TT_NAME = "{{name}}"
+TT_GREETING = "{{greeting}}"

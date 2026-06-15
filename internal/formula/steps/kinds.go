@@ -264,6 +264,7 @@ func valueText(out Value) string {
 type ScriptStep struct {
 	Base
 	Command    []string
+	Script     string            // External script file path (relative to formula file or absolute)
 	Cwd        string
 	Env        map[string]string
 	OutputKey  string
@@ -354,7 +355,79 @@ func (ScriptDecoder) Decode(decl ast.StepDecl) (Step, error) {
 	var s ScriptStep
 	_ = json.Unmarshal(decl.Raw, &s)
 	s.Base = Base{metadataFromDecl(decl, KindScript)}
+	
+	// If script path is specified, load the script content
+	if scriptPath := strings.TrimSpace(s.Script); scriptPath != "" {
+		command, err := loadExternalScript(scriptPath, decl.SourceDir)
+		if err != nil {
+			return nil, fmt.Errorf("load external script %q: %w", scriptPath, err)
+		}
+		s.Command = command
+		s.Script = "" // Clear after loading
+	}
+	
 	return s, nil
+}
+
+func loadExternalScript(scriptPath, sourceDir string) ([]string, error) {
+	// Resolve path: if relative, resolve against sourceDir
+	resolvedPath := scriptPath
+	if !filepath.IsAbs(scriptPath) && sourceDir != "" {
+		resolvedPath = filepath.Join(sourceDir, scriptPath)
+	}
+	
+	// Read the script file
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("read script file: %w", err)
+	}
+	
+	// Determine the interpreter based on file extension
+	interpreter := detectInterpreter(resolvedPath, string(content))
+	
+	// Return command: [interpreter, scriptPath] or [interpreter, "-c", content]
+	if interpreter != "" {
+		return []string{interpreter, resolvedPath}, nil
+	}
+	
+	// For scripts with shebang, use the script directly
+	return []string{resolvedPath}, nil
+}
+
+func detectInterpreter(path, content string) string {
+	// Check file extension
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".py", ".python":
+		return "python3"
+	case ".sh", ".bash":
+		return "bash"
+	case ".js":
+		return "node"
+	case ".rb":
+		return "ruby"
+	}
+	
+	// Check shebang
+	if strings.HasPrefix(content, "#!") {
+		lines := strings.SplitN(content, "\n", 2)
+		if len(lines) > 0 {
+			shebang := strings.TrimSpace(lines[0])
+			shebang = strings.TrimPrefix(shebang, "#!")
+			parts := strings.Fields(shebang)
+			if len(parts) > 0 {
+				// Extract just the command name, not the full path
+				cmd := filepath.Base(parts[0])
+				// Handle env command
+				if cmd == "env" && len(parts) > 1 {
+					return parts[1]
+				}
+				return cmd
+			}
+		}
+	}
+	
+	return ""
 }
 func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if req.Capabilities.Scripts == nil {
