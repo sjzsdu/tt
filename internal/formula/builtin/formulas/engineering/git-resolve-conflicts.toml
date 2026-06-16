@@ -34,6 +34,7 @@ message = "当前目录必须在 git 仓库内"
 
 [vars]
 validation_command = { description = "可选验证命令；冲突修复后执行，例如 go test ./... / pytest / cargo test / npm test", default = "" }
+context_root = { description = "可选 context JSON 根目录；为空时使用 TT_INVOCATION_CWD，再退回当前工作目录。最终写入 <context_root>/.tt/conflict-context/git-resolve-conflicts", default = "" }
 
 [[steps]]
 id = "prepare-conflict-context"
@@ -136,8 +137,8 @@ try:
                 marker_files.append(candidate)
     files=sorted(set(unmerged_files + marker_files))
     unmerged_set=set(unmerged_files)
-    invocation_cwd=os.environ.get("TT_INVOCATION_CWD", "").strip() or os.getcwd()
-    ctx_dir=pathlib.Path(invocation_cwd) / ".tt/conflict-context/git-resolve-conflicts"
+    context_root=os.environ.get("TT_CONTEXT_ROOT", "").strip() or os.environ.get("TT_INVOCATION_CWD", "").strip() or os.getcwd()
+    ctx_dir=pathlib.Path(context_root) / ".tt/conflict-context/git-resolve-conflicts"
     ctx_dir.mkdir(parents=True, exist_ok=True)
     items=[]
     for path in files:
@@ -155,7 +156,7 @@ try:
         items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"conflict_regions":regions,"conflict_region_count":len(regions),"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
     started_at=os.environ.get("TT_STARTED_AT", "")
     started_epoch=int(os.environ.get("TT_STARTED_EPOCH", "0") or "0")
-    print(json.dumps({"ok":True,"repo_root":repo_root,"invocation_cwd":invocation_cwd,"context_dir":str(ctx_dir),"current_branch":current_branch,"operation":operation,"started_at":started_at,"started_epoch":started_epoch,"needs_resolution":len(files)>0,"done":len(files)==0,"files":files,"items":items,"conflicted_files":files,"unmerged_files":unmerged_files,"marker_files":sorted(set(marker_files)),"blocker_type":"none" if files else "none","blocker_summary":"" if files else "no current git conflict detected"}, ensure_ascii=False))
+    print(json.dumps({"ok":True,"repo_root":repo_root,"invocation_cwd":os.environ.get("TT_INVOCATION_CWD", ""),"context_root":context_root,"context_dir":str(ctx_dir),"current_branch":current_branch,"operation":operation,"started_at":started_at,"started_epoch":started_epoch,"needs_resolution":len(files)>0,"done":len(files)==0,"files":files,"items":items,"conflicted_files":files,"unmerged_files":unmerged_files,"marker_files":sorted(set(marker_files)),"blocker_type":"none" if files else "none","blocker_summary":"" if files else "no current git conflict detected"}, ensure_ascii=False))
 except Exception as exc:
     print(json.dumps({"ok":False,"needs_resolution":False,"done":False,"files":[],"items":[],"error":str(exc),"traceback":traceback.format_exc(limit=6)}, ensure_ascii=False))
     sys.exit(1)
@@ -163,6 +164,9 @@ PY
 """]
 format = "json"
 timeout = "60s"
+
+[steps.script.env]
+TT_CONTEXT_ROOT = "{{context_root}}"
 
 [steps.validate]
 format = "json"

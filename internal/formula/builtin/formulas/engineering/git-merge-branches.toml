@@ -43,6 +43,7 @@ branches = { description = "待合并分支列表，使用逗号分隔，例如 
 base_branch = { description = "可选起始 ref/branch；为空时从当前分支/当前 HEAD 切出 tmp 分支", default = "" }
 target_branch = { description = "可选目标分支名；为空时自动生成 tmp-merge-YYYYmmdd-HHMMSS", default = "" }
 validation_command = { description = "全部可合并分支处理完成后的可选验证命令；为空或 - 表示跳过", default = "" }
+conflict_context_root = { description = "传给 git-resolve-conflicts 的 context JSON 根目录；为空时由 git-resolve-conflicts 自行判断", default = "" }
 
 [[steps]]
 id = "prepare-merge-branch"
@@ -207,6 +208,7 @@ continue_on_error = true
 
 [steps.loop.body.embed_vars]
 validation_command = "-"
+context_root = "{{conflict_context_root}}"
 
 [[steps.loop.body]]
 id = "finalize-merge"
