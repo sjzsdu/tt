@@ -71,6 +71,15 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   jq -cn '{ok:false,error:"working tree or index is not clean; commit/stash changes before creating merge branch",items:[]}'
   exit 1
 fi
+fetch_origin=false
+fetch_output=""
+if [ "${base_input#origin/}" != "$base_input" ] || printf '%s' "$branches_raw" | grep -Eq '(^|[,[:space:]])origin/'; then
+  fetch_origin=true
+  if ! fetch_output="$(git fetch origin --prune 2>&1)"; then
+    jq -cn --arg output "$fetch_output" '{ok:false,error:"git fetch origin --prune failed",fetch_origin:true,fetch_output:$output,items:[]}'
+    exit 1
+  fi
+fi
 current_branch="$(git branch --show-current)"
 base_branch="$current_branch"
 base_ref="$current_branch"
@@ -131,8 +140,10 @@ jq -cn \
   --arg current_branch "$current_branch" \
   --arg target_branch "$target" \
   --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson fetch_origin "$fetch_origin" \
+  --arg fetch_output "$fetch_output" \
   --argjson items "$items_json" \
-  '{ok:true,repo_root:$repo_root,current_branch:$current_branch,base_branch:$base_branch,base_ref:$base_ref,base_head:$base_head,target_branch:$target_branch,created_at:$created_at,items:$items,total:($items|length)}'
+  '{ok:true,repo_root:$repo_root,current_branch:$current_branch,base_branch:$base_branch,base_ref:$base_ref,base_head:$base_head,target_branch:$target_branch,created_at:$created_at,fetch_origin:$fetch_origin,fetch_output:$fetch_output,items:$items,total:($items|length)}'
 """]
 format = "json"
 timeout = "60s"
