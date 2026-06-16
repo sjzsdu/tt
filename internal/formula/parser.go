@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	spec "github.com/sjzsdu/tt/internal/formula/spec"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
 type Parser struct {
@@ -70,6 +71,9 @@ func (p *Parser) ParseFile(path string) (*spec.Formula, error) {
 
 	formula.Source = absPath
 	spec.SetSourceInfo(formula)
+	if err := resolveFormulaScriptCommands(formula); err != nil {
+		return nil, err
+	}
 
 	formulaDir := filepath.Dir(absPath)
 	spec.ResolveDescriptionFiles(formula.Steps, formulaDir)
@@ -113,6 +117,65 @@ func (p *Parser) ParseTOML(data []byte) (*spec.Formula, error) {
 	normalizeFormulaWorkspace(&formula)
 
 	return &formula, nil
+}
+
+func resolveFormulaScriptCommands(formula *spec.Formula) error {
+	if formula == nil {
+		return nil
+	}
+	return resolveStepScriptCommands(formula.Steps, formula.Source)
+}
+
+func resolveStepScriptCommands(items []*spec.Step, source string) error {
+	for _, step := range items {
+		if step == nil {
+			continue
+		}
+		if step.Script != nil && len(step.Script.Command) == 0 && strings.TrimSpace(step.Script.Script) != "" {
+			command, err := commandForFormulaScript(source, step.Script.Script)
+			if err != nil {
+				return fmt.Errorf("step %q script %q: %w", step.ID, step.Script.Script, err)
+			}
+			step.Script.Command = command
+		}
+		if err := resolveStepScriptCommands(step.Children, source); err != nil {
+			return err
+		}
+		if step.Loop != nil {
+			if err := resolveStepScriptCommands(step.Loop.Body, source); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func commandForFormulaScript(source, scriptPath string) ([]string, error) {
+	if strings.HasPrefix(source, "builtin:") {
+		base := strings.TrimPrefix(source, "builtin:")
+		fullPath := scriptPath
+		if !filepath.IsAbs(scriptPath) {
+			fullPath = filepath.ToSlash(filepath.Join(filepath.Dir(base), scriptPath))
+		}
+		data, err := builtinFormulaFS.ReadFile(fullPath)
+		if err != nil && strings.HasPrefix(scriptPath, "./scripts/") {
+			fallback := filepath.ToSlash(filepath.Join(filepath.Dir(filepath.Dir(base)), strings.TrimPrefix(scriptPath, "./")))
+			if fallbackData, fallbackErr := builtinFormulaFS.ReadFile(fallback); fallbackErr == nil {
+				fullPath = fallback
+				data = fallbackData
+				err = nil
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read builtin script: %w", err)
+		}
+		return steps.CommandForInlineScript(fullPath, string(data)), nil
+	}
+	baseDir := ""
+	if strings.TrimSpace(source) != "" {
+		baseDir = filepath.Dir(source)
+	}
+	return steps.LoadExternalScript(scriptPath, baseDir)
 }
 
 func (p *Parser) Resolve(formula *spec.Formula) (*spec.Formula, error) {

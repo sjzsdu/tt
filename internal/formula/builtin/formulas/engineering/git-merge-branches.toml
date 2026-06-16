@@ -52,7 +52,7 @@ execution = "script"
 description = "从当前分支或指定 base_branch 创建目标 tmp 分支，并把逗号分隔的 branches 解析成顺序合并清单。要求当前没有未提交修改，也没有 merge/rebase/cherry-pick 进行中。"
 
 [steps.script]
-script = "../scripts/git/prepare-merge-branch.sh"
+script = "../../scripts/git/prepare-merge-branch.sh"
 format = "json"
 timeout = "60s"
 
@@ -83,7 +83,7 @@ execution = "script"
 description = "尝试合并当前分支。成功则继续下一项；冲突则交给 git-resolve-conflicts。脚本本身不因普通 merge 冲突失败。"
 
 [steps.loop.body.script]
-script = "../scripts/git/attempt-merge.sh"
+script = "../../scripts/git/attempt-merge.sh"
 format = "json"
 timeout = "120s"
 
@@ -116,7 +116,7 @@ depends_on = ["attempt-merge", "resolve-merge-conflicts"]
 description = "若无冲突则确认成功；若冲突已清除则只 stage 当前 unmerged 文件并完成 merge；若仍有冲突或 resolver 失败，则 abort 本次 merge 并标记该分支 skipped，继续后续分支。"
 
 [steps.loop.body.script]
-script = "../scripts/git/finalize-merge.sh"
+script = "../../scripts/git/finalize-merge.sh"
 format = "json"
 timeout = "120s"
 

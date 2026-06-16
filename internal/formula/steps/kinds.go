@@ -264,9 +264,10 @@ func valueText(out Value) string {
 type ScriptStep struct {
 	Base
 	Command    []string
-	Script     string            // External script file path (relative to formula file or absolute)
+	Script     string // External script file path (relative to formula file or absolute)
 	Cwd        string
 	Env        map[string]string
+	Timeout    string
 	OutputKey  string
 	Validation *OutputValidationSpec `json:"validate,omitempty"`
 }
@@ -355,43 +356,56 @@ func (ScriptDecoder) Decode(decl ast.StepDecl) (Step, error) {
 	var s ScriptStep
 	_ = json.Unmarshal(decl.Raw, &s)
 	s.Base = Base{metadataFromDecl(decl, KindScript)}
-	
+
 	// If script path is specified, load the script content
 	if scriptPath := strings.TrimSpace(s.Script); scriptPath != "" {
-		command, err := loadExternalScript(scriptPath, decl.SourceDir)
+		command, err := LoadExternalScript(scriptPath, decl.SourceDir)
 		if err != nil {
 			return nil, fmt.Errorf("load external script %q: %w", scriptPath, err)
 		}
 		s.Command = command
 		s.Script = "" // Clear after loading
 	}
-	
+
 	return s, nil
 }
 
-func loadExternalScript(scriptPath, sourceDir string) ([]string, error) {
+func LoadExternalScript(scriptPath, sourceDir string) ([]string, error) {
 	// Resolve path: if relative, resolve against sourceDir
 	resolvedPath := scriptPath
 	if !filepath.IsAbs(scriptPath) && sourceDir != "" {
 		resolvedPath = filepath.Join(sourceDir, scriptPath)
 	}
-	
+
 	// Read the script file
 	content, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return nil, fmt.Errorf("read script file: %w", err)
 	}
-	
+
+	return CommandForScriptContent(resolvedPath, string(content)), nil
+
+}
+
+func CommandForScriptContent(scriptPath, content string) []string {
 	// Determine the interpreter based on file extension
-	interpreter := detectInterpreter(resolvedPath, string(content))
-	
+	interpreter := detectInterpreter(scriptPath, content)
+
 	// Return command: [interpreter, scriptPath] or [interpreter, "-c", content]
 	if interpreter != "" {
-		return []string{interpreter, resolvedPath}, nil
+		return []string{interpreter, scriptPath}
 	}
-	
+
 	// For scripts with shebang, use the script directly
-	return []string{resolvedPath}, nil
+	return []string{scriptPath}
+}
+
+func CommandForInlineScript(scriptPath, content string) []string {
+	interpreter := detectInterpreter(scriptPath, content)
+	if interpreter != "" {
+		return []string{interpreter, "-c", content}
+	}
+	return []string{"sh", "-c", content}
 }
 
 func detectInterpreter(path, content string) string {
@@ -407,7 +421,7 @@ func detectInterpreter(path, content string) string {
 	case ".rb":
 		return "ruby"
 	}
-	
+
 	// Check shebang
 	if strings.HasPrefix(content, "#!") {
 		lines := strings.SplitN(content, "\n", 2)
@@ -426,7 +440,7 @@ func detectInterpreter(path, content string) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
@@ -434,7 +448,7 @@ func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error)
 		err := &StepError{Message: "script capability is required"}
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
-	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderStepCwd(s.Cwd, req.Context), Env: renderScriptEnv(s.Env, req.Context)})
+	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderStepCwd(s.Cwd, req.Context), Env: renderScriptEnv(s.Env, req.Context), Timeout: parseStepTimeout(s.Timeout)})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "script step failed", Cause: err}}, err
 	}

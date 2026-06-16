@@ -128,6 +128,7 @@ type ExternalAgentConfig struct {
 // ScriptSpec describes a deterministic local command step.
 type ScriptSpec struct {
 	Command         []string          `json:"command,omitempty" toml:"command,omitempty"`
+	Script          string            `json:"script,omitempty" toml:"script,omitempty"`
 	Shell           string            `json:"shell,omitempty" toml:"shell,omitempty"`
 	Cwd             string            `json:"cwd,omitempty" toml:"cwd,omitempty"`
 	Env             map[string]string `json:"env,omitempty" toml:"env,omitempty"`

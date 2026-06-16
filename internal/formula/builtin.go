@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed builtin/formulas builtin/atomics
+//go:embed builtin/formulas builtin/atomics builtin/scripts
 var builtinFormulaFS embed.FS
 
 type BuiltinEntry struct {
@@ -77,9 +77,14 @@ func builtinFormulaPathsInDir(dir string) ([]string, error) {
 }
 
 func BuiltinFormulaContent(name string) ([]byte, bool, error) {
+	data, _, ok, err := BuiltinFormulaContentWithPath(name)
+	return data, ok, err
+}
+
+func BuiltinFormulaContentWithPath(name string) ([]byte, string, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	candidates := []string{name}
 	if !strings.HasSuffix(name, ".toml") {
@@ -87,39 +92,44 @@ func BuiltinFormulaContent(name string) ([]byte, bool, error) {
 	}
 	for _, c := range candidates {
 		base := filepath.Base(c)
-		data, ok, err := builtinFormulaContentByBase(base)
+		data, path, ok, err := builtinFormulaContentByBaseWithPath(base)
 		if err != nil {
-			return nil, false, err
+			return nil, "", false, err
 		}
 		if ok {
-			return data, true, nil
+			return data, path, true, nil
 		}
 	}
 	entries, err := allBuiltinEntries()
 	if err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	}
 	for _, e := range entries {
 		if e.Name == name {
 			for _, ext := range []string{CanonicalTOMLExt} {
-				data, ok, err := builtinFormulaContentByBase(e.Name + ext)
+				data, path, ok, err := builtinFormulaContentByBaseWithPath(e.Name + ext)
 				if err != nil {
-					return nil, false, err
+					return nil, "", false, err
 				}
 				if ok {
-					return data, true, nil
+					return data, path, true, nil
 				}
 			}
 		}
 	}
-	return nil, false, nil
+	return nil, "", false, nil
 }
 
 func builtinFormulaContentByBase(base string) ([]byte, bool, error) {
+	data, _, ok, err := builtinFormulaContentByBaseWithPath(base)
+	return data, ok, err
+}
+
+func builtinFormulaContentByBaseWithPath(base string) ([]byte, string, bool, error) {
 	for _, dir := range []string{"builtin/formulas", "builtin/atomics"} {
 		paths, err := builtinFormulaPathsInDir(dir)
 		if err != nil {
-			return nil, false, err
+			return nil, "", false, err
 		}
 		for _, path := range paths {
 			if filepath.Base(path) != base {
@@ -127,12 +137,12 @@ func builtinFormulaContentByBase(base string) ([]byte, bool, error) {
 			}
 			data, err := builtinFormulaFS.ReadFile(path)
 			if err != nil {
-				return nil, false, err
+				return nil, "", false, err
 			}
-			return data, true, nil
+			return data, path, true, nil
 		}
 	}
-	return nil, false, nil
+	return nil, "", false, nil
 }
 
 func allBuiltinEntries() ([]BuiltinEntry, error) {
@@ -148,7 +158,7 @@ func allBuiltinEntries() ([]BuiltinEntry, error) {
 }
 
 func (p *Parser) ParseBuiltin(name string) (*spec.Formula, error) {
-	data, ok, err := BuiltinFormulaContent(name)
+	data, sourcePath, ok, err := BuiltinFormulaContentWithPath(name)
 	if err != nil {
 		return nil, err
 	}
@@ -159,8 +169,12 @@ func (p *Parser) ParseBuiltin(name string) (*spec.Formula, error) {
 	if err != nil {
 		return nil, err
 	}
-	f.Source = "builtin:" + f.Formula
+	f.Source = "builtin:" + sourcePath
 	spec.SetSourceInfo(f)
+	if err := resolveFormulaScriptCommands(f); err != nil {
+		return nil, err
+	}
+	f.Source = "builtin:" + f.Formula
 	p.cache[f.Formula] = f
 	p.cache[f.Source] = f
 	return f, nil

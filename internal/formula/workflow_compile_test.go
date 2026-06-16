@@ -1,6 +1,8 @@
 package formula
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/steps"
@@ -20,6 +22,50 @@ kind = "human_input"
 	}
 	if got := wf.Graph.Nodes["ask"].Step.Meta().Kind; got != steps.KindHumanInput {
 		t.Fatalf("kind = %s", got)
+	}
+}
+
+func TestWorkflowFromFormulaLoadsScriptFileReferences(t *testing.T) {
+	dir := t.TempDir()
+	scriptsDir := filepath.Join(dir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(scriptsDir, "fetch.py")
+	if err := os.WriteFile(scriptPath, []byte("print('{\"ok\":true}')\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	formulaPath := filepath.Join(dir, "demo.toml")
+	if err := os.WriteFile(formulaPath, []byte(`formula = "demo"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "fetch-review-comments"
+title = "Fetch"
+execution = "script"
+
+[steps.script]
+script = "./scripts/fetch.py"
+timeout = "60s"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := NewParser(dir).ParseFile(formulaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf := WorkflowFromFormula(f)
+	step, ok := wf.Graph.Nodes["fetch-review-comments"].Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("step type = %T", wf.Graph.Nodes["fetch-review-comments"].Step)
+	}
+	if len(step.Command) != 2 || step.Command[0] != "python3" || step.Command[1] != scriptPath {
+		t.Fatalf("command = %#v, want python3 %s", step.Command, scriptPath)
+	}
+	if step.Timeout != "60s" {
+		t.Fatalf("timeout = %q", step.Timeout)
 	}
 }
 

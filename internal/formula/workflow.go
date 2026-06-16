@@ -3,6 +3,7 @@ package formula
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -97,17 +98,21 @@ func WorkflowFromFormula(f *spec.Formula) *ir.Workflow {
 		}
 		wf.Vars[name] = ir.VarSchema{Type: def.Type, Required: def.Required, Default: def.Default}
 	}
+	sourceDir := ""
+	if strings.TrimSpace(f.Source) != "" {
+		sourceDir = filepath.Dir(f.Source)
+	}
 	for _, step := range f.Steps {
-		addFormulaStepToWorkflow(wf, step)
+		addFormulaStepToWorkflow(wf, step, sourceDir)
 	}
 	return wf
 }
 
-func addFormulaStepToWorkflow(wf *ir.Workflow, step *spec.Step) {
+func addFormulaStepToWorkflow(wf *ir.Workflow, step *spec.Step, sourceDir string) {
 	if wf == nil || step == nil {
 		return
 	}
-	wf.Graph.AddNode(&ir.Node{ID: ir.NodeID(step.ID), Step: typedStepFromFormulaStep(step)})
+	wf.Graph.AddNode(&ir.Node{ID: ir.NodeID(step.ID), Step: typedStepFromFormulaStep(step, sourceDir)})
 	for _, dep := range append([]string{}, step.DependsOn...) {
 		if strings.TrimSpace(dep) != "" {
 			wf.Graph.AddEdge(ir.NodeID(dep), ir.NodeID(step.ID), "blocks")
@@ -120,7 +125,7 @@ func addFormulaStepToWorkflow(wf *ir.Workflow, step *spec.Step) {
 	}
 }
 
-func typedStepFromFormulaStep(step *spec.Step) steps.Step {
+func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 	dependsOn := make([]steps.ID, 0, len(step.DependsOn)+len(step.Needs))
 	for _, dep := range append(append([]string(nil), step.DependsOn...), step.Needs...) {
 		if strings.TrimSpace(dep) != "" {
@@ -135,7 +140,7 @@ func typedStepFromFormulaStep(step *spec.Step) steps.Step {
 			if child == nil {
 				continue
 			}
-			body = append(body, typedStepFromFormulaStep(child))
+			body = append(body, typedStepFromFormulaStep(child, sourceDir))
 		}
 		return steps.LoopStep{Base: steps.Base{Metadata: meta}, Body: body, Parallel: step.Loop.Parallel, MaxConcurrency: step.Loop.MaxConcurrency, ForEach: step.Loop.ForEach, Var: step.Loop.Var, Until: step.Loop.Until, Max: step.Loop.Max}
 	}
@@ -149,12 +154,19 @@ func typedStepFromFormulaStep(step *spec.Step) steps.Step {
 		command := []string(nil)
 		cwd := ""
 		env := map[string]string(nil)
+		timeout := ""
 		if step.Script != nil {
 			command = append([]string(nil), step.Script.Command...)
+			if len(command) == 0 && strings.TrimSpace(step.Script.Script) != "" {
+				if loaded, err := steps.LoadExternalScript(step.Script.Script, sourceDir); err == nil {
+					command = loaded
+				}
+			}
 			cwd = step.Script.Cwd
 			env = step.Script.Env
+			timeout = step.Script.Timeout
 		}
-		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, Timeout: timeout, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "external_agent":
 		meta.Kind = steps.KindExternalAgent
 		var driver, provider, model, mode, resume, cwd, timeout string
