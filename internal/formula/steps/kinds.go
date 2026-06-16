@@ -263,13 +263,15 @@ func valueText(out Value) string {
 
 type ScriptStep struct {
 	Base
-	Command    []string
-	Script     string // External script file path (relative to formula file or absolute)
-	Cwd        string
-	Env        map[string]string
-	Timeout    string
-	OutputKey  string
-	Validation *OutputValidationSpec `json:"validate,omitempty"`
+	Command            []string
+	Script             string // External script file path (relative to formula file or absolute)
+	ScriptPath         string // Original script path (preserved for display)
+	ResolvedScriptPath string // Resolved absolute path (for reading file content)
+	Cwd                string
+	Env                map[string]string
+	Timeout            string
+	OutputKey          string
+	Validation         *OutputValidationSpec `json:"validate,omitempty"`
 }
 
 // ExternalAgentStep executes a step by spawning an external agent CLI
@@ -359,6 +361,12 @@ func (ScriptDecoder) Decode(decl ast.StepDecl) (Step, error) {
 
 	// If script path is specified, load the script content
 	if scriptPath := strings.TrimSpace(s.Script); scriptPath != "" {
+		s.ScriptPath = scriptPath // Preserve original path for display
+		resolvedPath := scriptPath
+		if !filepath.IsAbs(scriptPath) && decl.SourceDir != "" {
+			resolvedPath = filepath.Join(decl.SourceDir, scriptPath)
+		}
+		s.ResolvedScriptPath = resolvedPath // Save resolved path for reading
 		command, err := LoadExternalScript(scriptPath, decl.SourceDir)
 		if err != nil {
 			return nil, fmt.Errorf("load external script %q: %w", scriptPath, err)

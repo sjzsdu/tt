@@ -2,6 +2,8 @@ package doc
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -135,6 +137,41 @@ func writeScriptMarkdown(b *strings.Builder, step steps.ScriptStep) {
 		}
 		b.WriteString("\n\n")
 	}
+	// External script file (use ResolvedScriptPath for reading, ScriptPath for display)
+	if scriptPath := strings.TrimSpace(step.ScriptPath); scriptPath != "" {
+		b.WriteString(fmt.Sprintf("**Script file:** `%s`\n\n", scriptPath))
+		b.WriteString("<details>\n<summary>Show script file</summary>\n\n")
+		// Use resolved path for reading if available, otherwise try original path
+		readPath := step.ResolvedScriptPath
+		if readPath == "" {
+			readPath = scriptPath
+		}
+		if content, err := os.ReadFile(readPath); err == nil {
+			ext := filepath.Ext(scriptPath)
+			lang := "bash"
+			if ext == ".py" {
+				lang = "python"
+			} else if ext == ".js" {
+				lang = "javascript"
+			} else if ext == ".sh" || ext == ".bash" {
+				lang = "bash"
+			} else if ext == ".rb" {
+				lang = "ruby"
+			} else if ext == ".go" {
+				lang = "go"
+			} else if ext == ".ts" {
+				lang = "typescript"
+			}
+			b.WriteString(fmt.Sprintf("```%s\n", lang))
+			b.WriteString(string(content))
+			b.WriteString("\n```\n\n")
+		} else {
+			b.WriteString(fmt.Sprintf("*Could not read script file: %s*\n\n", err))
+		}
+		b.WriteString("</details>\n\n")
+		return
+	}
+	// Inline command
 	if len(step.Command) == 0 {
 		return
 	}

@@ -95,6 +95,8 @@ type Step struct {
 	HumanInputRequest *HumanInputRequest `json:"human_input_request,omitempty"`
 	Depth             int                `json:"depth,omitempty"`
 	Index             int                `json:"index"`
+	ScriptPath        string             `json:"script_path,omitempty"`
+	ScriptContent     string             `json:"script_content,omitempty"`
 }
 
 type StepActivity struct {

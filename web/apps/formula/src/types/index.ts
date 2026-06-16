@@ -95,6 +95,8 @@ export type FormulaDashboardStep = {
   human_input_request?: HumanInputRequest;
   depth?: number;
   index: number;
+  script_path?: string;
+  script_content?: string;
 };
 
 export type FormulaDashboardEdge = {

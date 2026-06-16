@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -57,9 +58,37 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
 		case steps.ScriptStep:
 			uiStep.Execution = string(steps.KindScript)
+			if typed.ScriptPath != "" {
+				uiStep.Description = fmt.Sprintf("script: %s", typed.ScriptPath)
+				uiStep.ScriptPath = typed.ScriptPath
+				// Use resolved path for reading content
+				readPath := typed.ResolvedScriptPath
+				if readPath == "" {
+					readPath = typed.ScriptPath
+				}
+				if content, err := os.ReadFile(readPath); err == nil {
+					uiStep.ScriptContent = string(content)
+				}
+			} else {
+				uiStep.Description = scriptSummary(typed.Command)
+			}
 			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Command, typed.Cwd, typed.Env)
 		case *steps.ScriptStep:
 			uiStep.Execution = string(steps.KindScript)
+			if typed.ScriptPath != "" {
+				uiStep.Description = fmt.Sprintf("script: %s", typed.ScriptPath)
+				uiStep.ScriptPath = typed.ScriptPath
+				// Use resolved path for reading content
+				readPath := typed.ResolvedScriptPath
+				if readPath == "" {
+					readPath = typed.ScriptPath
+				}
+				if content, err := os.ReadFile(readPath); err == nil {
+					uiStep.ScriptContent = string(content)
+				}
+			} else {
+				uiStep.Description = scriptSummary(typed.Command)
+			}
 			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.Command, typed.Cwd, typed.Env)
 		case steps.ExternalAgentStep:
 			uiStep.Execution = string(steps.KindExternalAgent)
@@ -162,9 +191,19 @@ func BuildLoopFromStep(loop steps.LoopStep, allowedVars map[string]struct{}) *Lo
 			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Prompt, typed.Cwd, typed.Agent, typed.Model)
 		case steps.ScriptStep:
 			body.OutputKey = typed.OutputKey
+			if typed.ScriptPath != "" {
+				body.Description = fmt.Sprintf("script: %s", typed.ScriptPath)
+			} else {
+				body.Description = scriptSummary(typed.Command)
+			}
 			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Command, typed.Cwd, typed.Env)
 		case *steps.ScriptStep:
 			body.OutputKey = typed.OutputKey
+			if typed.ScriptPath != "" {
+				body.Description = fmt.Sprintf("script: %s", typed.ScriptPath)
+			} else {
+				body.Description = scriptSummary(typed.Command)
+			}
 			body.VarRefs = templateVarRefs(allowedVars, localVars, typed.Command, typed.Cwd, typed.Env)
 		case steps.HumanInputStep:
 			body.Description = typed.Reason
@@ -428,4 +467,14 @@ func CloneLoop(src *Loop) *Loop {
 		cp.Body[i].Loop = CloneLoop(src.Body[i].Loop)
 	}
 	return &cp
+}
+
+func scriptSummary(command []string) string {
+	if len(command) == 0 {
+		return "empty script"
+	}
+	if len(command) == 1 {
+		return command[0]
+	}
+	return fmt.Sprintf("%s ...", command[0])
 }

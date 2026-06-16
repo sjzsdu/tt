@@ -197,6 +197,26 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           <Collapse className="step-modal-collapse" items={[{ key: 'output', label: sectionLabel('📄', 'Output', outputSummary), children: <OutputSurface content={step.output} className="step-output-shell" /> }]} />
         )}
 
+        {step.script_path && step.script_content && (
+          <Collapse
+            className="step-modal-collapse script-content-collapse"
+            defaultActiveKey={['script-content']}
+            items={[{
+              key: 'script-content',
+              label: sectionLabel('📜', 'Script file', step.script_path),
+              children: (
+                <div className="script-content-section">
+                  <div className="script-file-path">
+                    <Tag color="orange">External script</Tag>
+                    <Typography.Text code>{step.script_path}</Typography.Text>
+                  </div>
+                  <pre className="code-block script-content-block">{step.script_content}</pre>
+                </div>
+              ),
+            }]}
+          />
+        )}
+
         {externalAgentOutput && (
           <Collapse
             className="step-modal-collapse external-agent-details-collapse"
