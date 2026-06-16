@@ -176,10 +176,18 @@ func writeScriptMarkdown(b *strings.Builder, step steps.ScriptStep) {
 		return
 	}
 	summary := scriptCommandSummary(step.Command)
-	b.WriteString(fmt.Sprintf("**Command summary:** `%s`\n\n", summary))
+	lang := scriptCommandLang(step.Command)
+	body := scriptCommandBody(step.Command)
+	// Check if this is an inline code command (python3 -c, node -e, etc.)
+	isInlineCode := lang != "bash" && len(step.Command) >= 3 && step.Command[1] == "-c"
+	if isInlineCode {
+		b.WriteString(fmt.Sprintf("**Script language:** `%s`\n\n", lang))
+	} else {
+		b.WriteString(fmt.Sprintf("**Command summary:** `%s`\n\n", summary))
+	}
 	b.WriteString("<details>\n<summary>Show script command</summary>\n\n")
-	b.WriteString("```bash\n")
-	b.WriteString(scriptCommandBody(step.Command))
+	b.WriteString(fmt.Sprintf("```%s\n", lang))
+	b.WriteString(body)
 	b.WriteString("\n```\n\n")
 	b.WriteString("</details>\n\n")
 }
@@ -638,7 +646,34 @@ func scriptCommandBody(command []string) string {
 	if len(command) >= 3 && (command[0] == "bash" || command[0] == "sh") && command[1] == "-lc" {
 		return strings.TrimRight(command[2], "\n")
 	}
+	// Handle python3 -c, node -e, etc. (inline code)
+	if len(command) >= 3 && strings.HasSuffix(command[0], "python3") && command[1] == "-c" {
+		return strings.TrimRight(command[2], "\n")
+	}
+	if len(command) >= 3 && strings.HasSuffix(command[0], "node") && command[1] == "-e" {
+		return strings.TrimRight(command[2], "\n")
+	}
 	return strings.TrimRight(strings.Join(command, " "), "\n")
+}
+
+func scriptCommandLang(command []string) string {
+	if len(command) == 0 {
+		return "bash"
+	}
+	// Detect inline code language
+	if len(command) >= 3 && strings.HasSuffix(command[0], "python3") && command[1] == "-c" {
+		return "python"
+	}
+	if len(command) >= 3 && strings.HasSuffix(command[0], "python") && command[1] == "-c" {
+		return "python"
+	}
+	if len(command) >= 3 && strings.HasSuffix(command[0], "node") && command[1] == "-e" {
+		return "javascript"
+	}
+	if len(command) >= 3 && (command[0] == "bash" || command[0] == "sh") && command[1] == "-lc" {
+		return "bash"
+	}
+	return "bash"
 }
 
 func workflowDepsForStep(workflow *ir.Workflow, id ir.NodeID) []string {
