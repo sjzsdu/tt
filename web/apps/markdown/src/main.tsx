@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { App } from './components/App';
 import 'antd/dist/reset.css';
 import 'github-markdown-css/github-markdown-light.css';
+import 'highlight.js/styles/github.css';
 import './styles.css';
 
 type AppTheme = 'light' | 'dark';

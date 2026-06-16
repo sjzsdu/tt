@@ -1,6 +1,19 @@
 import { useMemo } from 'react';
 import { marked, type Token } from 'marked';
+import hljs from 'highlight.js';
 import type { MdPart } from '../types';
+
+// Configure marked to use highlight.js
+marked.setOptions({
+  highlight: function (code: string, lang: string) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return hljs.highlight(code, { language: lang }).value;
+      } catch (__) {}
+    }
+    return code;
+  },
+});
 
 export function useMarkdownParts(markdown: string): MdPart[] {
   return useMemo(() => splitMarkdownParts(markdown), [markdown]);

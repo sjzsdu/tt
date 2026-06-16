@@ -239,11 +239,17 @@ func writeLoopMarkdown(b *strings.Builder, loop steps.LoopStep) {
 				b.WriteString(fmt.Sprintf("   - agent: `%s`, model: `%s`\n", emptyDefault(typed.Agent, "default"), emptyDefault(typed.Model, "default")))
 			}
 			if len(typed.InputCtx) > 0 {
-				b.WriteString(fmt.Sprintf("   - input context: `%s`\n", strings.Join(typed.InputCtx, "`, `")))
+				if len(typed.InputCtx) <= 3 {
+					b.WriteString(fmt.Sprintf("   - input context: `%s`\n", strings.Join(typed.InputCtx, "`, `")))
+				} else {
+					b.WriteString(fmt.Sprintf("   - input context: %d items (`%s`, ...)\n", len(typed.InputCtx), strings.Join(typed.InputCtx[:2], "`, `")))
+				}
 			}
 		case steps.ScriptStep:
 			b.WriteString("   - execution: `script`\n")
-			if len(typed.Command) > 0 {
+			if typed.ScriptPath != "" {
+				b.WriteString(fmt.Sprintf("   - script: `%s`\n", typed.ScriptPath))
+			} else if len(typed.Command) > 0 {
 				b.WriteString(fmt.Sprintf("   - command: `%s`\n", scriptCommandSummary(typed.Command)))
 			}
 		case steps.HumanInputStep:
