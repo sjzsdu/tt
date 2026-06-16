@@ -205,8 +205,8 @@ required = ["stdout"]
 [[steps]]
 id = "final-report"
 title = "输出 PR 评论处理总报告"
-depends_on = ["commit-and-push"]
-input_context = ["fetch-pr-metadata.pr.stdout", "prepare-fix-worktree.stdout", "fetch-review-comments.stdout", "normalize-comment-items.stdout", "fix-each-comment", "resolve-review-threads.stdout", "commit-and-push.stdout"]
+depends_on = ["cleanup-worktree"]
+input_context = ["fetch-pr-metadata.pr.stdout", "prepare-fix-worktree.stdout", "fetch-review-comments.stdout", "normalize-comment-items.stdout", "fix-each-comment", "resolve-review-threads.stdout", "commit-and-push.stdout", "cleanup-worktree.stdout"]
 description = """
 输出最终中文总结，必须是 Markdown。严禁输出 JSON、代码块 JSON 或被引号包裹的 JSON 字符串。
 
@@ -235,7 +235,7 @@ agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"
 [[steps]]
 id = "cleanup-worktree"
 title = "清理临时评论修复 worktree"
-depends_on = ["final-report"]
+depends_on = ["commit-and-push"]
 condition = "prepare-fix-worktree.stdout.cleanup_required == true"
 execution = "script"
 description = "移除本流程创建或复用的 .tt 隔离 worktree；不清理当前工作区或外部 worktree。"
