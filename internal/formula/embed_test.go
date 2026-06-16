@@ -8,6 +8,7 @@ import (
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	spec "github.com/sjzsdu/tt/internal/formula/spec"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
 func TestEmbedDownstreamDependsOnEmbeddedExits(t *testing.T) {
@@ -323,6 +324,139 @@ embed = "child"
 		}
 	}
 	t.Fatalf("expanded steps missing embedded.manifest: %+v", expanded)
+}
+
+func TestEmbedPreservesScriptCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeFormula := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, name+".toml")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	writeFormula("child", `formula = "child"
+version = 1
+type = "workflow"
+
+[vars]
+message = { default = "ok" }
+
+[[steps]]
+id = "scripted"
+title = "Scripted"
+execution = "script"
+
+[steps.script]
+command = ["bash", "-lc", "echo {{message}}"]
+format = "json"
+
+[steps.script.env]
+TT_MESSAGE = "{{message}}"
+`)
+
+	writeFormula("parent", `formula = "parent"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "embedded"
+title = "Embedded child"
+embed = "child"
+
+[steps.embed_vars]
+message = "hello"
+`)
+
+	parser := NewParser(dir)
+	resolved, err := parser.LoadByName("parent")
+	if err != nil {
+		t.Fatalf("LoadByName(parent) error = %v", err)
+	}
+	resolved, err = parser.Resolve(resolved)
+	if err != nil {
+		t.Fatalf("Resolve(parent) error = %v", err)
+	}
+	expanded, err := ApplyEmbedsWithVars(resolved.Steps, parser, nil, []string{"parent"})
+	if err != nil {
+		t.Fatalf("ApplyEmbedsWithVars error = %v", err)
+	}
+	for _, step := range expanded {
+		if step.ID == "embedded.scripted" {
+			if step.Script == nil {
+				t.Fatalf("embedded scripted step missing script spec")
+			}
+			if got, want := step.Script.Command, []string{"bash", "-lc", "echo hello"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+				t.Fatalf("script command = %+v, want %+v", got, want)
+			}
+			if got, want := step.Script.Env["TT_MESSAGE"], "hello"; got != want {
+				t.Fatalf("script env TT_MESSAGE = %q, want %q", got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("expanded steps missing embedded.scripted: %+v", expanded)
+}
+
+func TestCompileEmbedPreservesScriptCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeFormula := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(dir, name+".toml")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	writeFormula("child", `formula = "child"
+version = 1
+type = "workflow"
+
+[vars]
+message = { default = "ok" }
+
+[[steps]]
+id = "scripted"
+title = "Scripted"
+execution = "script"
+
+[steps.script]
+command = ["bash", "-lc", "echo {{message}}"]
+format = "json"
+
+[steps.script.env]
+TT_MESSAGE = "{{message}}"
+`)
+
+	writeFormula("parent", `formula = "parent"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "embedded"
+title = "Embedded child"
+embed = "child"
+
+[steps.embed_vars]
+message = "hello"
+`)
+
+	workflow, err := CompileWorkflowByName(context.Background(), "parent", []string{dir}, nil)
+	if err != nil {
+		t.Fatalf("Compile(parent) error = %v", err)
+	}
+	node, ok := workflow.Graph.Nodes["embedded.scripted"]
+	if !ok {
+		t.Fatalf("compiled graph missing embedded.scripted")
+	}
+	script, ok := node.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("embedded.scripted step = %T, want steps.ScriptStep", node.Step)
+	}
+	if got, want := script.Command, []string{"bash", "-lc", "echo hello"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("compiled script command = %+v, want %+v", got, want)
+	}
 }
 
 func TestNestedEmbedVarsPreserveCallerLoopVarWhenChildStepIDCollides(t *testing.T) {
