@@ -538,6 +538,10 @@ func cloneStep(s *spec.Step) *spec.Step {
 		agentClone := *s.Agent
 		clone.Agent = &agentClone
 	}
+	if s.Script != nil {
+		scriptClone := *s.Script
+		clone.Script = &scriptClone
+	}
 	if s.InputCtx != nil {
 		clone.InputCtx = append([]string(nil), s.InputCtx...)
 	}
