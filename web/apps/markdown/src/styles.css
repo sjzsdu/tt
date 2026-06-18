@@ -251,7 +251,8 @@ body{background:linear-gradient(180deg,var(--bg) 0%, var(--surface-soft) 100%);c
   height: 100%;
 }
 
-.d2-svg-wrapper > svg {
+.d2-svg-wrapper > svg,
+.d2-svg svg {
   background: transparent !important;
   max-width: none;
   height: auto;
