@@ -64,89 +64,23 @@ export function prepareSvgMarkupForViewport(markup: string, options: PrepareSvgO
   return { svg: new XMLSerializer().serializeToString(svg), size };
 }
 
-function removeFullCanvasBackground(svg: SVGSVGElement, size: SvgSize) {
+function removeFullCanvasBackground(svg: SVGSVGElement, _size: SvgSize) {
   svg.removeAttribute('background');
   svg.style.backgroundColor = 'transparent';
   svg.style.background = 'transparent';
-  const classFills = readClassFills(svg);
 
-  const fullCanvasRects = Array.from(svg.querySelectorAll<SVGRectElement>('rect')).filter(rect => {
-    if (!isPlainBackgroundFill(readFill(rect, classFills))) return false;
-
-    const canvas = rectCanvas(rect, size);
-    const x = numberAttr(rect, 'x', canvas.minX);
-    const y = numberAttr(rect, 'y', canvas.minY);
-    const width = lengthAttr(rect, 'width', canvas.width);
-    const height = lengthAttr(rect, 'height', canvas.height);
-
-    return (
-      nearlyEqual(x, canvas.minX) &&
-      nearlyEqual(y, canvas.minY) &&
-      width >= canvas.width - 1 &&
-      height >= canvas.height - 1
-    );
-  });
-
-  fullCanvasRects.forEach(rect => rect.remove());
-}
-
-function readClassFills(svg: SVGSVGElement) {
-  const fills = new Map<string, string>();
-  svg.querySelectorAll('style').forEach(style => {
-    const css = style.textContent || '';
-    for (const match of css.matchAll(/\.([_a-zA-Z][\w-]*)\s*\{[^}]*?fill\s*:\s*([^;}]+)/g)) {
-      fills.set(match[1], match[2]);
+  const style = svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'style');
+  style.setAttribute('data-tt-d2-transparent-background', 'true');
+  style.textContent = `
+    svg.d2-svg > rect:first-child[stroke-width="0"],
+    svg.d2-svg > rect[fill="white"],
+    svg.d2-svg > rect[fill="#fff"],
+    svg.d2-svg > rect[fill="#ffffff"],
+    svg.d2-svg > rect.fill-N7[stroke-width="0"] {
+      fill: transparent !important;
     }
-  });
-  return fills;
-}
-
-function readFill(el: SVGElement, classFills: Map<string, string>) {
-  const directFill = el.getAttribute('fill') || el.style.fill || readStyleDeclaration(el.getAttribute('style'), 'fill');
-  if (directFill) return directFill;
-  for (const className of Array.from(el.classList)) {
-    const fill = classFills.get(className);
-    if (fill) return fill;
-  }
-  return null;
-}
-
-function rectCanvas(rect: SVGRectElement, fallback: SvgSize): SvgSize {
-  const parentSvg = rect.closest('svg') as SVGSVGElement | null;
-  const viewBox = parentSvg?.viewBox?.baseVal;
-  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
-    return { minX: viewBox.x, minY: viewBox.y, width: viewBox.width, height: viewBox.height };
-  }
-  return fallback;
-}
-
-function isPlainBackgroundFill(fill: string | null) {
-  if (!fill) return false;
-  const normalized = fill.trim().toLowerCase().replace(/\s+/g, '');
-  return normalized === '#fff' || normalized === '#ffffff' || normalized === 'white' || normalized === 'rgb(255,255,255)' || normalized === 'rgba(255,255,255,1)';
-}
-
-function readStyleDeclaration(style: string | null, name: string) {
-  if (!style) return null;
-  const match = style.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i'));
-  return match?.[1] ?? null;
-}
-
-function numberAttr(el: Element, name: string, fallback: number) {
-  const value = Number(el.getAttribute(name));
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function lengthAttr(el: Element, name: string, fallback: number) {
-  const raw = el.getAttribute(name)?.trim();
-  if (!raw) return fallback;
-  if (raw === '100%') return fallback;
-  const value = Number(raw.replace(/px$/i, ''));
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function nearlyEqual(a: number, b: number) {
-  return Math.abs(a - b) < 1;
+  `;
+  svg.appendChild(style);
 }
 
 function readPaintedBox(svg: SVGSVGElement): SvgSize | null {
