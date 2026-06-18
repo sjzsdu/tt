@@ -1,16 +1,16 @@
 import type { RefObject } from 'react';
 
-export function useMermaidActions(svg: string, svgElRef: RefObject<SVGSVGElement | null>) {
+export function useD2Actions(svg: string, svgElRef: RefObject<SVGSVGElement | null>) {
   const exportSvg = async () => {
     if (!svgElRef.current) return;
     const { svgToBlob, downloadBlob } = await import('../utils/export');
-    downloadBlob(svgToBlob(svgElRef.current), 'mermaid-diagram.svg');
+    downloadBlob(svgToBlob(svgElRef.current), 'd2-diagram.svg');
   };
 
   const exportPng = async () => {
     if (!svg) return;
     const { svgMarkupToPngBlob, downloadBlob } = await import('../utils/export');
-    downloadBlob(await svgMarkupToPngBlob(svg), 'mermaid-diagram.png');
+    downloadBlob(await svgMarkupToPngBlob(svg), 'd2-diagram.png');
   };
 
   const copyPng = async () => {

@@ -1,9 +1,8 @@
 import { useRef } from 'react';
 import { useD2 } from '../hooks/useD2';
-import { useMermaidActions } from '../hooks/useMermaidActions';
-import { useMermaidViewport } from '../hooks/useMermaidViewport';
-import { usePanZoom } from '../hooks/usePanZoom';
-import { MermaidToolbar } from './MermaidToolbar';
+import { useD2Actions } from '../hooks/useD2Actions';
+import { useD2Viewport } from '../hooks/useD2Viewport';
+import { D2Toolbar } from './D2Toolbar';
 
 interface D2FigureProps {
   code: string;
@@ -12,54 +11,51 @@ interface D2FigureProps {
 }
 
 function D2Body({ err, svg }: { err: string; svg: string }) {
-  if (err) return <pre className="mermaid-error">{err}</pre>;
+  if (err) {
+    return (
+      <div className="d2-error">
+        <div className="d2-error-title">Render failed</div>
+        <pre>{err}</pre>
+      </div>
+    );
+  }
+
   if (!svg) {
     return (
-      <div className="mermaid-loading">
+      <div className="d2-loading">
         <span>Rendering D2 diagram...</span>
       </div>
     );
   }
-  return <div className="mermaid-svg" dangerouslySetInnerHTML={{ __html: svg }} />;
+
+  return <div className="d2-svg" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function D2Figure({ code, index, theme = ((document.documentElement.dataset.theme as 'light' | 'dark') || 'light') }: D2FigureProps) {
   const figureRef = useRef<HTMLElement>(null);
   const { svg, err } = useD2(code, index, theme);
-  const {
-    viewportRef,
-    containerRef,
-    svgElRef,
-    panZoomTarget,
-    initialState,
-    viewportHeight,
-    displaySvg,
-  } = useMermaidViewport(svg);
-  const actions = useMermaidActions(svg, svgElRef, 'd2-diagram');
-  const { scale, zoomIn, zoomOut, reset, setScale } = usePanZoom(panZoomTarget, initialState);
+  const { containerRef, svgElRef, displaySvg, baseSize } = useD2Viewport(svg);
+  const actions = useD2Actions(svg, svgElRef);
+  const subtitle = err
+    ? 'Render failed'
+    : baseSize
+      ? `${Math.round(baseSize.width)}×${Math.round(baseSize.height)} · scroll to inspect`
+      : svg
+        ? 'Rendered from D2'
+        : 'Rendering...';
 
   return (
-    <figure className="mermaid-figure d2-figure" ref={figureRef}>
-      <MermaidToolbar
-        title="D2 diagram"
-        subtitle={err ? 'Render failed' : svg ? 'Rendered from D2' : 'Rendering...'}
-        scale={scale}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        onReset={reset}
-        onScaleChange={setScale}
+    <figure className="d2-figure" ref={figureRef}>
+      <D2Toolbar
+        subtitle={subtitle}
         onExportSvg={actions.exportSvg}
         onExportPng={actions.exportPng}
         onCopy={actions.copyPng}
       />
-      <div className="mermaid-viewport" ref={viewportRef} style={{ height: viewportHeight }}>
-        {svg && !err ? (
-          <div ref={containerRef} className="mermaid-panzoom-target">
-            <D2Body err={err} svg={displaySvg} />
-          </div>
-        ) : (
+      <div className="d2-viewport">
+        <div ref={containerRef} className="d2-canvas">
           <D2Body err={err} svg={displaySvg} />
-        )}
+        </div>
       </div>
     </figure>
   );

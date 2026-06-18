@@ -7,5 +7,6 @@ export { FileTree } from './FileTree';
 export { FileLanding } from './FileLanding';
 export { MermaidFigure } from './MermaidFigure';
 export { D2Figure } from './D2Figure';
+export { D2Toolbar } from './D2Toolbar';
 export { MermaidToolbar } from './MermaidToolbar';
 export { MarkdownContent } from './MarkdownContent';
