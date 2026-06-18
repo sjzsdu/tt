@@ -64,10 +64,25 @@ export function prepareSvgMarkupForViewport(markup: string, options: PrepareSvgO
   return { svg: new XMLSerializer().serializeToString(svg), size };
 }
 
-function removeFullCanvasBackground(svg: SVGSVGElement, _size: SvgSize) {
+function removeFullCanvasBackground(svg: SVGSVGElement, size: SvgSize) {
   svg.removeAttribute('background');
   svg.style.backgroundColor = 'transparent';
   svg.style.background = 'transparent';
+
+  const firstRect = svg.querySelector<SVGRectElement>(':scope > rect');
+  if (firstRect && isPlainBackgroundFill(firstRect.getAttribute('fill'))) {
+    const x = numberAttr(firstRect, 'x', size.minX);
+    const y = numberAttr(firstRect, 'y', size.minY);
+    const width = numberAttr(firstRect, 'width', size.width);
+    const height = numberAttr(firstRect, 'height', size.height);
+    const coversCanvas =
+      nearlyEqual(x, size.minX) &&
+      nearlyEqual(y, size.minY) &&
+      width >= size.width - 1 &&
+      height >= size.height - 1;
+
+    if (coversCanvas) firstRect.remove();
+  }
 
   const style = svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'style');
   style.setAttribute('data-tt-d2-transparent-background', 'true');
@@ -81,6 +96,21 @@ function removeFullCanvasBackground(svg: SVGSVGElement, _size: SvgSize) {
     }
   `;
   svg.appendChild(style);
+}
+
+function isPlainBackgroundFill(fill: string | null) {
+  if (!fill) return false;
+  const normalized = fill.trim().toLowerCase();
+  return normalized === '#fff' || normalized === '#ffffff' || normalized === 'white' || normalized === 'rgb(255,255,255)' || normalized === 'rgb(255, 255, 255)';
+}
+
+function numberAttr(el: Element, name: string, fallback: number) {
+  const value = Number(el.getAttribute(name));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function nearlyEqual(a: number, b: number) {
+  return Math.abs(a - b) < 1;
 }
 
 function readPaintedBox(svg: SVGSVGElement): SvgSize | null {
@@ -126,3 +156,4 @@ function paddedSize(size: SvgSize): SvgSize {
     height: Math.ceil(size.height + SVG_PADDING * 2),
   };
 }
+
