@@ -32,15 +32,16 @@ export function splitMarkdownParts(markdown: string): MdPart[] {
   };
 
   for (const token of tokens) {
-    if (
-      token.type === 'code' &&
-      String((token as Token & { lang?: string }).lang || '')
+    const codeLang = token.type === 'code'
+      ? String((token as Token & { lang?: string }).lang || '')
         .trim()
-        .split(/\s+/)[0] === 'mermaid'
-    ) {
+        .split(/\s+/)[0]
+        .toLowerCase()
+      : '';
+    if (token.type === 'code' && (codeLang === 'mermaid' || codeLang === 'd2')) {
       flush();
       parts.push({
-        type: 'mermaid',
+        type: codeLang,
         code: String((token as Token & { text?: string }).text || ''),
       });
     } else {

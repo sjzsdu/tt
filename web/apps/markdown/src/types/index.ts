@@ -36,4 +36,4 @@ export type TocItem = { id: string; text: string; level: number };
 
 export type Route = { mode: 'list' | 'view' | 'edit'; file: string };
 
-export type MdPart = { type: 'markdown'; html: string } | { type: 'mermaid'; code: string };
+export type MdPart = { type: 'markdown'; html: string } | { type: 'mermaid'; code: string } | { type: 'd2'; code: string };

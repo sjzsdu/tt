@@ -11,7 +11,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('mermaid') || id.includes('cytoscape') || id.includes('katex')) return 'vendor-diagrams';
+          if (id.includes('mermaid') || id.includes('cytoscape') || id.includes('katex') || id.includes('@terrastruct/d2')) return 'vendor-diagrams';
           if (id.includes('canvg') || id.includes('@resvg')) return 'vendor-export';
           if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'vendor-antd';
           if (id.includes('marked') || id.includes('github-markdown-css')) return 'vendor-markdown';

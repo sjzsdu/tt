@@ -1,4 +1,5 @@
 import type { MdPart } from '../types';
+import { D2Figure } from './D2Figure';
 import { MermaidFigure } from './MermaidFigure';
 
 interface MarkdownContentProps {
@@ -35,8 +36,10 @@ export function MarkdownContent({ parts, theme }: MarkdownContentProps) {
             className="markdown-chunk"
             dangerouslySetInnerHTML={{ __html: addIdsToHeadings(p.html) }}
           />
-        ) : (
+        ) : p.type === 'mermaid' ? (
           <MermaidFigure key={i} code={p.code} index={i} theme={theme} />
+        ) : (
+          <D2Figure key={i} code={p.code} index={i} theme={theme} />
         )
       )}
     </>
