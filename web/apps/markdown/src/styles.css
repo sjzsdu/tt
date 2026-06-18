@@ -203,27 +203,58 @@ body{background:linear-gradient(180deg,var(--bg) 0%, var(--surface-soft) 100%);c
   white-space: nowrap;
 }
 
+.d2-toolbar-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.d2-zoom-slider {
+  width: 132px;
+  margin-inline: 0;
+}
+
 .d2-viewport {
-  min-height: 240px;
-  max-height: min(72vh, 760px);
-  overflow: auto;
-  background: var(--surface-soft);
+  position: relative;
+  min-height: 320px;
+  max-height: min(72vh, 720px);
+  padding: 28px;
+  overflow: hidden;
+  cursor: grab;
+  background-color: var(--surface-soft);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 55%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+  touch-action: none;
+  user-select: none;
+}
+
+.d2-viewport:active {
+  cursor: grabbing;
+}
+
+.d2-stage {
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .d2-canvas {
-  width: max-content;
-  min-width: 100%;
-  padding: 24px;
+  width: 100%;
+  height: 100%;
 }
 
 .d2-svg {
-  display: flex;
-  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .d2-svg svg {
   max-width: none;
   height: auto;
+  overflow: visible;
   filter: drop-shadow(0 14px 24px rgba(15, 23, 42, 0.08));
 }
 
@@ -258,7 +289,17 @@ body{background:linear-gradient(180deg,var(--bg) 0%, var(--surface-soft) 100%);c
     flex-direction: column;
   }
 
-  .d2-canvas {
-    padding: 16px;
+  .d2-toolbar-actions {
+    justify-content: space-between;
+  }
+
+  .d2-zoom-slider {
+    flex: 1 1 120px;
+    width: auto;
+    min-width: 110px;
+  }
+
+  .d2-viewport {
+    padding: 18px;
   }
 }
