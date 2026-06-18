@@ -115,7 +115,11 @@ title = "Codebase-research driven development cycles"
 depends_on = ["repo-scan"]
 
 [steps.loop]
+# Keep this as a runtime loop node instead of compile-time expansion so later
+# steps can depend on the stable `cycle` node. The impossible until condition
+# means the loop runs to max unless a child step fails or waits.
 max = "{{max_cycles}}"
+until = "steps.completed < 0"
 
 [[steps.loop.body]]
 id = "codebase-research"

@@ -452,6 +452,23 @@ func TestAllBuiltinFormulasCompile(t *testing.T) {
 	}
 }
 
+func TestKeepCodingWorkflowHasStableCycleNode(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, map[string]string{"goal": "smoke goal"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("cycle")] == nil {
+		t.Fatalf("keep-coding must keep outer cycle as a stable runtime loop node")
+	}
+	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
+	if final == nil {
+		t.Fatalf("missing final-report node")
+	}
+	if _, err := formularuntime.PlanTopological(workflow.Graph); err != nil {
+		t.Fatalf("keep-coding graph should be topologically valid: %v", err)
+	}
+}
+
 func builtinCompileSmokeVars(name string) map[string]string {
 	switch name {
 	case "bug-fix":
