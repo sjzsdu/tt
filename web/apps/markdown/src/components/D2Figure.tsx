@@ -30,7 +30,7 @@ function D2Body({ err, svg }: { err: string; svg: string }) {
     );
   }
 
-  return <div className="d2-svg" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <div className="d2-svg-wrapper" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function D2Figure({ code, index, theme = ((document.documentElement.dataset.theme as 'light' | 'dark') || 'light') }: D2FigureProps) {

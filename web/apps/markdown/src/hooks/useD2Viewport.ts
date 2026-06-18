@@ -30,7 +30,7 @@ export function useD2Viewport(svg: string) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const svgElRef = useRef<SVGSVGElement | null>(null);
-  const prepared = useMemo(() => prepareSvgMarkupForViewport(svg), [svg]);
+  const prepared = useMemo(() => prepareSvgMarkupForViewport(svg, { transparentBackground: true }), [svg]);
   const displaySvg = prepared?.svg ?? svg;
   const baseSize = prepared?.size ?? DEFAULT_BASE_SIZE;
   const [panZoomTarget, setPanZoomTarget] = useState<HTMLDivElement | null>(null);
