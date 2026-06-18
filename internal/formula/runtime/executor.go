@@ -169,6 +169,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
 			return out, nil
 		}
+		normalizeStepOutputForContext(node.Step, res)
 		if validationErr := validateStepOutput(node.Step, res.Output); validationErr != nil {
 			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, nil, validationErr); ok {
 				res, err = repairedRes, repairedErr
@@ -193,10 +194,10 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 					_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
 					return out, nil
 				}
+				normalizeStepOutputForContext(node.Step, res)
 				validationErr = validateStepOutput(node.Step, res.Output)
 			}
 			if validationErr == nil {
-				normalizeStepOutputForContext(node.Step, res)
 				e.rememberStepOutput(node.Step, res)
 				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 				e.emit(nodeID, "step.completed", res)
@@ -210,7 +211,6 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
 			return out, res.Error
 		}
-		normalizeStepOutputForContext(node.Step, res)
 		e.rememberStepOutput(node.Step, res)
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 		e.emit(nodeID, "step.completed", res)

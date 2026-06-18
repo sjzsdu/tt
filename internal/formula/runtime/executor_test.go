@@ -188,7 +188,7 @@ func TestExecutorExposesScriptJSONStdoutForConditions(t *testing.T) {
 	g.AddNode(&ir.Node{ID: "prepare", Step: steps.ScriptStep{
 		Base:       steps.Base{Metadata: steps.Metadata{ID: "prepare", Kind: steps.KindScript}},
 		Command:    []string{"demo"},
-		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"stdout"}},
+		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"ready_for_agent", "current_branch"}},
 	}})
 	g.AddNode(&ir.Node{ID: "resolve", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "resolve", Kind: steps.KindAgent, Condition: "prepare.stdout.ready_for_agent == true"}}}})
 	g.AddEdge("prepare", "resolve", "blocks")

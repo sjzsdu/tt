@@ -23,7 +23,7 @@ require_repo = true
 require_remote = false
 
 [vars]
-goal = { description = "本轮要持续推进的总体目标或改进主题。架构和实现必须从当前代码探究后得出，不允许脱离代码空想。", required = true }
+goal = { description = "本轮要持续推进的总体目标或改进主题。架构和实现必须从当前代码探究后得出，不允许脱离代码空想。", default = "持续研究当前仓库，选择一项小而完整、可验证、符合现有代码模式的改进并推进。" }
 max_cycles = { description = "最大开发循环轮数", default = "3", pattern = "^[1-9][0-9]*$" }
 max_arch_review_cycles = { description = "每轮架构文档最多修订次数", default = "3", pattern = "^[1-9][0-9]*$" }
 max_code_review_cycles = { description = "每轮代码实现最多 review/fix 次数", default = "3", pattern = "^[1-9][0-9]*$" }
