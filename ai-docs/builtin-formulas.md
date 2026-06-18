@@ -20,7 +20,7 @@
 - 查看：`tt formula show <name>` / `tt formula show <name> --markdown`。
 - 复制为本地工作副本：`tt formula copy <name> [output.toml]`。
 
-## Formulas（16 个）
+## Formulas（17 个）
 
 按 `category` 分组，描述均来自对应 toml 的 `description` 字段。
 
@@ -52,6 +52,7 @@
 | --- | --- | --- |
 | `fresh-topic-docs` | 针对"新鲜事物 / 概念 / 趋势"主题，澄清范围后用 foreach loop 并发生成系列 Markdown 文档 | 动态表单 + foreach 数组 + 并发 agent 写作 + aggregate 汇总 |
 | `code-docs` | 解读代码文件、目录或 GitHub 仓库并生成 Markdown 文档 | 抽取代码证据，按规模动态规划多篇文档，并生成 README 摘要 |
+| `code-arch` | 为代码文件、目录或 GitHub 仓库生成架构文档包 | 新增 `arch-map.py` 抽取入口、模块聚类、依赖边、API/状态/数据/风险线索；规划并发撰写包含 D2 图块的架构 Markdown |
 
 ### jira
 

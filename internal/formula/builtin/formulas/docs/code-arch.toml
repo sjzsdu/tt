@@ -1,0 +1,266 @@
+formula = "code-arch"
+title = "代码架构文档生成"
+description = "针对任意代码来源生成架构文档包：先准备代码与证据地图，再抽取架构线索，规划包含 D2 图的架构文档数组，最后并发撰写 Markdown 并落盘。"
+version = 1
+type = "workflow"
+category = "docs"
+tags = ["code", "architecture", "docs", "d2", "diagrams", "foreach"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "读取 GitHub 仓库 URL 时需要安装 git"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3"
+
+[vars]
+repo = { description = "代码来源：本地代码文件、本地目录、GitHub URL，或 owner/repo", required = true }
+focus_path = { description = "可选：当代码来源是目录或 GitHub 仓库时，只分析其中某个子目录或文件；空或 - 表示整个来源", default = "" }
+output_dir = { description = "输出根目录；默认写入 ai-docs/<topic>", default = "ai-docs" }
+doc_language = { description = "文档语言", default = "简体中文", enum = ["简体中文", "English"] }
+
+[[steps]]
+id = "prepare-repo"
+title = "准备仓库并抽取基础信息"
+execution = "script"
+description = "解析代码来源。本地文件/目录直接使用；GitHub URL 或 owner/repo 会浅克隆到 .tt/tmp/code-docs 下。输出 repo_path、analysis_path、source_slug、README 摘要、目录树与关键文件列表。"
+
+[steps.script]
+script = "./scripts/prepare-repo.py"
+format = "json"
+timeout = "180s"
+
+[steps.script.env]
+TT_REPO = "{{repo}}"
+TT_FOCUS_PATH = "{{focus_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "scope-analysis"
+title = "分析架构文档目标并按需澄清范围"
+depends_on = ["prepare-repo"]
+form = true
+input_context = ["prepare-repo.stdout.repo_slug", "prepare-repo.stdout.remote_url", "prepare-repo.stdout.focus_path", "prepare-repo.stdout.readme_excerpt", "prepare-repo.stdout.tree_excerpt", "prepare-repo.stdout.key_files"]
+description = """
+为代码来源「{{repo}}」设计架构文档的分析范围。你要基于 README、目录树、关键文件清单和元数据判断，而不是套模板。
+
+你拥有自主权：如果现有信息足够，直接输出 JSON 进入规划；如果范围过大或读者目标不清楚，可用动态表单澄清。
+
+判断要不要追问：
+- 如果 focus_path 已明确，或代码规模小，通常不要追问。
+- 如果仓库很大且架构文档可能有多个方向，只问会影响文档结构/深度/侧重点的问题。
+- 字段数量通常 1-4 个，最多 5 个。
+
+输出要求：
+- 如果信息足够或用户已澄清：输出 ONLY compact JSON object。
+- JSON schema 自由决定，只包含后续有用字段。
+- 不要 Markdown，不要代码块。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+required = []
+
+[[steps]]
+id = "repo-map"
+title = "抽取通用代码证据地图"
+execution = "script"
+depends_on = ["scope-analysis"]
+description = "读取仓库中的 README、配置文件、入口文件、测试和主要源码文件摘要，形成轻量证据地图。"
+
+[steps.script]
+script = "./scripts/repo-map.py"
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_REPO_PATH = "{{prepare-repo.stdout.repo_path}}"
+TT_ANALYSIS_PATH = "{{prepare-repo.stdout.analysis_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "arch-map"
+title = "抽取架构证据地图"
+execution = "script"
+depends_on = ["scope-analysis"]
+description = "启发式扫描入口、模块聚类、依赖边、API/状态/数据/风险线索，为后续架构图和文档规划提供证据。"
+
+[steps.script]
+script = "./scripts/arch-map.py"
+format = "json"
+timeout = "90s"
+
+[steps.script.env]
+TT_REPO_PATH = "{{prepare-repo.stdout.repo_path}}"
+TT_ANALYSIS_PATH = "{{prepare-repo.stdout.analysis_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "arch-plan"
+title = "规划架构文档与 D2 图"
+depends_on = ["scope-analysis", "repo-map", "arch-map"]
+form = true
+input_context = ["scope-analysis", "prepare-repo.stdout.repo_slug", "prepare-repo.stdout.focus_path", "prepare-repo.stdout.tree_excerpt", "repo-map.stdout", "arch-map.stdout"]
+description = """
+基于 prepare-repo、scope-analysis、repo-map 和 arch-map 的证据，探索当前代码来源，并规划需要生成哪些架构 Markdown 文档。
+
+这一步只做探索和规划，不写正文。你的重点是抽象架构，而不是逐文件解释代码。
+
+要求：
+- README.md 必须在 documents 中，作为架构文档包索引，不重复正文。
+- 每篇正文文档必须解决一个明确架构问题，例如系统上下文、模块边界、运行时流程、数据/状态流、扩展点、风险与演进。
+- 每篇正文可包含 0-N 个 D2 图。只有图能提升理解时才规划，不要为了画图而画图。
+- D2 图必须能映射到代码证据，不能只画概念词。
+- 为每个文档给出 purpose、reader_question、must_cover、evidence_targets、diagrams、risk_focus。
+- 使用 {{doc_language}} 规划。
+
+输出 ONLY compact JSON object，不要 Markdown 代码块：
+{
+  "topic_name":"safe-lower-kebab-case-arch",
+  "series_title":"...",
+  "audience":"...",
+  "architecture_thesis":"...",
+  "documents":[
+    {"filename":"README.md","title":"...","summary":"...","purpose":"...","reader_question":"...","must_cover":["..."],"evidence_targets":["..."],"diagrams":[],"risk_focus":["..."]},
+    {"filename":"01-system-context.md","title":"...","summary":"...","purpose":"...","reader_question":"...","must_cover":["..."],"evidence_targets":["..."],"diagrams":[{"id":"system-context","title":"系统上下文图","type":"system-context|module-boundary|runtime|data-flow|state|risk-hotspots","language":"d2","must_show":["..."],"evidence_targets":["..."]}],"risk_focus":["..."]}
+  ],
+  "evidence_boundary":["..."],
+  "open_questions":["..."]
+}
+
+硬性要求：
+- topic_name 只允许小写字母、数字、连字符，并以 -arch 结尾或体现 architecture。
+- documents 至少包含 README.md 和一篇正文文档。
+- 每个 filename 必须是安全 Markdown 文件名，正文建议两位数字前缀。
+- 每个 document 必须包含 filename、title、summary、purpose、reader_question、must_cover、evidence_targets、diagrams、risk_focus。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "json"
+required = ["topic_name", "documents", "architecture_thesis"]
+
+[[steps]]
+id = "write-arch-docs"
+title = "并发撰写架构文档"
+depends_on = ["arch-plan", "repo-map", "arch-map"]
+
+  [steps.loop]
+  for_each = "arch-plan.documents"
+  var = "doc"
+  parallel = true
+  max_concurrency = 3
+
+  [[steps.loop.body]]
+  id = "draft"
+  title = "撰写 {{doc.filename}}"
+  input_context = ["scope-analysis", "prepare-repo.stdout.readme_excerpt", "prepare-repo.stdout.tree_excerpt", "prepare-repo.stdout.key_files", "repo-map.stdout", "arch-map.stdout", "arch-plan.documents", "arch-plan.architecture_thesis", "arch-plan.evidence_boundary", "arch-plan.open_questions", "doc"]
+  description = """
+根据当前 doc 对象、arch-map 架构证据、repo-map 通用代码证据，以及 scope-analysis 约束，撰写这一篇 Markdown 架构文档。
+
+你只负责当前这一篇：{{doc.filename}}
+
+写作要求：
+- 文档要像认真读过代码的人写给后来接手的人，重点解释架构，不要逐文件流水账。
+- 开始写之前，优先读取 doc.evidence_targets 和 doc.diagrams[*].evidence_targets 指向的文件，再按需读取相关调用方/被调用方。
+- 每个架构判断必须尽量标注代码路径、配置路径、入口、测试或调用关系证据。
+- 如果当前 doc.diagrams 非空，必须为每个 diagram 写一个独立 D2 fenced block：```d2 ... ```。
+- 一个 Markdown 文档可以包含多个 D2 图；每个图后必须解释关键节点、关键边和证据边界。
+- D2 图语法保持简单稳定：使用有意义节点名、箭头、分组容器；避免复杂样式。
+- 如果某条架构关系是推断，必须标注「[推测]」并说明依据。
+- README.md 只汇总文档包：每篇文档解决什么问题、包含哪些图、证据边界是什么；不要重复正文。
+- 使用 {{doc_language}} 写作。
+
+输出 ONLY compact JSON object，不要 Markdown 代码块包裹整个 JSON：
+{"filename":"{{doc.filename}}","title":"{{doc.title}}","summary":"{{doc.summary}}","diagram_count":0,"content":"完整 Markdown 正文"}
+
+硬性要求：
+- filename 必须等于 doc.filename。
+- title 必须等于 doc.title。
+- content 第一行必须是 `# {{doc.title}}`。
+- 正文要短而集中，避免与其他规划文档重复。
+"""
+
+  [steps.loop.body.agent]
+  name = "docs-analyst"
+  cwd = "{{prepare-repo.stdout.repo_path}}"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["filename", "title", "summary", "diagram_count", "content"]
+
+[[steps]]
+id = "write-doc-files"
+title = "写入架构文档文件"
+execution = "tool"
+depends_on = ["arch-plan", "write-arch-docs"]
+
+[steps.tool]
+name = "write_files"
+
+[steps.tool.write_files]
+source = "write-arch-docs"
+root = "{{output_dir}}"
+dir_name = "{{arch-plan.topic_name}}"
+
+[steps.validate]
+format = "json"
+required = ["directory", "files"]
+
+[[steps]]
+id = "final-report"
+title = "输出架构文档生成报告"
+depends_on = ["arch-plan", "write-arch-docs", "write-doc-files"]
+input_context = ["prepare-repo.stdout.repo_slug", "prepare-repo.stdout.focus_path", "arch-plan", "write-doc-files", "write-arch-docs"]
+description = """
+基于 arch-plan、write-arch-docs 和 write-doc-files，输出一份自然、简洁、有判断的中文总结。
+
+要求：
+- 不要复述每篇文档正文。
+- 说明代码来源、输出目录、生成了哪些架构文档和 D2 图。
+- 简要说明这组架构文档整体覆盖了什么，适合谁看。
+- 如果 arch-plan.open_questions 或 evidence_boundary 中有重要不确定项，要温和提醒。
+- 语气像给用户交付成果，不像机械日志。
+
+建议结构：
+## 结论
+1-3 句话说明已完成什么、文档放在哪里、整体质量/边界。
+
+## 文档清单
+用 Markdown 表格列出文件、用途、摘要、D2 图数量。
+
+## 备注
+如有待验证项或证据边界，在这里简短列出；没有则省略。
+
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
+"""
+
+[steps.agent]
+name = "docs-analyst"
+cwd = "{{prepare-repo.stdout.repo_path}}"
+
+[steps.validate]
+format = "markdown"
