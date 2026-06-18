@@ -1238,6 +1238,7 @@ type LoopStep struct {
 	Var            string
 	Until          string
 	Max            int
+	MaxExpr        string
 }
 type LoopDecoder struct{}
 
@@ -1250,7 +1251,7 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if strings.TrimSpace(s.ForEach) != "" {
 		return s.runForEach(ctx, req)
 	}
-	max := s.Max
+	max := s.resolveMax(req.Context)
 	if max <= 0 {
 		max = 1
 	}
@@ -1305,11 +1306,26 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 				}
 			}
 		}
-		if stepConditionMatches(s.Until, req.Context) {
+		if strings.TrimSpace(s.Until) != "" && stepConditionMatches(s.Until, req.Context) {
 			return &RunResult{Status: StatusCompleted, Output: last}, nil
 		}
 	}
 	return &RunResult{Status: StatusCompleted, Output: last}, nil
+}
+
+func (s LoopStep) resolveMax(ctx ContextView) int {
+	if strings.TrimSpace(s.MaxExpr) == "" {
+		return s.Max
+	}
+	rendered := strings.TrimSpace(renderContextTemplates(s.MaxExpr, ctx))
+	if rendered == "" {
+		return s.Max
+	}
+	n, err := strconv.Atoi(rendered)
+	if err != nil || n < 0 {
+		return s.Max
+	}
+	return n
 }
 
 func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, error) {

@@ -3,6 +3,7 @@ package spec
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -155,13 +156,49 @@ type stepTOMLAlias struct {
 type loopTOMLAlias struct {
 	Count          int              `json:"count,omitempty"`
 	Until          string           `json:"until,omitempty"`
-	Max            int              `json:"max,omitempty"`
+	Max            flexibleIntExpr  `json:"max,omitempty"`
 	Range          string           `json:"range,omitempty"`
 	ForEach        string           `json:"for_each,omitempty"`
 	Var            string           `json:"var,omitempty"`
 	Parallel       bool             `json:"parallel,omitempty"`
 	MaxConcurrency int              `json:"max_concurrency,omitempty"`
 	Body           []*stepTOMLAlias `json:"body"`
+}
+
+type flexibleIntExpr struct {
+	Int  int
+	Expr string
+}
+
+func (v *flexibleIntExpr) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "\"") {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		if n, err := strconv.Atoi(s); err == nil {
+			v.Int = n
+			v.Expr = ""
+			return nil
+		}
+		v.Expr = s
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(data, &n); err != nil {
+		return err
+	}
+	v.Int = n
+	v.Expr = ""
+	return nil
 }
 
 func (a stepTOMLAlias) toStep() (Step, error) {
@@ -294,7 +331,8 @@ func (a *loopTOMLAlias) toLoopSpec() (*LoopSpec, error) {
 	return &LoopSpec{
 		Count:          a.Count,
 		Until:          a.Until,
-		Max:            a.Max,
+		Max:            a.Max.Int,
+		MaxExpr:        a.Max.Expr,
 		Range:          a.Range,
 		ForEach:        a.ForEach,
 		Var:            a.Var,

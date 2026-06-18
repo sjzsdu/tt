@@ -260,6 +260,7 @@ type LoopSpec struct {
 	Count          int     `json:"count,omitempty" toml:"count,omitempty"`
 	Until          string  `json:"until,omitempty" toml:"until,omitempty"`
 	Max            int     `json:"max,omitempty" toml:"max,omitempty"`
+	MaxExpr        string  `json:"max_expr,omitempty" toml:"max_expr,omitempty"`
 	Range          string  `json:"range,omitempty" toml:"range,omitempty"`
 	ForEach        string  `json:"for_each,omitempty" toml:"for_each,omitempty"`
 	Var            string  `json:"var,omitempty" toml:"var,omitempty"`

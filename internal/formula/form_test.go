@@ -73,6 +73,46 @@ input_context = ["profile"]
 	}
 }
 
+func TestLoopMaxParsesTemplatedString(t *testing.T) {
+	const src = `
+formula = "loop-demo"
+version = 1
+type = "workflow"
+
+[vars]
+max_cycles = { default = "3" }
+
+[[steps]]
+id = "cycle"
+title = "Cycle"
+
+[steps.loop]
+max = "{{max_cycles}}"
+until = "done == true"
+
+[[steps.loop.body]]
+id = "tick"
+title = "Tick"
+execution = "noop"
+`
+	p := NewParser()
+	f, err := p.ParseTOML([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseTOML() error = %v", err)
+	}
+	if got := f.Steps[0].Loop.MaxExpr; got != "{{max_cycles}}" {
+		t.Fatalf("Loop.MaxExpr = %q", got)
+	}
+	wf := WorkflowFromFormula(f)
+	step, ok := wf.Graph.Nodes[ir.NodeID("cycle")].Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("step type = %T", wf.Graph.Nodes[ir.NodeID("cycle")].Step)
+	}
+	if step.MaxExpr != "{{max_cycles}}" {
+		t.Fatalf("compiled MaxExpr = %q", step.MaxExpr)
+	}
+}
+
 func TestFormValidationRejectsInvalidFields(t *testing.T) {
 	f := &spec.Formula{Formula: "bad", Version: 1, Type: spec.TypeWorkflow, Steps: []*spec.Step{{
 		ID:        "input",

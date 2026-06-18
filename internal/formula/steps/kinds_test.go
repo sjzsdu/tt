@@ -270,6 +270,58 @@ func TestLoopStepEmitsSkippedForConditionFalseBodyStep(t *testing.T) {
 	assertLoopEvent(t, events, "monitor.iter1.wait", "step.completed", StatusCompleted)
 }
 
+func TestLoopStepResolvesTemplatedMax(t *testing.T) {
+	loop := LoopStep{
+		Base:    Base{Metadata: Metadata{ID: "monitor", Kind: KindLoop}},
+		MaxExpr: "{{max_cycles}}",
+		Until:   "done == true",
+		Body: []Step{
+			NoopStep{Base: Base{Metadata: Metadata{ID: "tick", Kind: KindNoop}}},
+		},
+	}
+	started := 0
+	_, err := loop.Run(context.Background(), RunRequest{
+		NodeID:  "monitor",
+		Context: mapContextView{"max_cycles": {Raw: []byte(`3`)}},
+		Emit: func(nodeID string, eventType string, payload any) {
+			if eventType == "step.started" && strings.HasSuffix(nodeID, ".tick") {
+				started++
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("run loop: %v", err)
+	}
+	if started != 3 {
+		t.Fatalf("started ticks = %d, want 3", started)
+	}
+}
+
+func TestLoopStepHonorsMaxWithoutUntil(t *testing.T) {
+	loop := LoopStep{
+		Base: Base{Metadata: Metadata{ID: "monitor", Kind: KindLoop}},
+		Max:  3,
+		Body: []Step{
+			NoopStep{Base: Base{Metadata: Metadata{ID: "tick", Kind: KindNoop}}},
+		},
+	}
+	started := 0
+	_, err := loop.Run(context.Background(), RunRequest{
+		NodeID: "monitor",
+		Emit: func(nodeID string, eventType string, payload any) {
+			if eventType == "step.started" && strings.HasSuffix(nodeID, ".tick") {
+				started++
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("run loop: %v", err)
+	}
+	if started != 3 {
+		t.Fatalf("started ticks = %d, want 3", started)
+	}
+}
+
 func TestLoopStepExposesScriptJSONStdoutForLaterConditions(t *testing.T) {
 	agent := &countingStepAgentRunner{}
 	loop := LoopStep{
