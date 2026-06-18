@@ -20,7 +20,7 @@
 - 查看：`tt formula show <name>` / `tt formula show <name> --markdown`。
 - 复制为本地工作副本：`tt formula copy <name> [output.toml]`。
 
-## Formulas（15 个）
+## Formulas（16 个）
 
 按 `category` 分组，描述均来自对应 toml 的 `description` 字段。
 
@@ -40,6 +40,7 @@
 | --- | --- | --- |
 | `san-sheng-liu-bu` | 三省六部工作流：起草 → 审核 → 拆任务 → 并发生成 → 汇总 | `zhongshu-draft` / `menxia-review` loop / `shangshu-decompose` 拆 `tasks` 数组 / `foreach parallel` 生成各部启动文稿 / `aggregate` 汇总 |
 | `shan-yi-zhe` | 善易者风格的多层动态决策与建议 | 必要时 typed runtime 显式澄清，展示卦序、卦象、上下卦、卦辞、彖传、爻辞，最终落到现实行动建议 |
+| `keep-coding` | 持续编码工作流：从当前代码深入研究出发，循环产出开发文档、实现、review/fix、commit 与总结 | 支持 `loop.max` 变量化；每轮包含代码研究、架构 gate 循环、代码 gate 循环、cycle report，最终 Markdown 汇总 |
 | `feature` | 通用代码 feature 端到端实现：需求理解/动态澄清 → code-context 调研 → 计划 → 编码 → 测试方式 → 影响评估 → 报告 | 不自动 commit；适合作为默认 feature 开发入口，`validation_command` 可覆盖自动验证命令 |
 | `gongbu` | 代码 feature 的端到端实现：理解需求 → 调研 → 方案 → 实现 → 验证 → 按需提交 | 使用 `[workspace] kind = "worktree"` 创建隔离分支；按需 push |
 | `bug-fix` | 调试 / 修复 bug，并在结论中说明"问题不成立"的备选路径 | 第一步是动态澄清（`form = true`），输出 strict compact JSON；后续 step 串接代码调研、定位、修复、验证 |

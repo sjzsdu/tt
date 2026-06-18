@@ -83,15 +83,18 @@ func validateLoopSpec(loop *spec.LoopSpec, stepID string) error {
 	if loop.ForEach != "" {
 		loopTypes++
 	}
+	if loop.Until == "" && (loop.Max > 0 || strings.TrimSpace(loop.MaxExpr) != "") {
+		loopTypes++
+	}
 
 	if loopTypes == 0 {
-		return fmt.Errorf("loop %q: one of count, until, range, or for_each is required", stepID)
+		return fmt.Errorf("loop %q: one of count, until, range, for_each, or max is required", stepID)
 	}
 	if loopTypes > 1 {
-		return fmt.Errorf("loop %q: only one of count, until, range, or for_each can be specified", stepID)
+		return fmt.Errorf("loop %q: only one of count, until, range, for_each, or max can be specified", stepID)
 	}
 
-	if loop.Until != "" && loop.Max == 0 {
+	if loop.Until != "" && loop.Max == 0 && strings.TrimSpace(loop.MaxExpr) == "" {
 		return fmt.Errorf("loop %q: max is required when until is set", stepID)
 	}
 
@@ -191,8 +194,9 @@ func expandLoopWithVars(step *spec.Step, vars map[string]string) ([]*spec.Step, 
 		if len(iterSteps) > 0 {
 			firstStep := iterSteps[0]
 			loopMeta := map[string]interface{}{
-				"until": step.Loop.Until,
-				"max":   step.Loop.Max,
+				"until":    step.Loop.Until,
+				"max":      step.Loop.Max,
+				"max_expr": step.Loop.MaxExpr,
 			}
 			loopJSON, _ := json.Marshal(loopMeta)
 			firstStep.Labels = append(firstStep.Labels, fmt.Sprintf("loop:%s", string(loopJSON)))
