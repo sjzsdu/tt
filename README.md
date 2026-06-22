@@ -189,8 +189,9 @@ tt formula schedule lark-auto-reply --every 2m --var mode=dry-run
 tt formula run lark-auto-reply-watch --no-web --var mode=dry-run
 
 # Recommended: describe your role, responsibilities, repos, and reply style.
-mkdir -p .tt/lark-auto-reply
-cp internal/formula/builtin/formulas/lark/persona-template.md .tt/lark-auto-reply/persona.md
+mkdir -p ~/.tt/lark-auto-reply
+cp internal/formula/builtin/formulas/lark/persona-template.md ~/.tt/lark-auto-reply/persona.md
+export TT_LARK_PERSONA_CONTEXT=~/.tt/lark-auto-reply/persona.md
 
 # Tune polling window/interval. Default max_polls=2880 is about 24h at 30s.
 tt formula run lark-auto-reply-watch --no-web \
@@ -206,13 +207,13 @@ tt formula schedule lark-auto-reply --every 2m \
   --var project_context=.tt/lark-auto-reply/context.md
 ```
 
-`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` by default, runs a reply gate against `.tt/lark-auto-reply/persona.md` and `.tt/lark-auto-reply/context.md`, drafts a reply with the `coder` agent only when the gate allows it, and sends through `lark-cli im +messages-reply` only when `mode=auto`. `lark-auto-reply-watch` keeps the cheap search step in an internal loop and only calls the gate/reply agents after a relevant message is found. P2P search is disabled by default because broad direct-message search can time out on the Lark server; enable it with `--var include_direct=true` together with `--var chat_ids=oc_xxx`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
+`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` by default, runs a reply gate against the persona file from `TT_LARK_PERSONA_CONTEXT` when that env var points to an existing file, plus `.tt/lark-auto-reply/context.md`, drafts a reply with the `coder` agent only when the gate allows it, and sends through `lark-cli im +messages-reply` only when `mode=auto`. `lark-auto-reply-watch` keeps the cheap search step in an internal loop and only calls the gate/reply agents after a relevant message is found. P2P search is disabled by default because broad direct-message search can time out on the Lark server; enable it with `--var include_direct=true` together with `--var chat_ids=oc_xxx`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
 
 Reply personalization and gate files:
 
-- `.tt/lark-auto-reply/persona.md`: your workplace identity, responsibilities, knowledge, repository paths, communication style, and what must not be auto-answered.
+- Persona file: optional. Set `TT_LARK_PERSONA_CONTEXT=/path/to/persona.md`; it is loaded only when the env var is set and points to an existing file. You can also override per run with `--var persona_context=...`.
 - `.tt/lark-auto-reply/context.md`: project-specific context, such as modules, current ownership, known issues, and safe troubleshooting guidance.
-- Override paths with `--var persona_context=...` and `--var project_context=...`.
+- Override project context with `--var project_context=...`.
 
 Self-repair (StepFixer) behavior:
 

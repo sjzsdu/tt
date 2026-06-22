@@ -1,10 +1,12 @@
 # Lark Auto Reply Persona
 
-这个文件用于约束 `lark-auto-reply` / `lark-auto-reply-watch` 的回复门控和回复风格。建议复制到：
+这个文件用于约束 `lark-auto-reply` / `lark-auto-reply-watch` 的回复门控和回复风格。建议放在你自己的稳定位置，然后通过环境变量启用：
 
-```text
-.tt/lark-auto-reply/persona.md
+```bash
+export TT_LARK_PERSONA_CONTEXT=/path/to/persona.md
 ```
+
+只有当 `TT_LARK_PERSONA_CONTEXT` 存在且指向的文件存在时，formula 才会自动加载它。也可以临时使用 `--var persona_context=/path/to/persona.md` 覆盖。
 
 ## 我的职场身份
 

@@ -31,7 +31,7 @@ lookback_minutes = { description = "每次向前搜索多少分钟的消息；�
 page_size = { description = "lark-cli messages-search 每页大小，1-50。", default = "20" }
 state_file = { description = "去重状态文件路径。", default = ".tt/lark-auto-reply/state.json" }
 project_context = { description = "项目回复上下文文件路径；不存在时 agent 应基于当前仓库和消息内容谨慎回复。", default = ".tt/lark-auto-reply/context.md" }
-persona_context = { description = "个人职场画像/回复门控上下文 Markdown，描述职责、知识储备、仓库位置、沟通风格和禁止代答边界。", default = ".tt/lark-auto-reply/persona.md" }
+persona_context = { description = "个人职场画像/回复门控上下文 Markdown。默认空；可用环境变量 TT_LARK_PERSONA_CONTEXT 指向文件，或用 --var persona_context=... 显式指定。", default = "" }
 reply_style = { description = "回复风格约束。", default = "中文优先，简洁准确，1-3 段；不确定时说明需要确认；不要承诺上线时间、客户承诺或生产高风险操作。" }
 max_reply_chars = { description = "自动发送前的最大回复字符数。", default = "1200" }
 reply_in_thread = { description = "是否使用 Lark thread reply。", default = "true", enum = ["true", "false"] }
@@ -73,6 +73,13 @@ condition = "pick-message.has_message == true"
 command = ["python3", "-c", """
 import json, os, pathlib
 
+def exists_file(path):
+    path = (path or '').strip()
+    if not path:
+        return False
+    p = pathlib.Path(path).expanduser()
+    return p.exists() and p.is_file()
+
 def read(path):
     path = (path or '').strip()
     if not path:
@@ -82,8 +89,13 @@ def read(path):
         return {'path': str(p), 'exists': False, 'content': ''}
     return {'path': str(p), 'exists': True, 'content': p.read_text(encoding='utf-8', errors='replace')[:20000]}
 
+persona_env = os.environ.get('TT_LARK_PERSONA_CONTEXT', '')
+persona_var = os.environ.get('TT_PERSONA_CONTEXT', '')
+persona_path = persona_env if exists_file(persona_env) else persona_var
+
 print(json.dumps({
-    'persona': read(os.environ.get('TT_PERSONA_CONTEXT', '')),
+    'persona': read(persona_path),
+    'persona_source': 'env:TT_LARK_PERSONA_CONTEXT' if persona_path == persona_env and persona_env else ('var:persona_context' if persona_path else ''),
     'project': read(os.environ.get('TT_PROJECT_CONTEXT', '')),
 }, ensure_ascii=False))
 """]
