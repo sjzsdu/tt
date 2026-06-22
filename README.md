@@ -185,6 +185,15 @@ tt formula run lark-auto-reply --var mode=dry-run
 # Run every 2 minutes in dry-run mode.
 tt formula schedule lark-auto-reply --every 2m --var mode=dry-run
 
+# Low-cost watch loop: polls every 30s inside one formula run; calls agent only after a hit.
+tt formula run lark-auto-reply-watch --no-web --var mode=dry-run
+
+# Tune polling window/interval. Default max_polls=2880 is about 24h at 30s.
+tt formula run lark-auto-reply-watch --no-web \
+  --var poll_interval_seconds=30 \
+  --var max_polls=2880 \
+  --var mode=dry-run
+
 # Restrict to specific chats and actually reply. Use with care.
 tt formula schedule lark-auto-reply --every 2m \
   --var mode=auto \
@@ -193,7 +202,7 @@ tt formula schedule lark-auto-reply --every 2m \
   --var project_context=.tt/lark-auto-reply/context.md
 ```
 
-`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` by default, drafts a reply with the `coder` agent, and sends through `lark-cli im +messages-reply` only when `mode=auto`. P2P search is disabled by default because broad direct-message search can time out on the Lark server; enable it with `--var include_direct=true` together with `--var chat_ids=oc_xxx`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
+`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` by default, drafts a reply with the `coder` agent, and sends through `lark-cli im +messages-reply` only when `mode=auto`. `lark-auto-reply-watch` keeps the cheap search step in an internal loop and only calls the reply agent after a relevant message is found. P2P search is disabled by default because broad direct-message search can time out on the Lark server; enable it with `--var include_direct=true` together with `--var chat_ids=oc_xxx`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
 
 Self-repair (StepFixer) behavior:
 

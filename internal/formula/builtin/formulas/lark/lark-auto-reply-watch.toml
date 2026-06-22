@@ -1,0 +1,210 @@
+formula = "lark-auto-reply-watch"
+title = "Lark 自动回复监听循环"
+description = "低成本轮询 Lark @我消息：每隔一段时间只执行消息搜索脚本，发现相关消息后才调用 agent 生成回复并发送/预览。适合长期前台运行。"
+version = 1
+type = "workflow"
+category = "lark"
+tags = ["lark", "feishu", "auto-reply", "watch", "poll"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "lark-cli"
+command = "lark-cli"
+message = "需要安装并配置 lark-cli；可运行 lark-cli doctor 检查认证。"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3 来执行 Lark 消息适配脚本。"
+
+[vars]
+mode = { description = "运行模式：dry-run 只生成并打印回复；auto 会通过 lark-cli 回复并写入去重 state。", default = "dry-run", enum = ["dry-run", "auto"] }
+lark_as = { description = "lark-cli 身份类型：user 或 bot。读取 @我通常使用 user。", default = "user", enum = ["user", "bot"] }
+chat_ids = { description = "可选 chat_id 白名单，多个用英文逗号分隔；为空则搜索当前身份可见的 @我消息。", default = "" }
+self_open_id = { description = "可选：自己的 open_id，用于过滤自己发出的消息，形如 ou_xxx。", default = "" }
+include_direct = { description = "是否搜索 P2P 单聊消息；仅在提供 chat_ids 时生效，避免 Lark 全局 P2P 搜索超时。", default = "false", enum = ["true", "false"] }
+keywords = { description = "可选关键词过滤，多个用英文逗号分隔；为空不过滤。", default = "" }
+lookback_minutes = { description = "每次向前搜索多少分钟的消息；建议大于 poll_interval_seconds。", default = "5" }
+page_size = { description = "lark-cli messages-search 每页大小，1-50。", default = "20" }
+state_file = { description = "去重状态文件路径。", default = ".tt/lark-auto-reply/state.json" }
+project_context = { description = "项目回复上下文文件路径；不存在时 agent 应基于当前仓库和消息内容谨慎回复。", default = ".tt/lark-auto-reply/context.md" }
+reply_style = { description = "回复风格约束。", default = "中文优先，简洁准确，1-3 段；不确定时说明需要确认；不要承诺上线时间、客户承诺或生产高风险操作。" }
+max_reply_chars = { description = "自动发送前的最大回复字符数。", default = "1200" }
+reply_in_thread = { description = "是否使用 Lark thread reply。", default = "true", enum = ["true", "false"] }
+lark_cli = { description = "lark-cli 可执行文件路径。", default = "lark-cli" }
+poll_interval_seconds = { description = "没有相关消息时，两次低成本轮询之间的等待秒数。", default = "30", pattern = "^[1-9][0-9]*$" }
+max_polls = { description = "最多轮询次数；默认 2880 次约等于 24 小时。", default = "2880", pattern = "^[1-9][0-9]*$" }
+
+[[steps]]
+id = "watch-message"
+title = "低成本循环轮询 Lark 消息，直到发现待回复消息"
+
+[steps.loop]
+max = "{{max_polls}}"
+until = "pick-message.has_message == true"
+
+[[steps.loop.body]]
+id = "pick-message"
+title = "搜索并选择一条待回复 Lark 消息"
+execution = "script"
+idempotent = true
+
+[steps.loop.body.script]
+script = "./scripts/fetch-pick-lark-message.py"
+format = "json"
+timeout = "60s"
+
+[steps.loop.body.script.env]
+TT_LARK_CLI = "{{lark_cli}}"
+TT_LARK_AS = "{{lark_as}}"
+TT_STATE_FILE = "{{state_file}}"
+TT_SELF_OPEN_ID = "{{self_open_id}}"
+TT_CHAT_IDS = "{{chat_ids}}"
+TT_KEYWORDS = "{{keywords}}"
+TT_INCLUDE_DIRECT = "{{include_direct}}"
+TT_LOOKBACK_MINUTES = "{{lookback_minutes}}"
+TT_PAGE_SIZE = "{{page_size}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["has_message"]
+
+[[steps.loop.body]]
+id = "wait-before-next-poll"
+title = "没有消息时等待下一轮轮询"
+execution = "script"
+depends_on = ["pick-message"]
+condition = "pick-message.has_message == false"
+idempotent = true
+
+[steps.loop.body.script]
+command = ["python3", "-c", "import json, os, time; seconds=int(os.environ.get('TT_POLL_INTERVAL_SECONDS','30')); time.sleep(seconds); print(json.dumps({'slept_seconds': seconds}))"]
+format = "json"
+timeout = "1h"
+
+[steps.loop.body.script.env]
+TT_POLL_INTERVAL_SECONDS = "{{poll_interval_seconds}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["slept_seconds"]
+
+[[steps]]
+id = "draft-reply"
+title = "根据项目上下文生成 Lark 回复草稿"
+depends_on = ["watch-message"]
+input_context = ["pick-message"]
+condition = "pick-message.has_message == true"
+description = """
+你正在代替用户回复 Lark/飞书消息。请基于收到的消息、项目上下文和回复约束，生成可以直接发送的回复正文。
+
+项目上下文文件路径：{{project_context}}
+如果该文件存在，请优先参考其中内容；如果不存在，请基于当前工作区、用户负责项目的一般上下文，以及消息本身谨慎回复。
+
+Lark 消息信息：
+- 来源：{{pick-message.source}}
+- 发送人：{{pick-message.sender_name}} / {{pick-message.sender_id}}
+- chat_id：{{pick-message.chat_id}}
+- message_id：{{pick-message.message_id}}
+- 消息正文：{{pick-message.text}}
+
+回复风格：{{reply_style}}
+
+安全规则：
+- 只输出最终要发送的回复正文，不要 Markdown 标题，不要解释生成过程。
+- 不要编造事实；不确定时明确说“我需要确认一下”。
+- 涉及上线时间、客户承诺、生产数据、账号权限、删除/迁移等高风险事项时，不要擅自承诺，只给谨慎建议或说明需要人工确认。
+- 回复应尽量短，除非对方明确要求详细说明。
+"""
+agent.name = "coder"
+
+[[steps]]
+id = "send-or-preview"
+title = "发送回复或 dry-run 预览"
+execution = "script"
+depends_on = ["draft-reply"]
+input_context = ["pick-message", "draft-reply"]
+condition = "pick-message.has_message == true"
+
+[steps.script]
+script = "./scripts/send-lark-reply.py"
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_LARK_CLI = "{{lark_cli}}"
+TT_LARK_AS = "{{lark_as}}"
+TT_MODE = "{{mode}}"
+TT_STATE_FILE = "{{state_file}}"
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_REPLY_TEXT = "{{draft-reply}}"
+TT_MAX_REPLY_CHARS = "{{max_reply_chars}}"
+TT_REPLY_IN_THREAD = "{{reply_in_thread}}"
+
+[steps.validate]
+format = "json"
+required = ["sent", "marked"]
+
+[[steps]]
+id = "final-report"
+title = "输出本轮 Lark 监听结果"
+execution = "script"
+depends_on = ["watch-message", "draft-reply", "send-or-preview"]
+input_context = ["watch-message", "pick-message", "draft-reply", "send-or-preview"]
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os
+
+def load(name):
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+pick = load('TT_PICK_MESSAGE')
+send = load('TT_SEND_RESULT')
+mode = os.environ.get('TT_MODE', 'dry-run')
+has_message = bool(pick.get('has_message'))
+if not has_message:
+    report = {
+        'status': 'no_message',
+        'summary': '达到本轮最大轮询次数前未发现新的相关 Lark 消息，未调用回复 agent。',
+        'fetched_count': pick.get('fetched_count', 0),
+        'candidate_count': pick.get('candidate_count', 0),
+        'warnings': pick.get('warnings', []),
+        'errors': pick.get('errors', []),
+        'window': pick.get('window', {}),
+    }
+else:
+    report = {
+        'status': 'message_processed',
+        'mode': mode,
+        'message_id': pick.get('message_id'),
+        'chat_id': pick.get('chat_id'),
+        'sender_name': pick.get('sender_name'),
+        'sent': send.get('sent', False),
+        'marked': send.get('marked', False),
+        'dry_run': bool(send.get('dry_run', False)),
+        'summary': '已发现相关 Lark 消息并完成回复流程。' if mode == 'auto' else '已发现相关 Lark 消息并生成 dry-run 回复预览。',
+    }
+print(json.dumps(report, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "15s"
+
+[steps.script.env]
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_SEND_RESULT = "{{send-or-preview}}"
+TT_MODE = "{{mode}}"
+
+[steps.validate]
+format = "json"
+required = ["status", "summary"]
