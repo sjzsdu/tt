@@ -78,6 +78,8 @@ export type FormulaDashboardStep = {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | string;
   output?: string;
   error?: string;
+  started_at?: string;
+  finished_at?: string;
   duration_ms?: number;
   priority?: number;
   labels?: string[];

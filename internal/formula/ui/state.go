@@ -76,8 +76,8 @@ type Step struct {
 	Status            string             `json:"status"`
 	Output            string             `json:"output,omitempty"`
 	Error             string             `json:"error,omitempty"`
-	StartedAt         string             `json:"-"`
-	FinishedAt        string             `json:"-"`
+	StartedAt         string             `json:"started_at,omitempty"`
+	FinishedAt        string             `json:"finished_at,omitempty"`
 	DurationMS        int64              `json:"duration_ms,omitempty"`
 	Priority          *int               `json:"priority,omitempty"`
 	Labels            []string           `json:"labels,omitempty"`
