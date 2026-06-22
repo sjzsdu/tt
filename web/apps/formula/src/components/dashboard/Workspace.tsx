@@ -3,6 +3,7 @@ import { Badge, Button, Col, Empty, Input, Row, Segmented, Space, Spin, Typograp
 import type { DashboardView, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { StepCard } from '../steps/StepCard';
 import { ExecutionTimeline } from './ExecutionTimeline';
+import { StepRunList } from './StepRunList';
 
 const GraphPanel = lazy(() => import('../graph/GraphPanel').then(module => ({ default: module.GraphPanel })));
 
@@ -139,7 +140,10 @@ export function Workspace({
         </div>
       </Col>
       <Col xs={24} xl={7}>
-        <ExecutionTimeline logs={snapshot.logs} steps={snapshot.steps} onSelectStep={onSelectStep} />
+        <Space direction="vertical" size="middle" className="dashboard-side-stack">
+          <StepRunList steps={snapshot.steps} onSelectStep={onSelectStep} />
+          <ExecutionTimeline logs={snapshot.logs} steps={snapshot.steps} onSelectStep={onSelectStep} />
+        </Space>
       </Col>
     </Row>
   );
