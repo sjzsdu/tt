@@ -66,7 +66,7 @@ Available commands:
 | Command | Description |
 | --- | --- |
 | `agent` | Run the embedded Picoclaw agent runtime and optimize embedded agents for a target repository. |
-| `formula` | Author, validate, run, and inspect graph-first formula workflows in CLI and local dashboard flows. |
+| `formula` | Author, validate, schedule, run, and inspect graph-first formula workflows in CLI and local dashboard flows. |
 | `cmd2skill` | Convert CLI commands into skill files. |
 | `repo2skill` | Convert repositories into agent-oriented library skills. |
 | `config` | Inspect and initialize `tt` configuration. |
@@ -160,6 +160,21 @@ Final report chat behavior:
 - The current final report is injected as context for the chat, and subsequent turns continue in the same derived session.
 - Chat history is persisted inside the formula snapshot, so it can reappear after dashboard refresh or reconnect.
 - If no final report exists, the report view still opens, but the chat panel shows an unavailable state instead of blocking report access.
+
+Scheduled runs:
+
+- Use `tt formula schedule <name> --every 2m` to run a formula repeatedly in the foreground on a fixed interval.
+- Use `tt formula schedule <name> --cron "*/2 * * * *"` for crontab-style scheduling. Quote the cron expression so your shell does not expand `*`.
+- Scheduled runs default to no live dashboard so unattended jobs do not block between runs. Pass `--web` to enable the dashboard for each run.
+- Add `--run-now` to execute immediately before waiting for the first scheduled tick, `--max-runs N` to stop after N runs, and `--stop-on-error` to halt after a failed run.
+
+Examples:
+
+```bash
+tt formula schedule lark-auto-reply --every 2m --run-now
+tt formula schedule lark-auto-reply --cron "*/2 * * * *"
+tt formula schedule nightly-report --cron "0 9 * * 1-5" --var team=backend
+```
 
 Self-repair (StepFixer) behavior:
 

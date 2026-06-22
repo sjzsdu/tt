@@ -22,78 +22,90 @@ type App struct {
 }
 
 type formulaOptions struct {
-	Dir             string
-	Vars            []string
-	Output          string
-	Title           string
-	Markdown        bool
-	Port            int
-	Agent           string
-	Model           string
-	ExternalDriver  string
-	Session         string
-	Web             bool
-	NoWeb           bool
-	WebPort         int
-	DryRun          bool
-	Debug           bool
-	Verbose         bool
-	NoSave          bool
-	NoScript        bool
-	AllowShell      bool
-	CreateOutput    string
-	CreateForce     bool
-	CreateStdout    bool
-	OptimizeOutput  string
-	OptimizeStdout  bool
-	OptimizeBuiltin bool
-	RunsLimit       int
-	RunsFormula     string
-	RunsStatus      string
-	RunShowStep     string
-	RunRmYes        bool
-	InputFields     []string
-	ListBuiltin     bool
-	ListUser        bool
-	ListCategory    string
+	Dir                 string
+	Vars                []string
+	Output              string
+	Title               string
+	Markdown            bool
+	Port                int
+	Agent               string
+	Model               string
+	ExternalDriver      string
+	Session             string
+	Web                 bool
+	NoWeb               bool
+	WebPort             int
+	DryRun              bool
+	Debug               bool
+	Verbose             bool
+	NoSave              bool
+	NoScript            bool
+	AllowShell          bool
+	CreateOutput        string
+	CreateForce         bool
+	CreateStdout        bool
+	OptimizeOutput      string
+	OptimizeStdout      bool
+	OptimizeBuiltin     bool
+	RunsLimit           int
+	RunsFormula         string
+	RunsStatus          string
+	RunShowStep         string
+	RunRmYes            bool
+	InputFields         []string
+	ListBuiltin         bool
+	ListUser            bool
+	ListCategory        string
+	ScheduleEvery       string
+	ScheduleCron        string
+	ScheduleMaxRuns     int
+	ScheduleRunNow      bool
+	ScheduleWeb         bool
+	ScheduleStopOnError bool
 }
 
 var (
-	formulaDir             string
-	formulaVars            []string
-	formulaOutput          string
-	formulaTitle           string
-	formulaMarkdown        bool
-	formulaPort            int
-	formulaAgent           string
-	formulaModel           string
-	formulaExternalDriver  string
-	formulaSession         string
-	formulaWeb             bool
-	formulaNoWeb           bool
-	formulaWebPort         int
-	formulaDryRun          bool
-	formulaDebug           bool
-	formulaVerbose         bool
-	formulaNoSave          bool
-	formulaNoScript        bool
-	formulaAllowShell      bool
-	formulaCreateOutput    string
-	formulaCreateForce     bool
-	formulaCreateStdout    bool
-	formulaOptimizeOutput  string
-	formulaOptimizeStdout  bool
-	formulaOptimizeBuiltin bool
-	formulaRunsLimit       int
-	formulaRunsFormula     string
-	formulaRunsStatus      string
-	formulaRunShowStep     string
-	formulaRunRmYes        bool
-	formulaInputFields     []string
-	formulaListBuiltin     bool
-	formulaListUser        bool
-	formulaListCategory    string
-	formulaRunSessionSeq   uint64
+	formulaDir                 string
+	formulaVars                []string
+	formulaOutput              string
+	formulaTitle               string
+	formulaMarkdown            bool
+	formulaPort                int
+	formulaAgent               string
+	formulaModel               string
+	formulaExternalDriver      string
+	formulaSession             string
+	formulaWeb                 bool
+	formulaNoWeb               bool
+	formulaWebPort             int
+	formulaDryRun              bool
+	formulaDebug               bool
+	formulaVerbose             bool
+	formulaNoSave              bool
+	formulaNoScript            bool
+	formulaAllowShell          bool
+	formulaCreateOutput        string
+	formulaCreateForce         bool
+	formulaCreateStdout        bool
+	formulaOptimizeOutput      string
+	formulaOptimizeStdout      bool
+	formulaOptimizeBuiltin     bool
+	formulaRunsLimit           int
+	formulaRunsFormula         string
+	formulaRunsStatus          string
+	formulaRunShowStep         string
+	formulaRunRmYes            bool
+	formulaInputFields         []string
+	formulaListBuiltin         bool
+	formulaListUser            bool
+	formulaListCategory        string
+	formulaScheduleEvery       string
+	formulaScheduleCron        string
+	formulaScheduleMaxRuns     int
+	formulaScheduleRunNow      bool
+	formulaScheduleWeb         bool
+	formulaScheduleStopOnError bool
+	formulaRunSessionSeq       uint64
 )
 
 func (a *App) installOptions() {
@@ -131,6 +143,12 @@ func (a *App) installOptions() {
 	formulaListBuiltin = a.opts.ListBuiltin
 	formulaListUser = a.opts.ListUser
 	formulaListCategory = a.opts.ListCategory
+	formulaScheduleEvery = a.opts.ScheduleEvery
+	formulaScheduleCron = a.opts.ScheduleCron
+	formulaScheduleMaxRuns = a.opts.ScheduleMaxRuns
+	formulaScheduleRunNow = a.opts.ScheduleRunNow
+	formulaScheduleWeb = a.opts.ScheduleWeb
+	formulaScheduleStopOnError = a.opts.ScheduleStopOnError
 }
 
 func getSearchPaths() []string {

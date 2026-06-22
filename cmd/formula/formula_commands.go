@@ -85,6 +85,7 @@ func New(deps Dependencies) *cobra.Command {
 	formulaOptimizeCmd := app.newFormulaOptimizeCmd()
 	formulaRunCmd := app.newFormulaRunCmd()
 	formulaRunsCmd := app.newFormulaRunsCmd()
+	formulaScheduleCmd := app.newFormulaScheduleCmd()
 
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
@@ -95,8 +96,43 @@ func New(deps Dependencies) *cobra.Command {
 	formulaCmd.AddCommand(formulaOptimizeCmd)
 	formulaCmd.AddCommand(formulaRunCmd)
 	formulaCmd.AddCommand(formulaRunsCmd)
+	formulaCmd.AddCommand(formulaScheduleCmd)
 
 	return formulaCmd
+}
+
+func (a *App) newFormulaScheduleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "schedule <name> [required-var-value]",
+		Short: "Run a formula repeatedly on an interval or cron schedule",
+		Long: `Run a formula repeatedly in the foreground until interrupted.
+
+Exactly one schedule source is required:
+  --every 2m
+  --cron "*/2 * * * *"
+
+The scheduled formula run defaults to no live dashboard so unattended runs do not
+block. Pass --web to keep the normal dashboard behavior for each run.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: runFormulaSchedule,
+	}
+	cmd.Flags().StringVar(&a.opts.ScheduleEvery, "every", "", "fixed interval between formula runs, such as 30s, 2m, or 1h")
+	cmd.Flags().StringVar(&a.opts.ScheduleCron, "cron", "", "5-field crontab expression, such as '*/2 * * * *'")
+	cmd.Flags().IntVar(&a.opts.ScheduleMaxRuns, "max-runs", 0, "stop after this many runs; 0 means run forever")
+	cmd.Flags().BoolVar(&a.opts.ScheduleRunNow, "run-now", false, "run once immediately before waiting for the first scheduled tick")
+	cmd.Flags().BoolVar(&a.opts.ScheduleStopOnError, "stop-on-error", false, "stop the scheduler after a failed formula run")
+	cmd.Flags().BoolVar(&a.opts.ScheduleWeb, "web", false, "enable the live dashboard for each scheduled run")
+	cmd.Flags().StringVar(&a.opts.Agent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
+	cmd.Flags().StringVar(&a.opts.Model, "model", "", "default model override")
+	cmd.Flags().StringVar(&a.opts.ExternalDriver, "ext-driver", "", "default external_agent driver (jcode|codex|opencode|forge|bl); empty falls back to jcode")
+	cmd.Flags().StringVar(&a.opts.Session, "session", "cli:formula", "session key prefix")
+	cmd.Flags().BoolVar(&a.opts.DryRun, "dry-run", false, "print execution plan without running")
+	cmd.Flags().BoolVar(&a.opts.Debug, "debug", false, "enable debug logging")
+	cmd.Flags().BoolVarP(&a.opts.Verbose, "verbose", "v", false, "show full output of each step")
+	cmd.Flags().BoolVar(&a.opts.NoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
+	cmd.Flags().BoolVar(&a.opts.NoScript, "no-script", false, "disable formula script steps for this run")
+	cmd.Flags().BoolVar(&a.opts.AllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
+	return cmd
 }
 
 func (a *App) newFormulaListCmd() *cobra.Command {
