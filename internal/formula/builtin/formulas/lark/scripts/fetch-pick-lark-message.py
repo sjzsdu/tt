@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import json
 import os
-import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List
 
 
 def emit(obj: Dict[str, Any]) -> None:
@@ -172,6 +171,7 @@ def main() -> None:
     start = end - timedelta(minutes=max(1, lookback_minutes))
     state = load_state(state_file)
     processed = state.get("processed", {}) if isinstance(state.get("processed"), dict) else {}
+    warnings: List[str] = []
 
     commands: List[List[str]] = []
     base = [lark_cli, "im", "+messages-search", "--as", identity, "--format", "json", "--page-size", page_size, "--start", iso(start), "--end", iso(end)]
@@ -179,11 +179,11 @@ def main() -> None:
     if chat_ids:
         at_me += ["--chat-id", ",".join(chat_ids)]
     commands.append(at_me)
-    if include_direct:
-        p2p = base + ["--chat-type", "p2p"]
-        if chat_ids:
-            p2p += ["--chat-id", ",".join(chat_ids)]
+    if include_direct and chat_ids:
+        p2p = base + ["--chat-type", "p2p", "--chat-id", ",".join(chat_ids)]
         commands.append(p2p)
+    elif include_direct:
+        warnings.append("skip P2P search because chat_ids is empty; broad P2P message search can time out on Lark server")
 
     messages: List[Dict[str, Any]] = []
     errors: List[str] = []
@@ -220,6 +220,7 @@ def main() -> None:
             "fetched_count": len(messages),
             "candidate_count": 0,
             "errors": errors,
+            "warnings": warnings,
             "window": {"start": iso(start), "end": iso(end)},
         })
         return
@@ -236,6 +237,7 @@ def main() -> None:
         "fetched_count": len(messages),
         "candidate_count": len(candidates),
         "errors": errors,
+        "warnings": warnings,
         "window": {"start": iso(start), "end": iso(end)},
     })
 

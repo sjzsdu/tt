@@ -193,7 +193,7 @@ tt formula schedule lark-auto-reply --every 2m \
   --var project_context=.tt/lark-auto-reply/context.md
 ```
 
-`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` plus optional P2P search, drafts a reply with the `coder` agent, and sends through `lark-cli im +messages-reply` only when `mode=auto`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
+`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` by default, drafts a reply with the `coder` agent, and sends through `lark-cli im +messages-reply` only when `mode=auto`. P2P search is disabled by default because broad direct-message search can time out on the Lark server; enable it with `--var include_direct=true` together with `--var chat_ids=oc_xxx`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
 
 Self-repair (StepFixer) behavior:
 
