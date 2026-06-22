@@ -31,7 +31,7 @@ lookback_minutes = { description = "每次向前搜索多少分钟的消息；�
 page_size = { description = "lark-cli messages-search 每页大小，1-50。", default = "20" }
 state_file = { description = "去重状态文件路径。", default = ".tt/lark-auto-reply/state.json" }
 project_context = { description = "项目回复上下文文件路径；不存在时 agent 应基于当前仓库和消息内容谨慎回复。", default = ".tt/lark-auto-reply/context.md" }
-persona_context = { description = "个人职场画像/回复门控上下文 Markdown。默认空；可用环境变量 TT_LARK_PERSONA_CONTEXT 指向文件，或用 --var persona_context=... 显式指定。", default = "" }
+persona_context = { description = "个人职场画像/回复门控上下文 Markdown。优先使用 TT_LARK_PERSONA_CONTEX 指向的存在文件，其次 ~/.tt/persona.md；也可用 --var persona_context=... 显式指定。", default = "" }
 reply_style = { description = "回复风格约束。", default = "中文优先，简洁准确，1-3 段；不确定时说明需要确认；不要承诺上线时间、客户承诺或生产高风险操作。" }
 max_reply_chars = { description = "自动发送前的最大回复字符数。", default = "1200" }
 reply_in_thread = { description = "是否使用 Lark thread reply。", default = "true", enum = ["true", "false"] }
@@ -120,13 +120,26 @@ def read(path):
         return {'path': str(p), 'exists': False, 'content': ''}
     return {'path': str(p), 'exists': True, 'content': p.read_text(encoding='utf-8', errors='replace')[:20000]}
 
-persona_env = os.environ.get('TT_LARK_PERSONA_CONTEXT', '')
+persona_env = os.environ.get('TT_LARK_PERSONA_CONTEX', '')
+persona_env_compat = os.environ.get('TT_LARK_PERSONA_CONTEXT', '')
+persona_default = '~/.tt/persona.md'
 persona_var = os.environ.get('TT_PERSONA_CONTEXT', '')
-persona_path = persona_env if exists_file(persona_env) else persona_var
+if exists_file(persona_env):
+    persona_path = persona_env
+    persona_source = 'env:TT_LARK_PERSONA_CONTEX'
+elif exists_file(persona_default):
+    persona_path = persona_default
+    persona_source = 'default:~/.tt/persona.md'
+elif exists_file(persona_env_compat):
+    persona_path = persona_env_compat
+    persona_source = 'env:TT_LARK_PERSONA_CONTEXT'
+else:
+    persona_path = persona_var
+    persona_source = 'var:persona_context' if persona_path else ''
 
 print(json.dumps({
     'persona': read(persona_path),
-    'persona_source': 'env:TT_LARK_PERSONA_CONTEXT' if persona_path == persona_env and persona_env else ('var:persona_context' if persona_path else ''),
+    'persona_source': persona_source,
     'project': read(os.environ.get('TT_PROJECT_CONTEXT', '')),
 }, ensure_ascii=False))
 """]
