@@ -176,6 +176,25 @@ tt formula schedule lark-auto-reply --cron "*/2 * * * *"
 tt formula schedule nightly-report --cron "0 9 * * 1-5" --var team=backend
 ```
 
+Lark auto-reply formula:
+
+```bash
+# Preview only. Searches @me and P2P messages visible to lark-cli user identity.
+tt formula run lark-auto-reply --var mode=dry-run
+
+# Run every 2 minutes in dry-run mode.
+tt formula schedule lark-auto-reply --every 2m --var mode=dry-run
+
+# Restrict to specific chats and actually reply. Use with care.
+tt formula schedule lark-auto-reply --every 2m \
+  --var mode=auto \
+  --var chat_ids=oc_xxx,oc_yyy \
+  --var self_open_id=ou_xxx \
+  --var project_context=.tt/lark-auto-reply/context.md
+```
+
+`lark-auto-reply` uses `lark-cli im +messages-search --is-at-me` plus optional P2P search, drafts a reply with the `coder` agent, and sends through `lark-cli im +messages-reply` only when `mode=auto`. It stores processed message IDs in `.tt/lark-auto-reply/state.json` by default to avoid duplicate replies.
+
 Self-repair (StepFixer) behavior:
 
 - Failed or validation-failed steps go through a `StepFixer` abstraction (`agentFixer` / `scriptFixer`) and may be retried up to 3 attempts.

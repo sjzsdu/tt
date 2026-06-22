@@ -1,0 +1,134 @@
+formula = "lark-auto-reply"
+title = "Lark 自动回复"
+description = "使用 lark-cli 搜索单聊或 @我的 Lark 消息，调用 agent 按项目上下文生成回复，并可选择 dry-run 或自动回复。适合配合 tt formula schedule 每隔数分钟运行。"
+version = 1
+type = "workflow"
+category = "lark"
+tags = ["lark", "feishu", "auto-reply", "schedule"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "lark-cli"
+command = "lark-cli"
+message = "需要安装并配置 lark-cli；可运行 lark-cli doctor 检查认证。"
+
+[[preflight.checks]]
+type = "command"
+name = "python3"
+command = "python3"
+message = "需要安装 python3 来执行 Lark 消息适配脚本。"
+
+[vars]
+mode = { description = "运行模式：dry-run 只生成并打印回复；auto 会通过 lark-cli 回复并写入去重 state。", default = "dry-run", enum = ["dry-run", "auto"] }
+lark_as = { description = "lark-cli 身份类型：user 或 bot。读取 @我/P2P 通常使用 user。", default = "user", enum = ["user", "bot"] }
+chat_ids = { description = "可选 chat_id 白名单，多个用英文逗号分隔；为空则搜索当前身份可见范围。", default = "" }
+self_open_id = { description = "可选：自己的 open_id，用于过滤自己发出的消息，形如 ou_xxx。", default = "" }
+include_direct = { description = "是否搜索 P2P 单聊消息。", default = "true", enum = ["true", "false"] }
+keywords = { description = "可选关键词过滤，多个用英文逗号分隔；为空不过滤。", default = "" }
+lookback_minutes = { description = "每次向前搜索多少分钟的消息；建议大于 schedule 间隔。", default = "5" }
+page_size = { description = "lark-cli messages-search 每页大小，1-50。", default = "20" }
+state_file = { description = "去重状态文件路径。", default = ".tt/lark-auto-reply/state.json" }
+project_context = { description = "项目回复上下文文件路径；不存在时 agent 应基于当前仓库和消息内容谨慎回复。", default = ".tt/lark-auto-reply/context.md" }
+reply_style = { description = "回复风格约束。", default = "中文优先，简洁准确，1-3 段；不确定时说明需要确认；不要承诺上线时间、客户承诺或生产高风险操作。" }
+max_reply_chars = { description = "自动发送前的最大回复字符数。", default = "1200" }
+reply_in_thread = { description = "是否使用 Lark thread reply。", default = "true", enum = ["true", "false"] }
+lark_cli = { description = "lark-cli 可执行文件路径。", default = "lark-cli" }
+
+[[steps]]
+id = "pick-message"
+title = "搜索并选择一条待回复 Lark 消息"
+execution = "script"
+
+[steps.script]
+script = "./scripts/fetch-pick-lark-message.py"
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_LARK_CLI = "{{lark_cli}}"
+TT_LARK_AS = "{{lark_as}}"
+TT_STATE_FILE = "{{state_file}}"
+TT_SELF_OPEN_ID = "{{self_open_id}}"
+TT_CHAT_IDS = "{{chat_ids}}"
+TT_KEYWORDS = "{{keywords}}"
+TT_INCLUDE_DIRECT = "{{include_direct}}"
+TT_LOOKBACK_MINUTES = "{{lookback_minutes}}"
+TT_PAGE_SIZE = "{{page_size}}"
+
+[steps.validate]
+format = "json"
+required = ["has_message"]
+
+[[steps]]
+id = "draft-reply"
+title = "根据项目上下文生成 Lark 回复草稿"
+depends_on = ["pick-message"]
+input_context = ["pick-message"]
+condition = "pick-message.has_message == true"
+description = """
+你正在代替用户回复 Lark/飞书消息。请基于收到的消息、项目上下文和回复约束，生成可以直接发送的回复正文。
+
+项目上下文文件路径：{{project_context}}
+如果该文件存在，请优先参考其中内容；如果不存在，请基于当前工作区、用户负责项目的一般上下文，以及消息本身谨慎回复。
+
+Lark 消息信息：
+- 来源：{{pick-message.source}}
+- 发送人：{{pick-message.sender_name}} / {{pick-message.sender_id}}
+- chat_id：{{pick-message.chat_id}}
+- message_id：{{pick-message.message_id}}
+- 消息正文：{{pick-message.text}}
+
+回复风格：{{reply_style}}
+
+安全规则：
+- 只输出最终要发送的回复正文，不要 Markdown 标题，不要解释生成过程。
+- 不要编造事实；不确定时明确说“我需要确认一下”。
+- 涉及上线时间、客户承诺、生产数据、账号权限、删除/迁移等高风险事项时，不要擅自承诺，只给谨慎建议或说明需要人工确认。
+- 回复应尽量短，除非对方明确要求详细说明。
+"""
+agent.name = "coder"
+
+[[steps]]
+id = "send-or-preview"
+title = "发送回复或 dry-run 预览"
+execution = "script"
+depends_on = ["pick-message", "draft-reply"]
+input_context = ["pick-message", "draft-reply"]
+condition = "pick-message.has_message == true"
+
+[steps.script]
+script = "./scripts/send-lark-reply.py"
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+TT_LARK_CLI = "{{lark_cli}}"
+TT_LARK_AS = "{{lark_as}}"
+TT_MODE = "{{mode}}"
+TT_STATE_FILE = "{{state_file}}"
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_REPLY_TEXT = "{{draft-reply}}"
+TT_MAX_REPLY_CHARS = "{{max_reply_chars}}"
+TT_REPLY_IN_THREAD = "{{reply_in_thread}}"
+
+[steps.validate]
+format = "json"
+required = ["sent", "marked"]
+
+[[steps]]
+id = "final-report"
+title = "输出本轮 Lark 自动回复结果"
+depends_on = ["pick-message", "draft-reply", "send-or-preview"]
+input_context = ["pick-message", "draft-reply", "send-or-preview"]
+description = """
+输出简短中文报告，说明本轮 lark-auto-reply 的结果。
+
+要求：
+- 如果 pick-message.has_message=false，说明没有新的相关消息，并简述搜索窗口和错误信息（如有）。
+- 如果 mode=dry-run，明确说明没有发送到 Lark，并展示拟回复内容摘要。
+- 如果 mode=auto，说明是否已发送、message_id、是否已写入去重 state。
+- 不要输出大段原始 JSON。
+"""
+agent.name = "reporter"
