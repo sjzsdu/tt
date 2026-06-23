@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
@@ -56,17 +57,52 @@ def load_state(path: Path) -> Dict[str, Any]:
         return {"processed": {}}
 
 
-def run_lark(args: List[str]) -> Dict[str, Any]:
-    proc = subprocess.run(args, text=True, capture_output=True)
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout or "lark-cli failed").strip())
-    raw = proc.stdout.strip()
+def summarize_error(raw: str) -> str:
+    raw = (raw or "").strip()
     if raw == "":
-        return {}
+        return "lark-cli failed"
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"lark-cli returned non-JSON output: {raw[:500]}") from exc
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            err = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+            code = err.get("code") or payload.get("code")
+            message = err.get("message") or payload.get("message") or raw
+            typ = err.get("type") or payload.get("type")
+            parts = []
+            if typ:
+                parts.append(str(typ))
+            if code:
+                parts.append(f"code {code}")
+            parts.append(str(message))
+            return ": ".join(parts)
+    except Exception:
+        pass
+    return raw[:500]
+
+
+def run_lark(args: List[str]) -> Dict[str, Any]:
+    last_error = ""
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        proc = subprocess.run(args, text=True, capture_output=True)
+        raw = (proc.stdout or "").strip()
+        err_raw = (proc.stderr or "").strip()
+        if proc.returncode == 0:
+            if raw == "":
+                return {}
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"lark-cli returned non-JSON output: {raw[:500]}") from exc
+            if isinstance(payload, dict) and payload.get("ok") is False:
+                last_error = summarize_error(raw)
+            else:
+                return payload
+        else:
+            last_error = summarize_error(err_raw or raw)
+        if attempt < attempts:
+            time.sleep(0.8 * attempt)
+    raise RuntimeError(f"{last_error} after {attempts} attempts")
 
 
 def find_items(value: Any) -> List[Dict[str, Any]]:
@@ -128,8 +164,10 @@ def normalize_message(raw: Dict[str, Any], source: str) -> Dict[str, Any]:
     create_time = get_first(raw, ["create_time", "message.create_time", "create_time_ms", "message.create_time_ms"])
     sender_id = get_first(raw, ["sender.id", "sender.sender_id.open_id", "sender.open_id", "sender_id.open_id", "sender_id"])
     sender_name = get_first(raw, ["sender.name", "sender.sender_name", "sender_name", "sender.display_name"])
+    sender_type = get_first(raw, ["sender.sender_type", "sender.type", "sender_type"])
     msg_type = get_first(raw, ["msg_type", "message_type", "message.msg_type"])
     chat_type = get_first(raw, ["chat_type", "chat.type", "message.chat_type"])
+    mentions = raw.get("mentions") if isinstance(raw.get("mentions"), list) else []
     text = extract_text(raw)
     return {
         "message_id": str(message_id or ""),
@@ -137,8 +175,10 @@ def normalize_message(raw: Dict[str, Any], source: str) -> Dict[str, Any]:
         "create_time": str(create_time or ""),
         "sender_id": str(sender_id or ""),
         "sender_name": str(sender_name or ""),
+        "sender_type": str(sender_type or ""),
         "msg_type": str(msg_type or ""),
         "chat_type": str(chat_type or ""),
+        "mentions": mentions,
         "text": text,
         "source": source,
         "raw": raw,
@@ -146,7 +186,19 @@ def normalize_message(raw: Dict[str, Any], source: str) -> Dict[str, Any]:
 
 
 def is_self_message(msg: Dict[str, Any], self_open_id: str) -> bool:
-    return self_open_id != "" and msg.get("sender_id") == self_open_id
+    sender_type = str(msg.get("sender_type", "")).lower()
+    if sender_type in {"app", "bot"}:
+        return True
+    sender_id = msg.get("sender_id")
+    if self_open_id != "" and sender_id == self_open_id:
+        return True
+    mentions = msg.get("mentions") if isinstance(msg.get("mentions"), list) else []
+    for mention in mentions:
+        if not isinstance(mention, dict):
+            continue
+        if sender_id and mention.get("id") == sender_id:
+            return True
+    return False
 
 
 def keyword_match(text: str, keywords: List[str]) -> bool:

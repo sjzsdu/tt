@@ -232,16 +232,73 @@ required = ["sent", "marked"]
 [[steps]]
 id = "final-report"
 title = "输出本轮 Lark 自动回复结果"
+execution = "script"
 depends_on = ["pick-message", "reply-gate", "draft-reply", "send-or-preview"]
 input_context = ["pick-message", "reply-gate", "draft-reply", "send-or-preview"]
-description = """
-输出简短中文报告，说明本轮 lark-auto-reply 的结果。
 
-要求：
-- 如果 pick-message.has_message=false，说明没有新的相关消息，并简述搜索窗口、warning 和错误信息（如有）。
-- 如果 reply-gate.should_reply=false，说明本轮命中消息但门控拒绝自动回复，以及原因和风险级别。
-- 如果 mode=dry-run，明确说明没有发送到 Lark，并展示拟回复内容摘要。
-- 如果 mode=auto，说明是否已发送、message_id、是否已写入去重 state。
-- 不要输出大段原始 JSON。
-"""
-agent.name = "reporter"
+[steps.script]
+command = ["python3", "-c", """
+import json, os
+
+def load(name):
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+pick = load('TT_PICK_MESSAGE')
+gate = load('TT_REPLY_GATE')
+send = load('TT_SEND_RESULT')
+mode = os.environ.get('TT_MODE', 'dry-run')
+has_message = bool(pick.get('has_message'))
+if not has_message:
+    report = {
+        'status': 'no_message',
+        'summary': '本轮未发现新的相关 Lark 消息，未调用回复 gate/agent。',
+        'fetched_count': pick.get('fetched_count', 0),
+        'candidate_count': pick.get('candidate_count', 0),
+        'warnings': pick.get('warnings', []),
+        'errors': pick.get('errors', []),
+        'window': pick.get('window', {}),
+    }
+elif gate and gate.get('should_reply') is False:
+    report = {
+        'status': 'gate_rejected',
+        'summary': '发现相关 Lark 消息，但回复门控判断不适合自动代答，未生成回复草稿也未发送。',
+        'message_id': pick.get('message_id'),
+        'chat_id': pick.get('chat_id'),
+        'sender_name': pick.get('sender_name'),
+        'risk_level': gate.get('risk_level'),
+        'reason': gate.get('reason'),
+        'needs_human': gate.get('needs_human', True),
+    }
+else:
+    report = {
+        'status': 'message_processed',
+        'mode': mode,
+        'message_id': pick.get('message_id'),
+        'chat_id': pick.get('chat_id'),
+        'sender_name': pick.get('sender_name'),
+        'sent': send.get('sent', False),
+        'marked': send.get('marked', False),
+        'dry_run': bool(send.get('dry_run', False)),
+        'summary': '已发现相关 Lark 消息并完成回复流程。' if mode == 'auto' else '已发现相关 Lark 消息并生成 dry-run 回复预览。',
+    }
+print(json.dumps(report, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "15s"
+
+[steps.script.env]
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_REPLY_GATE = "{{reply-gate}}"
+TT_SEND_RESULT = "{{send-or-preview}}"
+TT_MODE = "{{mode}}"
+
+[steps.validate]
+format = "json"
+required = ["status", "summary"]
