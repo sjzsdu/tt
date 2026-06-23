@@ -240,6 +240,7 @@ input_context = ["pick-message", "reply-gate", "draft-reply", "send-or-preview"]
 command = ["python3", "-c", """
 import json, os
 
+
 def load(name):
     raw = os.environ.get(name, '').strip()
     if not raw:
@@ -250,47 +251,64 @@ def load(name):
     except Exception:
         return {}
 
+
+def bullet(label, value):
+    if value in (None, '', [], {}):
+        return None
+    if isinstance(value, (list, dict)):
+        value = json.dumps(value, ensure_ascii=False)
+    return f'- {label}: {value}'
+
+
 pick = load('TT_PICK_MESSAGE')
 gate = load('TT_REPLY_GATE')
 send = load('TT_SEND_RESULT')
 mode = os.environ.get('TT_MODE', 'dry-run')
+watch = os.environ.get('TT_REPORT_KIND') == 'watch'
 has_message = bool(pick.get('has_message'))
+lines = ['## Lark 自动回复结果', '']
+
 if not has_message:
-    report = {
-        'status': 'no_message',
-        'summary': '本轮未发现新的相关 Lark 消息，未调用回复 gate/agent。',
-        'fetched_count': pick.get('fetched_count', 0),
-        'candidate_count': pick.get('candidate_count', 0),
-        'warnings': pick.get('warnings', []),
-        'errors': pick.get('errors', []),
-        'window': pick.get('window', {}),
-    }
+    lines.append('本轮没有发现新的相关 Lark 消息，未调用回复 gate/agent。' if not watch else '达到本轮最大轮询次数前没有发现新的相关 Lark 消息，未调用回复 agent。')
+    lines.append('')
+    items = [
+        bullet('状态', 'no_message'),
+        bullet('获取消息数', pick.get('fetched_count', 0)),
+        bullet('候选消息数', pick.get('candidate_count', 0)),
+        bullet('搜索窗口', pick.get('window')),
+        bullet('Warnings', pick.get('warnings')),
+        bullet('Errors', pick.get('errors')),
+    ]
 elif gate and gate.get('should_reply') is False:
-    report = {
-        'status': 'gate_rejected',
-        'summary': '发现相关 Lark 消息，但回复门控判断不适合自动代答，未生成回复草稿也未发送。',
-        'message_id': pick.get('message_id'),
-        'chat_id': pick.get('chat_id'),
-        'sender_name': pick.get('sender_name'),
-        'risk_level': gate.get('risk_level'),
-        'reason': gate.get('reason'),
-        'needs_human': gate.get('needs_human', True),
-    }
+    lines.append('发现相关 Lark 消息，但回复门控判断不适合自动代答，未生成回复草稿也未发送。')
+    lines.append('')
+    items = [
+        bullet('状态', 'gate_rejected'),
+        bullet('message_id', pick.get('message_id')),
+        bullet('chat_id', pick.get('chat_id')),
+        bullet('sender', pick.get('sender_name')),
+        bullet('risk_level', gate.get('risk_level')),
+        bullet('needs_human', gate.get('needs_human', True)),
+        bullet('reason', gate.get('reason')),
+    ]
 else:
-    report = {
-        'status': 'message_processed',
-        'mode': mode,
-        'message_id': pick.get('message_id'),
-        'chat_id': pick.get('chat_id'),
-        'sender_name': pick.get('sender_name'),
-        'sent': send.get('sent', False),
-        'marked': send.get('marked', False),
-        'dry_run': bool(send.get('dry_run', False)),
-        'summary': '已发现相关 Lark 消息并完成回复流程。' if mode == 'auto' else '已发现相关 Lark 消息并生成 dry-run 回复预览。',
-    }
-print(json.dumps(report, ensure_ascii=False))
+    lines.append('已发现相关 Lark 消息并完成回复流程。' if mode == 'auto' else '已发现相关 Lark 消息并生成 dry-run 回复预览。')
+    lines.append('')
+    items = [
+        bullet('状态', 'message_processed'),
+        bullet('mode', mode),
+        bullet('message_id', pick.get('message_id')),
+        bullet('chat_id', pick.get('chat_id')),
+        bullet('sender', pick.get('sender_name')),
+        bullet('sent', send.get('sent', False)),
+        bullet('marked', send.get('marked', False)),
+        bullet('dry_run', bool(send.get('dry_run', False))),
+    ]
+
+lines.extend(item for item in items if item)
+print('\n'.join(lines))
 """]
-format = "json"
+format = "markdown"
 timeout = "15s"
 
 [steps.script.env]
@@ -298,7 +316,4 @@ TT_PICK_MESSAGE = "{{pick-message}}"
 TT_REPLY_GATE = "{{reply-gate}}"
 TT_SEND_RESULT = "{{send-or-preview}}"
 TT_MODE = "{{mode}}"
-
-[steps.validate]
-format = "json"
-required = ["status", "summary"]
+TT_REPORT_KIND = "single"

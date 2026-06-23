@@ -155,6 +155,7 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 		cwd := ""
 		env := map[string]string(nil)
 		timeout := ""
+		format := ""
 		if step.Script != nil {
 			command = append([]string(nil), step.Script.Command...)
 			if len(command) == 0 && strings.TrimSpace(step.Script.Script) != "" {
@@ -165,8 +166,9 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 			cwd = step.Script.Cwd
 			env = step.Script.Env
 			timeout = step.Script.Timeout
+			format = step.Script.Format
 		}
-		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, Timeout: timeout, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.ScriptStep{Base: steps.Base{Metadata: meta}, Command: command, Cwd: cwd, Env: env, Timeout: timeout, Format: format, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "external_agent":
 		meta.Kind = steps.KindExternalAgent
 		var driver, provider, model, mode, resume, cwd, timeout string

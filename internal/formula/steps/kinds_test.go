@@ -365,6 +365,27 @@ func TestLoopStepExposesScriptJSONStdoutForLaterConditions(t *testing.T) {
 	}
 }
 
+func TestScriptStepMarkdownFormatReturnsStdoutText(t *testing.T) {
+	step := ScriptStep{
+		Base:    Base{Metadata: Metadata{ID: "report", Kind: KindScript}},
+		Command: []string{"demo"},
+		Format:  "markdown",
+	}
+	res, err := step.Run(context.Background(), RunRequest{
+		Capabilities: Capabilities{Scripts: markdownStdoutScriptRunner{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output.Type != "text" {
+		t.Fatalf("output type = %q, want text", res.Output.Type)
+	}
+	got := strings.TrimSpace(string(res.Output.Raw))
+	if got != "## Report\n\n- status: ok" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func assertLoopEvent(t *testing.T, events []struct {
 	nodeID string
 	typ    string
@@ -403,6 +424,13 @@ type jsonStdoutScriptRunner struct{}
 
 func (jsonStdoutScriptRunner) RunScript(_ context.Context, _ ScriptRequest) (Value, error) {
 	stdout := `{"ready_for_agent":true,"current_branch":"feature/a"}` + "\n"
+	return Value{Type: "json", Raw: []byte(`{"command":["demo"],"exit_code":0,"stdout":` + strconv.Quote(stdout) + `}`)}, nil
+}
+
+type markdownStdoutScriptRunner struct{}
+
+func (markdownStdoutScriptRunner) RunScript(_ context.Context, _ ScriptRequest) (Value, error) {
+	stdout := "## Report\n\n- status: ok\n"
 	return Value{Type: "json", Raw: []byte(`{"command":["demo"],"exit_code":0,"stdout":` + strconv.Quote(stdout) + `}`)}, nil
 }
 

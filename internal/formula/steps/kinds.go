@@ -270,6 +270,7 @@ type ScriptStep struct {
 	Cwd                string
 	Env                map[string]string
 	Timeout            string
+	Format             string
 	OutputKey          string
 	Validation         *OutputValidationSpec `json:"validate,omitempty"`
 }
@@ -457,10 +458,32 @@ func (s ScriptStep) Run(ctx context.Context, req RunRequest) (*RunResult, error)
 		return &RunResult{Status: StatusFailed, Error: err}, err
 	}
 	out, err := req.Capabilities.Scripts.RunScript(ctx, ScriptRequest{Command: renderContextTemplateSlice(s.Command, req.Context), Cwd: renderStepCwd(s.Cwd, req.Context), Env: renderScriptEnv(s.Env, req.Context), Timeout: parseStepTimeout(s.Timeout)})
+	if isScriptStdoutFormat(s.Format) {
+		out = scriptStdoutValue(out)
+	}
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "script step failed", Cause: err}}, err
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
+}
+
+func isScriptStdoutFormat(format string) bool {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "text", "markdown", "md", "stdout":
+		return true
+	default:
+		return false
+	}
+}
+
+func scriptStdoutValue(out Value) Value {
+	var wrapper struct {
+		Stdout string `json:"stdout"`
+	}
+	if err := json.Unmarshal(out.Raw, &wrapper); err != nil {
+		return out
+	}
+	return Value{Type: "text", Raw: []byte(strings.TrimSpace(wrapper.Stdout))}
 }
 
 func renderStepCwd(cwd string, ctx ContextView) string {
