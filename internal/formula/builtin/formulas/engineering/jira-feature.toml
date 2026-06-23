@@ -1,0 +1,68 @@
+formula = "jira-feature"
+description = "获取 Jira ticket 与最新评论后，直接用 typed runtime 内嵌 feature workflow 理解需求、调研代码、实现功能并输出交付报告。"
+version = 1
+type = "workflow"
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "jira"
+command = "jira"
+message = "需要安装并配置 Jira CLI，确保 jira issue view 可用"
+
+[vars]
+ticket_key = { description = "Jira ticket 编号，例如 PROJ-123", required = true }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+validation_command = { description = "可选验证命令；为空则由 feature workflow 自动检测轻量验证命令", default = "" }
+
+[[steps]]
+id = "fetch-ticket-data"
+title = "获取 Jira ticket 与最新评论"
+execution = "script"
+
+[steps.script]
+command = ["jira", "issue", "view", "{{ticket_key}}", "--comments", "20", "--raw"]
+format = "json"
+timeout = "30s"
+
+[[steps]]
+id = "run-feature"
+title = "内嵌 feature workflow 处理 ticket"
+depends_on = ["fetch-ticket-data"]
+input_context = ["fetch-ticket-data"]
+embed = "feature"
+
+[steps.embed_vars]
+feature_request = """
+Jira ticket {{ticket_key}} 的原始内容与最新评论如下。请把它作为 feature 需求来源：先理解业务目标、用户价值、验收标准、边界和必要假设；如果 ticket 信息不足以安全实现，可以在 feature workflow 的 understand-requirement 步骤动态澄清；信息足够时继续做代码调研、实施计划、编码、验证和影响评估。
+
+{{fetch-ticket-data}}
+"""
+workspace_path = "{{workspace_path}}"
+validation_command = "{{validation_command}}"
+
+[[steps]]
+id = "final-report"
+title = "输出 Jira feature 交付报告"
+depends_on = ["run-feature"]
+input_context = ["fetch-ticket-data", "run-feature"]
+description = """
+面向用户输出简明中文 Markdown 报告。
+
+报告必须回答：
+1. Jira ticket 核心需求与最新评论要点；
+2. feature workflow 对需求、验收标准和边界的理解；
+3. 代码调研结论、最终实施方案与实际改动；
+4. 已执行的验证、用户可复现测试方式与结果；
+5. 对现有功能的影响评估、剩余风险和后续建议；
+6. 如果流程卡在用户补充信息，也要说明当前卡点与所需补充内容。
+
+要求：
+- 结论先行。
+- 控制在 6-10 条要点内，每条 1-2 句。
+- 不要重复粘贴上游 step 的原始 JSON、stdout/stderr、diff、日志或完整子报告；只提炼每个 step 独有的结论、状态变化、文件/URL/commit 等关键增量。
+- 不要把未执行测试写成已执行。
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"
