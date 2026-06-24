@@ -86,6 +86,15 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
     message.success('Run ID copied');
   };
 
+  const requestStop = async () => {
+    try {
+      await api.stopRun();
+      message.success('Graceful stop requested. The current iteration will finish before exit.');
+    } catch (err) {
+      message.error(`Stop request failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   const ensureFinalReportChat = async () => {
     setFinalReportChatError('');
     setFinalReportChatBusy(true);
@@ -168,6 +177,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
             onViewChange={setDashboardView}
             onThemeChange={onThemeChange}
             onCopyRunID={copyRunID}
+            onRequestStop={requestStop}
             onOpenFinalReport={() => setFinalOutputOpen(true)}
           />
           <RunActionAlert

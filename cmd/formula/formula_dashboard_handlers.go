@@ -44,6 +44,34 @@ func (s *formulaDashboardServer) handleState(w http.ResponseWriter, r *http.Requ
 	}{Type: "state", State: s.snapshot()})
 }
 
+func (s *formulaDashboardServer) handleStopRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.store == nil {
+		http.Error(w, "dashboard is not attached to a run store", http.StatusBadRequest)
+		return
+	}
+	stopFile := filepath.Join(s.store.Dir, "stop-requested")
+	payload := fmt.Sprintf("requested_at=%s\n", time.Now().Format(time.RFC3339))
+	if err := os.WriteFile(stopFile, []byte(payload), 0o644); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.store.AppendEvent(run.Event{Type: "stop_requested", Status: run.StatusRunning})
+	s.mu.Lock()
+	s.state.StopRequested = true
+	s.state.Logs = append(s.state.Logs, ui.LogEntry{At: time.Now().Format("15:04:05"), Text: "Graceful stop requested. The current iteration will finish before exit."})
+	s.mu.Unlock()
+	s.broadcast()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		OK       bool   `json:"ok"`
+		StopFile string `json:"stop_file"`
+	}{OK: true, StopFile: stopFile})
+}
+
 type agentSessionResponse struct {
 	Session string `json:"session"`
 	Agent   string `json:"agent,omitempty"`

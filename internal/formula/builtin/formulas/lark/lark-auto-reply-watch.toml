@@ -1,6 +1,6 @@
 formula = "lark-auto-reply-watch"
 title = "Lark 自动回复监听循环"
-description = "低成本轮询 Lark @我消息：每隔一段时间只执行消息搜索脚本，发现相关消息后才调用 agent 生成回复并发送/预览。适合长期前台运行。"
+description = "常驻低成本轮询 Lark @我/指定单聊消息：没消息就等待，有消息就逐条处理；Web Stop 会请求优雅停止。"
 version = 1
 type = "workflow"
 category = "lark"
@@ -36,23 +36,21 @@ reply_style = { description = "回复风格约束。", default = "中文优先�
 max_reply_chars = { description = "自动发送前的最大回复字符数。", default = "1200" }
 reply_in_thread = { description = "是否使用 Lark thread reply。", default = "true", enum = ["true", "false"] }
 lark_cli = { description = "lark-cli 可执行文件路径。", default = "lark-cli" }
-poll_interval_seconds = { description = "没有相关消息时，两次低成本轮询之间的等待秒数。", default = "30", pattern = "^[1-9][0-9]*$" }
-max_polls = { description = "最多轮询次数；默认 2880 次约等于 24 小时。", default = "2880", pattern = "^[1-9][0-9]*$" }
-max_messages_per_run = { description = "发现消息后，单次唤醒最多连续处理多少条未处理候选消息。", default = "20", pattern = "^[1-9][0-9]*$" }
+poll_interval_seconds = { description = "没有相关消息时，两次低成本轮询之间的等待秒数；等待过程中会检查 Web Stop 请求。", default = "30", pattern = "^[1-9][0-9]*$" }
+max_watch_cycles = { description = "watch 常驻循环最大轮数；默认值很大，通常通过 Web Stop 或 Ctrl-C 结束。", default = "1000000", pattern = "^[1-9][0-9]*$" }
 
 [[steps]]
-id = "watch-message"
-title = "低成本循环轮询 Lark 消息，直到发现待回复消息"
+id = "watch-daemon"
+title = "常驻监听 Lark 消息，按条处理直到请求停止"
 
 [steps.loop]
-max = "{{max_polls}}"
-until = "pick-message.has_message == true"
+max = "{{max_watch_cycles}}"
+until = "stop-request.should_stop == true"
 
 [[steps.loop.body]]
 id = "pick-message"
 title = "搜索并选择一条待回复 Lark 消息"
 execution = "script"
-idempotent = true
 
 [steps.loop.body.script]
 script = "./scripts/fetch-pick-lark-message.py"
@@ -75,15 +73,50 @@ format = "json"
 required = ["has_message"]
 
 [[steps.loop.body]]
+id = "stop-request"
+title = "检查是否请求优雅停止"
+execution = "script"
+depends_on = ["pick-message"]
+
+[steps.loop.body.script]
+script = "./scripts/check-stop-request.py"
+format = "json"
+timeout = "10s"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["should_stop"]
+
+[[steps.loop.body]]
+id = "message-decision"
+title = "判断本轮是否需要处理消息"
+execution = "script"
+depends_on = ["pick-message", "stop-request"]
+input_context = ["pick-message", "stop-request"]
+
+[steps.loop.body.script]
+script = "./scripts/lark-reply-decision.py"
+format = "json"
+timeout = "10s"
+
+[steps.loop.body.script.env]
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_STOP_REQUEST = "{{stop-request}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["has_message", "stop_requested", "should_process"]
+
+[[steps.loop.body]]
 id = "wait-before-next-poll"
 title = "没有消息时等待下一轮轮询"
 execution = "script"
-depends_on = ["pick-message"]
-condition = "pick-message.has_message == false"
+depends_on = ["message-decision"]
+condition = "message-decision.has_message == false"
 idempotent = true
 
 [steps.loop.body.script]
-command = ["python3", "-c", "import json, os, time; seconds=int(os.environ.get('TT_POLL_INTERVAL_SECONDS','30')); time.sleep(seconds); print(json.dumps({'slept_seconds': seconds}))"]
+command = ["python3", "-c", "import json, os, time, pathlib; seconds=int(os.environ.get('TT_POLL_INTERVAL_SECONDS','30')); sf=os.environ.get('TT_FORMULA_STOP_FILE') or (str(pathlib.Path(os.environ['TT_FORMULA_RUN_DIR'])/'stop-requested') if os.environ.get('TT_FORMULA_RUN_DIR') else ''); slept=0; stop=False\nwhile slept < seconds:\n    stop=bool(sf and pathlib.Path(sf).exists())\n    if stop: break\n    time.sleep(1); slept += 1\nprint(json.dumps({'slept_seconds': slept, 'stop_requested': stop}))"]
 format = "json"
 timeout = "1h"
 
@@ -94,48 +127,13 @@ TT_POLL_INTERVAL_SECONDS = "{{poll_interval_seconds}}"
 format = "json"
 required = ["slept_seconds"]
 
-[[steps]]
-id = "process-messages"
-title = "发现消息后批量处理所有未处理 Lark 消息"
-depends_on = ["watch-message"]
-condition = "pick-message.has_message == true"
-
-[steps.loop]
-max = "{{max_messages_per_run}}"
-until = "pick-message.has_message == false"
-
-[[steps.loop.body]]
-id = "pick-message"
-title = "搜索并选择一条待回复 Lark 消息"
-execution = "script"
-idempotent = true
-
-[steps.loop.body.script]
-script = "./scripts/fetch-pick-lark-message.py"
-format = "json"
-timeout = "60s"
-
-[steps.loop.body.script.env]
-TT_LARK_CLI = "{{lark_cli}}"
-TT_LARK_AS = "{{lark_as}}"
-TT_STATE_FILE = "{{state_file}}"
-TT_SELF_OPEN_ID = "{{self_open_id}}"
-TT_CHAT_IDS = "{{chat_ids}}"
-TT_KEYWORDS = "{{keywords}}"
-TT_INCLUDE_DIRECT = "{{include_direct}}"
-TT_LOOKBACK_MINUTES = "{{lookback_minutes}}"
-TT_PAGE_SIZE = "{{page_size}}"
-
-[steps.loop.body.validate]
-format = "json"
-required = ["has_message"]
 
 [[steps.loop.body]]
 id = "load-reply-context"
 title = "读取个人画像与项目上下文"
 execution = "script"
-depends_on = ["pick-message"]
-condition = "pick-message.has_message == true"
+depends_on = ["message-decision"]
+condition = "message-decision.should_process == true"
 
 [steps.loop.body.script]
 command = ["python3", "-c", """
@@ -194,9 +192,9 @@ required = ["persona", "project"]
 [[steps.loop.body]]
 id = "reply-gate"
 title = "判断是否应该代为回复以及回复边界"
-depends_on = ["load-reply-context"]
-input_context = ["pick-message", "load-reply-context"]
-condition = "pick-message.has_message == true"
+depends_on = ["message-decision", "load-reply-context"]
+input_context = ["pick-message", "message-decision", "load-reply-context"]
+condition = "message-decision.should_process == true"
 description = """
 你是用户的 Lark 职场回复门控。请基于个人职场画像、项目上下文和收到的消息，判断是否适合自动代用户回复。
 
@@ -253,10 +251,11 @@ timeout = "10s"
 [steps.loop.body.script.env]
 TT_PICK_MESSAGE = "{{pick-message}}"
 TT_REPLY_GATE = "{{reply-gate}}"
+TT_STOP_REQUEST = "{{stop-request}}"
 
 [steps.loop.body.validate]
 format = "json"
-required = ["has_message", "should_reply", "gate_rejected"]
+required = ["has_message", "stop_requested", "should_process", "should_reply", "gate_rejected"]
 
 [[steps.loop.body]]
 id = "draft-reply"
@@ -335,17 +334,19 @@ timeout = "15s"
 TT_STATE_FILE = "{{state_file}}"
 TT_PICK_MESSAGE = "{{pick-message}}"
 TT_REPLY_GATE = "{{reply-gate}}"
+TT_STOP_REQUEST = "{{stop-request}}"
 TT_MARK_REASON = "gate_rejected"
 
 [steps.loop.body.validate]
 format = "json"
 required = ["marked"]
 
+
 [[steps]]
 id = "final-report"
 title = "汇总本轮 Lark 自动回复处理结果"
 execution = "script"
-depends_on = ["process-messages"]
+depends_on = ["watch-daemon"]
 
 [steps.script]
 script = "./scripts/lark-final-report.py"

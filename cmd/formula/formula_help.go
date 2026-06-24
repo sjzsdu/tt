@@ -169,6 +169,9 @@ func formulaStepKind(step *spec.Step) string {
 	if step.Type != "" {
 		return step.Type
 	}
+	if step.Loop != nil {
+		return "loop"
+	}
 	if step.Script != nil {
 		return "script"
 	}

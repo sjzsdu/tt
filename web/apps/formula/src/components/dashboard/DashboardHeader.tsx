@@ -1,4 +1,4 @@
-import { ApartmentOutlined, CopyOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, CopyOutlined, PoweroffOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Button, Card, Flex, Segmented, Space, Tag, Tooltip, Typography } from 'antd';
 import type { DashboardView, FormulaDashboardSnapshot } from '../../types';
 import { statusIcon, statusLabel, statusTone } from '../../utils/status';
@@ -10,6 +10,7 @@ export function DashboardHeader({
   onViewChange,
   onThemeChange,
   onCopyRunID,
+  onRequestStop,
   onOpenFinalReport,
 }: {
   snapshot: FormulaDashboardSnapshot;
@@ -18,6 +19,7 @@ export function DashboardHeader({
   onViewChange: (view: DashboardView) => void;
   onThemeChange: (theme: 'light' | 'dark') => void;
   onCopyRunID: () => void;
+  onRequestStop: () => void;
   onOpenFinalReport: () => void;
 }) {
   return (
@@ -58,6 +60,14 @@ export function DashboardHeader({
               { label: 'Graph', value: 'graph', icon: <ApartmentOutlined /> },
             ]}
           />
+          <Button
+            danger
+            icon={<PoweroffOutlined />}
+            disabled={snapshot.status !== 'running' || snapshot.stop_requested}
+            onClick={onRequestStop}
+          >
+            {snapshot.stop_requested ? 'Stop requested' : 'Stop after current iteration'}
+          </Button>
           <Button type="primary" disabled={!snapshot.final_output} onClick={onOpenFinalReport}>
             {snapshot.final_output ? 'Open final report' : 'Waiting for final report'}
           </Button>

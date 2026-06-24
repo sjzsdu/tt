@@ -208,6 +208,16 @@ def keyword_match(text: str, keywords: List[str]) -> bool:
     return any(k.lower() in low for k in keywords)
 
 
+def stop_requested() -> bool:
+    explicit = env("TT_FORMULA_STOP_FILE", "")
+    run_dir = env("TT_FORMULA_RUN_DIR", "")
+    if explicit and Path(explicit).exists():
+        return True
+    if run_dir and (Path(run_dir) / "stop-requested").exists():
+        return True
+    return False
+
+
 def main() -> None:
     lark_cli = env("TT_LARK_CLI", "lark-cli")
     identity = env("TT_LARK_AS", "user")
@@ -218,6 +228,18 @@ def main() -> None:
     include_direct = parse_bool(env("TT_INCLUDE_DIRECT", "true"), True)
     lookback_minutes = parse_int(env("TT_LOOKBACK_MINUTES", "5"), 5)
     page_size = str(max(1, min(parse_int(env("TT_PAGE_SIZE", "20"), 20), 50)))
+
+    if stop_requested():
+        emit({
+            "has_message": True,
+            "stop_requested": True,
+            "reason": "stop requested",
+            "fetched_count": 0,
+            "candidate_count": 0,
+            "errors": [],
+            "warnings": ["stop requested"],
+        })
+        return
 
     end = now_local()
     start = end - timedelta(minutes=max(1, lookback_minutes))

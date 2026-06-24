@@ -68,6 +68,13 @@ export const api = {
     });
     if (!r.ok) throw new Error(await r.text());
   },
+  async stopRun(): Promise<void> {
+    const r = await fetch('/api/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!r.ok) throw new Error(await r.text());
+  },
   async confirmRepair(stepID: string, attempt: number): Promise<void> {
     const r = await fetch('/api/repairs/confirm', {
       method: 'POST',

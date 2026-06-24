@@ -159,6 +159,7 @@ export type FormulaDashboardSnapshot = {
   logs: FormulaDashboardLogEntry[];
   workspace_dir?: string;
   run_id?: string;
+  stop_requested?: boolean;
 };
 
 export type FormulaDashboardMessage = {

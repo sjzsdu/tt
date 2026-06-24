@@ -30,6 +30,7 @@ type Snapshot struct {
 	Logs            []LogEntry       `json:"logs,omitempty"`
 	WorkspaceDir    string           `json:"workspace_dir,omitempty"`
 	RunID           string           `json:"run_id,omitempty"`
+	StopRequested   bool             `json:"stop_requested,omitempty"`
 }
 
 type FinalReportChat struct {
