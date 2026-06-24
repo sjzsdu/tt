@@ -46,6 +46,28 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def append_summary(pick: Dict[str, Any], gate: Dict[str, Any], record: Dict[str, Any]) -> None:
+    explicit = env("TT_LARK_RUN_SUMMARY", "")
+    run_dir = env("TT_FORMULA_RUN_DIR", "")
+    path = Path(explicit) if explicit else (Path(run_dir) / "lark-auto-reply-summary.jsonl" if run_dir else None)
+    if path is None:
+        return
+    message = pick.get("message") if isinstance(pick.get("message"), dict) else {}
+    base: Dict[str, Any] = {
+        "message_id": pick.get("message_id") or message.get("message_id"),
+        "chat_id": pick.get("chat_id") or message.get("chat_id"),
+        "source": pick.get("source"),
+        "sender_name": pick.get("sender_name") or message.get("sender_name"),
+        "sender_id": pick.get("sender_id") or message.get("sender_id"),
+        "text": pick.get("text") or message.get("text"),
+        "reason": gate.get("reason"),
+    }
+    base.update(record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(base, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
 def main() -> None:
     state_file = Path(env("TT_STATE_FILE", ".tt/lark-auto-reply/state.json"))
     pick = load_json_env("TT_PICK_MESSAGE")
@@ -76,6 +98,7 @@ def main() -> None:
     }
     state["last_processed_at"] = processed_at
     save_state(state_file, state)
+    append_summary(pick, gate, {"status": reason, "sent": False, "marked": True})
     emit({"marked": True, "message_id": message_id, "reason": reason})
 
 

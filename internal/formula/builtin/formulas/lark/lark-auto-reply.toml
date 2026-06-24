@@ -180,11 +180,31 @@ format = "json"
 required = ["should_reply", "risk_level", "reason", "must_include", "must_avoid"]
 
 [[steps.loop.body]]
+id = "reply-decision"
+title = "合并消息存在性与门控结果，避免循环上下文串轮"
+execution = "script"
+depends_on = ["pick-message", "reply-gate"]
+input_context = ["pick-message", "reply-gate"]
+
+[steps.loop.body.script]
+script = "./scripts/lark-reply-decision.py"
+format = "json"
+timeout = "10s"
+
+[steps.loop.body.script.env]
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_REPLY_GATE = "{{reply-gate}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["has_message", "should_reply", "gate_rejected"]
+
+[[steps.loop.body]]
 id = "draft-reply"
 title = "根据门控结果生成 Lark 回复草稿"
-depends_on = ["reply-gate"]
-input_context = ["pick-message", "load-reply-context", "reply-gate"]
-condition = "reply-gate.should_reply == true"
+depends_on = ["reply-decision"]
+input_context = ["pick-message", "load-reply-context", "reply-gate", "reply-decision"]
+condition = "reply-decision.should_reply == true"
 description = """
 你正在代替用户回复 Lark/飞书消息。请严格基于 reply-gate 的门控结论、个人职场画像、项目上下文和收到的消息，生成可以直接发送的回复正文。
 
@@ -215,9 +235,9 @@ agent.name = "coder"
 id = "send-or-preview"
 title = "发送回复或 dry-run 预览"
 execution = "script"
-depends_on = ["pick-message", "reply-gate", "draft-reply"]
-input_context = ["pick-message", "reply-gate", "draft-reply"]
-condition = "reply-gate.should_reply == true"
+depends_on = ["reply-decision", "draft-reply"]
+input_context = ["pick-message", "reply-gate", "reply-decision", "draft-reply"]
+condition = "reply-decision.should_reply == true"
 
 [steps.loop.body.script]
 script = "./scripts/send-lark-reply.py"
@@ -243,9 +263,9 @@ required = ["sent", "marked"]
 id = "mark-gate-rejected"
 title = "记录不适合自动回复的 Lark 消息，避免重复处理"
 execution = "script"
-depends_on = ["reply-gate"]
-input_context = ["pick-message", "reply-gate"]
-condition = "reply-gate.should_reply == false"
+depends_on = ["reply-decision"]
+input_context = ["pick-message", "reply-gate", "reply-decision"]
+condition = "reply-decision.gate_rejected == true"
 
 [steps.loop.body.script]
 script = "./scripts/mark-lark-message.py"
@@ -262,98 +282,13 @@ TT_MARK_REASON = "gate_rejected"
 format = "json"
 required = ["marked"]
 
-[[steps.loop.body]]
+[[steps]]
 id = "final-report"
-title = "输出本轮 Lark 自动回复结果"
+title = "汇总本轮 Lark 自动回复处理结果"
 execution = "script"
-depends_on = ["pick-message", "reply-gate", "draft-reply", "send-or-preview", "mark-gate-rejected"]
-input_context = ["pick-message", "reply-gate", "draft-reply", "send-or-preview", "mark-gate-rejected"]
+depends_on = ["process-messages"]
 
-[steps.loop.body.script]
-command = ["python3", "-c", """
-import json, os
-
-
-def load(name):
-    raw = os.environ.get(name, '').strip()
-    if not raw:
-        return {}
-    try:
-        value = json.loads(raw)
-        return value if isinstance(value, dict) else {}
-    except Exception:
-        return {}
-
-
-def bullet(label, value):
-    if value in (None, '', [], {}):
-        return None
-    if isinstance(value, (list, dict)):
-        value = json.dumps(value, ensure_ascii=False)
-    return f'- {label}: {value}'
-
-
-pick = load('TT_PICK_MESSAGE')
-gate = load('TT_REPLY_GATE')
-send = load('TT_SEND_RESULT')
-mark = load('TT_MARK_RESULT')
-mode = os.environ.get('TT_MODE', 'dry-run')
-watch = os.environ.get('TT_REPORT_KIND') == 'watch'
-has_message = bool(pick.get('has_message'))
-lines = ['## Lark 自动回复结果', '']
-
-if not has_message:
-    lines.append('本轮没有发现新的相关 Lark 消息，未调用回复 gate/agent。' if not watch else '达到本轮最大轮询次数前没有发现新的相关 Lark 消息，未调用回复 agent。')
-    lines.append('')
-    items = [
-        bullet('状态', 'no_message'),
-        bullet('获取消息数', pick.get('fetched_count', 0)),
-        bullet('候选消息数', pick.get('candidate_count', 0)),
-        bullet('搜索窗口', pick.get('window')),
-        bullet('Warnings', pick.get('warnings')),
-        bullet('Errors', pick.get('errors')),
-    ]
-elif gate and gate.get('should_reply') is False:
-    lines.append('发现相关 Lark 消息，但回复门控判断不适合自动代答，未生成回复草稿也未发送。')
-    lines.append('')
-    items = [
-        bullet('状态', 'gate_rejected'),
-        bullet('message_id', pick.get('message_id')),
-        bullet('chat_id', pick.get('chat_id')),
-        bullet('sender', pick.get('sender_name')),
-        bullet('risk_level', gate.get('risk_level')),
-        bullet('needs_human', gate.get('needs_human', True)),
-        bullet('reason', gate.get('reason')),
-        bullet('marked', mark.get('marked')),
-    ]
-else:
-    lines.append('已发现相关 Lark 消息并完成回复流程。' if mode == 'auto' else '已发现相关 Lark 消息并生成 dry-run 回复预览。')
-    lines.append('')
-    items = [
-        bullet('状态', 'message_processed'),
-        bullet('mode', mode),
-        bullet('message_id', pick.get('message_id')),
-        bullet('chat_id', pick.get('chat_id')),
-        bullet('sender', pick.get('sender_name')),
-        bullet('sent', send.get('sent', False)),
-        bullet('marked', send.get('marked', False)),
-        bullet('dry_run', bool(send.get('dry_run', False))),
-        bullet('send_error', send.get('error_message') or send.get('error')),
-        bullet('action_required', send.get('action_required')),
-        bullet('auth_command', send.get('auth_command')),
-        bullet('hint', send.get('hint')),
-    ]
-
-lines.extend(item for item in items if item)
-print('\\n'.join(lines))
-"""]
+[steps.script]
+script = "./scripts/lark-final-report.py"
 format = "markdown"
 timeout = "15s"
-
-[steps.loop.body.script.env]
-TT_PICK_MESSAGE = "{{pick-message}}"
-TT_REPLY_GATE = "{{reply-gate}}"
-TT_SEND_RESULT = "{{send-or-preview}}"
-TT_MARK_RESULT = "{{mark-gate-rejected}}"
-TT_MODE = "{{mode}}"
-TT_REPORT_KIND = "single"

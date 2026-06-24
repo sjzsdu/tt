@@ -56,6 +56,27 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def append_summary(pick: Dict[str, Any], record: Dict[str, Any]) -> None:
+    explicit = env("TT_LARK_RUN_SUMMARY", "")
+    run_dir = env("TT_FORMULA_RUN_DIR", "")
+    path = Path(explicit) if explicit else (Path(run_dir) / "lark-auto-reply-summary.jsonl" if run_dir else None)
+    if path is None:
+        return
+    message = pick.get("message") if isinstance(pick.get("message"), dict) else {}
+    base: Dict[str, Any] = {
+        "message_id": pick.get("message_id") or message.get("message_id"),
+        "chat_id": pick.get("chat_id") or message.get("chat_id"),
+        "source": pick.get("source"),
+        "sender_name": pick.get("sender_name") or message.get("sender_name"),
+        "sender_id": pick.get("sender_id") or message.get("sender_id"),
+        "text": pick.get("text") or message.get("text"),
+    }
+    base.update(record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(base, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
 def mark_processed(state_file: Path, pick: Dict[str, Any], message_id: str, mode: str, extra: Dict[str, Any] | None = None) -> None:
     message = pick.get("message") if isinstance(pick.get("message"), dict) else {}
     state = load_state(state_file)
@@ -162,6 +183,7 @@ def main() -> None:
 
     if mode == "dry-run":
         mark_processed(state_file, pick, message_id, "dry-run", {"dry_run": True})
+        append_summary(pick, {"status": "dry_run", "sent": False, "marked": True, "dry_run": True, "reply": reply_text})
         emit({
             "sent": False,
             "marked": True,
@@ -198,6 +220,7 @@ def main() -> None:
             "action_required": payload.get("action_required"),
         })
         payload["marked"] = True
+        append_summary(pick, {"status": "send_failed", "sent": False, "marked": True, "error": payload.get("error_message") or payload.get("error")})
         emit(payload)
         return
 
@@ -210,6 +233,7 @@ def main() -> None:
     }
     state["last_processed_at"] = processed[message_id]["processed_at"]
     save_state(state_file, state)
+    append_summary(pick, {"status": "sent", "sent": True, "marked": True, "reply": reply_text})
     emit({"sent": True, "marked": True, "message_id": message_id, "idempotency_key": idem, "response": response})
 
 
