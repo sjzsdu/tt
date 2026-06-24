@@ -27,6 +27,7 @@ Data flow:
 
 Common commands:
   tt formula list
+  tt formula help bug-fix
   tt formula show bug-fix
   tt formula copy bug-fix ./bug-fix.toml
   tt formula compile bug-fix
@@ -76,6 +77,7 @@ func New(deps Dependencies) *cobra.Command {
 	formulaCmd.PersistentFlags().StringVarP(&app.opts.Dir, "dir", "d", "", "formula search directory (default: .tt/formulas, ~/.tt/formulas)")
 	formulaCmd.PersistentFlags().StringArrayVar(&app.opts.Vars, "var", nil, "variable override (key=value, repeatable)")
 
+	formulaHelpCmd := app.newFormulaHelpCmd()
 	formulaListCmd := app.newFormulaListCmd()
 	formulaShowCmd := app.newFormulaShowCmd()
 	formulaCompileCmd := app.newFormulaCompileCmd()
@@ -87,6 +89,7 @@ func New(deps Dependencies) *cobra.Command {
 	formulaRunsCmd := app.newFormulaRunsCmd()
 	formulaScheduleCmd := app.newFormulaScheduleCmd()
 
+	formulaCmd.AddCommand(formulaHelpCmd)
 	formulaCmd.AddCommand(formulaListCmd)
 	formulaCmd.AddCommand(formulaShowCmd)
 	formulaCmd.AddCommand(formulaCompileCmd)
