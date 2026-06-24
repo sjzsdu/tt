@@ -60,14 +60,16 @@ export function DashboardHeader({
               { label: 'Graph', value: 'graph', icon: <ApartmentOutlined /> },
             ]}
           />
-          <Button
-            danger
-            icon={<PoweroffOutlined />}
-            disabled={snapshot.status !== 'running' || snapshot.stop_requested}
-            onClick={onRequestStop}
-          >
-            {snapshot.stop_requested ? 'Stop requested' : 'Stop after current iteration'}
-          </Button>
+          <Tooltip title="Finish the current running step or iteration, then stop before starting more work.">
+            <Button
+              danger
+              icon={<PoweroffOutlined />}
+              disabled={snapshot.status !== 'running' || snapshot.stop_requested}
+              onClick={onRequestStop}
+            >
+              {snapshot.stop_requested ? 'Graceful stop requested' : 'Request graceful stop'}
+            </Button>
+          </Tooltip>
           <Button type="primary" disabled={!snapshot.final_output} onClick={onOpenFinalReport}>
             {snapshot.final_output ? 'Open final report' : 'Waiting for final report'}
           </Button>

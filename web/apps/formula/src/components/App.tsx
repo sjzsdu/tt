@@ -89,7 +89,7 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   const requestStop = async () => {
     try {
       await api.stopRun();
-      message.success('Graceful stop requested. The current iteration will finish before exit.');
+      message.success('Graceful stop requested. The current step or iteration will finish before exit.');
     } catch (err) {
       message.error(`Stop request failed: ${err instanceof Error ? err.message : String(err)}`);
     }

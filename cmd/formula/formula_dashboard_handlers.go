@@ -62,7 +62,7 @@ func (s *formulaDashboardServer) handleStopRun(w http.ResponseWriter, r *http.Re
 	_ = s.store.AppendEvent(run.Event{Type: "stop_requested", Status: run.StatusRunning})
 	s.mu.Lock()
 	s.state.StopRequested = true
-	s.state.Logs = append(s.state.Logs, ui.LogEntry{At: time.Now().Format("15:04:05"), Text: "Graceful stop requested. The current iteration will finish before exit."})
+	s.state.Logs = append(s.state.Logs, ui.LogEntry{At: time.Now().Format("15:04:05"), Text: "Graceful stop requested. The current step or iteration will finish before exit."})
 	s.mu.Unlock()
 	s.broadcast()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
