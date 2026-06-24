@@ -56,6 +56,24 @@ def save_state(path: Path, state: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def mark_processed(state_file: Path, pick: Dict[str, Any], message_id: str, mode: str, extra: Dict[str, Any] | None = None) -> None:
+    message = pick.get("message") if isinstance(pick.get("message"), dict) else {}
+    state = load_state(state_file)
+    processed = state.setdefault("processed", {})
+    processed_at = datetime.now(timezone.utc).isoformat()
+    record: Dict[str, Any] = {
+        "processed_at": processed_at,
+        "mode": mode,
+        "chat_id": pick.get("chat_id") or message.get("chat_id"),
+        "source": pick.get("source"),
+    }
+    if extra:
+        record.update(extra)
+    processed[message_id] = record
+    state["last_processed_at"] = processed_at
+    save_state(state_file, state)
+
+
 def run_lark(args: List[str]) -> Dict[str, Any]:
     proc = subprocess.run(args, text=True, capture_output=True)
     if proc.returncode != 0:
@@ -143,13 +161,14 @@ def main() -> None:
         return
 
     if mode == "dry-run":
+        mark_processed(state_file, pick, message_id, "dry-run", {"dry_run": True})
         emit({
             "sent": False,
-            "marked": False,
+            "marked": True,
             "dry_run": True,
             "message_id": message_id,
             "reply": reply_text,
-            "note": "dry-run does not write Lark or mark state",
+            "note": "dry-run writes state so a batch run can continue to later messages; remove the message_id from state to preview it again",
         })
         return
 
@@ -172,7 +191,14 @@ def main() -> None:
     try:
         response = run_lark(args)
     except RuntimeError as exc:
-        emit(send_error_payload(exc, message_id))
+        payload = send_error_payload(exc, message_id)
+        mark_processed(state_file, pick, message_id, "send_failed", {
+            "error": payload.get("error_message") or payload.get("error"),
+            "error_type": payload.get("error_type"),
+            "action_required": payload.get("action_required"),
+        })
+        payload["marked"] = True
+        emit(payload)
         return
 
     processed[message_id] = {

@@ -21,7 +21,7 @@ command = "python3"
 message = "需要安装 python3 来执行 Lark 消息适配脚本。"
 
 [vars]
-mode = { description = "运行模式：dry-run 只生成并打印回复；auto 会通过 lark-cli 回复并写入去重 state。", default = "dry-run", enum = ["dry-run", "auto"] }
+mode = { description = "运行模式：dry-run 只预览不发送，但会写本地 state 以便批处理继续推进；auto 会通过 lark-cli 回复并写入去重 state。", default = "dry-run", enum = ["dry-run", "auto"] }
 lark_as = { description = "lark-cli 身份类型：user 或 bot。读取 @我/P2P 通常使用 user。", default = "user", enum = ["user", "bot"] }
 chat_ids = { description = "可选 chat_id 白名单，多个用英文逗号分隔；为空则搜索当前身份可见范围。", default = "" }
 self_open_id = { description = "可选：自己的 open_id，用于过滤自己发出的消息，形如 ou_xxx。", default = "" }
@@ -36,18 +36,27 @@ reply_style = { description = "回复风格约束。", default = "中文优先�
 max_reply_chars = { description = "自动发送前的最大回复字符数。", default = "1200" }
 reply_in_thread = { description = "是否使用 Lark thread reply。", default = "true", enum = ["true", "false"] }
 lark_cli = { description = "lark-cli 可执行文件路径。", default = "lark-cli" }
+max_messages_per_run = { description = "单次运行最多处理多少条未处理候选消息；每条处理后写入 state，下一轮自动跳过。", default = "20", pattern = "^[1-9][0-9]*$" }
 
 [[steps]]
+id = "process-messages"
+title = "批量处理搜索窗口内所有未处理 Lark 消息"
+
+[steps.loop]
+max = "{{max_messages_per_run}}"
+until = "pick-message.has_message == false"
+
+[[steps.loop.body]]
 id = "pick-message"
 title = "搜索并选择一条待回复 Lark 消息"
 execution = "script"
 
-[steps.script]
+[steps.loop.body.script]
 script = "./scripts/fetch-pick-lark-message.py"
 format = "json"
 timeout = "60s"
 
-[steps.script.env]
+[steps.loop.body.script.env]
 TT_LARK_CLI = "{{lark_cli}}"
 TT_LARK_AS = "{{lark_as}}"
 TT_STATE_FILE = "{{state_file}}"
@@ -58,18 +67,18 @@ TT_INCLUDE_DIRECT = "{{include_direct}}"
 TT_LOOKBACK_MINUTES = "{{lookback_minutes}}"
 TT_PAGE_SIZE = "{{page_size}}"
 
-[steps.validate]
+[steps.loop.body.validate]
 format = "json"
 required = ["has_message"]
 
-[[steps]]
+[[steps.loop.body]]
 id = "load-reply-context"
 title = "读取个人画像与项目上下文"
 execution = "script"
 depends_on = ["pick-message"]
 condition = "pick-message.has_message == true"
 
-[steps.script]
+[steps.loop.body.script]
 command = ["python3", "-c", """
 import json, os, pathlib
 
@@ -115,15 +124,15 @@ print(json.dumps({
 format = "json"
 timeout = "15s"
 
-[steps.script.env]
+[steps.loop.body.script.env]
 TT_PERSONA_CONTEXT = "{{persona_context}}"
 TT_PROJECT_CONTEXT = "{{project_context}}"
 
-[steps.validate]
+[steps.loop.body.validate]
 format = "json"
 required = ["persona", "project"]
 
-[[steps]]
+[[steps.loop.body]]
 id = "reply-gate"
 title = "判断是否应该代为回复以及回复边界"
 depends_on = ["pick-message", "load-reply-context"]
@@ -166,11 +175,11 @@ Lark 消息：
 """
 agent.name = "coder"
 
-[steps.validate]
+[steps.loop.body.validate]
 format = "json"
 required = ["should_reply", "risk_level", "reason", "must_include", "must_avoid"]
 
-[[steps]]
+[[steps.loop.body]]
 id = "draft-reply"
 title = "根据门控结果生成 Lark 回复草稿"
 depends_on = ["reply-gate"]
@@ -202,7 +211,7 @@ Lark 消息信息：
 """
 agent.name = "coder"
 
-[[steps]]
+[[steps.loop.body]]
 id = "send-or-preview"
 title = "发送回复或 dry-run 预览"
 execution = "script"
@@ -210,12 +219,12 @@ depends_on = ["pick-message", "reply-gate", "draft-reply"]
 input_context = ["pick-message", "reply-gate", "draft-reply"]
 condition = "reply-gate.should_reply == true"
 
-[steps.script]
+[steps.loop.body.script]
 script = "./scripts/send-lark-reply.py"
 format = "json"
 timeout = "60s"
 
-[steps.script.env]
+[steps.loop.body.script.env]
 TT_LARK_CLI = "{{lark_cli}}"
 TT_LARK_AS = "{{lark_as}}"
 TT_MODE = "{{mode}}"
@@ -225,12 +234,12 @@ TT_REPLY_TEXT = "{{draft-reply}}"
 TT_MAX_REPLY_CHARS = "{{max_reply_chars}}"
 TT_REPLY_IN_THREAD = "{{reply_in_thread}}"
 
-[steps.validate]
+[steps.loop.body.validate]
 format = "json"
 required = ["sent", "marked"]
 
 
-[[steps]]
+[[steps.loop.body]]
 id = "mark-gate-rejected"
 title = "记录不适合自动回复的 Lark 消息，避免重复处理"
 execution = "script"
@@ -238,29 +247,29 @@ depends_on = ["reply-gate"]
 input_context = ["pick-message", "reply-gate"]
 condition = "reply-gate.should_reply == false"
 
-[steps.script]
+[steps.loop.body.script]
 script = "./scripts/mark-lark-message.py"
 format = "json"
 timeout = "15s"
 
-[steps.script.env]
+[steps.loop.body.script.env]
 TT_STATE_FILE = "{{state_file}}"
 TT_PICK_MESSAGE = "{{pick-message}}"
 TT_REPLY_GATE = "{{reply-gate}}"
 TT_MARK_REASON = "gate_rejected"
 
-[steps.validate]
+[steps.loop.body.validate]
 format = "json"
 required = ["marked"]
 
-[[steps]]
+[[steps.loop.body]]
 id = "final-report"
 title = "输出本轮 Lark 自动回复结果"
 execution = "script"
 depends_on = ["pick-message", "reply-gate", "draft-reply", "send-or-preview", "mark-gate-rejected"]
 input_context = ["pick-message", "reply-gate", "draft-reply", "send-or-preview", "mark-gate-rejected"]
 
-[steps.script]
+[steps.loop.body.script]
 command = ["python3", "-c", """
 import json, os
 
@@ -341,7 +350,7 @@ print('\\n'.join(lines))
 format = "markdown"
 timeout = "15s"
 
-[steps.script.env]
+[steps.loop.body.script.env]
 TT_PICK_MESSAGE = "{{pick-message}}"
 TT_REPLY_GATE = "{{reply-gate}}"
 TT_SEND_RESULT = "{{send-or-preview}}"
