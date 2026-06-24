@@ -29,6 +29,7 @@ include_direct = { description = "是否搜索 P2P 单聊消息；仅在提供 c
 keywords = { description = "可选关键词过滤，多个用英文逗号分隔；为空不过滤。", default = "" }
 lookback_minutes = { description = "每次向前搜索多少分钟的 @我/指定单聊消息；lark-cli 当前不提供未读过滤，未读但早于该窗口的消息不会被选中。", default = "60" }
 page_size = { description = "lark-cli messages-search 每页大小，1-50。", default = "20" }
+group_window_seconds = { description = "同一 chat 内连续未处理消息的聚合窗口秒数；窗口内多条消息会合并成一组，只回复最后一条并标记整组。设为 0 可关闭聚合。", default = "180", pattern = "^[0-9]+$" }
 state_file = { description = "去重状态文件路径。", default = ".tt/lark-auto-reply/state.json" }
 project_context = { description = "项目回复上下文文件路径；不存在时 agent 应基于当前仓库和消息内容谨慎回复。", default = ".tt/lark-auto-reply/context.md" }
 persona_context = { description = "个人职场画像/回复门控上下文 Markdown。优先使用 TT_LARK_PERSONA_CONTEX 指向的存在文件，其次 ~/.tt/persona.md；也可用 --var persona_context=... 显式指定。", default = "" }
@@ -67,6 +68,7 @@ TT_KEYWORDS = "{{keywords}}"
 TT_INCLUDE_DIRECT = "{{include_direct}}"
 TT_LOOKBACK_MINUTES = "{{lookback_minutes}}"
 TT_PAGE_SIZE = "{{page_size}}"
+TT_GROUP_WINDOW_SECONDS = "{{group_window_seconds}}"
 
 [steps.loop.body.validate]
 format = "json"
@@ -204,11 +206,13 @@ description = """
 项目上下文文件：{{project_context}}
 内容：{{load-reply-context.project.content}}
 
-Lark 消息：
+Lark 消息（可能是同一 chat 内短时间连续消息组成的一组；message_id 是回复锚点，message_ids 是整组待标记消息）：
 - 来源：{{pick-message.source}}
 - 发送人：{{pick-message.sender_name}} / {{pick-message.sender_id}}
 - chat_id：{{pick-message.chat_id}}
 - message_id：{{pick-message.message_id}}
+- message_ids：{{pick-message.message_ids}}
+- group_size：{{pick-message.group_size}}
 - 消息正文：{{pick-message.text}}
 
 输出 ONLY compact JSON object，不要 Markdown，不要解释：
@@ -292,11 +296,13 @@ description = """
 门控结论：{{reply-gate}}
 代码调研结论：{{code-research}}
 
-Lark 消息信息：
+Lark 消息信息（可能是一组连续消息，回复将发送到 message_id 指向的最后一条）：
 - 来源：{{pick-message.source}}
 - 发送人：{{pick-message.sender_name}} / {{pick-message.sender_id}}
 - chat_id：{{pick-message.chat_id}}
 - message_id：{{pick-message.message_id}}
+- message_ids：{{pick-message.message_ids}}
+- group_size：{{pick-message.group_size}}
 - 消息正文：{{pick-message.text}}
 
 回复风格：{{reply_style}}

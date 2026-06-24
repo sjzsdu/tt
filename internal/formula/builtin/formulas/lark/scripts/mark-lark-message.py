@@ -55,6 +55,8 @@ def append_summary(pick: Dict[str, Any], gate: Dict[str, Any], record: Dict[str,
     message = pick.get("message") if isinstance(pick.get("message"), dict) else {}
     base: Dict[str, Any] = {
         "message_id": pick.get("message_id") or message.get("message_id"),
+        "message_ids": pick.get("message_ids"),
+        "group_size": pick.get("group_size"),
         "chat_id": pick.get("chat_id") or message.get("chat_id"),
         "source": pick.get("source"),
         "sender_name": pick.get("sender_name") or message.get("sender_name"),
@@ -66,6 +68,23 @@ def append_summary(pick: Dict[str, Any], gate: Dict[str, Any], record: Dict[str,
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(base, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def message_ids_from_pick(pick: Dict[str, Any], fallback: str) -> list[str]:
+    raw = pick.get("message_ids")
+    ids: list[str] = []
+    if isinstance(raw, list):
+        ids = [str(v) for v in raw if str(v or "").strip()]
+    if not ids and fallback:
+        ids = [fallback]
+    seen = set()
+    out = []
+    for mid in ids:
+        if mid in seen:
+            continue
+        seen.add(mid)
+        out.append(mid)
+    return out
 
 
 def main() -> None:
@@ -81,12 +100,13 @@ def main() -> None:
 
     state = load_state(state_file)
     processed = state.setdefault("processed", {})
-    if message_id in processed:
+    ids = message_ids_from_pick(pick, message_id)
+    if ids and all(mid in processed for mid in ids):
         emit({"marked": True, "message_id": message_id, "reason": "already processed"})
         return
 
     processed_at = datetime.now(timezone.utc).isoformat()
-    processed[message_id] = {
+    record = {
         "processed_at": processed_at,
         "mode": reason,
         "chat_id": pick.get("chat_id") or message.get("chat_id"),
@@ -96,6 +116,11 @@ def main() -> None:
         "risk_level": gate.get("risk_level"),
         "needs_human": gate.get("needs_human"),
     }
+    for mid in ids:
+        item = dict(record)
+        if mid != message_id:
+            item["group_anchor_message_id"] = message_id
+        processed[mid] = item
     state["last_processed_at"] = processed_at
     save_state(state_file, state)
     append_summary(pick, gate, {"status": reason, "sent": False, "marked": True})

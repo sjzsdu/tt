@@ -63,13 +63,18 @@ def main():
     failed = sum(1 for r in records if r.get("status") == "send_failed")
     dry = sum(1 for r in records if r.get("dry_run") is True)
     print(f"本轮共处理 {len(records)} 条消息：发送 {sent} 条，门控拒绝 {rejected} 条，发送失败 {failed} 条，dry-run {dry} 条。\n")
-    print("| # | message_id | sender | 原消息 | 处理 | 是否发送 | 回复/原因 |")
+    print("| # | message_id / group | sender | 原消息 | 处理 | 是否发送 | 回复/原因 |")
     print("|---:|---|---|---|---|---|---|")
     for i, r in enumerate(records, 1):
         status = r.get("status") or "processed"
         sent_text = "是" if r.get("sent") is True else "否"
         detail = r.get("reply") or r.get("reason") or r.get("error") or r.get("note") or ""
-        print(f"| {i} | {cell(r.get('message_id'), 40)} | {cell(r.get('sender_name') or r.get('sender_id'), 40)} | {cell(r.get('text'), 160)} | {cell(status, 40)} | {sent_text} | {cell(detail, 260)} |")
+        ids = r.get("message_ids") if isinstance(r.get("message_ids"), list) else []
+        group_size = r.get("group_size") or (len(ids) if ids else 1)
+        id_text = r.get("message_id")
+        if ids and len(ids) > 1:
+            id_text = f"reply_to={r.get('message_id')}<br>group_size={group_size}<br>ids={', '.join(str(v) for v in ids)}"
+        print(f"| {i} | {cell(id_text, 120)} | {cell(r.get('sender_name') or r.get('sender_id'), 40)} | {cell(r.get('text'), 220)} | {cell(status, 40)} | {sent_text} | {cell(detail, 260)} |")
 
 
 if __name__ == "__main__":

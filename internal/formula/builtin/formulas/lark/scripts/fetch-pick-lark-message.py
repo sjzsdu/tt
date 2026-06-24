@@ -43,6 +43,28 @@ def iso(dt: datetime) -> str:
     return dt.isoformat(timespec="seconds")
 
 
+def message_timestamp(msg: Dict[str, Any]) -> float:
+    raw = str(msg.get("create_time", "")).strip()
+    if raw == "":
+        return 0.0
+    try:
+        value = float(raw)
+        # Lark timestamps are often milliseconds, sometimes seconds.
+        if value > 10_000_000_000:
+            value = value / 1000.0
+        return value
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def message_sort_key(msg: Dict[str, Any]) -> tuple[float, str]:
+    return (message_timestamp(msg), str(msg.get("message_id", "")))
+
+
 def load_state(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {"processed": {}}
@@ -208,6 +230,40 @@ def keyword_match(text: str, keywords: List[str]) -> bool:
     return any(k.lower() in low for k in keywords)
 
 
+def pick_message_group(candidates: List[Dict[str, Any]], group_window_seconds: int) -> List[Dict[str, Any]]:
+    if not candidates:
+        return []
+    picked = candidates[0]
+    chat_id = picked.get("chat_id", "")
+    if not chat_id or group_window_seconds <= 0:
+        return [picked]
+    group = [picked]
+    last_ts = message_timestamp(picked)
+    if last_ts <= 0:
+        return group
+    for msg in candidates[1:]:
+        if msg.get("chat_id", "") != chat_id:
+            continue
+        ts = message_timestamp(msg)
+        if ts <= 0 or ts - last_ts > group_window_seconds:
+            break
+        group.append(msg)
+        if ts > 0:
+            last_ts = ts
+    return group
+
+
+def group_text(messages: List[Dict[str, Any]]) -> str:
+    if len(messages) <= 1:
+        return messages[0].get("text", "") if messages else ""
+    lines = []
+    for i, msg in enumerate(messages, 1):
+        sender = msg.get("sender_name") or msg.get("sender_id") or "unknown"
+        text = msg.get("text", "")
+        lines.append(f"[{i}] {sender}: {text}")
+    return "\n".join(lines)
+
+
 def stop_requested() -> bool:
     explicit = env("TT_FORMULA_STOP_FILE", "")
     run_dir = env("TT_FORMULA_RUN_DIR", "")
@@ -228,6 +284,7 @@ def main() -> None:
     include_direct = parse_bool(env("TT_INCLUDE_DIRECT", "true"), True)
     lookback_minutes = parse_int(env("TT_LOOKBACK_MINUTES", "5"), 5)
     page_size = str(max(1, min(parse_int(env("TT_PAGE_SIZE", "20"), 20), 50)))
+    group_window_seconds = max(0, parse_int(env("TT_GROUP_WINDOW_SECONDS", "180"), 180))
 
     if stop_requested():
         emit({
@@ -285,8 +342,9 @@ def main() -> None:
         candidates.append(msg)
 
     # Oldest first to preserve conversational ordering.
-    candidates.sort(key=lambda m: m.get("create_time", ""))
-    picked = candidates[0] if candidates else None
+    candidates.sort(key=message_sort_key)
+    group = pick_message_group(candidates, group_window_seconds)
+    picked = group[-1] if group else None
     if not picked:
         emit({
             "has_message": False,
@@ -303,9 +361,13 @@ def main() -> None:
         "has_message": True,
         "message": picked,
         "message_id": picked["message_id"],
+        "message_ids": [m.get("message_id", "") for m in group if m.get("message_id", "")],
+        "message_group": group,
+        "group_size": len(group),
+        "group_window_seconds": group_window_seconds,
         "chat_id": picked["chat_id"],
         "source": picked["source"],
-        "text": picked["text"],
+        "text": group_text(group),
         "sender_name": picked["sender_name"],
         "sender_id": picked["sender_id"],
         "fetched_count": len(messages),
