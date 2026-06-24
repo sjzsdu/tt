@@ -660,6 +660,23 @@ print(json.dumps({"cwd": os.getcwd(), "tt_invocation_cwd": os.environ.get("TT_IN
 	}
 }
 
+func TestSeedFormulaRunDirRefreshesEnvironmentContext(t *testing.T) {
+	wf := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	exec := NewExecutor(wf, steps.Capabilities{})
+	workspace := t.TempDir()
+	runDir := filepath.Join(workspace, ".tt", "runs", "formula", "demo-run")
+	exec.SeedEnvironment(workspace)
+	exec.SeedFormulaRunDir(runDir)
+
+	env, err := exec.environmentContext()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.FormulaRunDir != runDir {
+		t.Fatalf("FormulaRunDir = %q, want %q", env.FormulaRunDir, runDir)
+	}
+}
+
 func TestExecutorWorkspaceWorktreeCanBeRetained(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

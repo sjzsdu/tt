@@ -200,10 +200,31 @@ format = "json"
 required = ["has_message", "should_reply", "gate_rejected"]
 
 [[steps.loop.body]]
-id = "draft-reply"
-title = "根据门控结果生成 Lark 回复草稿"
+id = "code-research"
+title = "必要时调研仓库代码实现逻辑"
 depends_on = ["reply-decision"]
 input_context = ["pick-message", "load-reply-context", "reply-gate", "reply-decision"]
+condition = "reply-decision.should_reply == true"
+description = """
+你正在为 Lark 自动回复做代码事实核查。
+
+收到的消息：{{pick-message.text}}
+项目上下文：{{load-reply-context.project.content}}
+门控结论：{{reply-gate}}
+
+要求：
+- 如果消息在询问代码实现、接口行为、bug 原因、配置位置、运行逻辑、函数/类/命令如何工作，必须先查看当前仓库相关文件，再总结可用于回复的事实。
+- 如果项目上下文不足以定位，请使用代码搜索/读取文件来确认，不要凭印象回答。
+- 如果消息不是代码/实现相关，只输出“无需代码调研”。
+- 输出简洁中文，包含你查看到的关键文件/符号和结论；不需要生成最终飞书回复。
+"""
+agent.name = "coder"
+
+[[steps.loop.body]]
+id = "draft-reply"
+title = "根据门控结果生成 Lark 回复草稿"
+depends_on = ["reply-decision", "code-research"]
+input_context = ["pick-message", "load-reply-context", "reply-gate", "reply-decision", "code-research"]
 condition = "reply-decision.should_reply == true"
 description = """
 你正在代替用户回复 Lark/飞书消息。请严格基于 reply-gate 的门控结论、个人职场画像、项目上下文和收到的消息，生成可以直接发送的回复正文。
@@ -211,6 +232,7 @@ description = """
 个人职场画像：{{load-reply-context.persona.content}}
 项目上下文：{{load-reply-context.project.content}}
 门控结论：{{reply-gate}}
+代码调研结论：{{code-research}}
 
 Lark 消息信息：
 - 来源：{{pick-message.source}}
@@ -224,6 +246,7 @@ Lark 消息信息：
 安全规则：
 - 只输出最终要发送的回复正文，不要 Markdown 标题，不要解释生成过程。
 - 不要编造事实；不确定时明确说“我需要确认一下”。
+- 如果对方问代码实现/运行逻辑/bug/配置位置，必须依据“代码调研结论”回复；如果代码调研结论不足，不要给确定答案，只说明需要继续确认。
 - 涉及上线时间、客户承诺、生产数据、账号权限、删除/迁移等高风险事项时，不要擅自承诺，只给谨慎建议或说明需要人工确认。
 - 回复应尽量短，除非对方明确要求详细说明。
 - 口吻要像真实同事本人在飞书里回复，避免“很高兴为你服务”“以下是我的建议”“作为AI”等 AI 味或客服味表达。

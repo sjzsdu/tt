@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
 type workspaceSession struct {
@@ -36,6 +37,20 @@ func (e *Executor) SeedFormulaRunDir(dir string) {
 		return
 	}
 	e.formulaRunDir = strings.TrimSpace(dir)
+	if e.Context == nil || e.formulaRunDir == "" {
+		return
+	}
+	value, ok := e.Context.Get(EnvironmentContextKey)
+	if !ok {
+		return
+	}
+	var env EnvironmentContext
+	if err := json.Unmarshal(value.Raw, &env); err != nil {
+		return
+	}
+	env.FormulaRunDir = e.formulaRunDir
+	raw, _ := json.Marshal(env)
+	_ = e.Context.Set(EnvironmentContextKey, steps.Value{Type: "json", Raw: raw})
 }
 
 func (e *Executor) prepareWorkspace(ctx context.Context) (*workspaceSession, error) {
