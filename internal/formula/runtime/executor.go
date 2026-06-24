@@ -262,8 +262,8 @@ func (e *Executor) tryFixAndRerun(ctx context.Context, nodeID ir.NodeID, step st
 			Kind:              string(step.Meta().Kind),
 			Attempt:           0,
 			Status:            "skipped_non_idempotent",
-			Reason:            "step is not marked idempotent",
-			FormulaUpdateHint: "If this step is safe to retry automatically, mark it idempotent so the formula fixer can retry it.",
+			Reason:            "automatic repair skipped because this step is non-idempotent; retrying it could duplicate side effects such as sending a message",
+			FormulaUpdateHint: "This repair record is informational and cannot be fixed by clicking it. Fix the external cause, then start a new run. Only mark the step idempotent if it is safe to retry automatically.",
 		})
 		e.emit(nodeID, "fix.skipped", map[string]any{
 			"reason": "non_idempotent",
