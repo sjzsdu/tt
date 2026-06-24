@@ -27,7 +27,7 @@ chat_ids = { description = "可选 chat_id 白名单，多个用英文逗号分�
 self_open_id = { description = "可选：自己的 open_id，用于过滤自己发出的消息，形如 ou_xxx。", default = "" }
 include_direct = { description = "是否搜索 P2P 单聊消息；仅在提供 chat_ids 时生效，避免 Lark 全局 P2P 搜索超时。", default = "false", enum = ["true", "false"] }
 keywords = { description = "可选关键词过滤，多个用英文逗号分隔；为空不过滤。", default = "" }
-lookback_minutes = { description = "每次向前搜索多少分钟的消息；建议大于 poll_interval_seconds。", default = "5" }
+lookback_minutes = { description = "每次向前搜索多少分钟的 @我/指定单聊消息；lark-cli 当前不提供未读过滤，未读但早于该窗口的消息不会被选中。", default = "60" }
 page_size = { description = "lark-cli messages-search 每页大小，1-50。", default = "20" }
 state_file = { description = "去重状态文件路径。", default = ".tt/lark-auto-reply/state.json" }
 project_context = { description = "项目回复上下文文件路径；不存在时 agent 应基于当前仓库和消息内容谨慎回复。", default = ".tt/lark-auto-reply/context.md" }
