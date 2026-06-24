@@ -229,12 +229,36 @@ TT_REPLY_IN_THREAD = "{{reply_in_thread}}"
 format = "json"
 required = ["sent", "marked"]
 
+
+[[steps]]
+id = "mark-gate-rejected"
+title = "记录不适合自动回复的 Lark 消息，避免重复处理"
+execution = "script"
+depends_on = ["reply-gate"]
+input_context = ["pick-message", "reply-gate"]
+condition = "reply-gate.should_reply == false"
+
+[steps.script]
+script = "./scripts/mark-lark-message.py"
+format = "json"
+timeout = "15s"
+
+[steps.script.env]
+TT_STATE_FILE = "{{state_file}}"
+TT_PICK_MESSAGE = "{{pick-message}}"
+TT_REPLY_GATE = "{{reply-gate}}"
+TT_MARK_REASON = "gate_rejected"
+
+[steps.validate]
+format = "json"
+required = ["marked"]
+
 [[steps]]
 id = "final-report"
 title = "输出本轮 Lark 自动回复结果"
 execution = "script"
-depends_on = ["pick-message", "reply-gate", "draft-reply", "send-or-preview"]
-input_context = ["pick-message", "reply-gate", "draft-reply", "send-or-preview"]
+depends_on = ["pick-message", "reply-gate", "draft-reply", "send-or-preview", "mark-gate-rejected"]
+input_context = ["pick-message", "reply-gate", "draft-reply", "send-or-preview", "mark-gate-rejected"]
 
 [steps.script]
 command = ["python3", "-c", """
@@ -263,6 +287,7 @@ def bullet(label, value):
 pick = load('TT_PICK_MESSAGE')
 gate = load('TT_REPLY_GATE')
 send = load('TT_SEND_RESULT')
+mark = load('TT_MARK_RESULT')
 mode = os.environ.get('TT_MODE', 'dry-run')
 watch = os.environ.get('TT_REPORT_KIND') == 'watch'
 has_message = bool(pick.get('has_message'))
@@ -290,6 +315,7 @@ elif gate and gate.get('should_reply') is False:
         bullet('risk_level', gate.get('risk_level')),
         bullet('needs_human', gate.get('needs_human', True)),
         bullet('reason', gate.get('reason')),
+        bullet('marked', mark.get('marked')),
     ]
 else:
     lines.append('已发现相关 Lark 消息并完成回复流程。' if mode == 'auto' else '已发现相关 Lark 消息并生成 dry-run 回复预览。')
@@ -319,5 +345,6 @@ timeout = "15s"
 TT_PICK_MESSAGE = "{{pick-message}}"
 TT_REPLY_GATE = "{{reply-gate}}"
 TT_SEND_RESULT = "{{send-or-preview}}"
+TT_MARK_RESULT = "{{mark-gate-rejected}}"
 TT_MODE = "{{mode}}"
 TT_REPORT_KIND = "single"
