@@ -264,17 +264,17 @@ depends_on = ["reply-decision"]
 input_context = ["pick-message", "message-decision", "load-reply-context", "reply-gate", "reply-decision"]
 condition = "reply-decision.should_reply == true"
 description = """
-你正在为 Lark 自动回复做代码事实核查。
+你正在为 Lark 自动回复做上下文判断与必要的代码事实核查。
 
 收到的消息：{{pick-message.text}}
 项目上下文：{{load-reply-context.project.content}}
 门控结论：{{reply-gate}}
 
 要求：
-- 如果消息在询问代码实现、接口行为、bug 原因、配置位置、运行逻辑、函数/类/命令如何工作，必须先查看当前仓库相关文件，再总结可用于回复的事实。
-- 如果项目上下文不足以定位，请使用代码搜索/读取文件来确认，不要凭印象回答。
-- 如果消息不是代码/实现相关，只输出“无需代码调研”。
-- 输出简洁中文，包含你查看到的关键文件/符号和结论；不需要生成最终飞书回复。
+- 先根据消息内容和已有上下文判断是否需要调研当前仓库代码；不要为了所有问题都机械查 repo。
+- 只有当回复需要依赖当前代码事实时，例如代码实现、接口行为、bug 原因、配置位置、运行逻辑、函数/类/命令如何工作，才查看相关文件并总结可用于回复的事实。
+- 如果已有上下文足够回答，或消息不涉及需要代码确认的问题，输出“无需代码调研”，并简要说明原因。
+- 如果判断需要调研但暂时定位不到相关代码，明确说明“需要继续确认相关代码”，不要凭印象回答。
 """
 agent.name = "coder"
 
