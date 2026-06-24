@@ -303,6 +303,10 @@ else:
         bullet('sent', send.get('sent', False)),
         bullet('marked', send.get('marked', False)),
         bullet('dry_run', bool(send.get('dry_run', False))),
+        bullet('send_error', send.get('error_message') or send.get('error')),
+        bullet('action_required', send.get('action_required')),
+        bullet('auth_command', send.get('auth_command')),
+        bullet('hint', send.get('hint')),
     ]
 
 lines.extend(item for item in items if item)

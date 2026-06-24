@@ -64,9 +64,41 @@ def run_lark(args: List[str]) -> Dict[str, Any]:
     if raw == "":
         return {}
     try:
-        return json.loads(raw)
+        payload = json.loads(raw)
     except Exception:
         return {"raw": raw}
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        raise RuntimeError(raw)
+    return payload
+
+
+def send_error_payload(exc: Exception, message_id: str) -> Dict[str, Any]:
+    raw = str(exc).strip()
+    payload: Dict[str, Any] = {
+        "sent": False,
+        "marked": False,
+        "message_id": message_id,
+        "error": raw,
+        "action_required": "manual_fix",
+    }
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            err = parsed.get("error") if isinstance(parsed.get("error"), dict) else {}
+            message = err.get("message") or parsed.get("message")
+            typ = err.get("type") or parsed.get("type")
+            hint = err.get("hint") or parsed.get("hint")
+            if message:
+                payload["error_message"] = message
+            if typ:
+                payload["error_type"] = typ
+            if hint:
+                payload["hint"] = hint
+    except Exception:
+        pass
+    if "im:message.send_as_user" in raw:
+        payload["auth_command"] = "lark-cli auth login --scope \"im:message.send_as_user\""
+    return payload
 
 
 def trim_reply(text: str, max_chars: int) -> str:
@@ -137,7 +169,11 @@ def main() -> None:
     ]
     if reply_in_thread:
         args.append("--reply-in-thread")
-    response = run_lark(args)
+    try:
+        response = run_lark(args)
+    except RuntimeError as exc:
+        emit(send_error_payload(exc, message_id))
+        return
 
     processed[message_id] = {
         "processed_at": datetime.now(timezone.utc).isoformat(),
