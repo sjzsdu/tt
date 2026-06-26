@@ -95,30 +95,33 @@ func registerEmbeddedAgentShortcutCommands() {
 	}
 	for _, embeddedAgent := range embeddedAgents {
 		agent := embeddedAgent
-		if agent.ID == "" || existing[agent.ID] {
-			continue
+		for _, alias := range agent.Aliases {
+			alias = strings.TrimSpace(alias)
+			if alias == "" || existing[alias] {
+				continue
+			}
+			flags := agentRunFlags{Agent: agent.ID}
+			shortcut := &cobra.Command{
+				Use:   alias + " [message]",
+				Short: fmt.Sprintf("Run the %s embedded agent", agent.ID),
+				Long:  fmt.Sprintf("Run the %s embedded agent. This is a shortcut for `tt agent --agent %s`.", agent.ID, agent.ID),
+				Args:  cobra.ArbitraryArgs,
+				RunE: func(cmd *cobra.Command, args []string) error {
+					return runAgentWithFlags(cmd, args, flags)
+				},
+			}
+			if description := strings.TrimSpace(agent.Description); description != "" {
+				shortcut.Short = description
+			}
+			shortcut.Flags().StringVarP(&flags.Message, "message", "m", "", "send a single message to the agent")
+			shortcut.Flags().StringVarP(&flags.Session, "session", "s", "", "session key; defaults to cli:default")
+			shortcut.Flags().StringVar(&flags.Model, "model", "", "model to use; defaults to the selected agent model or config default")
+			shortcut.Flags().BoolVarP(&flags.Debug, "debug", "d", false, "enable debug logging")
+			shortcut.Flags().StringVar(&flags.Home, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
+			shortcut.Flags().StringVar(&flags.Config, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
+			rootCmd.AddCommand(shortcut)
+			existing[alias] = true
 		}
-		flags := agentRunFlags{Agent: agent.ID}
-		shortcut := &cobra.Command{
-			Use:   agent.ID + " [message]",
-			Short: fmt.Sprintf("Run the %s embedded agent", agent.ID),
-			Long:  fmt.Sprintf("Run the %s embedded agent. This is a shortcut for `tt agent --agent %s`.", agent.ID, agent.ID),
-			Args:  cobra.ArbitraryArgs,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runAgentWithFlags(cmd, args, flags)
-			},
-		}
-		if description := strings.TrimSpace(agent.Description); description != "" {
-			shortcut.Short = description
-		}
-		shortcut.Flags().StringVarP(&flags.Message, "message", "m", "", "send a single message to the agent")
-		shortcut.Flags().StringVarP(&flags.Session, "session", "s", "", "session key; defaults to cli:default")
-		shortcut.Flags().StringVar(&flags.Model, "model", "", "model to use; defaults to the selected agent model or config default")
-		shortcut.Flags().BoolVarP(&flags.Debug, "debug", "d", false, "enable debug logging")
-		shortcut.Flags().StringVar(&flags.Home, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
-		shortcut.Flags().StringVar(&flags.Config, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
-		rootCmd.AddCommand(shortcut)
-		existing[agent.ID] = true
 	}
 }
 

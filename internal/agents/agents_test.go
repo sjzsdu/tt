@@ -78,6 +78,9 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	if !containsString(beadManager.Skills, "bead") {
 		t.Fatalf("BeadManager skills = %v, want bead", beadManager.Skills)
 	}
+	if !containsString(beadManager.Aliases, "bead-manager") {
+		t.Fatalf("BeadManager aliases = %v, want bead-manager", beadManager.Aliases)
+	}
 	if beadManager.Prompt == "" || beadManager.Soul == "" {
 		t.Fatalf("BeadManager prompt and soul should be loaded")
 	}

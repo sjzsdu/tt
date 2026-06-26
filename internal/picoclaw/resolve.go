@@ -26,6 +26,7 @@ type EmbeddedAgent struct {
 	Description string
 	Prompt      string
 	Soul        string
+	Aliases     []string
 	Skills      []string
 	Tools       []string
 	NoHistory   bool

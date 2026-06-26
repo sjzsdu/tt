@@ -44,6 +44,7 @@ type definition struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Soul        string   `yaml:"soul"`
+	Aliases     []string `yaml:"aliases"`
 	Skills      []string `yaml:"skills"`
 	Tools       []string `yaml:"tools"`
 	NoHistory   bool     `yaml:"no_history"`
@@ -306,6 +307,7 @@ func loadMarkdownAgent(path string) (pcwrap.EmbeddedAgent, error) {
 		Description: strings.TrimSpace(def.Description),
 		Prompt:      strings.TrimSpace(body),
 		Soul:        strings.TrimSpace(def.Soul),
+		Aliases:     compactStrings(def.Aliases),
 		Skills:      compactStrings(def.Skills),
 		Tools:       compactStrings(def.Tools),
 		NoHistory:   def.NoHistory,
@@ -339,6 +341,7 @@ func LoadFromFile(path string) (pcwrap.EmbeddedAgent, error) {
 		Description: strings.TrimSpace(def.Description),
 		Prompt:      strings.TrimSpace(body),
 		Soul:        strings.TrimSpace(def.Soul),
+		Aliases:     compactStrings(def.Aliases),
 		Skills:      compactStrings(def.Skills),
 		Tools:       compactStrings(def.Tools),
 		NoHistory:   def.NoHistory,
