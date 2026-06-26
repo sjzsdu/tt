@@ -88,6 +88,26 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("BeadManager prompt and soul should be loaded")
 	}
 
+	codeContextManager, err := Get(CodeContextManagerID)
+	if err != nil {
+		t.Fatalf("Get(CodeContextManagerID) error = %v", err)
+	}
+	if codeContextManager.Name != "Code Context 管理员" {
+		t.Fatalf("CodeContextManager name = %q", codeContextManager.Name)
+	}
+	if !containsString(codeContextManager.Tools, "skills") {
+		t.Fatalf("CodeContextManager tools = %v, want skills", codeContextManager.Tools)
+	}
+	if !containsString(codeContextManager.Skills, "code-context") {
+		t.Fatalf("CodeContextManager skills = %v, want code-context", codeContextManager.Skills)
+	}
+	if !containsString(codeContextManager.Aliases, "code-context") {
+		t.Fatalf("CodeContextManager aliases = %v, want code-context", codeContextManager.Aliases)
+	}
+	if codeContextManager.Prompt == "" || codeContextManager.Soul == "" {
+		t.Fatalf("CodeContextManager prompt and soul should be loaded")
+	}
+
 	stock, err := StockDiscussion()
 	if err != nil {
 		t.Fatalf("StockDiscussion() error = %v", err)
