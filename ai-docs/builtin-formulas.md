@@ -20,7 +20,7 @@
 - 查看：`tt formula show <name>` / `tt formula show <name> --markdown`。
 - 复制为本地工作副本：`tt formula copy <name> [output.toml]`。
 
-## Formulas（18 个）
+## Formulas（20 个）
 
 按 `category` 分组，描述均来自对应 toml 的 `description` 字段。
 
@@ -40,8 +40,9 @@
 | --- | --- | --- |
 | `san-sheng-liu-bu` | 三省六部工作流：起草 → 审核 → 拆任务 → 并发生成 → 汇总 | `zhongshu-draft` / `menxia-review` loop / `shangshu-decompose` 拆 `tasks` 数组 / `foreach parallel` 生成各部启动文稿 / `aggregate` 汇总 |
 | `shan-yi-zhe` | 善易者风格的多层动态决策与建议 | 必要时 typed runtime 显式澄清，展示卦序、卦象、上下卦、卦辞、彖传、爻辞，最终落到现实行动建议 |
-| `keep-coding` | 持续编码工作流：从当前代码深入研究出发，循环产出开发文档、实现、review/fix、commit 与总结 | 支持 `loop.max` 变量化；每轮包含代码研究、架构 gate 循环、代码 gate 循环、cycle report，最终 Markdown 汇总 |
+| `keep-coding` | 持续处理 ready beads：循环调用 `bead-coding`，每轮完成一个 bead 树的实现、验证、提交和关闭 | 第一层是 runtime loop，第二层是 Markdown final report；通过 `max_cycles` 控制轮数，适合持续清理 beads backlog |
 | `feature` | 通用代码 feature 端到端实现：需求理解/动态澄清 → code-context 调研 → 计划 → 编码 → 测试方式 → 影响评估 → 报告 | 不自动 commit；适合作为默认 feature 开发入口，`validation_command` 可覆盖自动验证命令 |
+| `bead-coding` | 执行单个 ready bead 树：读取 bead 详情和依赖，用 `coder` 完成实现，验证、提交并按需关闭 bead | 自动选择 ready bead 或使用指定 `bead_id`；读取 `bd dep tree` 上下游；提交成功后可 `bd close` |
 | `gongbu` | 代码 feature 的端到端实现：理解需求 → 调研 → 方案 → 实现 → 验证 → 按需提交 | 使用 `[workspace] kind = "worktree"` 创建隔离分支；按需 push |
 | `bug-fix` | 调试 / 修复 bug，并在结论中说明"问题不成立"的备选路径 | 第一步是动态澄清（`form = true`），输出 strict compact JSON；后续 step 串接代码调研、定位、修复、验证 |
 | `requirement-grooming` | 需求整理器：根据用户的模糊需求调研项目，并用 `bead-manager` 创建或规划一组可执行 beads | 动态澄清需求 → code-research 调研项目 → 设计候选 backlog 和 dependency_edges → bead-manager 去重、创建/更新 beads 并用 `bd link <blocked> <blocker>` 建立依赖；支持 `create_mode=plan` 只出计划，最终输出 Markdown 报告 |
@@ -84,12 +85,12 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 | 命令 / 状态 | 出现位置 |
 | --- | --- |
 | `gh auth status`（exec） | 同上 github 系列 |
-| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `run-validation` |
-| `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `run-validation` |
+| `git`（command） | `github-pr-rebase-main` / `github-pr-fix-comments` / `github-my-prs-rebase-main` / `code-docs` / `run-validation` / `bead-coding` / `keep-coding` |
+| `git` + `require_repo = true` | `github-pr-review` / `gongbu` / `run-validation` / `bead-coding` / `keep-coding` |
 | `jq`（command） | `run-validation` / `github-list-my-prs` / `github-fetch-pr` 等 |
 | `python3`（command） | `code-docs` / `gongbu` |
 | `bash`（command） | `run-validation` |
-| `bd`（command） | `requirement-grooming` |
+| `bd`（command） | `requirement-grooming` / `bead-coding` / `keep-coding` |
 | `jira`（command） | `jira-bug-fix` |
 
 如果 `tt formula run <name>` 报"preflight 失败"，直接对照这张表确认是否需要安装 / 登录。
@@ -99,6 +100,7 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 - 写"批处理 + 改写 + commit"类工作流：从 `github-pr-rebase-main` 拷贝。
 - 写"动态澄清 + 调研 + 决策"：从 `bug-fix` 拷贝。
 - 写"需求整理 + 项目调研 + beads backlog"：从 `requirement-grooming` 拷贝。
+- 写"beads 驱动的持续编码"：用 `keep-coding`；只想执行单个 ready bead 时用 `bead-coding`。
 - 写"知识整理 / 文档生成"：从 `fresh-topic-docs` 拷贝。
 - 写"代码 feature 端到端"：默认从 `feature` 拷贝；如果需要隔离 worktree 与按需提交，再参考 `gongbu`。
 - 写"PR / Jira 自动化"：从 `github-pr-review` / `jira-bug-fix` 拷贝，然后嵌入对应的 atomic 子步骤。
@@ -106,9 +108,9 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 ## 目录组织原则
 
 - `formulas/github/`: GitHub PR 批处理、审阅、rebase、评论修复。
-- `formulas/engineering/`: 通用代码实现、修 bug、需求整理、冲突解决、Jira bug 修复。
+- `formulas/engineering/`: 通用代码实现、修 bug、需求整理、单 bead 编码、冲突解决、Jira bug 修复。
 - `formulas/docs/`: 代码或主题文档生成。
-- `formulas/workflow/`: 方法论 / 决策型流程。
+- `formulas/workflow/`: 方法论 / 决策型流程，以及跨 bead 的持续编码 loop。
 - `formulas/examples/`: 示例或集成演示。
 - `atomics/github/`, `atomics/validation/`: 可被父 formula 复用的最小原子步骤。
 

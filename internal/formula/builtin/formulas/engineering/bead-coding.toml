@@ -1,0 +1,313 @@
+formula = "bead-coding"
+title = "Bead 编码执行器"
+description = "选择一个 ready bead 或指定 bead，读取其依赖树，用 coder 完成实现、验证、提交代码，并在成功后关闭 bead。"
+version = 1
+type = "workflow"
+category = "engineering"
+tags = ["beads", "coding", "commit", "automation"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "bd"
+command = "bd"
+message = "bead-coding 需要安装 bd/beads。"
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "bead-coding 需要安装 git。"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = false
+message = "bead-coding 需要在 git 仓库中运行。"
+
+[vars]
+bead_id = { description = "要处理的 bead id；为空时自动选择一个 ready bead", default = "" }
+goal = { description = "本次 bead 编码的总体目标或筛选偏好；用于帮助 coder 判断实现范围", default = "" }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
+close_on_success = { description = "验证和提交成功后是否关闭 bead", default = "true" }
+ready_limit = { description = "自动选择 ready bead 时最多读取多少个候选", default = "10" }
+
+[[steps]]
+id = "select-bead"
+title = "选择要处理的 ready bead"
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess, sys
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return {"cmd": cmd, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+bead_id = os.environ.get('BEAD_ID', '').strip()
+limit = os.environ.get('READY_LIMIT', '10').strip() or '10'
+result = {"selected": False, "bead_id": bead_id, "goal": os.environ.get('GOAL', '').strip(), "source": "explicit" if bead_id else "ready", "ready_candidates": [], "error": ""}
+if not bead_id:
+    ready = run(['bd', 'ready', '--json', '--limit', limit])
+    result['ready_raw'] = ready
+    if ready['code'] != 0:
+        result['error'] = ready['stderr'] or ready['stdout'] or 'bd ready failed'
+        print(json.dumps(result, ensure_ascii=False)); sys.exit(0)
+    try:
+        items = json.loads(ready['stdout'] or '[]')
+    except Exception as exc:
+        result['error'] = 'parse bd ready JSON failed: ' + str(exc)
+        print(json.dumps(result, ensure_ascii=False)); sys.exit(0)
+    result['ready_candidates'] = items
+    if items:
+        bead_id = items[0].get('id', '')
+        result['bead_id'] = bead_id
+if bead_id:
+    result['selected'] = True
+print(json.dumps(result, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+BEAD_ID = "{{bead_id}}"
+GOAL = "{{goal}}"
+READY_LIMIT = "{{ready_limit}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "load-bead-tree"
+title = "读取 bead 详情和依赖树"
+depends_on = ["select-bead"]
+condition = "select-bead.stdout.selected == true"
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+bead_id = os.environ['BEAD_ID'].strip()
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return {"cmd": cmd, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+out = {
+  "bead_id": bead_id,
+  "show": run(['bd', 'show', bead_id, '--long']),
+  "deps_down": run(['bd', 'dep', 'tree', bead_id, '--direction=down']),
+  "deps_up": run(['bd', 'dep', 'tree', bead_id, '--direction=up']),
+  "refs": run(['bd', 'show', bead_id, '--refs']),
+  "git_status_before": run(['git', 'status', '--short']),
+}
+print(json.dumps(out, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "45s"
+
+[steps.script.env]
+BEAD_ID = "{{select-bead.stdout.bead_id}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "implement-bead"
+title = "用 coder 完成 bead 内容"
+depends_on = ["load-bead-tree"]
+input_context = ["select-bead.stdout", "load-bead-tree.stdout"]
+condition = "select-bead.stdout.selected == true"
+description = """
+你是 coder agent。请根据 load-bead-tree.stdout 中的 bead 详情、依赖树、上游/下游关系和当前 git 状态，完成这个 bead 要求的编码工作。
+
+本次持续编码目标/偏好：{{goal}}
+
+要求：
+1. 必须理解整棵 bead 树：当前 bead 依赖什么、会阻塞什么、哪些内容属于本 bead 范围；
+2. 使用 code-context 调研项目结构、相关模块、现有模式和测试；
+3. 只实现当前 bead 的范围，不顺手实现下游 bead；
+4. 如果发现当前 bead 被未完成依赖阻塞，或需求不清，停止编码并说明 blocked_reason；
+5. 尽量补测试或更新相关文档；
+6. 不要 commit，不要关闭 bead。
+
+输出 ONLY compact JSON：
+{
+  "bead_id":"...",
+  "implemented":true,
+  "blocked":false,
+  "blocked_reason":"",
+  "summary":"...",
+  "files_changed":["..."],
+  "tests_added_or_updated":["..."],
+  "validation_suggestions":["..."],
+  "residual_risks":["..."]
+}
+"""
+agent.name = "coder"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["bead_id", "implemented", "blocked", "summary", "files_changed", "residual_risks"]
+
+[[steps]]
+id = "run-validation"
+title = "执行测试与基础验证"
+depends_on = ["implement-bead"]
+condition = "implement-bead.implemented == true && implement-bead.blocked == false"
+embed = "run-validation"
+
+[steps.embed_vars]
+command = "{{validation_command}}"
+auto_detect = "true"
+
+[[steps]]
+id = "final-check"
+title = "确认 bead 是否可提交"
+depends_on = ["implement-bead", "run-validation"]
+input_context = ["load-bead-tree.stdout", "implement-bead", "run-validation.validation.stdout"]
+condition = "select-bead.stdout.selected == true"
+description = """
+判断本次 bead-coding 是否可以提交和关闭 bead。不要编造验证结果。
+
+输出 ONLY compact JSON：
+{
+  "ready_to_commit":true,
+  "ready_to_close":true,
+  "reason":"...",
+  "validation_summary":"...",
+  "gaps":["..."],
+  "commit_message":"..."
+}
+
+规则：
+- implement-bead.blocked=true 时 ready_to_commit=false 且 ready_to_close=false；
+- 没有实际代码/文档改动时 ready_to_commit=false；
+- 验证失败或未运行且风险较高时 ready_to_close=false；
+- commit_message 必须简短，建议包含 bead id，例如 `feat: implement <bead-id> ...`。
+"""
+agent.name = "tester"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["ready_to_commit", "ready_to_close", "reason", "gaps", "commit_message"]
+
+[[steps]]
+id = "commit-changes"
+title = "提交本 bead 的代码改动"
+depends_on = ["final-check"]
+condition = "final-check.ready_to_commit == true"
+execution = "script"
+continue_on_error = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+msg = os.environ.get('COMMIT_MESSAGE', '').strip() or ('feat: implement ' + os.environ.get('BEAD_ID','bead'))
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return {"cmd": cmd, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+status_before = run(['git', 'status', '--short'])
+if not status_before['stdout'].strip():
+    print(json.dumps({"committed": False, "reason": "no changes", "status_before": status_before}, ensure_ascii=False)); raise SystemExit(0)
+add = run(['git', 'add', '-A'])
+commit = run(['git', 'commit', '-m', msg])
+rev = run(['git', 'rev-parse', '--short', 'HEAD']) if commit['code'] == 0 else {"stdout":"", "code": 1, "stderr":"commit failed"}
+print(json.dumps({"committed": commit['code'] == 0, "commit_message": msg, "commit_hash": rev.get('stdout','').strip(), "status_before": status_before, "add": add, "commit": commit, "status_after": run(['git', 'status', '--short'])}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.script.env]
+BEAD_ID = "{{select-bead.stdout.bead_id}}"
+COMMIT_MESSAGE = "{{final-check.commit_message}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "close-bead"
+title = "成功后关闭 bead"
+depends_on = ["commit-changes"]
+condition = "final-check.ready_to_close == true && commit-changes.stdout.committed == true && '{{close_on_success}}' == 'true'"
+execution = "script"
+continue_on_error = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+bead_id = os.environ['BEAD_ID'].strip()
+reason = os.environ.get('REASON', '').strip() or 'Implemented and committed by bead-coding formula.'
+p = subprocess.run(['bd', 'close', bead_id, '--reason', reason, '--json'], text=True, capture_output=True)
+print(json.dumps({"closed": p.returncode == 0, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+BEAD_ID = "{{select-bead.stdout.bead_id}}"
+REASON = "{{implement-bead.summary}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "cycle-summary"
+title = "输出本 bead 执行摘要"
+depends_on = ["select-bead", "load-bead-tree", "implement-bead", "run-validation", "final-check", "commit-changes", "close-bead"]
+input_context = ["select-bead.stdout", "implement-bead", "run-validation.validation.stdout", "final-check", "commit-changes.stdout", "close-bead.stdout"]
+description = """
+输出本次 bead-coding 的机器可读摘要，供 keep-coding loop 汇总。
+
+输出 ONLY compact JSON：
+{
+  "selected":true,
+  "bead_id":"...",
+  "implemented":true,
+  "blocked":false,
+  "committed":true,
+  "commit_hash":"...",
+  "closed":true,
+  "summary":"...",
+  "gaps":["..."],
+  "next_action":"..."
+}
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["selected", "bead_id", "implemented", "blocked", "committed", "closed", "summary", "gaps", "next_action"]
+
+[[steps]]
+id = "final-report"
+title = "输出 bead-coding 最终报告"
+depends_on = ["cycle-summary"]
+input_context = ["cycle-summary", "select-bead.stdout", "implement-bead", "final-check", "commit-changes.stdout", "close-bead.stdout"]
+description = """
+输出中文 Markdown 报告，不要输出 JSON。
+
+必须包含：
+- 结论：处理了哪个 bead，是否实现、验证、提交、关闭；
+- 改动摘要和关键文件；
+- 验证结果；
+- commit hash；
+- 未完成事项或下一步。
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"
