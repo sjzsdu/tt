@@ -1,0 +1,215 @@
+formula = "requirement-grooming"
+title = "需求整理器"
+description = "根据用户需求提示调研当前项目，提炼产品/架构上下文，并使用 bead-manager 创建或更新一组可执行 beads。"
+version = 1
+type = "workflow"
+category = "engineering"
+tags = ["requirements", "beads", "planning", "product", "architecture"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "bd"
+command = "bd"
+message = "requirement-grooming 需要安装 bd/beads，用于查询和创建任务。"
+
+[vars]
+requirement_prompt = { description = "用户的需求原文、产品想法、问题背景或待整理事项", required = true }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+max_beads = { description = "最多建议/创建多少个 beads，避免一次性拆得过碎", default = "8" }
+create_mode = { description = "创建模式：create=实际创建/更新 beads；plan=只输出建议不创建", default = "create" }
+priority_hint = { description = "可选优先级提示，例如 P0/P1/P2 或 high/medium/low", default = "" }
+
+[[steps]]
+id = "understand-requirement"
+title = "理解用户需求并整理澄清口径"
+form = true
+description = """
+基于 '{{requirement_prompt}}' 理解用户想整理成 beads 的需求。你的目标不是开始实现，而是把模糊想法转成后续项目调研任务。
+
+如果缺少会阻塞调研的信息，可以动态澄清；只询问真正影响项目调研和任务拆分的问题。不要让用户重复输入 requirement_prompt 已经包含的信息。
+
+当信息足够时，输出 ONLY compact JSON：
+{
+  "requirement_summary":"...",
+  "user_goal":"...",
+  "product_intent":"...",
+  "suspected_workstreams":["..."],
+  "acceptance_signals":["..."],
+  "out_of_scope":["..."],
+  "assumptions":["..."],
+  "research_brief":"...",
+  "initial_search_targets":["..."]
+}
+
+要求：
+- research_brief 要足够支撑 code-research 从代码中理解项目现状和落点；
+- suspected_workstreams 可以包含 product/backend/frontend/docs/tests/infra/agent/formula 等方向；
+- acceptance_signals 是需求整理阶段能识别出的成功信号，不要求已经完整。
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["requirement_summary", "user_goal", "research_brief", "initial_search_targets"]
+
+[[steps]]
+id = "project-research"
+title = "调研项目现状、能力边界和需求落点"
+depends_on = ["understand-requirement"]
+input_context = ["understand-requirement"]
+description = """
+你是 code-research agent。基于 understand-requirement 的 research_brief 调研当前项目。
+
+重点不是实现需求，而是从代码、文档、测试、命令、配置和现有 beads 习惯中判断：这个需求应该如何被拆成可执行 beads。
+
+请优先使用 code-context 掌握项目结构，再按需阅读关键文件和搜索符号。
+
+输出 ONLY compact JSON：
+{
+  "project_positioning":"...",
+  "relevant_capabilities":["..."],
+  "architecture_context":["..."],
+  "product_context":["..."],
+  "likely_code_areas":["..."],
+  "existing_patterns":["..."],
+  "risk_or_unknowns":["..."],
+  "suggested_workstreams":[{"id":"...","title":"...","why":"...","code_or_product_scope":["..."]}],
+  "evidence":["..."]
+}
+
+要求：
+- evidence 只列关键文件、模块、命令、测试或配置，避免证据堆叠；
+- suggested_workstreams 应帮助后续拆 bead，不要写成实现计划；
+- 明确项目现有能力与用户需求之间的差距。
+"""
+agent.name = "code-research"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["project_positioning", "likely_code_areas", "suggested_workstreams", "risk_or_unknowns"]
+
+[[steps]]
+id = "design-bead-backlog"
+title = "设计可创建的 beads backlog"
+depends_on = ["project-research"]
+input_context = ["understand-requirement", "project-research"]
+description = """
+基于需求理解和项目调研，设计一组适合写入 beads 的任务。最多输出 {{max_beads}} 个候选 bead。
+
+你的目标是形成“需求整理器”的结果：让后续 coding agent 或人类可以逐个领取执行，而不是把所有事情塞进一个大任务。
+
+输出 ONLY compact JSON：
+{
+  "backlog_goal":"...",
+  "grooming_strategy":"...",
+  "candidate_beads":[
+    {
+      "title":"...",
+      "type":"feature|bug|task|chore|docs|research|test",
+      "priority":"0|1|2|3|4",
+      "description":"...",
+      "acceptance_criteria":["..."],
+      "scope":["..."],
+      "out_of_scope":["..."],
+      "dependencies":["..."],
+      "related_files_or_modules":["..."],
+      "risk_notes":["..."],
+      "why_now":"..."
+    }
+  ],
+  "dedupe_queries":["..."],
+  "creation_notes":["..."]
+}
+
+要求：
+- 每个 bead 必须可独立理解、可验收；
+- 不要过度拆分，优先按用户价值、系统边界、验证路径拆；
+- priority_hint='{{priority_hint}}' 只作为参考，不能覆盖明显更合理的优先级判断；
+- dependencies 先用自然语言描述，不要编造还不存在的 bead id；
+- dedupe_queries 给 bead-manager 用于检查已有相似 beads。
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["backlog_goal", "candidate_beads", "dedupe_queries"]
+
+[[steps]]
+id = "create-or-plan-beads"
+title = "使用 bead-manager 创建或规划 beads"
+depends_on = ["design-bead-backlog"]
+input_context = ["understand-requirement", "project-research", "design-bead-backlog"]
+description = """
+你是 bead-manager agent。根据 design-bead-backlog 管理当前项目 beads。
+
+create_mode='{{create_mode}}'：
+- 如果 create_mode=create：请先查询已有 beads，使用 dedupe_queries 检查重复或相近任务；然后创建必要的新 beads，或更新明显相同的已有 beads。不要创建超过 {{max_beads}} 个 beads。
+- 如果 create_mode=plan：不要创建或更新 beads，只输出将要执行的 bd 操作计划。
+
+创建/更新原则：
+1. 不创建重复 bead；已有相近任务时优先更新或在输出中建议合并；
+2. 每个 bead 要包含背景、范围、验收标准、相关模块、风险/未知项；
+3. 如果 bd 支持类型、优先级、依赖等字段，尽量结构化写入；不支持时写进描述；
+4. 批量操作前要谨慎，但本 formula 的目标就是整理需求并创建 backlog，所以在 create_mode=create 时可以执行明确来自 candidate_beads 的创建；
+5. 不要关闭或删除已有 beads。
+
+输出 ONLY compact JSON：
+{
+  "mode":"create|plan",
+  "existing_matches":[{"query":"...","matches":["..."]}],
+  "created_beads":[{"id":"...","title":"...","priority":"..."}],
+  "updated_beads":[{"id":"...","title":"...","reason":"..."}],
+  "skipped_candidates":[{"title":"...","reason":"..."}],
+  "commands_or_plan":["..."],
+  "notes":["..."]
+}
+
+要求：
+- created_beads / updated_beads 必须如实反映实际操作；
+- 如果 bd 命令失败，保留错误信息到 notes，并不要假装已创建；
+- 如果 create_mode=plan，created_beads 和 updated_beads 应为空。
+"""
+agent.name = "bead-manager"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["mode", "created_beads", "updated_beads", "skipped_candidates", "notes"]
+
+[[steps]]
+id = "final-grooming-report"
+title = "输出需求整理报告"
+depends_on = ["create-or-plan-beads"]
+input_context = ["understand-requirement", "project-research", "design-bead-backlog", "create-or-plan-beads"]
+description = """
+基于全部上下文，输出面向用户的需求整理报告。不要再创建或修改 beads。
+
+输出 ONLY compact JSON：
+{
+  "summary":"...",
+  "requirement_interpretation":"...",
+  "project_findings":["..."],
+  "beads_result":"...",
+  "created_or_planned":["..."],
+  "recommended_execution_order":["..."],
+  "remaining_questions":["..."],
+  "next_actions":["..."]
+}
+
+要求：
+- 说明这批 beads 如何对应用户原始需求；
+- 如果没有创建任何 bead，要解释原因；
+- recommended_execution_order 要考虑依赖、风险和用户价值；
+- next_actions 给用户 3-5 条可执行建议。
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["summary", "beads_result", "next_actions"]
