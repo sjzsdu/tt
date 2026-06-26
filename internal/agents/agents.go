@@ -93,6 +93,24 @@ func All() ([]pcwrap.EmbeddedAgent, error) {
 	return List()
 }
 
+func Embedded() ([]pcwrap.EmbeddedAgent, error) {
+	paths, err := embeddedAgentPaths()
+	if err != nil {
+		return nil, err
+	}
+	agents := make([]pcwrap.EmbeddedAgent, 0, len(paths))
+	indexByID := map[string]int{}
+	for _, path := range paths {
+		agent, err := loadMarkdownAgent(path)
+		if err != nil {
+			return nil, err
+		}
+		agents = upsertAgent(agents, indexByID, agent)
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+	return agents, nil
+}
+
 func StockDiscussion() ([]pcwrap.EmbeddedAgent, error) {
 	return getMany(
 		StockBeginnerID,

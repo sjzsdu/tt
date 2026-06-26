@@ -12,15 +12,27 @@ import (
 )
 
 var (
-	agentMessage string
-	agentSession string
-	agentName    string
-	agentModel   string
-	agentDebug   bool
-	agentHome    string
-	agentConfig  string
-	agentList    bool
+	agentMessage             string
+	agentSession             string
+	agentName                string
+	agentModel               string
+	agentDebug               bool
+	agentHome                string
+	agentConfig              string
+	agentList                bool
+	agentShortcutsRegistered bool
 )
+
+type agentRunFlags struct {
+	Message string
+	Session string
+	Agent   string
+	Model   string
+	Debug   bool
+	Home    string
+	Config  string
+	List    bool
+}
 
 var agentCmd = &cobra.Command{
 	Use:     "agent [message]",
@@ -53,7 +65,65 @@ func init() {
 }
 
 func runAgent(cmd *cobra.Command, args []string) error {
-	msg := strings.TrimSpace(agentMessage)
+	return runAgentWithFlags(cmd, args, agentRunFlags{
+		Message: agentMessage,
+		Session: agentSession,
+		Agent:   agentName,
+		Model:   agentModel,
+		Debug:   agentDebug,
+		Home:    agentHome,
+		Config:  agentConfig,
+		List:    agentList,
+	})
+}
+
+func registerEmbeddedAgentShortcutCommands() {
+	if agentShortcutsRegistered {
+		return
+	}
+	agentShortcutsRegistered = true
+	embeddedAgents, err := agents.Embedded()
+	if err != nil {
+		return
+	}
+	existing := map[string]bool{}
+	for _, command := range rootCmd.Commands() {
+		existing[command.Name()] = true
+		for _, alias := range command.Aliases {
+			existing[alias] = true
+		}
+	}
+	for _, embeddedAgent := range embeddedAgents {
+		agent := embeddedAgent
+		if agent.ID == "" || existing[agent.ID] {
+			continue
+		}
+		flags := agentRunFlags{Agent: agent.ID}
+		shortcut := &cobra.Command{
+			Use:   agent.ID + " [message]",
+			Short: fmt.Sprintf("Run the %s embedded agent", agent.ID),
+			Long:  fmt.Sprintf("Run the %s embedded agent. This is a shortcut for `tt agent --agent %s`.", agent.ID, agent.ID),
+			Args:  cobra.ArbitraryArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runAgentWithFlags(cmd, args, flags)
+			},
+		}
+		if description := strings.TrimSpace(agent.Description); description != "" {
+			shortcut.Short = description
+		}
+		shortcut.Flags().StringVarP(&flags.Message, "message", "m", "", "send a single message to the agent")
+		shortcut.Flags().StringVarP(&flags.Session, "session", "s", "", "session key; defaults to cli:default")
+		shortcut.Flags().StringVar(&flags.Model, "model", "", "model to use; defaults to the selected agent model or config default")
+		shortcut.Flags().BoolVarP(&flags.Debug, "debug", "d", false, "enable debug logging")
+		shortcut.Flags().StringVar(&flags.Home, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
+		shortcut.Flags().StringVar(&flags.Config, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
+		rootCmd.AddCommand(shortcut)
+		existing[agent.ID] = true
+	}
+}
+
+func runAgentWithFlags(cmd *cobra.Command, args []string, flags agentRunFlags) error {
+	msg := strings.TrimSpace(flags.Message)
 	if msg == "" && len(args) > 0 {
 		msg = strings.TrimSpace(strings.Join(args, " "))
 	}
@@ -68,25 +138,25 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		// message remains CLI-only and is not persisted in tt config.
 	}
 	if cmd.Flags().Changed("session") {
-		cli.Agent.Session = agentSession
+		cli.Agent.Session = flags.Session
 	}
-	if cmd.Flags().Changed("agent") {
-		cli.Agent.Agent = agentName
+	if flags.Agent != "" || cmd.Flags().Changed("agent") {
+		cli.Agent.Agent = flags.Agent
 	}
 	if cmd.Flags().Changed("model") {
-		cli.Agent.Model = agentModel
+		cli.Agent.Model = flags.Model
 	}
 	if cmd.Flags().Changed("debug") {
-		cli.Agent.Debug = ttconfig.BoolPtr(agentDebug)
+		cli.Agent.Debug = ttconfig.BoolPtr(flags.Debug)
 	}
 	if cmd.Flags().Changed("picoclaw-home") {
-		cli.Picoclaw.Home = agentHome
+		cli.Picoclaw.Home = flags.Home
 	}
 	if cmd.Flags().Changed("picoclaw-config") {
-		cli.Picoclaw.Config = agentConfig
+		cli.Picoclaw.Config = flags.Config
 	}
 	merged = ttconfig.Merge(merged, cli)
-	if agentList {
+	if flags.List {
 		return runAgentList(cmd, merged, loaded.Sources)
 	}
 	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
@@ -110,7 +180,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 
-	debug := agentDebug
+	debug := flags.Debug
 	if merged.Agent.Debug != nil {
 		debug = *merged.Agent.Debug
 	}
