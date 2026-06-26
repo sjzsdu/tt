@@ -44,7 +44,7 @@
 | `feature` | 通用代码 feature 端到端实现：需求理解/动态澄清 → code-context 调研 → 计划 → 编码 → 测试方式 → 影响评估 → 报告 | 不自动 commit；适合作为默认 feature 开发入口，`validation_command` 可覆盖自动验证命令 |
 | `gongbu` | 代码 feature 的端到端实现：理解需求 → 调研 → 方案 → 实现 → 验证 → 按需提交 | 使用 `[workspace] kind = "worktree"` 创建隔离分支；按需 push |
 | `bug-fix` | 调试 / 修复 bug，并在结论中说明"问题不成立"的备选路径 | 第一步是动态澄清（`form = true`），输出 strict compact JSON；后续 step 串接代码调研、定位、修复、验证 |
-| `requirement-grooming` | 需求整理器：根据用户的模糊需求调研项目，并用 `bead-manager` 创建或规划一组可执行 beads | 动态澄清需求 → code-research 调研项目 → 设计候选 backlog → bead-manager 去重并创建/更新 beads；支持 `create_mode=plan` 只出计划 |
+| `requirement-grooming` | 需求整理器：根据用户的模糊需求调研项目，并用 `bead-manager` 创建或规划一组可执行 beads | 动态澄清需求 → code-research 调研项目 → 设计候选 backlog 和 dependency_edges → bead-manager 去重、创建/更新 beads 并用 `bd link <blocked> <blocker>` 建立依赖；支持 `create_mode=plan` 只出计划，最终输出 Markdown 报告 |
 | `git-resolve-merge-conflicts` | 只处理当前 git 项目中已经存在的 merge/rebase/cherry-pick 冲突 | 为每个冲突文件生成上下文，并发调用 resolver agent 修复，必要时重建 lockfile，最后运行可选验证 |
 
 ### docs / 学习

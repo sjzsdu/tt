@@ -108,6 +108,7 @@ description = """
   "grooming_strategy":"...",
   "candidate_beads":[
     {
+      "key":"stable-short-key",
       "title":"...",
       "type":"feature|bug|task|chore|docs|research|test",
       "priority":"0|1|2|3|4",
@@ -115,12 +116,14 @@ description = """
       "acceptance_criteria":["..."],
       "scope":["..."],
       "out_of_scope":["..."],
-      "dependencies":["..."],
+      "depends_on":["other-stable-short-key"],
+      "blocks":["other-stable-short-key"],
       "related_files_or_modules":["..."],
       "risk_notes":["..."],
       "why_now":"..."
     }
   ],
+  "dependency_edges":[{"blocked":"candidate-key-that-is-blocked","blocker":"candidate-key-that-must-finish-first","type":"blocks","why":"..."}],
   "dedupe_queries":["..."],
   "creation_notes":["..."]
 }
@@ -128,8 +131,11 @@ description = """
 要求：
 - 每个 bead 必须可独立理解、可验收；
 - 不要过度拆分，优先按用户价值、系统边界、验证路径拆；
+- 每个 candidate_beads 元素必须有稳定 key，只能用小写字母、数字和短横线，供 dependency_edges 引用；
+- 如果任务存在先后顺序或阻塞关系，必须写入 dependency_edges，不能只写在 description 或 risk_notes 里；
+- dependency_edges 语义必须遵循 bd：blocked 依赖 blocker，等价于执行 `bd link <blocked-id> <blocker-id>`，即 blocker blocks blocked；
 - priority_hint='{{priority_hint}}' 只作为参考，不能覆盖明显更合理的优先级判断；
-- dependencies 先用自然语言描述，不要编造还不存在的 bead id；
+- depends_on / blocks 只能引用 candidate key，不要编造还不存在的 bead id；
 - dedupe_queries 给 bead-manager 用于检查已有相似 beads。
 """
 agent.name = "planner"
@@ -154,9 +160,12 @@ create_mode='{{create_mode}}'：
 创建/更新原则：
 1. 不创建重复 bead；已有相近任务时优先更新或在输出中建议合并；
 2. 每个 bead 要包含背景、范围、验收标准、相关模块、风险/未知项；
-3. 如果 bd 支持类型、优先级、依赖等字段，尽量结构化写入；不支持时写进描述；
-4. 批量操作前要谨慎，但本 formula 的目标就是整理需求并创建 backlog，所以在 create_mode=create 时可以执行明确来自 candidate_beads 的创建；
-5. 不要关闭或删除已有 beads。
+3. 必须维护 candidate key -> 实际 bead id 的映射，包括复用已有 bead 的情况；
+4. 创建或复用 bead 之后，必须根据 design-bead-backlog.dependency_edges 建立 bd 依赖关系；
+5. bd 依赖命令语义：`bd link <blocked-id> <blocker-id>` 表示 blocker blocks blocked，也就是 blocked 依赖 blocker；
+6. 也可以在 `bd create` 时用 `--deps` 写入依赖，但仍必须确认所有 dependency_edges 都已体现在 bd 中；
+7. 批量操作前要谨慎，但本 formula 的目标就是整理需求并创建 backlog，所以在 create_mode=create 时可以执行明确来自 candidate_beads 的创建和 dependency_edges 链接；
+8. 不要关闭或删除已有 beads。
 
 输出 ONLY compact JSON：
 {
@@ -164,6 +173,8 @@ create_mode='{{create_mode}}'：
   "existing_matches":[{"query":"...","matches":["..."]}],
   "created_beads":[{"id":"...","title":"...","priority":"..."}],
   "updated_beads":[{"id":"...","title":"...","reason":"..."}],
+  "bead_id_map":{"candidate-key":"actual-bead-id"},
+  "dependency_links":[{"blocked":"actual-bead-id","blocker":"actual-bead-id","type":"blocks","command":"bd link <blocked> <blocker>","status":"created|already-existed|planned|failed","error":""}],
   "skipped_candidates":[{"title":"...","reason":"..."}],
   "commands_or_plan":["..."],
   "notes":["..."]
@@ -171,15 +182,16 @@ create_mode='{{create_mode}}'：
 
 要求：
 - created_beads / updated_beads 必须如实反映实际操作；
+- dependency_links 必须覆盖 design-bead-backlog.dependency_edges；如果某条边无法创建，必须 status=failed 并写明 error；
 - 如果 bd 命令失败，保留错误信息到 notes，并不要假装已创建；
-- 如果 create_mode=plan，created_beads 和 updated_beads 应为空。
+- 如果 create_mode=plan，created_beads 和 updated_beads 应为空，但 dependency_links 要以 status=planned 表达计划建立的依赖。
 """
 agent.name = "bead-manager"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
-required = ["mode", "created_beads", "updated_beads", "skipped_candidates", "notes"]
+required = ["mode", "created_beads", "updated_beads", "bead_id_map", "dependency_links", "skipped_candidates", "notes"]
 
 [[steps]]
 id = "final-grooming-report"
@@ -189,27 +201,45 @@ input_context = ["understand-requirement", "project-research", "design-bead-back
 description = """
 基于全部上下文，输出面向用户的需求整理报告。不要再创建或修改 beads。
 
-输出 ONLY compact JSON：
-{
-  "summary":"...",
-  "requirement_interpretation":"...",
-  "project_findings":["..."],
-  "beads_result":"...",
-  "created_or_planned":["..."],
-  "recommended_execution_order":["..."],
-  "remaining_questions":["..."],
-  "next_actions":["..."]
-}
+输出一段可直接阅读的 Markdown 文本，不要输出 JSON，不要用代码块包裹全文。
+
+建议结构：
+
+# 需求整理报告
+
+## 一句话总结
+...
+
+## 我如何理解你的需求
+...
+
+## 项目调研结论
+- ...
+
+## 已创建/规划的 beads
+用表格列出 bead id、标题、优先级、状态、说明。
+
+## 依赖关系
+必须单独列出依赖关系。格式建议：
+- `<blocked-id>` 依赖 `<blocker-id>`：原因...
+
+如果 create_mode=create，还要说明这些关系是否已通过 bd link 建立；如果有失败，列出失败原因。
+
+## 建议执行顺序
+按依赖、风险和用户价值排序。
+
+## 仍需确认的问题
+- ...
+
+## 下一步建议
+1. ...
 
 要求：
 - 说明这批 beads 如何对应用户原始需求；
 - 如果没有创建任何 bead，要解释原因；
-- recommended_execution_order 要考虑依赖、风险和用户价值；
-- next_actions 给用户 3-5 条可执行建议。
+- 必须显式说明 dependency_links 是否完整覆盖了 design-bead-backlog.dependency_edges；
+- 建议执行顺序要考虑依赖、风险和用户价值；
+- 下一步建议给用户 3-5 条可执行建议。
 """
 agent.name = "reporter"
 agent.cwd = "{{workspace_path}}"
-
-[steps.validate]
-format = "json"
-required = ["summary", "beads_result", "next_actions"]
