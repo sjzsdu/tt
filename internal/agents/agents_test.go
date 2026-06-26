@@ -65,6 +65,23 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("TranslateMaster prompt and soul should be loaded")
 	}
 
+	beadManager, err := Get(BeadManagerID)
+	if err != nil {
+		t.Fatalf("Get(BeadManagerID) error = %v", err)
+	}
+	if beadManager.Name != "Bead 事务管理员" {
+		t.Fatalf("BeadManager name = %q", beadManager.Name)
+	}
+	if !containsString(beadManager.Tools, "skills") || !containsString(beadManager.Tools, "exec") {
+		t.Fatalf("BeadManager tools = %v, want skills and exec", beadManager.Tools)
+	}
+	if !containsString(beadManager.Skills, "bead") {
+		t.Fatalf("BeadManager skills = %v, want bead", beadManager.Skills)
+	}
+	if beadManager.Prompt == "" || beadManager.Soul == "" {
+		t.Fatalf("BeadManager prompt and soul should be loaded")
+	}
+
 	stock, err := StockDiscussion()
 	if err != nil {
 		t.Fatalf("StockDiscussion() error = %v", err)

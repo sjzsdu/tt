@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sjzsdu/tt/internal/util"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
+	"github.com/sjzsdu/tt/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,6 +33,7 @@ const (
 	CodeResearchID          = "code-research"
 	FormulaWriterID         = "formula-writer"
 	DocsAnalystID           = "docs-analyst"
+	BeadManagerID           = "bead-manager"
 )
 
 //go:embed embedded
