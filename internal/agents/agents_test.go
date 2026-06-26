@@ -38,6 +38,9 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		if core[i].Prompt == "" || core[i].Soul == "" {
 			t.Fatalf("Core[%d] prompt and soul should be loaded", i)
 		}
+		if core[i].ID == CoderID && !containsString(core[i].Skills, "code-context") {
+			t.Fatalf("Coder skills = %v, want code-context", core[i].Skills)
+		}
 	}
 
 	all, err := All()
@@ -78,8 +81,8 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	if !containsString(beadManager.Skills, "bead") {
 		t.Fatalf("BeadManager skills = %v, want bead", beadManager.Skills)
 	}
-	if !containsString(beadManager.Aliases, "bead-manager") {
-		t.Fatalf("BeadManager aliases = %v, want bead-manager", beadManager.Aliases)
+	if !containsString(beadManager.Aliases, "bd") {
+		t.Fatalf("BeadManager aliases = %v, want bd", beadManager.Aliases)
 	}
 	if beadManager.Prompt == "" || beadManager.Soul == "" {
 		t.Fatalf("BeadManager prompt and soul should be loaded")

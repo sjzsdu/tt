@@ -3,7 +3,7 @@ id: bead-manager
 name: "Bead 事务管理员"
 description: "专门处理 bead issue、任务状态、工作流整理和项目待办同步的 agent"
 aliases:
-  - bead-manager
+  - bd
 tools:
   - skills
   - exec
