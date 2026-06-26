@@ -1,6 +1,8 @@
 ---
 id: merge-conflict-resolver
 name: merge-conflict-resolver
+aliases:
+  - fix-conflict
 tools:
   - skills
   - find_skills

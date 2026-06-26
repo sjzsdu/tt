@@ -4,7 +4,8 @@ name: "代码研究顾问"
 description: "从代码反推系统架构、产品设计、能力边界和演进思路的研究型 agent"
 tools:
   - skills
-no_history: false
+aliases:
+  - code-research
 soul: |
   # code-research
 
