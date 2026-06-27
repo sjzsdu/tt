@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -181,5 +182,64 @@ func TestAgentWebSessionsHandler(t *testing.T) {
 	}
 	if !foundCoder {
 		t.Fatalf("coder session not found: %+v", resp.Sessions)
+	}
+}
+
+func TestParseAgentWebGitStatusAndLog(t *testing.T) {
+	files := parseAgentWebGitStatus(" M cmd/agent_web.go\n?? new.txt\nR  old.txt -> new-name.txt\n")
+	if len(files) != 3 {
+		t.Fatalf("files = %+v", files)
+	}
+	if files[0].Status != "M" || files[0].Path != "cmd/agent_web.go" {
+		t.Fatalf("first file = %+v", files[0])
+	}
+	if files[2].Path != "new-name.txt" {
+		t.Fatalf("renamed file = %+v", files[2])
+	}
+	commits := parseAgentWebGitLog("abc123 first commit\ndef456 second\n")
+	if len(commits) != 2 || commits[0].Hash != "abc123" || commits[1].Subject != "second" {
+		t.Fatalf("commits = %+v", commits)
+	}
+}
+
+func TestAgentWebGitContextHandler(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "test@example.com")
+	runTestGit(t, workspace, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(workspace, "file.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "file.txt")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(workspace, "file.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := &agentWebServer{workspace: workspace}
+	req := httptest.NewRequest(http.MethodGet, "/api/git/context?file=file.txt", nil)
+	w := httptest.NewRecorder()
+	server.handleGitContext(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp agentWebGitContextResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Missing || len(resp.Files) != 1 || !strings.Contains(resp.Diff, "+two") {
+		t.Fatalf("git context = %+v", resp)
+	}
+}
+
+func runTestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 }

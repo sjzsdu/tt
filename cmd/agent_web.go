@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -105,6 +106,25 @@ type agentWebSessionsResponse struct {
 	Message  string                `json:"message,omitempty"`
 }
 
+type agentWebGitFile struct {
+	Path   string `json:"path"`
+	Status string `json:"status,omitempty"`
+}
+
+type agentWebGitCommit struct {
+	Hash    string `json:"hash"`
+	Subject string `json:"subject"`
+}
+
+type agentWebGitContextResponse struct {
+	Branch  string              `json:"branch,omitempty"`
+	Files   []agentWebGitFile   `json:"files,omitempty"`
+	Commits []agentWebGitCommit `json:"commits,omitempty"`
+	Diff    string              `json:"diff,omitempty"`
+	Missing bool                `json:"missing,omitempty"`
+	Message string              `json:"message,omitempty"`
+}
+
 const maxAgentWebTranscriptBytes = 256 * 1024
 
 func runAgentWeb(cmd *cobra.Command, cfg ttconfig.Config, sources ttconfig.Sources, flags agentRunFlags) error {
@@ -186,6 +206,7 @@ func (s *agentWebServer) start(port int) error {
 	mux.HandleFunc("/api/chat/stream", s.handleChatStream)
 	mux.HandleFunc("/api/transcript", s.handleTranscript)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
+	mux.HandleFunc("/api/git/context", s.handleGitContext)
 
 	maxPort := port + 20
 	var lastErr error
@@ -390,6 +411,20 @@ func (s *agentWebServer) handleSessions(w http.ResponseWriter, r *http.Request) 
 	writeAgentWebJSON(w, agentWebSessionsResponse{Sessions: sessions})
 }
 
+func (s *agentWebServer) handleGitContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	file := strings.TrimSpace(r.URL.Query().Get("file"))
+	ctx, err := readAgentWebGitContext(s.workspace, file)
+	if err != nil {
+		writeAgentWebJSON(w, agentWebGitContextResponse{Missing: true, Message: err.Error()})
+		return
+	}
+	writeAgentWebJSON(w, ctx)
+}
+
 func (s *agentWebServer) state() agentWebState {
 	agentsOut := make([]agentWebAgent, 0, len(s.embedded))
 	for _, agent := range s.embedded {
@@ -437,6 +472,84 @@ func splitAgentWebStreamChunks(text string, maxRunes int) []string {
 		chunks = append(chunks, string(runes[start:end]))
 	}
 	return chunks
+}
+
+func readAgentWebGitContext(workspace, file string) (agentWebGitContextResponse, error) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return agentWebGitContextResponse{}, fmt.Errorf("workspace is not available")
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".git")); err != nil {
+		return agentWebGitContextResponse{}, fmt.Errorf("workspace is not a git repository")
+	}
+	branch, _ := runAgentWebGit(workspace, "branch", "--show-current")
+	status, _ := runAgentWebGit(workspace, "status", "--short")
+	log, _ := runAgentWebGit(workspace, "log", "--oneline", "-5")
+	resp := agentWebGitContextResponse{
+		Branch:  strings.TrimSpace(branch),
+		Files:   parseAgentWebGitStatus(status),
+		Commits: parseAgentWebGitLog(log),
+	}
+	file = strings.TrimSpace(file)
+	if file != "" {
+		if strings.Contains(file, "\x00") || filepath.IsAbs(file) || strings.HasPrefix(filepath.Clean(file), "..") {
+			return resp, fmt.Errorf("invalid file path")
+		}
+		diff, err := runAgentWebGit(workspace, "diff", "--", file)
+		if err == nil && strings.TrimSpace(diff) == "" {
+			diff, _ = runAgentWebGit(workspace, "diff", "--cached", "--", file)
+		}
+		resp.Diff = diff
+	}
+	return resp, nil
+}
+
+func runAgentWebGit(workspace string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = workspace
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), err
+	}
+	return string(out), nil
+}
+
+func parseAgentWebGitStatus(output string) []agentWebGitFile {
+	lines := strings.Split(output, "\n")
+	files := make([]agentWebGitFile, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		status := strings.TrimSpace(line[:min(len(line), 2)])
+		path := strings.TrimSpace(line[min(len(line), 3):])
+		if path == "" {
+			path = strings.TrimSpace(line)
+		}
+		if idx := strings.LastIndex(path, " -> "); idx >= 0 {
+			path = path[idx+4:]
+		}
+		files = append(files, agentWebGitFile{Path: path, Status: status})
+	}
+	return files
+}
+
+func parseAgentWebGitLog(output string) []agentWebGitCommit {
+	lines := strings.Split(output, "\n")
+	commits := make([]agentWebGitCommit, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		commit := agentWebGitCommit{Hash: parts[0]}
+		if len(parts) > 1 {
+			commit.Subject = parts[1]
+		}
+		commits = append(commits, commit)
+	}
+	return commits
 }
 
 func readAgentWebTranscript(workspace, session, agent string) (string, string, error) {
@@ -641,10 +754,10 @@ var agentWebIndexTemplate = template.Must(template.New("agent-web").Parse(`<!doc
 <style>
 :root{color-scheme:dark;--bg:#0d1117;--panel:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#2f81f7;--danger:#f85149}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-.app{display:grid;grid-template-columns:280px 1fr;min-height:100vh}.side{border-right:1px solid var(--line);background:var(--panel);padding:16px;overflow:auto}.main{display:flex;flex-direction:column;min-width:0}
+	.app{display:grid;grid-template-columns:280px 1fr 340px;min-height:100vh}.side,.context{border-right:1px solid var(--line);background:var(--panel);padding:16px;overflow:auto}.context{border-right:0;border-left:1px solid var(--line)}.main{display:flex;flex-direction:column;min-width:0}
 h1{font-size:18px;margin:0 0 12px}.label{display:block;margin:12px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
 select,input,textarea,button{width:100%;border:1px solid var(--line);border-radius:8px;background:#0d1117;color:var(--text);padding:10px;font:inherit}button{background:var(--accent);border-color:var(--accent);font-weight:600;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
-	.meta{color:var(--muted);font-size:12px;word-break:break-all;margin-top:12px}.messages{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}.msg{max-width:980px;border:1px solid var(--line);border-radius:12px;padding:14px 16px}.msg-content{white-space:normal}.msg-content p{margin:.4em 0}.msg-content pre{overflow:auto;background:#0b1020;border:1px solid var(--line);border-radius:8px;padding:12px}.msg-content code{background:#0b1020;border:1px solid var(--line);border-radius:5px;padding:1px 4px}.msg-content pre code{border:0;padding:0}.msg-content a{color:#79c0ff}.msg-content h1,.msg-content h2,.msg-content h3{margin:.6em 0 .3em}.msg-content ul{margin:.4em 0 .4em 1.4em;padding:0}.msg-role{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px}.user{align-self:flex-end;background:#1f2937}.assistant{align-self:flex-start;background:var(--panel)}.tool{align-self:stretch;max-width:100%;background:#101820;border-color:#2d4f67}.tool .msg-content{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre-wrap;max-height:360px;overflow:auto}.system{align-self:center;color:var(--muted);font-size:12px}.error{border-color:var(--danger);color:#ffb4ad}.composer{border-top:1px solid var(--line);padding:16px;background:var(--panel);display:grid;grid-template-columns:1fr 120px;gap:12px}textarea{min-height:64px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:8px}.secondary{margin-top:10px;background:#21262d;border-color:var(--line)}
+	.meta{color:var(--muted);font-size:12px;word-break:break-all;margin-top:12px}.messages{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}.msg{max-width:980px;border:1px solid var(--line);border-radius:12px;padding:14px 16px}.msg-content{white-space:normal}.msg-content p{margin:.4em 0}.msg-content pre{overflow:auto;background:#0b1020;border:1px solid var(--line);border-radius:8px;padding:12px}.msg-content code{background:#0b1020;border:1px solid var(--line);border-radius:5px;padding:1px 4px}.msg-content pre code{border:0;padding:0}.msg-content a{color:#79c0ff}.msg-content h1,.msg-content h2,.msg-content h3{margin:.6em 0 .3em}.msg-content ul{margin:.4em 0 .4em 1.4em;padding:0}.msg-role{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px}.user{align-self:flex-end;background:#1f2937}.assistant{align-self:flex-start;background:var(--panel)}.tool{align-self:stretch;max-width:100%;background:#101820;border-color:#2d4f67}.tool .msg-content{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre-wrap;max-height:360px;overflow:auto}.system{align-self:center;color:var(--muted);font-size:12px}.error{border-color:var(--danger);color:#ffb4ad}.composer{border-top:1px solid var(--line);padding:16px;background:var(--panel);display:grid;grid-template-columns:1fr 120px;gap:12px}textarea{min-height:64px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:8px}.secondary{margin-top:10px;background:#21262d;border-color:var(--line)}.ctx-list{display:flex;flex-direction:column;gap:6px}.ctx-item{border:1px solid var(--line);border-radius:8px;padding:8px;background:#0d1117;text-align:left;cursor:pointer}.ctx-item small{color:var(--muted)}.diff{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#0b1020;padding:10px}
 </style>
 </head>
 <body>
@@ -664,14 +777,25 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
 	    <div class="meta" id="meta"></div>
 	    <div class="hint">当前使用同步请求，长任务期间请等待返回。回复支持轻量 Markdown 渲染。Ctrl+Enter 发送。</div>
   </aside>
-  <main class="main">
-    <div class="messages" id="messages"></div>
-    <form class="composer" id="form">
-      <textarea id="message" placeholder="输入消息，例如：帮我理解这个项目的架构"></textarea>
-      <button id="send" type="submit">发送</button>
-    </form>
-  </main>
-</div>
+	  <main class="main">
+	    <div class="messages" id="messages"></div>
+	    <form class="composer" id="form">
+	      <textarea id="message" placeholder="输入消息，例如：帮我理解这个项目的架构"></textarea>
+	      <button id="send" type="submit">发送</button>
+	    </form>
+	  </main>
+	  <aside class="context">
+	    <h1>Context</h1>
+	    <button class="secondary" id="refresh-context" type="button">刷新 Git 状态</button>
+	    <div class="meta" id="git-meta"></div>
+	    <label class="label">Changed files</label>
+	    <div class="ctx-list" id="git-files"></div>
+	    <label class="label">Recent commits</label>
+	    <div class="ctx-list" id="git-commits"></div>
+	    <label class="label">Diff</label>
+	    <div class="diff" id="git-diff">选择 changed file 查看 diff</div>
+	  </aside>
+	</div>
 <script>
 	const state={agents:[],sessions:[],busy:false,loadedHistory:false};
 	const $=id=>document.getElementById(id);
@@ -685,10 +809,13 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
 	function sessionLabel(s){const agent=s.agent?('['+s.agent+'] '):'';const size=s.size?(' · '+Math.round(s.size/1024)+' KiB'):'';const at=s.updated_at?(' · '+new Date(s.updated_at).toLocaleString()):'';return agent+s.session+size+at;}
 	function refreshSessionSelect(){const sel=$('session-list');sel.innerHTML='';const empty=document.createElement('option');empty.value='';empty.textContent='选择历史 session...';sel.appendChild(empty);const currentAgent=$('agent').value;for(const s of state.sessions){if(currentAgent&&s.agent&&s.agent!==currentAgent)continue;const opt=document.createElement('option');opt.value=s.session;opt.dataset.agent=s.agent||'';opt.textContent=sessionLabel(s);sel.appendChild(opt);}}
 	async function loadSessions(){const res=await fetch('/api/sessions');const data=await res.json();state.sessions=data.sessions||[];refreshSessionSelect();}
+	function renderGitContext(data){if(data.missing){$('git-meta').textContent=data.message||'Git context unavailable';$('git-files').innerHTML='';$('git-commits').innerHTML='';return;}$('git-meta').textContent='Branch: '+(data.branch||'(detached/unknown)');const files=$('git-files');files.innerHTML='';if(!(data.files||[]).length){files.innerHTML='<div class="meta">工作区干净</div>';}for(const f of data.files||[]){const btn=document.createElement('button');btn.type='button';btn.className='ctx-item';btn.innerHTML='<strong>'+escapeHtml(f.status||'??')+'</strong> '+escapeHtml(f.path);btn.addEventListener('click',()=>loadGitContext(f.path));files.appendChild(btn);}const commits=$('git-commits');commits.innerHTML='';for(const c of data.commits||[]){const div=document.createElement('div');div.className='ctx-item';div.innerHTML='<small>'+escapeHtml(c.hash)+'</small><br>'+escapeHtml(c.subject||'');commits.appendChild(div);}if(data.diff!==undefined){$('git-diff').textContent=data.diff||'没有 diff';}}
+	async function loadGitContext(file=''){const qs=file?('?file='+encodeURIComponent(file)):'';const res=await fetch('/api/git/context'+qs);const data=await res.json();renderGitContext(data);}
 	async function loadTranscript(){const params=new URLSearchParams({agent:$('agent').value||'',session:$('session').value||''});const res=await fetch('/api/transcript?'+params.toString());const data=await res.json();clearMessages();if(data.missing){add('system','没有找到这个 session 的历史记录，可以直接开始新对话。');return;}for(const m of data.messages||[]){add(normalizeRole(m.role),m.content);}add('system','已加载历史：'+(data.path||''));state.loadedHistory=true;}
-	async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');await loadSessions();await loadTranscript();}
+	async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');await loadSessions();await loadTranscript();await loadGitContext();}
 	async function readSSE(res,onEvent){const reader=res.body.getReader();const dec=new TextDecoder();let buf='';while(true){const {value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let idx;while((idx=buf.indexOf('\n\n'))>=0){const raw=buf.slice(0,idx);buf=buf.slice(idx+2);for(const line of raw.split('\n')){if(!line.startsWith('data:'))continue;const json=line.slice(5).trim();if(!json)continue;onEvent(JSON.parse(json));}}}}
-	$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;let acc='';const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});if(!res.ok||!res.body){const data=await res.json().catch(()=>({error:'stream request failed'}));throw new Error(data.error||res.statusText);}await readSSE(res,ev=>{if(ev.type==='start'){setMessage(pending,'正在等待 agent 回复...','assistant');return;}if(ev.type==='delta'){acc+=ev.delta||'';setMessage(pending,acc,'assistant');return;}if(ev.type==='error'){setMessage(pending,ev.error||'agent failed','assistant error');return;}});if(acc){setMessage(pending,acc,'assistant');}}catch(err){setMessage(pending,String(err),'assistant error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();loadSessions().catch(()=>{});}});
+	$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;let acc='';const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});if(!res.ok||!res.body){const data=await res.json().catch(()=>({error:'stream request failed'}));throw new Error(data.error||res.statusText);}await readSSE(res,ev=>{if(ev.type==='start'){setMessage(pending,'正在等待 agent 回复...','assistant');return;}if(ev.type==='delta'){acc+=ev.delta||'';setMessage(pending,acc,'assistant');return;}if(ev.type==='error'){setMessage(pending,ev.error||'agent failed','assistant error');return;}});if(acc){setMessage(pending,acc,'assistant');}}catch(err){setMessage(pending,String(err),'assistant error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();loadSessions().catch(()=>{});loadGitContext().catch(()=>{});}});
+	$('refresh-context').addEventListener('click',()=>loadGitContext().catch(err=>{$('git-meta').textContent=String(err);}));
 	$('load-history').addEventListener('click',()=>loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');}));
 	$('session-list').addEventListener('change',()=>{const opt=$('session-list').selectedOptions[0];if(!opt||!opt.value)return;$('session').value=opt.value;if(opt.dataset.agent)$('agent').value=opt.dataset.agent;loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');});});
 	$('new-session').addEventListener('click',()=>{const d=new Date();const stamp=d.toISOString().replace(/[-:.TZ]/g,'').slice(0,14);$('session').value='web:'+($('agent').value||'agent')+':'+stamp;$('session-list').value='';clearMessages();add('system','已创建新 session：'+$('session').value);$('message').focus();});
