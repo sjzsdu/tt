@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -56,5 +58,53 @@ func TestAgentWebIndexHandler(t *testing.T) {
 	}
 	if body := w.Body.String(); body == "" || !strings.Contains(body, "tt agent web") {
 		t.Fatalf("index body does not contain title")
+	}
+}
+
+func TestParseAgentWebTranscript(t *testing.T) {
+	content := strings.Join([]string{
+		`{"role":"user","content":"hello"}`,
+		`{"role":"assistant","content":"# Hi\n\n**ok**"}`,
+		`not json`,
+		`{"role":"tool","content":{"name":"exec"}}`,
+	}, "\n")
+	messages := parseAgentWebTranscript(content)
+	if len(messages) != 3 {
+		t.Fatalf("messages len = %d, want 3: %+v", len(messages), messages)
+	}
+	if messages[0].Role != "user" || messages[0].Content != "hello" {
+		t.Fatalf("first message = %+v", messages[0])
+	}
+	if messages[1].Role != "assistant" || !strings.Contains(messages[1].Content, "**ok**") {
+		t.Fatalf("second message = %+v", messages[1])
+	}
+}
+
+func TestAgentWebTranscriptHandler(t *testing.T) {
+	workspace := t.TempDir()
+	sessionsDir := filepath.Join(workspace, ".tt", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(sessionsDir, "agent_coder_cli_test.jsonl")
+	if err := os.WriteFile(transcript, []byte(`{"role":"user","content":"hello"}`+"\n"+`{"role":"assistant","content":"world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := &agentWebServer{workspace: workspace, defaults: agentWebDefaults{Agent: "coder", Session: "cli:test"}}
+	req := httptest.NewRequest(http.MethodGet, "/api/transcript?agent=coder&session=cli:test", nil)
+	w := httptest.NewRecorder()
+	server.handleTranscript(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp agentWebTranscriptResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Missing || resp.Path != transcript {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(resp.Messages) != 2 || resp.Messages[1].Content != "world" {
+		t.Fatalf("messages = %+v", resp.Messages)
 	}
 }

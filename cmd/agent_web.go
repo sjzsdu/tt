@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +69,22 @@ type agentWebChatResponse struct {
 	Response string `json:"response,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
+
+type agentWebTranscriptMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type agentWebTranscriptResponse struct {
+	Session  string                      `json:"session"`
+	Agent    string                      `json:"agent,omitempty"`
+	Path     string                      `json:"path,omitempty"`
+	Messages []agentWebTranscriptMessage `json:"messages,omitempty"`
+	Missing  bool                        `json:"missing,omitempty"`
+	Message  string                      `json:"message,omitempty"`
+}
+
+const maxAgentWebTranscriptBytes = 256 * 1024
 
 func runAgentWeb(cmd *cobra.Command, cfg ttconfig.Config, sources ttconfig.Sources, flags agentRunFlags) error {
 	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(cfg.Picoclaw.Home, cfg.Picoclaw.Config)
@@ -144,6 +162,7 @@ func (s *agentWebServer) start(port int) error {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/chat", s.handleChat)
+	mux.HandleFunc("/api/transcript", s.handleTranscript)
 
 	maxPort := port + 20
 	var lastErr error
@@ -251,6 +270,28 @@ func (s *agentWebServer) handleChat(w http.ResponseWriter, r *http.Request) {
 	writeAgentWebJSON(w, agentWebChatResponse{Response: response})
 }
 
+func (s *agentWebServer) handleTranscript(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	session := strings.TrimSpace(r.URL.Query().Get("session"))
+	agent := strings.TrimSpace(r.URL.Query().Get("agent"))
+	if session == "" {
+		session = s.defaults.Session
+	}
+	if agent == "" {
+		agent = s.defaults.Agent
+	}
+	path, content, err := readAgentWebTranscript(s.workspace, session, agent)
+	if err != nil {
+		writeAgentWebJSON(w, agentWebTranscriptResponse{Session: session, Agent: agent, Missing: true, Message: err.Error()})
+		return
+	}
+	messages := parseAgentWebTranscript(content)
+	writeAgentWebJSON(w, agentWebTranscriptResponse{Session: session, Agent: agent, Path: path, Messages: messages})
+}
+
 func (s *agentWebServer) state() agentWebState {
 	agentsOut := make([]agentWebAgent, 0, len(s.embedded))
 	for _, agent := range s.embedded {
@@ -276,6 +317,139 @@ func writeAgentWebJSON(w http.ResponseWriter, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+func readAgentWebTranscript(workspace, session, agent string) (string, string, error) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return "", "", fmt.Errorf("workspace is not available")
+	}
+	sessionsDir := filepath.Join(workspace, ".tt", "sessions")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return "", "", fmt.Errorf("read sessions dir: %w", err)
+	}
+	slug := agentWebSessionFilenameToken(session)
+	agentPrefix := ""
+	if strings.TrimSpace(agent) != "" {
+		agentPrefix = "agent_" + agentWebSessionFilenameToken(agent) + "_"
+	}
+	var best string
+	var bestMod time.Time
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		name := entry.Name()
+		if agentPrefix != "" && !strings.HasPrefix(name, agentPrefix) {
+			continue
+		}
+		if slug != "" && !strings.Contains(name, slug) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if best == "" || info.ModTime().After(bestMod) {
+			best = filepath.Join(sessionsDir, name)
+			bestMod = info.ModTime()
+		}
+	}
+	if best == "" {
+		return "", "", fmt.Errorf("session transcript not found under %s", sessionsDir)
+	}
+	content, err := readAgentWebFileTail(best, maxAgentWebTranscriptBytes)
+	if err != nil {
+		return "", "", err
+	}
+	return best, content, nil
+}
+
+func parseAgentWebTranscript(content string) []agentWebTranscriptMessage {
+	lines := strings.Split(content, "\n")
+	messages := make([]agentWebTranscriptMessage, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "...") {
+			continue
+		}
+		var raw struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue
+		}
+		role := strings.TrimSpace(raw.Role)
+		if role == "" {
+			role = "assistant"
+		}
+		content := strings.TrimSpace(string(raw.Content))
+		var text string
+		if len(raw.Content) > 0 {
+			if err := json.Unmarshal(raw.Content, &text); err != nil {
+				text = strings.TrimSpace(string(raw.Content))
+			}
+		}
+		text = strings.TrimSpace(text)
+		if text == "" && content != "" && content != "null" {
+			text = content
+		}
+		if text == "" {
+			continue
+		}
+		messages = append(messages, agentWebTranscriptMessage{Role: role, Content: text})
+	}
+	return messages
+}
+
+func agentWebSessionFilenameToken(value string) string {
+	value = strings.TrimSpace(value)
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		keep := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-'
+		if keep {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func readAgentWebFileTail(path string, maxBytes int64) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	offset := int64(0)
+	if info.Size() > maxBytes {
+		offset = info.Size() - maxBytes
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if offset > 0 {
+		if _, err := file.Seek(offset, 0); err != nil {
+			return "", err
+		}
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	if offset > 0 {
+		return "... transcript truncated to last 256 KiB ...\n" + string(data), nil
+	}
+	return string(data), nil
+}
+
 var agentWebIndexTemplate = template.Must(template.New("agent-web").Parse(`<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -288,7 +462,7 @@ var agentWebIndexTemplate = template.Must(template.New("agent-web").Parse(`<!doc
 .app{display:grid;grid-template-columns:280px 1fr;min-height:100vh}.side{border-right:1px solid var(--line);background:var(--panel);padding:16px;overflow:auto}.main{display:flex;flex-direction:column;min-width:0}
 h1{font-size:18px;margin:0 0 12px}.label{display:block;margin:12px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
 select,input,textarea,button{width:100%;border:1px solid var(--line);border-radius:8px;background:#0d1117;color:var(--text);padding:10px;font:inherit}button{background:var(--accent);border-color:var(--accent);font-weight:600;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
-.meta{color:var(--muted);font-size:12px;word-break:break-all;margin-top:12px}.messages{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}.msg{max-width:980px;border:1px solid var(--line);border-radius:12px;padding:14px 16px;white-space:pre-wrap}.user{align-self:flex-end;background:#1f2937}.assistant{align-self:flex-start;background:var(--panel)}.error{border-color:var(--danger);color:#ffb4ad}.composer{border-top:1px solid var(--line);padding:16px;background:var(--panel);display:grid;grid-template-columns:1fr 120px;gap:12px}textarea{min-height:64px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:8px}
+	.meta{color:var(--muted);font-size:12px;word-break:break-all;margin-top:12px}.messages{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}.msg{max-width:980px;border:1px solid var(--line);border-radius:12px;padding:14px 16px}.msg-content{white-space:normal}.msg-content p{margin:.4em 0}.msg-content pre{overflow:auto;background:#0b1020;border:1px solid var(--line);border-radius:8px;padding:12px}.msg-content code{background:#0b1020;border:1px solid var(--line);border-radius:5px;padding:1px 4px}.msg-content pre code{border:0;padding:0}.msg-content a{color:#79c0ff}.msg-content h1,.msg-content h2,.msg-content h3{margin:.6em 0 .3em}.msg-content ul{margin:.4em 0 .4em 1.4em;padding:0}.user{align-self:flex-end;background:#1f2937}.assistant{align-self:flex-start;background:var(--panel)}.system{align-self:center;color:var(--muted);font-size:12px}.error{border-color:var(--danger);color:#ffb4ad}.composer{border-top:1px solid var(--line);padding:16px;background:var(--panel);display:grid;grid-template-columns:1fr 120px;gap:12px}textarea{min-height:64px;resize:vertical}.hint{color:var(--muted);font-size:12px;margin-top:8px}.secondary{margin-top:10px;background:#21262d;border-color:var(--line)}
 </style>
 </head>
 <body>
@@ -299,10 +473,11 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
     <select id="agent"></select>
     <label class="label" for="session">Session</label>
     <input id="session" placeholder="cli:default" />
-    <label class="label" for="model">Model</label>
-    <input id="model" placeholder="default" />
-    <div class="meta" id="meta"></div>
-    <div class="hint">MVP：当前页面使用同步请求，长任务期间请等待返回。Ctrl+Enter 发送。</div>
+	    <label class="label" for="model">Model</label>
+	    <input id="model" placeholder="default" />
+	    <button class="secondary" id="load-history" type="button">加载历史</button>
+	    <div class="meta" id="meta"></div>
+	    <div class="hint">当前使用同步请求，长任务期间请等待返回。回复支持轻量 Markdown 渲染。Ctrl+Enter 发送。</div>
   </aside>
   <main class="main">
     <div class="messages" id="messages"></div>
@@ -313,11 +488,20 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
   </main>
 </div>
 <script>
-const state={agents:[],busy:false};
-const $=id=>document.getElementById(id);
-function add(role,text,cls=''){const el=document.createElement('div');el.className='msg '+role+(cls?' '+cls:'');el.textContent=text;$('messages').appendChild(el);$('messages').scrollTop=$('messages').scrollHeight;return el;}
-async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');add('assistant','Agent web 已启动。请选择 agent 后开始对话。');}
-$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});const data=await res.json().catch(()=>({error:'invalid server response'}));pending.textContent=data.error||data.response||'';if(!res.ok||data.error)pending.classList.add('error');}catch(err){pending.textContent=String(err);pending.classList.add('error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();}});
+	const state={agents:[],busy:false,loadedHistory:false};
+	const $=id=>document.getElementById(id);
+	function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+	function inlineMd(s){return escapeHtml(s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noreferrer">$1</a>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\x60([^\x60]+)\x60/g,'<code>$1</code>');}
+	function renderMarkdown(text){const fence=String.fromCharCode(96,96,96);const lines=String(text||'').split('\n');let html='',inCode=false,buf=[];function flushPara(){if(buf.length){html+='<p>'+inlineMd(buf.join(' '))+'</p>';buf=[];}}for(const line of lines){if(line.startsWith(fence)){flushPara();inCode=!inCode;if(inCode){html+='<pre><code>';}else{html+='</code></pre>';}continue;}if(inCode){html+=escapeHtml(line)+'\n';continue;}if(/^#{1,3}\s+/.test(line)){flushPara();const n=line.match(/^#+/)[0].length;html+='<h'+n+'>'+inlineMd(line.replace(/^#{1,3}\s+/,''))+'</h'+n+'>';continue;}if(/^[-*]\s+/.test(line)){flushPara();html+='<ul><li>'+inlineMd(line.replace(/^[-*]\s+/,''))+'</li></ul>';continue;}if(line.trim()===''){flushPara();continue;}buf.push(line.trim());}flushPara();if(inCode)html+='</code></pre>';return html;}
+	function setMessage(el,text,cls){el.className='msg '+(cls||'');const body=el.querySelector('.msg-content')||el;body.innerHTML=renderMarkdown(text);$('messages').scrollTop=$('messages').scrollHeight;}
+	function add(role,text,cls=''){const el=document.createElement('div');el.className='msg '+role+(cls?' '+cls:'');const body=document.createElement('div');body.className='msg-content';body.innerHTML=renderMarkdown(text);el.appendChild(body);$('messages').appendChild(el);$('messages').scrollTop=$('messages').scrollHeight;return el;}
+	function clearMessages(){ $('messages').innerHTML=''; }
+	async function loadTranscript(){const params=new URLSearchParams({agent:$('agent').value||'',session:$('session').value||''});const res=await fetch('/api/transcript?'+params.toString());const data=await res.json();clearMessages();if(data.missing){add('system','没有找到这个 session 的历史记录，可以直接开始新对话。');return;}for(const m of data.messages||[]){const role=m.role==='user'?'user':'assistant';add(role,m.content);}add('system','已加载历史：'+(data.path||''));state.loadedHistory=true;}
+	async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');await loadTranscript();}
+	$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});const data=await res.json().catch(()=>({error:'invalid server response'}));setMessage(pending,data.error||data.response||'','assistant'+((!res.ok||data.error)?' error':''));}catch(err){setMessage(pending,String(err),'assistant error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();}});
+	$('load-history').addEventListener('click',()=>loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');}));
+	$('agent').addEventListener('change',()=>loadTranscript().catch(()=>{}));
+	$('session').addEventListener('change',()=>loadTranscript().catch(()=>{}));
 $('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey){$('form').requestSubmit();}});
 loadState().catch(err=>add('assistant',String(err),'error'));
 </script>
