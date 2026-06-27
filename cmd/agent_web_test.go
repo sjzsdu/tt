@@ -78,6 +78,9 @@ func TestParseAgentWebTranscript(t *testing.T) {
 	if messages[1].Role != "assistant" || !strings.Contains(messages[1].Content, "**ok**") {
 		t.Fatalf("second message = %+v", messages[1])
 	}
+	if messages[2].Role != "tool" || !strings.Contains(messages[2].Content, `"name": "exec"`) {
+		t.Fatalf("tool message = %+v", messages[2])
+	}
 }
 
 func TestAgentWebTranscriptHandler(t *testing.T) {
