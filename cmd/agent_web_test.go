@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +43,29 @@ func TestAgentWebStateHandler(t *testing.T) {
 	}
 	if len(state.Agents) != 1 || state.Agents[0].ID != "coder" {
 		t.Fatalf("agents = %+v", state.Agents)
+	}
+}
+
+func TestAgentWebSSEEncoding(t *testing.T) {
+	var buf bytes.Buffer
+	writeAgentWebSSE(&buf, agentWebStreamEvent{Type: "delta", Delta: "hello"})
+	got := buf.String()
+	if !strings.HasPrefix(got, "data: ") || !strings.HasSuffix(got, "\n\n") {
+		t.Fatalf("sse frame = %q", got)
+	}
+	if !strings.Contains(got, `"type":"delta"`) || !strings.Contains(got, `"delta":"hello"`) {
+		t.Fatalf("sse payload = %q", got)
+	}
+}
+
+func TestSplitAgentWebStreamChunks(t *testing.T) {
+	chunks := splitAgentWebStreamChunks("abcdef", 2)
+	if len(chunks) != 3 || chunks[0] != "ab" || chunks[2] != "ef" {
+		t.Fatalf("chunks = %+v", chunks)
+	}
+	unicode := splitAgentWebStreamChunks("你好世界", 2)
+	if len(unicode) != 2 || unicode[0] != "你好" || unicode[1] != "世界" {
+		t.Fatalf("unicode chunks = %+v", unicode)
 	}
 }
 

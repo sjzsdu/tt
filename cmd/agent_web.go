@@ -71,6 +71,12 @@ type agentWebChatResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
+type agentWebStreamEvent struct {
+	Type  string `json:"type"`
+	Delta string `json:"delta,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
 type agentWebTranscriptMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -177,6 +183,7 @@ func (s *agentWebServer) start(port int) error {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/chat", s.handleChat)
+	mux.HandleFunc("/api/chat/stream", s.handleChatStream)
 	mux.HandleFunc("/api/transcript", s.handleTranscript)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 
@@ -286,6 +293,68 @@ func (s *agentWebServer) handleChat(w http.ResponseWriter, r *http.Request) {
 	writeAgentWebJSON(w, agentWebChatResponse{Response: response})
 }
 
+func (s *agentWebServer) handleChatStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+	var req agentWebChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Agent) == "" {
+		req.Agent = s.defaults.Agent
+	}
+	if strings.TrimSpace(req.Session) == "" {
+		req.Session = s.defaults.Session
+	}
+	if strings.TrimSpace(req.Model) == "" {
+		req.Model = s.defaults.Model
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	writeAgentWebSSE(w, agentWebStreamEvent{Type: "start"})
+	flusher.Flush()
+
+	s.mu.Lock()
+	response, err := s.runner.ProcessDirectContext(r.Context(), pcwrap.RunOptions{
+		Message:        req.Message,
+		Agent:          req.Agent,
+		Session:        req.Session,
+		Model:          req.Model,
+		Workspace:      s.workspace,
+		Debug:          s.defaults.Debug,
+		Quiet:          !s.defaults.Debug,
+		EmbeddedAgents: s.embedded,
+	})
+	s.mu.Unlock()
+	if err != nil {
+		writeAgentWebSSE(w, agentWebStreamEvent{Type: "error", Error: err.Error()})
+		flusher.Flush()
+		return
+	}
+	for _, chunk := range splitAgentWebStreamChunks(response, 900) {
+		writeAgentWebSSE(w, agentWebStreamEvent{Type: "delta", Delta: chunk})
+		flusher.Flush()
+	}
+	writeAgentWebSSE(w, agentWebStreamEvent{Type: "done"})
+	flusher.Flush()
+}
+
 func (s *agentWebServer) handleTranscript(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -344,6 +413,30 @@ func (s *agentWebServer) state() agentWebState {
 func writeAgentWebJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeAgentWebSSE(w io.Writer, event agentWebStreamEvent) {
+	payload, _ := json.Marshal(event)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+}
+
+func splitAgentWebStreamChunks(text string, maxRunes int) []string {
+	if text == "" {
+		return nil
+	}
+	if maxRunes <= 0 {
+		maxRunes = 900
+	}
+	runes := []rune(text)
+	chunks := make([]string, 0, len(runes)/maxRunes+1)
+	for start := 0; start < len(runes); start += maxRunes {
+		end := start + maxRunes
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, string(runes[start:end]))
+	}
+	return chunks
 }
 
 func readAgentWebTranscript(workspace, session, agent string) (string, string, error) {
@@ -594,7 +687,8 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
 	async function loadSessions(){const res=await fetch('/api/sessions');const data=await res.json();state.sessions=data.sessions||[];refreshSessionSelect();}
 	async function loadTranscript(){const params=new URLSearchParams({agent:$('agent').value||'',session:$('session').value||''});const res=await fetch('/api/transcript?'+params.toString());const data=await res.json();clearMessages();if(data.missing){add('system','没有找到这个 session 的历史记录，可以直接开始新对话。');return;}for(const m of data.messages||[]){add(normalizeRole(m.role),m.content);}add('system','已加载历史：'+(data.path||''));state.loadedHistory=true;}
 	async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');await loadSessions();await loadTranscript();}
-	$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});const data=await res.json().catch(()=>({error:'invalid server response'}));setMessage(pending,data.error||data.response||'','assistant'+((!res.ok||data.error)?' error':''));}catch(err){setMessage(pending,String(err),'assistant error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();}});
+	async function readSSE(res,onEvent){const reader=res.body.getReader();const dec=new TextDecoder();let buf='';while(true){const {value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let idx;while((idx=buf.indexOf('\n\n'))>=0){const raw=buf.slice(0,idx);buf=buf.slice(idx+2);for(const line of raw.split('\n')){if(!line.startsWith('data:'))continue;const json=line.slice(5).trim();if(!json)continue;onEvent(JSON.parse(json));}}}}
+	$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;let acc='';const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json','Accept':'text/event-stream'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});if(!res.ok||!res.body){const data=await res.json().catch(()=>({error:'stream request failed'}));throw new Error(data.error||res.statusText);}await readSSE(res,ev=>{if(ev.type==='start'){setMessage(pending,'正在等待 agent 回复...','assistant');return;}if(ev.type==='delta'){acc+=ev.delta||'';setMessage(pending,acc,'assistant');return;}if(ev.type==='error'){setMessage(pending,ev.error||'agent failed','assistant error');return;}});if(acc){setMessage(pending,acc,'assistant');}}catch(err){setMessage(pending,String(err),'assistant error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();loadSessions().catch(()=>{});}});
 	$('load-history').addEventListener('click',()=>loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');}));
 	$('session-list').addEventListener('change',()=>{const opt=$('session-list').selectedOptions[0];if(!opt||!opt.value)return;$('session').value=opt.value;if(opt.dataset.agent)$('agent').value=opt.dataset.agent;loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');});});
 	$('new-session').addEventListener('click',()=>{const d=new Date();const stamp=d.toISOString().replace(/[-:.TZ]/g,'').slice(0,14);$('session').value='web:'+($('agent').value||'agent')+':'+stamp;$('session-list').value='';clearMessages();add('system','已创建新 session：'+$('session').value);$('message').focus();});
