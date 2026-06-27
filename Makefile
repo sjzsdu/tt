@@ -13,12 +13,16 @@ web-install:
 web-build:
 	cd web && npm install && npm run build:markdown
 	cd web && npm run build:formula
+	cd web && npm run build:agent
 	rm -rf internal/webui/markdown/dist
 	rm -rf internal/webui/formula/dist
+	rm -rf internal/webui/agent/dist
 	mkdir -p internal/webui/markdown
 	mkdir -p internal/webui/formula
+	mkdir -p internal/webui/agent
 	cp -R web/apps/markdown/dist internal/webui/markdown/dist
 	cp -R web/apps/formula/dist internal/webui/formula/dist
+	cp -R web/apps/agent/dist internal/webui/agent/dist
 
 install: build
 	mkdir -p $(BINDIR)
@@ -31,7 +35,7 @@ install-system: build
 
 clean:
 	rm -f $(APP)
-	rm -rf web/node_modules web/apps/markdown/dist web/apps/formula/dist internal/webui/markdown/dist internal/webui/formula/dist
+	rm -rf web/node_modules web/apps/markdown/dist web/apps/formula/dist web/apps/agent/dist internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist
 
 run:
 	go run .
