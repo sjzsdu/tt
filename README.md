@@ -150,7 +150,7 @@ Flags:
 
 ### `tt formula`
 
-Author, validate, compile, run, and inspect formula workflows. The dashboard final report view now includes a dedicated follow-up chat that starts a separate `coder` session and uses the final report as chat context.
+Author, validate, compile, run, and inspect formula workflows. See `docs/formula/multi-run-product-shape.md` for the current product-shape research on running multiple formulas together with unified web monitoring. The dashboard final report view now includes a dedicated follow-up chat that starts a separate `coder` session and uses the final report as chat context.
 
 Final report chat behavior:
 
