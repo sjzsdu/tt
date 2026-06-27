@@ -18,6 +18,7 @@ type RunOptions struct {
 	Quiet          bool
 	EmbeddedAgents []EmbeddedAgent
 	BeforeOutput   func()
+	OnDelta        func(string)
 }
 
 type EmbeddedAgent struct {

@@ -352,8 +352,31 @@ func (s *agentWebServer) handleChatStream(w http.ResponseWriter, r *http.Request
 	writeAgentWebSSE(w, agentWebStreamEvent{Type: "start"})
 	flusher.Flush()
 
-	s.mu.Lock()
-	response, err := s.runner.ProcessDirectContext(r.Context(), pcwrap.RunOptions{
+	var streamed strings.Builder
+	streamRunner, err := s.rt.NewDirectRunner(pcwrap.RunOptions{
+		Agent:          req.Agent,
+		Model:          req.Model,
+		Workspace:      s.workspace,
+		Debug:          s.defaults.Debug,
+		Quiet:          !s.defaults.Debug,
+		EmbeddedAgents: s.embedded,
+		OnDelta: func(delta string) {
+			if strings.TrimSpace(delta) == "" {
+				return
+			}
+			streamed.WriteString(delta)
+			writeAgentWebSSE(w, agentWebStreamEvent{Type: "delta", Delta: delta})
+			flusher.Flush()
+		},
+	})
+	if err != nil {
+		writeAgentWebSSE(w, agentWebStreamEvent{Type: "error", Error: err.Error()})
+		flusher.Flush()
+		return
+	}
+	defer streamRunner.Close()
+
+	response, err := streamRunner.ProcessDirectContext(r.Context(), pcwrap.RunOptions{
 		Message:        req.Message,
 		Agent:          req.Agent,
 		Session:        req.Session,
@@ -362,15 +385,21 @@ func (s *agentWebServer) handleChatStream(w http.ResponseWriter, r *http.Request
 		Debug:          s.defaults.Debug,
 		Quiet:          !s.defaults.Debug,
 		EmbeddedAgents: s.embedded,
+		OnDelta:        nil,
 	})
-	s.mu.Unlock()
 	if err != nil {
 		writeAgentWebSSE(w, agentWebStreamEvent{Type: "error", Error: err.Error()})
 		flusher.Flush()
 		return
 	}
-	for _, chunk := range splitAgentWebStreamChunks(response, 900) {
-		writeAgentWebSSE(w, agentWebStreamEvent{Type: "delta", Delta: chunk})
+	streamedText := streamed.String()
+	if streamedText == "" {
+		for _, chunk := range splitAgentWebStreamChunks(response, 900) {
+			writeAgentWebSSE(w, agentWebStreamEvent{Type: "delta", Delta: chunk})
+			flusher.Flush()
+		}
+	} else if strings.HasPrefix(response, streamedText) && len(response) > len(streamedText) {
+		writeAgentWebSSE(w, agentWebStreamEvent{Type: "delta", Delta: strings.TrimPrefix(response, streamedText)})
 		flusher.Flush()
 	}
 	writeAgentWebSSE(w, agentWebStreamEvent{Type: "done"})
