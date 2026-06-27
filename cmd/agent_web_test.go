@@ -108,3 +108,51 @@ func TestAgentWebTranscriptHandler(t *testing.T) {
 		t.Fatalf("messages = %+v", resp.Messages)
 	}
 }
+
+func TestParseAgentWebSessionFilename(t *testing.T) {
+	agent, session := parseAgentWebSessionFilename("agent_coder_cli_test.jsonl")
+	if agent != "coder" || session != "cli_test" {
+		t.Fatalf("agent/session = %q/%q", agent, session)
+	}
+	agent, session = parseAgentWebSessionFilename("plain_session.jsonl")
+	if agent != "" || session != "plain_session" {
+		t.Fatalf("plain agent/session = %q/%q", agent, session)
+	}
+}
+
+func TestAgentWebSessionsHandler(t *testing.T) {
+	workspace := t.TempDir()
+	sessionsDir := filepath.Join(workspace, ".tt", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"agent_coder_cli_one.jsonl", "agent_planner_cli_two.jsonl", "ignore.txt"}
+	for _, name := range files {
+		if err := os.WriteFile(filepath.Join(sessionsDir, name), []byte(`{"role":"user","content":"hi"}`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := &agentWebServer{workspace: workspace}
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	w := httptest.NewRecorder()
+	server.handleSessions(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp agentWebSessionsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Missing || len(resp.Sessions) != 2 {
+		t.Fatalf("response = %+v", resp)
+	}
+	foundCoder := false
+	for _, session := range resp.Sessions {
+		if session.Agent == "coder" && session.Session == "cli_one" {
+			foundCoder = true
+		}
+	}
+	if !foundCoder {
+		t.Fatalf("coder session not found: %+v", resp.Sessions)
+	}
+}

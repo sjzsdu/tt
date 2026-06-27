@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +83,20 @@ type agentWebTranscriptResponse struct {
 	Messages []agentWebTranscriptMessage `json:"messages,omitempty"`
 	Missing  bool                        `json:"missing,omitempty"`
 	Message  string                      `json:"message,omitempty"`
+}
+
+type agentWebSessionInfo struct {
+	Session   string `json:"session"`
+	Agent     string `json:"agent,omitempty"`
+	Path      string `json:"path"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+}
+
+type agentWebSessionsResponse struct {
+	Sessions []agentWebSessionInfo `json:"sessions"`
+	Missing  bool                  `json:"missing,omitempty"`
+	Message  string                `json:"message,omitempty"`
 }
 
 const maxAgentWebTranscriptBytes = 256 * 1024
@@ -163,6 +178,7 @@ func (s *agentWebServer) start(port int) error {
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/chat", s.handleChat)
 	mux.HandleFunc("/api/transcript", s.handleTranscript)
+	mux.HandleFunc("/api/sessions", s.handleSessions)
 
 	maxPort := port + 20
 	var lastErr error
@@ -292,6 +308,19 @@ func (s *agentWebServer) handleTranscript(w http.ResponseWriter, r *http.Request
 	writeAgentWebJSON(w, agentWebTranscriptResponse{Session: session, Agent: agent, Path: path, Messages: messages})
 }
 
+func (s *agentWebServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sessions, err := listAgentWebSessions(s.workspace)
+	if err != nil {
+		writeAgentWebJSON(w, agentWebSessionsResponse{Missing: true, Message: err.Error()})
+		return
+	}
+	writeAgentWebJSON(w, agentWebSessionsResponse{Sessions: sessions})
+}
+
 func (s *agentWebServer) state() agentWebState {
 	agentsOut := make([]agentWebAgent, 0, len(s.embedded))
 	for _, agent := range s.embedded {
@@ -362,6 +391,58 @@ func readAgentWebTranscript(workspace, session, agent string) (string, string, e
 		return "", "", err
 	}
 	return best, content, nil
+}
+
+func listAgentWebSessions(workspace string) ([]agentWebSessionInfo, error) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return nil, fmt.Errorf("workspace is not available")
+	}
+	sessionsDir := filepath.Join(workspace, ".tt", "sessions")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		return nil, fmt.Errorf("read sessions dir: %w", err)
+	}
+	sessions := make([]agentWebSessionInfo, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		agent, session := parseAgentWebSessionFilename(entry.Name())
+		if session == "" {
+			continue
+		}
+		sessions = append(sessions, agentWebSessionInfo{
+			Session:   session,
+			Agent:     agent,
+			Path:      filepath.Join(sessionsDir, entry.Name()),
+			UpdatedAt: info.ModTime().Format(time.RFC3339),
+			Size:      info.Size(),
+		})
+	}
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].UpdatedAt > sessions[j].UpdatedAt })
+	return sessions, nil
+}
+
+func parseAgentWebSessionFilename(name string) (agent, session string) {
+	name = strings.TrimSuffix(strings.TrimSpace(name), ".jsonl")
+	if name == "" {
+		return "", ""
+	}
+	const prefix = "agent_"
+	if !strings.HasPrefix(name, prefix) {
+		return "", name
+	}
+	rest := strings.TrimPrefix(name, prefix)
+	parts := strings.SplitN(rest, "_", 2)
+	if len(parts) != 2 {
+		return "", rest
+	}
+	return parts[0], parts[1]
 }
 
 func parseAgentWebTranscript(content string) []agentWebTranscriptMessage {
@@ -471,8 +552,11 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
     <h1>tt agent web</h1>
     <label class="label" for="agent">Agent</label>
     <select id="agent"></select>
-    <label class="label" for="session">Session</label>
-    <input id="session" placeholder="cli:default" />
+	    <label class="label" for="session">Session</label>
+	    <input id="session" placeholder="cli:default" />
+	    <label class="label" for="session-list">History</label>
+	    <select id="session-list"></select>
+	    <button class="secondary" id="new-session" type="button">新建 session</button>
 	    <label class="label" for="model">Model</label>
 	    <input id="model" placeholder="default" />
 	    <button class="secondary" id="load-history" type="button">加载历史</button>
@@ -488,7 +572,7 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
   </main>
 </div>
 <script>
-	const state={agents:[],busy:false,loadedHistory:false};
+	const state={agents:[],sessions:[],busy:false,loadedHistory:false};
 	const $=id=>document.getElementById(id);
 	function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 	function inlineMd(s){return escapeHtml(s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noreferrer">$1</a>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\x60([^\x60]+)\x60/g,'<code>$1</code>');}
@@ -496,11 +580,16 @@ select,input,textarea,button{width:100%;border:1px solid var(--line);border-radi
 	function setMessage(el,text,cls){el.className='msg '+(cls||'');const body=el.querySelector('.msg-content')||el;body.innerHTML=renderMarkdown(text);$('messages').scrollTop=$('messages').scrollHeight;}
 	function add(role,text,cls=''){const el=document.createElement('div');el.className='msg '+role+(cls?' '+cls:'');const body=document.createElement('div');body.className='msg-content';body.innerHTML=renderMarkdown(text);el.appendChild(body);$('messages').appendChild(el);$('messages').scrollTop=$('messages').scrollHeight;return el;}
 	function clearMessages(){ $('messages').innerHTML=''; }
+	function sessionLabel(s){const agent=s.agent?('['+s.agent+'] '):'';const size=s.size?(' · '+Math.round(s.size/1024)+' KiB'):'';const at=s.updated_at?(' · '+new Date(s.updated_at).toLocaleString()):'';return agent+s.session+size+at;}
+	function refreshSessionSelect(){const sel=$('session-list');sel.innerHTML='';const empty=document.createElement('option');empty.value='';empty.textContent='选择历史 session...';sel.appendChild(empty);const currentAgent=$('agent').value;for(const s of state.sessions){if(currentAgent&&s.agent&&s.agent!==currentAgent)continue;const opt=document.createElement('option');opt.value=s.session;opt.dataset.agent=s.agent||'';opt.textContent=sessionLabel(s);sel.appendChild(opt);}}
+	async function loadSessions(){const res=await fetch('/api/sessions');const data=await res.json();state.sessions=data.sessions||[];refreshSessionSelect();}
 	async function loadTranscript(){const params=new URLSearchParams({agent:$('agent').value||'',session:$('session').value||''});const res=await fetch('/api/transcript?'+params.toString());const data=await res.json();clearMessages();if(data.missing){add('system','没有找到这个 session 的历史记录，可以直接开始新对话。');return;}for(const m of data.messages||[]){const role=m.role==='user'?'user':'assistant';add(role,m.content);}add('system','已加载历史：'+(data.path||''));state.loadedHistory=true;}
-	async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');await loadTranscript();}
+	async function loadState(){const res=await fetch('/api/state');const data=await res.json();state.agents=data.agents||[];const sel=$('agent');sel.innerHTML='';for(const a of state.agents){const opt=document.createElement('option');opt.value=a.id;opt.textContent=a.description?(a.id+' - '+a.description):a.id;sel.appendChild(opt);}if(data.defaults?.agent)sel.value=data.defaults.agent;if(data.defaults?.session)$('session').value=data.defaults.session;if(data.defaults?.model)$('model').value=data.defaults.model;$('meta').textContent='Workspace: '+(data.workspace||'(unknown)');await loadSessions();await loadTranscript();}
 	$('form').addEventListener('submit',async e=>{e.preventDefault();if(state.busy)return;const text=$('message').value.trim();if(!text)return;$('message').value='';add('user',text);state.busy=true;$('send').disabled=true;const pending=add('assistant','正在等待 agent 回复...');try{const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,agent:$('agent').value,session:$('session').value,model:$('model').value})});const data=await res.json().catch(()=>({error:'invalid server response'}));setMessage(pending,data.error||data.response||'','assistant'+((!res.ok||data.error)?' error':''));}catch(err){setMessage(pending,String(err),'assistant error');}finally{state.busy=false;$('send').disabled=false;$('message').focus();}});
 	$('load-history').addEventListener('click',()=>loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');}));
-	$('agent').addEventListener('change',()=>loadTranscript().catch(()=>{}));
+	$('session-list').addEventListener('change',()=>{const opt=$('session-list').selectedOptions[0];if(!opt||!opt.value)return;$('session').value=opt.value;if(opt.dataset.agent)$('agent').value=opt.dataset.agent;loadTranscript().catch(err=>{clearMessages();add('assistant',String(err),'error');});});
+	$('new-session').addEventListener('click',()=>{const d=new Date();const stamp=d.toISOString().replace(/[-:.TZ]/g,'').slice(0,14);$('session').value='web:'+($('agent').value||'agent')+':'+stamp;$('session-list').value='';clearMessages();add('system','已创建新 session：'+$('session').value);$('message').focus();});
+	$('agent').addEventListener('change',()=>{refreshSessionSelect();loadTranscript().catch(()=>{});});
 	$('session').addEventListener('change',()=>loadTranscript().catch(()=>{}));
 $('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey){$('form').requestSubmit();}});
 loadState().catch(err=>add('assistant',String(err),'error'));
