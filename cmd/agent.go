@@ -20,6 +20,8 @@ var (
 	agentHome                string
 	agentConfig              string
 	agentList                bool
+	agentWeb                 bool
+	agentWebPort             int
 	agentShortcutsRegistered bool
 )
 
@@ -32,6 +34,8 @@ type agentRunFlags struct {
 	Home    string
 	Config  string
 	List    bool
+	Web     bool
+	WebPort int
 }
 
 var agentCmd = &cobra.Command{
@@ -44,6 +48,8 @@ configuration, models, sessions, and skills without invoking the picoclaw binary
 	Example: `tt agent -m "summarize this project"
 tt agent "explain the current directory"
 tt agent --list
+tt agent --web
+tt agent --agent coder --web
 tt agent --session cli:tt --model gpt-5.4 -m "review this idea"
 tt agent --picoclaw-home ~/.picoclaw-dev -m "list available skills"
 tt agent optimize --target ./repo --agent coder --output .tt/agents`,
@@ -59,6 +65,8 @@ func init() {
 	agentCmd.Flags().StringVar(&agentName, "agent", "", "agent id or name to use")
 	agentCmd.Flags().StringVar(&agentModel, "model", "", "model to use; defaults to the selected agent model or config default")
 	agentCmd.Flags().BoolVar(&agentList, "list", false, "list embedded agents and agents configured in picoclaw")
+	agentCmd.Flags().BoolVar(&agentWeb, "web", false, "start a local web chat UI for agent conversations")
+	agentCmd.Flags().IntVar(&agentWebPort, "web-port", 9710, "preferred port for the agent web UI")
 	agentCmd.Flags().BoolVarP(&agentDebug, "debug", "d", false, "enable debug logging")
 	agentCmd.Flags().StringVar(&agentHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 	agentCmd.Flags().StringVar(&agentConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
@@ -74,6 +82,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		Home:    agentHome,
 		Config:  agentConfig,
 		List:    agentList,
+		Web:     agentWeb,
+		WebPort: agentWebPort,
 	})
 }
 
@@ -116,6 +126,8 @@ func registerEmbeddedAgentShortcutCommands() {
 			shortcut.Flags().StringVarP(&flags.Message, "message", "m", "", "send a single message to the agent")
 			shortcut.Flags().StringVarP(&flags.Session, "session", "s", "", "session key; defaults to cli:default")
 			shortcut.Flags().StringVar(&flags.Model, "model", "", "model to use; defaults to the selected agent model or config default")
+			shortcut.Flags().BoolVar(&flags.Web, "web", false, "start a local web chat UI for agent conversations")
+			shortcut.Flags().IntVar(&flags.WebPort, "web-port", 9710, "preferred port for the agent web UI")
 			shortcut.Flags().BoolVarP(&flags.Debug, "debug", "d", false, "enable debug logging")
 			shortcut.Flags().StringVar(&flags.Home, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 			shortcut.Flags().StringVar(&flags.Config, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
@@ -161,6 +173,9 @@ func runAgentWithFlags(cmd *cobra.Command, args []string, flags agentRunFlags) e
 	merged = ttconfig.Merge(merged, cli)
 	if flags.List {
 		return runAgentList(cmd, merged, loaded.Sources)
+	}
+	if flags.Web {
+		return runAgentWeb(cmd, merged, loaded.Sources, flags)
 	}
 	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
 	if err != nil {

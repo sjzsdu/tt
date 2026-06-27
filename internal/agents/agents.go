@@ -31,7 +31,7 @@ const (
 	StockDiscussionHostID   = "stock-discussion-host"
 	Repo2SkillID            = "repo2skill"
 	CodeResearchID          = "code-research"
-	CodeContextManagerID    = "code-context-manager"
+	CodeContextManagerID    = "code-context"
 	FormulaWriterID         = "formula-writer"
 	DocsAnalystID           = "docs-analyst"
 	BeadManagerID           = "bead-manager"

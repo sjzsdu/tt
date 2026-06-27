@@ -101,8 +101,8 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	if !containsString(codeContextManager.Skills, "code-context") {
 		t.Fatalf("CodeContextManager skills = %v, want code-context", codeContextManager.Skills)
 	}
-	if !containsString(codeContextManager.Aliases, "code-context") {
-		t.Fatalf("CodeContextManager aliases = %v, want code-context", codeContextManager.Aliases)
+	if !containsString(codeContextManager.Aliases, "cc") {
+		t.Fatalf("CodeContextManager aliases = %v, want cc", codeContextManager.Aliases)
 	}
 	if codeContextManager.Prompt == "" || codeContextManager.Soul == "" {
 		t.Fatalf("CodeContextManager prompt and soul should be loaded")
