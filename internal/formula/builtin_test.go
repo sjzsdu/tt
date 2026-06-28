@@ -513,6 +513,27 @@ func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
 	}
 }
 
+func TestBeadCodingCycleSummaryIncludesStatusForNoWork(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(bead-coding) error = %v", err)
+	}
+	cycleSummary := workflow.Graph.Nodes[ir.NodeID("cycle-summary")]
+	if cycleSummary == nil {
+		t.Fatalf("missing cycle-summary node")
+	}
+	agentStep, ok := cycleSummary.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("cycle-summary step = %T, want steps.AgentStep", cycleSummary.Step)
+	}
+	if agentStep.Validation == nil || !slices.Contains(agentStep.Validation.Required, "status") {
+		t.Fatalf("cycle-summary validation = %#v, want required status", agentStep.Validation)
+	}
+	if !strings.Contains(agentStep.Prompt, "status=\"no-work\"") {
+		t.Fatalf("cycle-summary prompt should document no-work status")
+	}
+}
+
 func TestRequirementGroomingEnsuresBeadsWorkspaceBeforeCreate(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "requirement-grooming", nil, map[string]string{"requirement_prompt": "smoke"})
 	if err != nil {

@@ -274,15 +274,17 @@ description = """
 输出本次 bead-coding 的机器可读摘要，供 keep-coding loop 汇总。
 
 规则：
+- 如果 select-bead.stdout.selected=false，表示没有 ready bead：必须输出 selected=false、status="no-work"、implemented=false、blocked=false、committed=false、closed=false、summary 说明当前没有可处理 bead、next_action 说明 keep-coding 可以正常结束；不要把它写成 failed/partial；
 - selected 表示本轮是否选中过 bead；
 - committed=false 且 closed=true 是合法结果，表示本轮无新改动但 bead 已通过验证并关闭；
 - closed=true 时应视为本 bead 已完成闭环；
-- blocked=true 或 closed=false 时需要在 gaps/next_action 中说明原因。
+- blocked=true 时 status="blocked"；closed=false 且 selected=true 时通常 status="partial" 或 "failed"，并需要在 gaps/next_action 中说明原因。
 
 输出 ONLY compact JSON：
 {
   "selected":true,
   "bead_id":"...",
+  "status":"completed|blocked|no-work|failed|partial",
   "implemented":true,
   "blocked":false,
   "committed":false,
@@ -298,7 +300,7 @@ agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
-required = ["selected", "bead_id", "implemented", "blocked", "committed", "closed", "summary", "gaps", "next_action"]
+required = ["selected", "bead_id", "status", "implemented", "blocked", "committed", "closed", "summary", "gaps", "next_action"]
 
 [[steps]]
 id = "final-report"
@@ -309,7 +311,7 @@ description = """
 输出中文 Markdown 报告，不要输出 JSON。
 
 必须包含：
-- 结论：处理了哪个 bead，是否实现、验证、提交、关闭；说明无新 commit 但已关闭是否属于正常闭环；
+- 结论：处理了哪个 bead，是否实现、验证、提交、关闭；如果没有 ready bead，明确说明是 no-work 正常结束；说明无新 commit 但已关闭是否属于正常闭环；
 - 改动摘要和关键文件；
 - 验证结果；
 - commit hash；
