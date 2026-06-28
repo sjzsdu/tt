@@ -513,6 +513,24 @@ func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
 	}
 }
 
+func TestRequirementGroomingEnsuresBeadsWorkspaceBeforeCreate(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "requirement-grooming", nil, map[string]string{"requirement_prompt": "smoke"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(requirement-grooming) error = %v", err)
+	}
+	ensure := workflow.Graph.Nodes[ir.NodeID("ensure-beads-workspace")]
+	if ensure == nil {
+		t.Fatalf("missing ensure-beads-workspace node")
+	}
+	create := workflow.Graph.Nodes[ir.NodeID("create-or-plan-beads")]
+	if create == nil {
+		t.Fatalf("missing create-or-plan-beads node")
+	}
+	if !slices.Contains(create.Step.Meta().DependsOn, steps.ID("ensure-beads-workspace")) {
+		t.Fatalf("create-or-plan-beads dependencies = %v, want ensure-beads-workspace", create.Step.Meta().DependsOn)
+	}
+}
+
 func builtinCompileSmokeVars(name string) map[string]string {
 	switch name {
 	case "bug-fix":

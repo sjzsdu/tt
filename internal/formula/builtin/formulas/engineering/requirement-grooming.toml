@@ -146,12 +146,64 @@ format = "json"
 required = ["backlog_goal", "candidate_beads", "dedupe_queries"]
 
 [[steps]]
+id = "ensure-beads-workspace"
+title = "确保 beads workspace 可用"
+depends_on = ["design-bead-backlog"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+
+mode = os.environ.get('CREATE_MODE', 'create').strip() or 'create'
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return {"cmd": cmd, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+where_before = run(['bd', 'where', '--json'])
+initialized = False
+init = None
+where_after = where_before
+if mode == 'create' and where_before['code'] != 0:
+    init = run(['bd', 'init', '--non-interactive', '--skip-agents', '--skip-hooks'])
+    initialized = init['code'] == 0
+    where_after = run(['bd', 'where', '--json'])
+
+ready = where_after['code'] == 0
+print(json.dumps({
+  "mode": mode,
+  "ready": ready,
+  "initialized": initialized,
+  "where_before": where_before,
+  "init": init,
+  "where_after": where_after,
+  "error": "" if ready or mode == 'plan' else (where_after.get('stderr') or where_after.get('stdout') or 'bd workspace unavailable')
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "90s"
+
+[steps.script.env]
+CREATE_MODE = "{{create_mode}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "create-or-plan-beads"
 title = "使用 bead-manager 创建或规划 beads"
-depends_on = ["design-bead-backlog"]
-input_context = ["understand-requirement", "project-research", "design-bead-backlog"]
+depends_on = ["ensure-beads-workspace"]
+input_context = ["understand-requirement", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout"]
 description = """
 你是 bead-manager agent。根据 design-bead-backlog 管理当前项目 beads。
+
+beads workspace 状态来自 ensure-beads-workspace.stdout：
+- 如果 create_mode=create 且 ready=true，必须实际执行 bd create/update/link；
+- 如果 ready=false，禁止假装创建，输出 skipped_candidates 和失败 notes；
+- 如果 initialized=true，说明本次 formula 已经自动初始化 .beads，可以继续创建。
 
 create_mode='{{create_mode}}'：
 - 如果 create_mode=create：请先查询已有 beads，使用 dedupe_queries 检查重复或相近任务；然后创建必要的新 beads，或更新明显相同的已有 beads。不要创建超过 {{max_beads}} 个 beads。
@@ -197,7 +249,7 @@ required = ["mode", "created_beads", "updated_beads", "bead_id_map", "dependency
 id = "final-grooming-report"
 title = "输出需求整理报告"
 depends_on = ["create-or-plan-beads"]
-input_context = ["understand-requirement", "project-research", "design-bead-backlog", "create-or-plan-beads"]
+input_context = ["understand-requirement", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout", "create-or-plan-beads"]
 description = """
 基于全部上下文，输出面向用户的需求整理报告。不要再创建或修改 beads。
 
@@ -237,6 +289,8 @@ description = """
 要求：
 - 说明这批 beads 如何对应用户原始需求；
 - 如果没有创建任何 bead，要解释原因；
+- 如果 ensure-beads-workspace.initialized=true，要说明本次已自动初始化 beads workspace；
+- 如果 create_mode=create 但 created_beads/updated_beads 为空或 dependency_links 失败，必须把结论写成“创建未完成/需要处理”，不能说需求整理已经完全落库；
 - 必须显式说明 dependency_links 是否完整覆盖了 design-bead-backlog.dependency_edges；
 - 建议执行顺序要考虑依赖、风险和用户价值；
 - 下一步建议给用户 3-5 条可执行建议。
