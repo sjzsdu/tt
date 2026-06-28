@@ -322,6 +322,26 @@ func TestLoopStepHonorsMaxWithoutUntil(t *testing.T) {
 	}
 }
 
+func TestStepConditionMatchesBooleanConjunctions(t *testing.T) {
+	ctx := mapContextView{
+		"ready":     {Raw: []byte(`true`)},
+		"committed": {Raw: []byte(`false`)},
+		"status":    {Raw: []byte(`"closed"`)},
+	}
+	if !stepConditionMatches("ready == true && status == 'closed'", ctx) {
+		t.Fatal("expected conjunction to match")
+	}
+	if stepConditionMatches("ready == true && committed == true", ctx) {
+		t.Fatal("expected conjunction to fail")
+	}
+	if !stepConditionMatches("committed == true || status == closed", ctx) {
+		t.Fatal("expected disjunction to match")
+	}
+	if !stepConditionMatches("'true' == 'true' && ready == true", ctx) {
+		t.Fatal("expected literal comparison to match")
+	}
+}
+
 func TestLoopStepExposesScriptJSONStdoutForLaterConditions(t *testing.T) {
 	agent := &countingStepAgentRunner{}
 	loop := LoopStep{

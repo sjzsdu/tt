@@ -1776,6 +1776,22 @@ func stepConditionMatches(condition string, ctx ContextView) bool {
 	if condition == "" {
 		return true
 	}
+	if parts := splitCondition(condition, "||"); len(parts) > 1 {
+		for _, part := range parts {
+			if stepConditionMatches(part, ctx) {
+				return true
+			}
+		}
+		return false
+	}
+	if parts := splitCondition(condition, "&&"); len(parts) > 1 {
+		for _, part := range parts {
+			if !stepConditionMatches(part, ctx) {
+				return false
+			}
+		}
+		return true
+	}
 	for _, op := range []string{"==", "!="} {
 		parts := strings.SplitN(condition, op, 2)
 		if len(parts) != 2 {
@@ -1783,8 +1799,8 @@ func stepConditionMatches(condition string, ctx ContextView) bool {
 		}
 		left := strings.TrimSpace(parts[0])
 		expected := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
-		actual := ""
-		if ctx != nil {
+		actual := strings.Trim(strings.TrimSpace(left), `"'`)
+		if actual == left && ctx != nil {
 			if value, ok := ctx.Get(left); ok {
 				actual = valueForPrompt(value)
 			}
@@ -1795,6 +1811,22 @@ func stepConditionMatches(condition string, ctx ContextView) bool {
 		return actual != expected
 	}
 	return false
+}
+
+func splitCondition(condition, sep string) []string {
+	parts := strings.Split(condition, sep)
+	if len(parts) <= 1 {
+		return parts
+	}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return []string{condition}
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 type RetryStep struct {

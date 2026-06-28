@@ -495,6 +495,24 @@ func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
 	}
 }
 
+func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(bead-coding) error = %v", err)
+	}
+	closeNode := workflow.Graph.Nodes[ir.NodeID("close-bead")]
+	if closeNode == nil {
+		t.Fatalf("missing close-bead node")
+	}
+	condition := closeNode.Step.Meta().Condition
+	if strings.Contains(condition, "commit-changes.stdout.committed") {
+		t.Fatalf("close-bead condition should not require a new commit: %q", condition)
+	}
+	if !strings.Contains(condition, "final-check.ready_to_close == true") {
+		t.Fatalf("close-bead condition should honor final-check.ready_to_close: %q", condition)
+	}
+}
+
 func builtinCompileSmokeVars(name string) map[string]string {
 	switch name {
 	case "bug-fix":

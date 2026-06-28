@@ -191,7 +191,7 @@ description = """
 
 规则：
 - implement-bead.blocked=true 时 ready_to_commit=false 且 ready_to_close=false；
-- 没有实际代码/文档改动时 ready_to_commit=false；
+- 没有实际代码/文档改动时 ready_to_commit=false；如果已有交付物满足验收且验证通过，可以仍然 ready_to_close=true；
 - 验证失败或未运行且风险较高时 ready_to_close=false；
 - commit_message 必须简短，建议包含 bead id，例如 `feat: implement <bead-id> ...`。
 """
@@ -242,7 +242,7 @@ required = ["stdout"]
 id = "close-bead"
 title = "成功后关闭 bead"
 depends_on = ["commit-changes"]
-condition = "final-check.ready_to_close == true && commit-changes.stdout.committed == true && '{{close_on_success}}' == 'true'"
+condition = "final-check.ready_to_close == true && '{{close_on_success}}' == 'true'"
 execution = "script"
 continue_on_error = true
 
@@ -250,7 +250,7 @@ continue_on_error = true
 command = ["python3", "-c", """
 import json, os, subprocess
 bead_id = os.environ['BEAD_ID'].strip()
-reason = os.environ.get('REASON', '').strip() or 'Implemented and committed by bead-coding formula.'
+reason = os.environ.get('REASON', '').strip() or 'Implemented and validated by bead-coding formula.'
 p = subprocess.run(['bd', 'close', bead_id, '--reason', reason, '--json'], text=True, capture_output=True)
 print(json.dumps({"closed": p.returncode == 0, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}, ensure_ascii=False))
 """]
@@ -273,14 +273,20 @@ input_context = ["select-bead.stdout", "implement-bead", "run-validation.validat
 description = """
 输出本次 bead-coding 的机器可读摘要，供 keep-coding loop 汇总。
 
+规则：
+- selected 表示本轮是否选中过 bead；
+- committed=false 且 closed=true 是合法结果，表示本轮无新改动但 bead 已通过验证并关闭；
+- closed=true 时应视为本 bead 已完成闭环；
+- blocked=true 或 closed=false 时需要在 gaps/next_action 中说明原因。
+
 输出 ONLY compact JSON：
 {
   "selected":true,
   "bead_id":"...",
   "implemented":true,
   "blocked":false,
-  "committed":true,
-  "commit_hash":"...",
+  "committed":false,
+  "commit_hash":"",
   "closed":true,
   "summary":"...",
   "gaps":["..."],
@@ -303,7 +309,7 @@ description = """
 输出中文 Markdown 报告，不要输出 JSON。
 
 必须包含：
-- 结论：处理了哪个 bead，是否实现、验证、提交、关闭；
+- 结论：处理了哪个 bead，是否实现、验证、提交、关闭；说明无新 commit 但已关闭是否属于正常闭环；
 - 改动摘要和关键文件；
 - 验证结果；
 - commit hash；
