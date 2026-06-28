@@ -457,8 +457,19 @@ func TestKeepCodingWorkflowHasStableCycleNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
 	}
-	if workflow.Graph.Nodes[ir.NodeID("cycle")] == nil {
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
 		t.Fatalf("keep-coding must keep outer cycle as a stable runtime loop node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want steps.LoopStep", cycle.Step)
+	}
+	if loop.MaxExpr != "{{max_cycles}}" {
+		t.Fatalf("cycle MaxExpr = %q, want templated max_cycles", loop.MaxExpr)
+	}
+	if loop.Until != "cycle-note.selected == false" {
+		t.Fatalf("cycle Until = %q, want cycle-note.selected == false", loop.Until)
 	}
 	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
 	if final == nil {
@@ -466,6 +477,21 @@ func TestKeepCodingWorkflowHasStableCycleNode(t *testing.T) {
 	}
 	if _, err := formularuntime.PlanTopological(workflow.Graph); err != nil {
 		t.Fatalf("keep-coding graph should be topologically valid: %v", err)
+	}
+}
+
+func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	got := workflow.Vars["max_cycles"].Default
+	if got == nil || *got != "100" {
+		value := "<nil>"
+		if got != nil {
+			value = *got
+		}
+		t.Fatalf("keep-coding max_cycles default = %q, want 100", value)
 	}
 }
 

@@ -29,7 +29,7 @@ message = "keep-coding 需要在 git 仓库中运行。"
 
 [vars]
 goal = { description = "本次持续编码的总体目标或筛选偏好；为空则处理当前 ready beads", default = "持续处理当前项目中 ready 的 beads，优先选择高优先级、依赖已满足、范围清晰的任务。" }
-max_cycles = { description = "最多执行多少个 bead-coding 循环", default = "3", pattern = "^[1-9][0-9]*$" }
+max_cycles = { description = "最多执行多少个 bead-coding 循环", default = "100", pattern = "^[1-9][0-9]*$" }
 workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
 close_on_success = { description = "每轮成功后是否关闭 bead", default = "true" }
@@ -41,7 +41,7 @@ title = "循环执行 bead-coding"
 
 [steps.loop]
 max = "{{max_cycles}}"
-until = "run-bead-coding.cycle-summary.selected == false"
+until = "cycle-note.selected == false"
 
 [[steps.loop.body]]
 id = "run-bead-coding"
@@ -62,7 +62,13 @@ title = "记录本轮结果"
 depends_on = ["run-bead-coding"]
 input_context = ["run-bead-coding.cycle-summary", "run-bead-coding.final-report"]
 description = """
-基于 run-bead-coding 的输出，生成本轮循环的紧凑 JSON 摘要，供最终报告汇总。
+基于 run-bead-coding 的输出，生成本轮循环的紧凑 JSON 摘要，供最终报告汇总，并决定 keep-coding 是否继续下一轮。
+
+关键规则：
+- selected 表示“可以安全继续下一轮”，不是仅表示本轮是否选中过 bead；
+- 只有本轮真正完成闭环时才输出 selected=true：例如 committed=true 且 closed=true，或者明确没有选中任何 bead 但需要交给 until 停止；
+- 如果本轮选中了 bead 但 status 是 partial/blocked/failed/no-work，或 committed=false，或 closed=false，必须输出 selected=false，避免下一轮重复处理同一个 ready bead；
+- no-work/没有 ready bead 时也输出 selected=false。
 
 输出 ONLY compact JSON：
 {
@@ -91,7 +97,7 @@ input_context = ["cycle"]
 description = """
 输出中文 Markdown 最终报告，不要输出 JSON，不要粘贴完整子报告。
 
-你需要总结 keep-coding loop 的整体执行情况：处理了多少轮、哪些 bead、哪些提交、哪些关闭、哪些阻塞、还有什么下一步。
+你需要总结 keep-coding loop 的整体执行情况：处理了多少轮、哪些 bead、哪些提交、哪些关闭、哪些阻塞、是否因为 partial/blocked/no-work 提前停止，还有什么下一步。注意 cycle-note.selected=false 表示 loop 不应继续，不一定表示本轮没有选中 bead。
 
 固定结构：
 
