@@ -1,6 +1,8 @@
 # Step Kinds 参考
 
-> 最后更新：2026-06-05
+> 最后更新：2026-06-28
+
+> 补充：若关注“多个 formula 作为独立 run 顶层并发时，各类 step 的安全边界与 MVP 分层”，请结合阅读 [`docs/formula/step-safety-matrix-for-top-level-multi-run.md`](../docs/formula/step-safety-matrix-for-top-level-multi-run.md)。该文档按 step kind 区分了可直接并发、需隔离条件、建议限制、暂不纳入 MVP 的类别，并额外讨论了 `waiting_input`、repair、final report chat 等 run-scoped 行为为何不应被笼统视为并发安全。
 
 本文档是 `tt formula` typed runtime 所有 step kind 的速查与示例参考。kind 枚举与默认值以 `internal/formula/steps/step.go` 和 `internal/formula/steps/kinds.go` 为准。
 
