@@ -182,3 +182,7 @@ flowchart TD
 - 内置 formula：`internal/formula/builtin/formulas/<category>/`、`internal/formula/builtin/atomics/<category>/`
 - step kinds 实现：`internal/formula/steps/kinds.go`
 - 运行环境与 worktree：`internal/formula/runtime/environment.go`、`internal/formula/runtime/workspace.go`
+## Formula 相关补充文档
+
+- `docs/formula/current-run-model-and-top-level-concurrency-boundaries.md`：解释当前 formula 的真实顶层运行单位、单 run 边界，以及为什么 loop 内并发不等于多个 formula 顶层并发。
+- `docs/formula/run-store-and-web-dashboard-gaps-for-multi-run-monitoring.md`：梳理 run store、dashboard API 与 web 前端为什么天然以单 run 为中心，并整理统一监视多个 formula run 时最可能需要新增的聚合概念与最小数据清单。
