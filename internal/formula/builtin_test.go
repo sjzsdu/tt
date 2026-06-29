@@ -535,6 +535,74 @@ func TestKeepCodingSkipsPartialBeadsWithinRun(t *testing.T) {
 	}
 }
 
+func TestKeepCodingPersistsCycleSummariesForFinalReport(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	if got := workflow.Vars["cycle_log_file"].Default; got == nil || *got == "" {
+		t.Fatalf("keep-coding should define cycle_log_file var, got %#v", got)
+	}
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
+		t.Fatalf("missing cycle node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want steps.LoopStep", cycle.Step)
+	}
+	var sawAppendCycleLog bool
+	var appendSkipDependsOnLog bool
+	for _, child := range loop.Body {
+		meta := child.Meta()
+		if meta.ID == "append-cycle-log" {
+			sawAppendCycleLog = true
+			script, ok := child.(steps.ScriptStep)
+			if !ok {
+				t.Fatalf("append-cycle-log = %T, want ScriptStep", child)
+			}
+			if !strings.Contains(script.Env["CYCLE_LOG_FILE"], "cycle_log_file") {
+				t.Fatalf("append-cycle-log should write to cycle_log_file, env=%#v", script.Env)
+			}
+			if !strings.Contains(script.Command[2], "path.open('a'") || !strings.Contains(script.Command[2], "commit_hash") {
+				t.Fatalf("append-cycle-log should append machine summaries including commits, script:\n%s", script.Command[2])
+			}
+		}
+		if meta.ID == "append-skip-list" {
+			for _, dep := range meta.DependsOn {
+				if dep == "append-cycle-log" {
+					appendSkipDependsOnLog = true
+				}
+			}
+		}
+	}
+	if !sawAppendCycleLog {
+		t.Fatalf("keep-coding loop should append every cycle summary to a cycle log")
+	}
+	if !appendSkipDependsOnLog {
+		t.Fatalf("append-skip-list should depend on append-cycle-log so every iteration is logged before loop output can be overwritten")
+	}
+
+	summary := workflow.Graph.Nodes[ir.NodeID("summarize-cycle-log")]
+	if summary == nil {
+		t.Fatalf("missing summarize-cycle-log node")
+	}
+	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
+	if final == nil {
+		t.Fatalf("missing final-report node")
+	}
+	if !slices.Contains(final.Step.Meta().DependsOn, steps.ID("summarize-cycle-log")) {
+		t.Fatalf("final-report should depend on summarize-cycle-log, deps=%v", final.Step.Meta().DependsOn)
+	}
+	finalAgent, ok := final.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("final-report = %T, want AgentStep", final.Step)
+	}
+	if !containsString(finalAgent.InputCtx, "summarize-cycle-log.stdout") {
+		t.Fatalf("final-report should receive summarize-cycle-log.stdout, input_context=%v", finalAgent.InputCtx)
+	}
+}
+
 func TestKeepCodingAppendSkipListScriptIsValidPython(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
 	if err != nil {

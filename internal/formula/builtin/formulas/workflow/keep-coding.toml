@@ -36,6 +36,7 @@ validation_command = { description = "可选验证命令；为空则自动检测
 close_on_success = { description = "每轮成功后是否关闭 bead", default = "true" }
 ready_limit = { description = "每轮自动选择 ready bead 时最多读取多少个候选", default = "10" }
 skip_file = { description = "本次 keep-coding 运行内跳过 partial/blocked bead 的临时文件", default = ".tt/tmp/keep-coding-skip.txt" }
+cycle_log_file = { description = "本次 keep-coding 每轮机器摘要的 JSONL 文件", default = ".tt/tmp/keep-coding-cycles.jsonl" }
 
 [[steps]]
 id = "prepare-skip-list"
@@ -46,16 +47,19 @@ idempotent = true
 [steps.script]
 command = ["python3", "-c", """
 import json, os, pathlib
-path = pathlib.Path(os.environ.get('SKIP_FILE', '.tt/tmp/keep-coding-skip.txt'))
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text('', encoding='utf-8')
-print(json.dumps({"skip_file": str(path), "reset": True}, ensure_ascii=False))
+skip_path = pathlib.Path(os.environ.get('SKIP_FILE', '.tt/tmp/keep-coding-skip.txt'))
+cycle_log_path = pathlib.Path(os.environ.get('CYCLE_LOG_FILE', '.tt/tmp/keep-coding-cycles.jsonl'))
+for path in (skip_path, cycle_log_path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('', encoding='utf-8')
+print(json.dumps({"skip_file": str(skip_path), "cycle_log_file": str(cycle_log_path), "reset": True}, ensure_ascii=False))
 """]
 format = "json"
 timeout = "10s"
 
 [steps.script.env]
 SKIP_FILE = "{{skip_file}}"
+CYCLE_LOG_FILE = "{{cycle_log_file}}"
 
 [steps.validate]
 format = "json"
@@ -136,14 +140,58 @@ CLOSED = "{{run-bead-coding.cycle-summary.closed}}"
 SUMMARY = "{{run-bead-coding.cycle-summary.summary}}"
 NEXT_ACTION = "{{run-bead-coding.cycle-summary.next_action}}"
 
-[steps.loop.body.validate]
-format = "json"
-required = ["selected", "status", "committed", "closed", "summary", "next_action"]
+	[steps.loop.body.validate]
+	format = "json"
+	required = ["selected", "status", "committed", "closed", "summary", "next_action"]
 
-[[steps.loop.body]]
-id = "append-skip-list"
-title = "记录本轮需要跳过的 bead"
-depends_on = ["cycle-note"]
+	[[steps.loop.body]]
+	id = "append-cycle-log"
+	title = "记录本轮机器摘要"
+	depends_on = ["cycle-note"]
+	execution = "script"
+	idempotent = true
+
+	[steps.loop.body.script]
+	command = ["python3", "-c", """
+import json, os, pathlib
+path = pathlib.Path(os.environ.get('CYCLE_LOG_FILE', '.tt/tmp/keep-coding-cycles.jsonl'))
+path.parent.mkdir(parents=True, exist_ok=True)
+entry = {
+  "selected": os.environ.get('SELECTED', '').strip().lower() == 'true',
+  "bead_id": os.environ.get('BEAD_ID', '').strip(),
+  "status": os.environ.get('STATUS', '').strip(),
+  "committed": os.environ.get('COMMITTED', '').strip().lower() == 'true',
+  "commit_hash": os.environ.get('COMMIT_HASH', '').strip(),
+  "closed": os.environ.get('CLOSED', '').strip().lower() == 'true',
+  "summary": os.environ.get('SUMMARY', '').strip(),
+  "next_action": os.environ.get('NEXT_ACTION', '').strip(),
+}
+with path.open('a', encoding='utf-8') as f:
+    f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + '\n')
+print(json.dumps({"cycle_log_file": str(path), "entry": entry}, ensure_ascii=False))
+"""]
+	format = "json"
+	timeout = "10s"
+
+	[steps.loop.body.script.env]
+	CYCLE_LOG_FILE = "{{cycle_log_file}}"
+	SELECTED = "{{cycle-note.selected}}"
+	BEAD_ID = "{{cycle-note.bead_id}}"
+	STATUS = "{{cycle-note.status}}"
+	COMMITTED = "{{cycle-note.committed}}"
+	COMMIT_HASH = "{{cycle-note.commit_hash}}"
+	CLOSED = "{{cycle-note.closed}}"
+	SUMMARY = "{{cycle-note.summary}}"
+	NEXT_ACTION = "{{cycle-note.next_action}}"
+
+	[steps.loop.body.validate]
+	format = "json"
+	required = ["cycle_log_file", "entry"]
+
+	[[steps.loop.body]]
+	id = "append-skip-list"
+	title = "记录本轮需要跳过的 bead"
+	depends_on = ["append-cycle-log"]
 execution = "script"
 idempotent = true
 
@@ -178,19 +226,80 @@ CLOSED = "{{cycle-note.closed}}"
 SELECTED = "{{cycle-note.selected}}"
 COMMITTED = "{{cycle-note.committed}}"
 
-[steps.loop.body.validate]
-format = "json"
-required = ["stdout"]
+	[steps.loop.body.validate]
+	format = "json"
+	required = ["stdout"]
 
 [[steps]]
-id = "final-report"
-title = "输出持续编码最终报告"
+id = "summarize-cycle-log"
+title = "汇总 keep-coding 每轮结果"
 depends_on = ["cycle"]
-input_context = ["cycle", "append-skip-list.stdout"]
-description = """
-输出中文 Markdown 最终报告，不要输出 JSON，不要粘贴完整子报告。
+execution = "script"
+idempotent = true
 
-你需要总结 keep-coding loop 的整体执行情况：处理了多少轮、哪些 bead、哪些提交、哪些关闭、哪些阻塞、是否因为 partial/blocked/no-work 提前停止，还有什么下一步。注意 cycle-note.selected=false 表示 loop 不应继续，不一定表示本轮没有选中 bead；committed=false 但 closed=true 是合法闭环。
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib, subprocess
+path = pathlib.Path(os.environ.get('CYCLE_LOG_FILE', '.tt/tmp/keep-coding-cycles.jsonl'))
+cycles = []
+if path.exists():
+    for line in path.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            cycles.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            cycles.append({"status": "parse-error", "summary": str(exc), "raw": line})
+completed = [c for c in cycles if c.get('selected') and c.get('status') == 'completed']
+blocked = [c for c in cycles if c.get('selected') and c.get('status') == 'blocked']
+partial = [c for c in cycles if c.get('selected') and c.get('status') in {'partial', 'failed'}]
+no_work = [c for c in cycles if not c.get('selected') or c.get('status') == 'no-work']
+commits = [c.get('commit_hash', '') for c in cycles if c.get('commit_hash')]
+closed = [c for c in cycles if c.get('closed')]
+ready = subprocess.run(['bd', 'ready', '--json', '--limit', os.environ.get('READY_LIMIT', '10') or '10'], text=True, capture_output=True)
+ready_items = []
+if ready.returncode == 0:
+    try:
+        ready_items = json.loads(ready.stdout or '[]')
+    except Exception:
+        ready_items = []
+summary = {
+  "cycle_log_file": str(path),
+  "total_cycles": len(cycles),
+  "worked_cycles": len([c for c in cycles if c.get('selected')]),
+  "completed_count": len(completed),
+  "blocked_count": len(blocked),
+  "partial_count": len(partial),
+  "no_work_count": len(no_work),
+  "closed_count": len(closed),
+  "commits": commits,
+  "cycles": cycles,
+  "remaining_ready": ready_items,
+  "ready_raw": {"code": ready.returncode, "stderr": ready.stderr},
+}
+print(json.dumps(summary, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+CYCLE_LOG_FILE = "{{cycle_log_file}}"
+READY_LIMIT = "{{ready_limit}}"
+
+[steps.validate]
+format = "json"
+required = ["cycles", "total_cycles", "worked_cycles", "completed_count", "remaining_ready"]
+
+	[[steps]]
+	id = "final-report"
+	title = "输出持续编码最终报告"
+	depends_on = ["summarize-cycle-log"]
+	input_context = ["summarize-cycle-log.stdout", "cycle"]
+	description = """
+	输出中文 Markdown 最终报告，不要输出 JSON，不要粘贴完整子报告。
+
+	你必须优先依据 summarize-cycle-log.stdout 生成报告，而不是只看 cycle 的最终 output；cycle 的最终 output 可能只是最后一轮 append-skip-list/no-work，不能代表整个 loop。你需要总结 keep-coding loop 的整体执行情况：处理了多少轮、哪些 bead、哪些提交、哪些关闭、哪些阻塞、是否因为 partial/blocked/no-work 停止，还有什么下一步。注意 cycle-note.selected=false 表示 loop 不应继续，不一定表示本轮没有选中 bead；committed=false 但 closed=true 是合法闭环。
 
 固定结构：
 
