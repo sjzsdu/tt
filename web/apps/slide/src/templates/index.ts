@@ -58,7 +58,8 @@ const magicloud: TemplateConfig = {
       background:
         linear-gradient(180deg, rgba(0, 122, 98, 0.035), rgba(255, 255, 255, 0) 32%),
         #ffffff;
-      border: 1px solid #d5dedb;
+      border: 0;
+      box-shadow: none;
       color: var(--slide-fg);
     }
 
@@ -252,10 +253,9 @@ const magicloud: TemplateConfig = {
     }
 
     .reveal .slides section:first-child {
-      padding: 78px 74px 60px;
+      padding: 0 96px 60px;
       background:
-        radial-gradient(circle at 88% 14%, rgba(0, 176, 132, 0.26), transparent 24%),
-        radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.1), transparent 26%),
+        linear-gradient(115deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 20, 16, 0.86) 27%, rgba(0, 70, 49, 0.45) 56%, rgba(0, 91, 61, 0.2) 100%),
         linear-gradient(135deg, #071f1b 0%, #003b2e 54%, #00533f 100%);
       color: #ffffff;
       border: 0;
@@ -264,11 +264,11 @@ const magicloud: TemplateConfig = {
     .reveal .slides section:first-child::before {
       content: "FLEXCOMPUTE  |  MagiCloud";
       position: absolute;
-      top: 68px;
-      right: 70px;
+      top: 96px;
+      left: 690px;
       z-index: 2;
       color: rgba(255, 255, 255, 0.96);
-      font-size: 14px;
+      font-size: 42px;
       font-weight: 800;
       letter-spacing: 0;
     }
@@ -278,11 +278,17 @@ const magicloud: TemplateConfig = {
       position: absolute;
       inset: 0;
       pointer-events: none;
-      opacity: 0.34;
+      opacity: 0.42;
       background:
-        radial-gradient(circle at 86% 72%, transparent 0 28%, rgba(122, 255, 211, 0.18) 29% 30%, transparent 31%),
-        repeating-linear-gradient(24deg, transparent 0 25px, rgba(143, 255, 220, 0.08) 26px, transparent 27px);
-      mask-image: linear-gradient(90deg, transparent 0%, #000 58%, #000 100%);
+        repeating-radial-gradient(circle at 7% 16%, rgba(182, 255, 225, 0.18) 0 1px, transparent 2px 18px),
+        repeating-linear-gradient(31deg, transparent 0 38px, rgba(167, 255, 221, 0.17) 39px 40px, transparent 41px 76px),
+        repeating-linear-gradient(151deg, transparent 0 42px, rgba(167, 255, 221, 0.13) 43px 44px, transparent 45px 84px),
+        radial-gradient(ellipse at -8% 18%, rgba(205, 255, 237, 0.26), transparent 36%),
+        radial-gradient(ellipse at 90% 88%, rgba(159, 255, 216, 0.2), transparent 34%);
+      mask-image:
+        radial-gradient(ellipse at 7% 20%, #000 0 36%, transparent 58%),
+        radial-gradient(ellipse at 88% 88%, #000 0 30%, transparent 54%);
+      mask-composite: add;
     }
 
     .reveal .slides section:first-child .slide-content {
@@ -290,15 +296,17 @@ const magicloud: TemplateConfig = {
       z-index: 1;
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: flex-start;
       min-height: 100%;
+      padding-top: 294px;
     }
 
     .reveal .slides section:first-child h1 {
-      margin: 78px 0 4px;
+      margin: 0 0 2px;
       color: #03a778;
-      font-size: 1.05em;
+      font-size: 72px;
       font-weight: 820;
+      line-height: 0.98;
     }
 
     .reveal .slides section:first-child h2,
@@ -313,15 +321,62 @@ const magicloud: TemplateConfig = {
     }
 
     .reveal .slides section:first-child p {
-      font-size: 0.42em;
+      font-size: 38px;
+      line-height: 1.08;
     }
 
     .reveal .slides section:first-child ul {
-      margin-top: 70px;
+      margin-top: 180px;
+      font-size: 42px;
     }
 
     .reveal .slides section:first-child ul li::before {
       background: #ffffff;
+    }
+
+    .reveal .slides section.slide-logo {
+      padding: 0;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.96) 66%),
+        #ffffff;
+      color: #1f292b;
+    }
+
+    .reveal .slides section.slide-logo::before {
+      content: "FLEXCOMPUTE  |  MagiCloud";
+      position: absolute;
+      top: 158px;
+      left: 96px;
+      z-index: 2;
+      color: #22282a;
+      font-size: 46px;
+      font-weight: 850;
+      letter-spacing: 0;
+      line-height: 1;
+    }
+
+    .reveal .slides section.slide-logo::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0.74;
+      background:
+        radial-gradient(ellipse at 86% 30%, rgba(83, 104, 103, 0.08), transparent 56%),
+        repeating-linear-gradient(24deg, transparent 0 46px, rgba(90, 104, 104, 0.22) 47px 48px, transparent 49px 92px),
+        repeating-linear-gradient(146deg, transparent 0 50px, rgba(90, 104, 104, 0.2) 51px 52px, transparent 53px 100px),
+        repeating-linear-gradient(90deg, transparent 0 62px, rgba(90, 104, 104, 0.12) 63px 64px, transparent 65px 124px);
+      mask-image:
+        linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.92) 42%, rgba(0, 0, 0, 0.26) 76%, transparent 100%),
+        radial-gradient(ellipse at 88% 46%, rgba(0, 0, 0, 0.76) 0 24%, transparent 58%);
+      mask-composite: add;
+    }
+
+    .reveal .slides section.slide-logo .slide-content {
+      position: relative;
+      z-index: 2;
+      min-height: 100%;
     }
 
     .slide-two-column .slide-content {
@@ -436,7 +491,7 @@ const magicloud: TemplateConfig = {
       max-height: 430px;
     }
   `,
-  defaults: { theme: 'light', transition: 'fade', center: false },
+  defaults: { theme: 'light', transition: 'fade', center: false, margin: 0, width: 1600, height: 900 },
 };
 
 const dark: TemplateConfig = {

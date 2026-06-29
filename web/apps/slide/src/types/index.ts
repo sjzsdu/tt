@@ -8,10 +8,13 @@ export type TemplateConfig = {
     theme: AppTheme;
     transition: string;
     center: boolean;
+    margin?: number;
+    width?: number;
+    height?: number;
   };
 };
 
-export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'full-image';
+export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'logo' | 'full-image';
 
 export type SlideMeta = {
   title: string;

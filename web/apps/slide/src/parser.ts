@@ -21,6 +21,45 @@ type MarkdownSegment = {
   role?: MarkdownRole;
 };
 
+type SlideDirective = {
+  markdown: string;
+  layoutHint?: SlideLayout;
+  classNames: string[];
+  hasDirective: boolean;
+};
+
+const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|cover)\s*$/i;
+
+function extractSlideDirectives(markdown: string): SlideDirective {
+  const classNames: string[] = [];
+  let layoutHint: SlideLayout | undefined;
+  let hasDirective = false;
+  const lines: string[] = [];
+
+  for (const line of markdown.split('\n')) {
+    const match = line.trim().match(slideDirectivePattern);
+    if (!match) {
+      lines.push(line);
+      continue;
+    }
+
+    hasDirective = true;
+    const directive = match[1].toLowerCase();
+    if (directive === 'center') {
+      layoutHint = 'center';
+    } else if (directive === 'logo' || directive === 'brand') {
+      layoutHint = 'logo';
+    } else if (directive === 'split') {
+      layoutHint = 'split';
+    } else if (directive === 'two-column' || directive === 'columns') {
+      layoutHint = 'two-column';
+    }
+    classNames.push(`slide-${directive}`);
+  }
+
+  return { markdown: lines.join('\n').trim(), layoutHint, classNames, hasDirective };
+}
+
 function splitMarkedParts(markdown: string, role?: MarkdownRole): SlidePart[] {
   const source = markdown.trim();
   if (!source) return [];
@@ -114,6 +153,14 @@ function parseLayoutFromParts(parts: SlidePart[]): SlideLayout {
   return 'default';
 }
 
+function classForLayout(layout: SlideLayout): string {
+  if (layout === 'center') return 'slide-center';
+  if (layout === 'two-column') return 'slide-two-column';
+  if (layout === 'split') return 'slide-split';
+  if (layout === 'logo') return 'slide-logo';
+  return '';
+}
+
 export function parseSlides(markdown: string): { slides: SlideData[]; meta: SlideMeta } {
   const lines = markdown.split('\n');
   let title = '';
@@ -154,13 +201,16 @@ export function parseSlides(markdown: string): { slides: SlideData[]; meta: Slid
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
-    const parts = splitParts(trimmed);
-    const slideLayout = parseLayoutFromParts(parts);
+    const directives = extractSlideDirectives(trimmed);
+    const parts = splitParts(directives.markdown);
+    if (parts.length === 0 && !directives.hasDirective) continue;
 
-    let slideClass = '';
-    if (slideLayout === 'center') slideClass = 'slide-center';
-    else if (slideLayout === 'two-column') slideClass = 'slide-two-column';
-    else if (slideLayout === 'split') slideClass = 'slide-split';
+    const inferredLayout = parseLayoutFromParts(parts);
+    const slideLayout = inferredLayout === 'default' && directives.layoutHint ? directives.layoutHint : inferredLayout;
+    const slideClass = [classForLayout(slideLayout), ...directives.classNames]
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(' ');
 
     slides.push({
       index: idx++,

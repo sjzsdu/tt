@@ -56,6 +56,7 @@ var slideCmd = &cobra.Command{
 		}
 
 		if len(args) == 0 {
+			slideFiles = collectSlideFiles(cwd)
 			return runSlideServer()
 		}
 

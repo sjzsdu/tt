@@ -86,9 +86,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       progress: true,
       center: tpl.defaults.center,
       transition: meta?.transition || tpl.defaults.transition,
-      width: 1200,
-      height: 700,
-      margin: 0.04,
+      width: tpl.defaults.width ?? 1200,
+      height: tpl.defaults.height ?? 700,
+      margin: tpl.defaults.margin ?? 0.04,
       minScale: 0.2,
       maxScale: 2.0,
     });
