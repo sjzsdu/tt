@@ -1,0 +1,34 @@
+export type AppTheme = 'light' | 'dark';
+
+export type TemplateConfig = {
+  name: string;
+  revealTheme: string;
+  css: string;
+  defaults: {
+    theme: AppTheme;
+    transition: string;
+    center: boolean;
+  };
+};
+
+export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'full-image';
+
+export type SlideMeta = {
+  title: string;
+  template: string;
+  layout: SlideLayout;
+  total: number;
+  transition: string;
+};
+
+export type SlideData = {
+  index: number;
+  parts: SlidePart[];
+  layout: SlideLayout;
+  class: string;
+};
+
+export type SlidePart =
+  | { type: 'markdown'; html: string }
+  | { type: 'mermaid'; code: string }
+  | { type: 'd2'; code: string };

@@ -1,0 +1,136 @@
+---
+title: 技术分享
+template: white
+---
+
+# Go 并发模式
+
+从 Goroutine 到 Channel 的最佳实践
+
+---
+
+# 什么是 Goroutine
+
+```go
+// 启动一个 goroutine
+go func() {
+    fmt.Println("Hello from goroutine")
+}()
+
+// 等待完成
+var wg sync.WaitGroup
+wg.Add(1)
+go func() {
+    defer wg.Done()
+    // 工作...
+}()
+wg.Wait()
+```
+
+**关键点：** 轻量级、低成本、高并发
+
+---
+
+# Channel 模式
+
+```mermaid
+graph LR
+    P[生产者] -->|发送| C[Channel]
+    C -->|接收| C1[消费者 1]
+    C -->|接收| C2[消费者 2]
+    C -->|接收| C3[消费者 3]
+```
+
+---
+
+# 常用并发模式
+
+:::columns
+## Fan-out / Fan-in
+
+```go
+func fanOut(jobs <-chan Job, n int) <-chan Result {
+    results := make(chan Result, n)
+    var wg sync.WaitGroup
+    for i := 0; i < n; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for job := range jobs {
+                results <- process(job)
+            }
+        }()
+    }
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
+    return results
+}
+```
+
+:::
+
+:::columns
+## Pipeline
+
+```go
+func pipeline(stages ...func<-chan int)<-chan int {
+    ch := make(chan int)
+    go func() {
+        defer close(ch)
+        for _, stage := range stages {
+            ch = stage(ch)
+        }
+    }()
+    return ch
+}
+```
+
+:::
+
+---
+
+# 错误处理
+
+```d2
+shape: sequence_diagram
+Goroutine -> Channel: 发送结果
+Channel -> Handler: 接收结果
+Handler -> ErrorCheck: 检查错误
+ErrorCheck ->|有错误| Log: 记录日志
+ErrorCheck ->|成功| Continue: 继续处理
+```
+
+---
+
+# 性能对比
+
+| 模式 | 吞吐量 | 延迟 | 内存 |
+|------|--------|------|------|
+| 顺序执行 | 1x | 1x | 1x |
+| Goroutine (10) | 8x | 0.2x | 1.5x |
+| Goroutine (100) | 50x | 0.05x | 3x |
+| Worker Pool | 40x | 0.08x | 2x |
+
+---
+
+# 最佳实践
+
+.center
+
+1. **不要** 启动 goroutine 而不等待
+2. **使用** `context` 控制生命周期
+3. **优先** 使用 Worker Pool 模式
+4. **避免** 共享状态，用 channel 通信
+5. **始终** 处理错误
+
+---
+
+# Q&A
+
+.center
+
+# 谢谢！
+
+问题与讨论

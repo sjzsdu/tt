@@ -38,6 +38,8 @@ web/apps/*/dist/
 internal/*/dist/
 /internal/webui/markdown/dist
 /internal/webui/formula/dist
+/internal/webui/agent/dist
+/internal/webui/slide/dist
 
 # Go workspace
 go.work
