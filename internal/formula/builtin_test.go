@@ -535,6 +535,47 @@ func TestKeepCodingSkipsPartialBeadsWithinRun(t *testing.T) {
 	}
 }
 
+func TestKeepCodingAppendSkipListScriptIsValidPython(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
+		t.Fatalf("missing cycle node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want steps.LoopStep", cycle.Step)
+	}
+	var appendScript *steps.ScriptStep
+	for _, child := range loop.Body {
+		if child.Meta().ID != "append-skip-list" {
+			continue
+		}
+		script, ok := child.(steps.ScriptStep)
+		if !ok {
+			t.Fatalf("append-skip-list = %T, want ScriptStep", child)
+		}
+		appendScript = &script
+		break
+	}
+	if appendScript == nil {
+		t.Fatalf("missing append-skip-list script")
+	}
+	if len(appendScript.Command) < 3 || appendScript.Command[0] != "python3" || appendScript.Command[1] != "-c" {
+		t.Fatalf("append-skip-list command = %#v, want python3 -c <script>", appendScript.Command)
+	}
+	scriptPath := filepath.Join(t.TempDir(), "append_skip_list.py")
+	if err := os.WriteFile(scriptPath, []byte(appendScript.Command[2]), 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	cmd := exec.Command("python3", "-m", "py_compile", scriptPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("append-skip-list script should compile as Python: %v\n%s\nscript:\n%s", err, out, appendScript.Command[2])
+	}
+}
+
 func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, nil)
 	if err != nil {
