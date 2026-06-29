@@ -720,37 +720,60 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(web-bug-hunt) error = %v", err)
 	}
-	for _, nodeID := range []ir.NodeID{"normalize-scope", "site-exploration", "reproduce-and-triage", "final-report"} {
+	for _, nodeID := range []ir.NodeID{"normalize-scope", "init-scan-state", "hunt-loop", "load-final-state", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing web-bug-hunt node %s", nodeID)
 		}
 	}
+	if workflow.Graph.Nodes[ir.NodeID("verify-fixed-loop")] != nil {
+		t.Fatalf("verify-fixed-loop should be filtered out by default fixed=false")
+	}
 	if workflow.Graph.Nodes[ir.NodeID("create-bug-beads")] != nil {
 		t.Fatalf("create-bug-beads should be filtered out by default create_beads=false")
 	}
-	explore := workflow.Graph.Nodes[ir.NodeID("site-exploration")]
-	exploreAgent, ok := explore.Step.(steps.AgentStep)
+	hunt := workflow.Graph.Nodes[ir.NodeID("hunt-loop")]
+	huntLoop, ok := hunt.Step.(steps.LoopStep)
 	if !ok {
-		t.Fatalf("site-exploration step = %T, want AgentStep", explore.Step)
+		t.Fatalf("hunt-loop step = %T, want LoopStep", hunt.Step)
 	}
-	if exploreAgent.Agent != "agent-browser" {
-		t.Fatalf("site-exploration agent = %q, want agent-browser", exploreAgent.Agent)
+	if huntLoop.Until != "persist-hunt-step.stdout.continue_scan == false" {
+		t.Fatalf("hunt-loop until = %q", huntLoop.Until)
 	}
-	repro := workflow.Graph.Nodes[ir.NodeID("reproduce-and-triage")]
-	reproAgent, ok := repro.Step.(steps.AgentStep)
-	if !ok {
-		t.Fatalf("reproduce-and-triage step = %T, want AgentStep", repro.Step)
+	var sawExploreAgent, sawPersist bool
+	for _, child := range huntLoop.Body {
+		switch child.Meta().ID {
+		case "explore-target":
+			agentStep, ok := child.(steps.AgentStep)
+			if !ok {
+				t.Fatalf("explore-target step = %T, want AgentStep", child)
+			}
+			if agentStep.Agent != "agent-browser" {
+				t.Fatalf("explore-target agent = %q, want agent-browser", agentStep.Agent)
+			}
+			sawExploreAgent = true
+		case "persist-hunt-step":
+			scriptStep, ok := child.(steps.ScriptStep)
+			if !ok {
+				t.Fatalf("persist-hunt-step step = %T, want ScriptStep", child)
+			}
+			if !strings.Contains(scriptStep.Command[2], "confirmed_bugs") || !strings.Contains(scriptStep.Command[2], "pending_pages") {
+				t.Fatalf("persist-hunt-step should persist bugs and pending pages")
+			}
+			sawPersist = true
+		}
 	}
-	if reproAgent.Agent != "agent-browser" {
-		t.Fatalf("reproduce-and-triage agent = %q, want agent-browser", reproAgent.Agent)
+	if !sawExploreAgent || !sawPersist {
+		t.Fatalf("hunt-loop missing explore-target=%v or persist-hunt-step=%v", sawExploreAgent, sawPersist)
 	}
 	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
 	finalAgent, ok := final.Step.(steps.AgentStep)
 	if !ok {
 		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
 	}
-	if !slices.Contains(finalAgent.InputCtx, "create-bug-beads") {
-		t.Fatalf("final-report context = %v, want create-bug-beads", finalAgent.InputCtx)
+	for _, want := range []string{"init-scan-state.stdout", "load-final-state.stdout", "create-bug-beads"} {
+		if !slices.Contains(finalAgent.InputCtx, want) {
+			t.Fatalf("final-report context = %v, want %s", finalAgent.InputCtx, want)
+		}
 	}
 
 	workflowWithBeads, err := CompileWorkflowByName(context.Background(), "web-bug-hunt", nil, map[string]string{"url": "https://example.com", "create_beads": "true"})
@@ -767,6 +790,39 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 	}
 	if createAgent.Agent != "bead-manager" {
 		t.Fatalf("create-bug-beads agent = %q, want bead-manager", createAgent.Agent)
+	}
+
+	fixedWorkflow, err := CompileWorkflowByName(context.Background(), "web-bug-hunt", nil, map[string]string{"url": "https://example.com", "fixed": "true"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(web-bug-hunt fixed=true) error = %v", err)
+	}
+	if fixedWorkflow.Graph.Nodes[ir.NodeID("hunt-loop")] != nil {
+		t.Fatalf("hunt-loop should be filtered out when fixed=true")
+	}
+	verify := fixedWorkflow.Graph.Nodes[ir.NodeID("verify-fixed-loop")]
+	if verify == nil {
+		t.Fatalf("missing verify-fixed-loop when fixed=true")
+	}
+	verifyLoop, ok := verify.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("verify-fixed-loop step = %T, want LoopStep", verify.Step)
+	}
+	var sawVerifyAgent bool
+	for _, child := range verifyLoop.Body {
+		if child.Meta().ID != "verify-bug" {
+			continue
+		}
+		agentStep, ok := child.(steps.AgentStep)
+		if !ok {
+			t.Fatalf("verify-bug step = %T, want AgentStep", child)
+		}
+		if agentStep.Agent != "agent-browser" {
+			t.Fatalf("verify-bug agent = %q, want agent-browser", agentStep.Agent)
+		}
+		sawVerifyAgent = true
+	}
+	if !sawVerifyAgent {
+		t.Fatalf("verify-fixed-loop missing verify-bug agent step")
 	}
 }
 
