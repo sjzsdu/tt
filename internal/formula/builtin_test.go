@@ -574,7 +574,7 @@ func TestBeadCodingCycleSummaryIncludesStatusForNoWork(t *testing.T) {
 	}
 }
 
-func TestRequirementGroomingEnsuresBeadsWorkspaceBeforeCreate(t *testing.T) {
+func TestRequirementGroomingLoadsExistingBeadsBeforeResearchAndCreate(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "requirement-grooming", nil, map[string]string{"requirement_prompt": "smoke"})
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(requirement-grooming) error = %v", err)
@@ -583,12 +583,44 @@ func TestRequirementGroomingEnsuresBeadsWorkspaceBeforeCreate(t *testing.T) {
 	if ensure == nil {
 		t.Fatalf("missing ensure-beads-workspace node")
 	}
+	load := workflow.Graph.Nodes[ir.NodeID("load-existing-beads")]
+	if load == nil {
+		t.Fatalf("missing load-existing-beads node")
+	}
+	if !slices.Contains(load.Step.Meta().DependsOn, steps.ID("ensure-beads-workspace")) {
+		t.Fatalf("load-existing-beads dependencies = %v, want ensure-beads-workspace", load.Step.Meta().DependsOn)
+	}
+	research := workflow.Graph.Nodes[ir.NodeID("project-research")]
+	if research == nil {
+		t.Fatalf("missing project-research node")
+	}
+	if !slices.Contains(research.Step.Meta().DependsOn, steps.ID("load-existing-beads")) {
+		t.Fatalf("project-research dependencies = %v, want load-existing-beads", research.Step.Meta().DependsOn)
+	}
+	design := workflow.Graph.Nodes[ir.NodeID("design-bead-backlog")]
+	if design == nil {
+		t.Fatalf("missing design-bead-backlog node")
+	}
+	designAgent, ok := design.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("design-bead-backlog step = %T, want steps.AgentStep", design.Step)
+	}
+	if !slices.Contains(designAgent.InputCtx, "load-existing-beads.stdout") {
+		t.Fatalf("design-bead-backlog context = %v, want load-existing-beads.stdout", designAgent.InputCtx)
+	}
 	create := workflow.Graph.Nodes[ir.NodeID("create-or-plan-beads")]
 	if create == nil {
 		t.Fatalf("missing create-or-plan-beads node")
 	}
-	if !slices.Contains(create.Step.Meta().DependsOn, steps.ID("ensure-beads-workspace")) {
-		t.Fatalf("create-or-plan-beads dependencies = %v, want ensure-beads-workspace", create.Step.Meta().DependsOn)
+	if !slices.Contains(create.Step.Meta().DependsOn, steps.ID("design-bead-backlog")) {
+		t.Fatalf("create-or-plan-beads dependencies = %v, want design-bead-backlog", create.Step.Meta().DependsOn)
+	}
+	createAgent, ok := create.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("create-or-plan-beads step = %T, want steps.AgentStep", create.Step)
+	}
+	if !slices.Contains(createAgent.InputCtx, "load-existing-beads.stdout") {
+		t.Fatalf("create-or-plan-beads context = %v, want load-existing-beads.stdout", createAgent.InputCtx)
 	}
 }
 

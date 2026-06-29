@@ -57,99 +57,9 @@ format = "json"
 required = ["requirement_summary", "user_goal", "research_brief", "initial_search_targets"]
 
 [[steps]]
-id = "project-research"
-title = "调研项目现状、能力边界和需求落点"
-depends_on = ["understand-requirement"]
-input_context = ["understand-requirement"]
-description = """
-你是 code-research agent。基于 understand-requirement 的 research_brief 调研当前项目。
-
-重点不是实现需求，而是从代码、文档、测试、命令、配置和现有 beads 习惯中判断：这个需求应该如何被拆成可执行 beads。
-
-请优先使用 code-context 掌握项目结构，再按需阅读关键文件和搜索符号。
-
-输出 ONLY compact JSON：
-{
-  "project_positioning":"...",
-  "relevant_capabilities":["..."],
-  "architecture_context":["..."],
-  "product_context":["..."],
-  "likely_code_areas":["..."],
-  "existing_patterns":["..."],
-  "risk_or_unknowns":["..."],
-  "suggested_workstreams":[{"id":"...","title":"...","why":"...","code_or_product_scope":["..."]}],
-  "evidence":["..."]
-}
-
-要求：
-- evidence 只列关键文件、模块、命令、测试或配置，避免证据堆叠；
-- suggested_workstreams 应帮助后续拆 bead，不要写成实现计划；
-- 明确项目现有能力与用户需求之间的差距。
-"""
-agent.name = "code-research"
-agent.cwd = "{{workspace_path}}"
-
-[steps.validate]
-format = "json"
-required = ["project_positioning", "likely_code_areas", "suggested_workstreams", "risk_or_unknowns"]
-
-[[steps]]
-id = "design-bead-backlog"
-title = "设计可创建的 beads backlog"
-depends_on = ["project-research"]
-input_context = ["understand-requirement", "project-research"]
-description = """
-基于需求理解和项目调研，设计一组适合写入 beads 的任务。最多输出 {{max_beads}} 个候选 bead。
-
-你的目标是形成“需求整理器”的结果：让后续 coding agent 或人类可以逐个领取执行，而不是把所有事情塞进一个大任务。
-
-输出 ONLY compact JSON：
-{
-  "backlog_goal":"...",
-  "grooming_strategy":"...",
-  "candidate_beads":[
-    {
-      "key":"stable-short-key",
-      "title":"...",
-      "type":"feature|bug|task|chore|docs|research|test",
-      "priority":"0|1|2|3|4",
-      "description":"...",
-      "acceptance_criteria":["..."],
-      "scope":["..."],
-      "out_of_scope":["..."],
-      "depends_on":["other-stable-short-key"],
-      "blocks":["other-stable-short-key"],
-      "related_files_or_modules":["..."],
-      "risk_notes":["..."],
-      "why_now":"..."
-    }
-  ],
-  "dependency_edges":[{"blocked":"candidate-key-that-is-blocked","blocker":"candidate-key-that-must-finish-first","type":"blocks","why":"..."}],
-  "dedupe_queries":["..."],
-  "creation_notes":["..."]
-}
-
-要求：
-- 每个 bead 必须可独立理解、可验收；
-- 不要过度拆分，优先按用户价值、系统边界、验证路径拆；
-- 每个 candidate_beads 元素必须有稳定 key，只能用小写字母、数字和短横线，供 dependency_edges 引用；
-- 如果任务存在先后顺序或阻塞关系，必须写入 dependency_edges，不能只写在 description 或 risk_notes 里；
-- dependency_edges 语义必须遵循 bd：blocked 依赖 blocker，等价于执行 `bd link <blocked-id> <blocker-id>`，即 blocker blocks blocked；
-- priority_hint='{{priority_hint}}' 只作为参考，不能覆盖明显更合理的优先级判断；
-- depends_on / blocks 只能引用 candidate key，不要编造还不存在的 bead id；
-- dedupe_queries 给 bead-manager 用于检查已有相似 beads。
-"""
-agent.name = "planner"
-agent.cwd = "{{workspace_path}}"
-
-[steps.validate]
-format = "json"
-required = ["backlog_goal", "candidate_beads", "dedupe_queries"]
-
-[[steps]]
 id = "ensure-beads-workspace"
 title = "确保 beads workspace 可用"
-depends_on = ["design-bead-backlog"]
+depends_on = ["understand-requirement"]
 execution = "script"
 idempotent = true
 
@@ -194,12 +104,190 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "load-existing-beads"
+title = "读取现有 beads backlog"
+depends_on = ["ensure-beads-workspace"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, subprocess
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return {"cmd": cmd, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+def parse_json(result, default):
+    if result.get('code') != 0:
+        return default
+    try:
+        return json.loads(result.get('stdout') or '[]')
+    except Exception:
+        return default
+
+where = run(['bd', 'where', '--json'])
+list_res = run(['bd', 'list', '--json']) if where['code'] == 0 else {"cmd": ['bd', 'list', '--json'], "code": 1, "stdout": "", "stderr": "bd workspace unavailable"}
+ready_res = run(['bd', 'ready', '--json', '--limit', '30']) if where['code'] == 0 else {"cmd": ['bd', 'ready', '--json', '--limit', '30'], "code": 1, "stdout": "", "stderr": "bd workspace unavailable"}
+
+issues = parse_json(list_res, [])
+ready = parse_json(ready_res, [])
+if not isinstance(issues, list):
+    issues = []
+if not isinstance(ready, list):
+    ready = []
+
+def slim(issue):
+    deps = issue.get('depends_on') or issue.get('dependencies') or []
+    blocks = issue.get('blocks') or issue.get('blocked') or []
+    return {
+        "id": issue.get('id'),
+        "title": issue.get('title'),
+        "status": issue.get('status'),
+        "priority": issue.get('priority'),
+        "type": issue.get('issue_type') or issue.get('type'),
+        "description": (issue.get('description') or '')[:500],
+        "depends_on": deps,
+        "blocks": blocks,
+    }
+
+by_status = {}
+by_priority = {}
+for issue in issues:
+    by_status[str(issue.get('status') or 'unknown')] = by_status.get(str(issue.get('status') or 'unknown'), 0) + 1
+    by_priority[str(issue.get('priority') if issue.get('priority') is not None else 'unknown')] = by_priority.get(str(issue.get('priority') if issue.get('priority') is not None else 'unknown'), 0) + 1
+
+openish = [i for i in issues if str(i.get('status')) not in ('closed', 'done', 'resolved')]
+print(json.dumps({
+    "available": where['code'] == 0,
+    "where": where,
+    "summary": {
+        "total": len(issues),
+        "openish": len(openish),
+        "ready": len(ready),
+        "by_status": by_status,
+        "by_priority": by_priority,
+    },
+    "open_beads": [slim(i) for i in openish[:80]],
+    "ready_beads": [slim(i) for i in ready[:30]],
+    "commands": {"list": list_res, "ready": ready_res},
+    "notes": [] if where['code'] == 0 else [where.get('stderr') or where.get('stdout') or 'No beads workspace detected.']
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "project-research"
+title = "调研项目现状、能力边界和需求落点"
+depends_on = ["load-existing-beads"]
+input_context = ["understand-requirement", "load-existing-beads.stdout"]
+description = """
+你是 code-research agent。基于 understand-requirement 的 research_brief 调研当前项目。
+
+重点不是实现需求，而是从代码、文档、测试、命令、配置和现有 beads 习惯中判断：这个需求应该如何被拆成可执行 beads。
+
+同时必须阅读 load-existing-beads.stdout：把当前已有 backlog 当作项目上下文的一部分，判断新需求是补充已有路线、拆分已有大 bead、修正已有 bead，还是需要新建独立工作流。不要只围绕用户新输入做孤立分析。
+
+请优先使用 code-context 掌握项目结构，再按需阅读关键文件和搜索符号。
+
+输出 ONLY compact JSON：
+{
+  "project_positioning":"...",
+  "relevant_capabilities":["..."],
+  "architecture_context":["..."],
+  "product_context":["..."],
+  "likely_code_areas":["..."],
+  "existing_patterns":["..."],
+  "existing_backlog_context":{"summary":"...","ready_or_blocked_themes":["..."],"overlap_with_requirement":["..."],"gaps":["..."]},
+  "risk_or_unknowns":["..."],
+  "suggested_workstreams":[{"id":"...","title":"...","why":"...","code_or_product_scope":["..."]}],
+  "evidence":["..."]
+}
+
+要求：
+- evidence 只列关键文件、模块、命令、测试或配置，避免证据堆叠；
+- suggested_workstreams 应帮助后续拆 bead，不要写成实现计划；
+- 明确项目现有能力与用户需求之间的差距；
+- existing_backlog_context 必须说明现有 beads 中哪些主题、ready/blocked 状态、依赖或缺口会影响本次需求整理。
+"""
+agent.name = "code-research"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["project_positioning", "likely_code_areas", "existing_backlog_context", "suggested_workstreams", "risk_or_unknowns"]
+
+[[steps]]
+id = "design-bead-backlog"
+title = "设计可创建的 beads backlog"
+depends_on = ["project-research"]
+input_context = ["understand-requirement", "load-existing-beads.stdout", "project-research"]
+description = """
+基于需求理解、现有 beads 和项目调研，设计一组适合写入 beads 的任务。最多输出 {{max_beads}} 个候选 bead。
+
+你的目标是形成“需求整理器”的结果：让后续 coding agent 或人类可以逐个领取执行，而不是把所有事情塞进一个大任务。
+
+必须把 load-existing-beads.stdout 当作已有产品/工程路线图：新候选 bead 应该和现有 bead 复用、更新、依赖或补齐，不能像一个全新的孤岛 backlog。
+
+输出 ONLY compact JSON：
+{
+  "backlog_goal":"...",
+  "grooming_strategy":"...",
+  "existing_backlog_integration":{"strategy":"...","reuse_or_update":[{"existing_bead":"...","action":"reuse|update|split|link|avoid-duplicate","why":"..."}],"new_gap_areas":["..."]},
+  "candidate_beads":[
+    {
+      "key":"stable-short-key",
+      "title":"...",
+      "type":"feature|bug|task|chore|docs|research|test",
+      "priority":"0|1|2|3|4",
+      "description":"...",
+      "acceptance_criteria":["..."],
+      "scope":["..."],
+      "out_of_scope":["..."],
+      "depends_on":["other-stable-short-key"],
+      "blocks":["other-stable-short-key"],
+      "related_files_or_modules":["..."],
+      "risk_notes":["..."],
+      "why_now":"..."
+    }
+  ],
+  "dependency_edges":[{"blocked":"candidate-key-or-existing-bead-id-that-is-blocked","blocker":"candidate-key-or-existing-bead-id-that-must-finish-first","type":"blocks","why":"..."}],
+  "dedupe_queries":["..."],
+  "creation_notes":["..."]
+}
+
+要求：
+- 每个 bead 必须可独立理解、可验收；
+- 不要过度拆分，优先按用户价值、系统边界、验证路径拆；
+- 每个 candidate_beads 元素必须有稳定 key，只能用小写字母、数字和短横线，供 dependency_edges 引用；
+- 如果任务存在先后顺序或阻塞关系，必须写入 dependency_edges，不能只写在 description 或 risk_notes 里；dependency_edges 可以引用 candidate key，也可以引用 load-existing-beads 中已经存在的 bead id；
+- dependency_edges 语义必须遵循 bd：blocked 依赖 blocker，等价于执行 `bd link <blocked-id> <blocker-id>`，即 blocker blocks blocked；
+- priority_hint='{{priority_hint}}' 只作为参考，不能覆盖明显更合理的优先级判断；
+- candidate_beads.depends_on / blocks 可以引用 candidate key 或真实存在的 bead id，不要编造还不存在的 bead id；
+- dedupe_queries 给 bead-manager 用于检查已有相似 beads；
+- 如果已有 bead 已经覆盖某项工作，优先在 existing_backlog_integration.reuse_or_update 中说明复用或更新，而不是重复创建。
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["backlog_goal", "existing_backlog_integration", "candidate_beads", "dedupe_queries"]
+
+[[steps]]
 id = "create-or-plan-beads"
 title = "使用 bead-manager 创建或规划 beads"
-depends_on = ["ensure-beads-workspace"]
-input_context = ["understand-requirement", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout"]
+depends_on = ["design-bead-backlog"]
+input_context = ["understand-requirement", "load-existing-beads.stdout", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout"]
 description = """
 你是 bead-manager agent。根据 design-bead-backlog 管理当前项目 beads。
+
+load-existing-beads.stdout 是本次整理开始时的现有 backlog 快照。你必须用它来判断复用、更新、补依赖和避免重复创建。最终结果要让旧 beads 和新需求形成一个有机整体。
 
 beads workspace 状态来自 ensure-beads-workspace.stdout：
 - 如果 create_mode=create 且 ready=true，必须实际执行 bd create/update/link；
@@ -213,8 +301,8 @@ create_mode='{{create_mode}}'：
 创建/更新原则：
 1. 不创建重复 bead；已有相近任务时优先更新或在输出中建议合并；
 2. 每个 bead 要包含背景、范围、验收标准、相关模块、风险/未知项；
-3. 必须维护 candidate key -> 实际 bead id 的映射，包括复用已有 bead 的情况；
-4. 创建或复用 bead 之后，必须根据 design-bead-backlog.dependency_edges 建立 bd 依赖关系；
+3. 必须维护 candidate key -> 实际 bead id 的映射，包括复用已有 bead 的情况；如果 dependency_edges 引用了已有 bead id，也要直接用真实 id 建链；
+4. 创建、更新或复用 bead 之后，必须根据 design-bead-backlog.dependency_edges 建立 bd 依赖关系，包括新 bead 与已有 bead 之间的依赖；
 5. bd 依赖命令语义：`bd link <blocked-id> <blocker-id>` 表示 blocker blocks blocked，也就是 blocked 依赖 blocker；
 6. 也可以在 `bd create` 时用 `--deps` 写入依赖，但仍必须确认所有 dependency_edges 都已体现在 bd 中；
 7. 批量操作前要谨慎，但本 formula 的目标就是整理需求并创建 backlog，所以在 create_mode=create 时可以执行明确来自 candidate_beads 的创建和 dependency_edges 链接；
@@ -224,6 +312,7 @@ create_mode='{{create_mode}}'：
 {
   "mode":"create|plan",
   "existing_matches":[{"query":"...","matches":["..."]}],
+  "backlog_integration":[{"existing_bead":"...","action":"reuse|update|link|split|avoid-duplicate","candidate_key":"...","why":"..."}],
   "created_beads":[{"id":"...","title":"...","priority":"..."}],
   "updated_beads":[{"id":"...","title":"...","reason":"..."}],
   "bead_id_map":{"candidate-key":"actual-bead-id"},
@@ -236,6 +325,7 @@ create_mode='{{create_mode}}'：
 要求：
 - created_beads / updated_beads 必须如实反映实际操作；
 - dependency_links 必须覆盖 design-bead-backlog.dependency_edges；如果某条边无法创建，必须 status=failed 并写明 error；
+- backlog_integration 必须说明本次如何处理现有 beads：复用、更新、链接、拆分或避免重复；
 - 如果 bd 命令失败，保留错误信息到 notes，并不要假装已创建；
 - 如果 create_mode=plan，created_beads 和 updated_beads 应为空，但 dependency_links 要以 status=planned 表达计划建立的依赖。
 """
@@ -244,13 +334,13 @@ agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
 format = "json"
-required = ["mode", "created_beads", "updated_beads", "bead_id_map", "dependency_links", "skipped_candidates", "notes"]
+required = ["mode", "backlog_integration", "created_beads", "updated_beads", "bead_id_map", "dependency_links", "skipped_candidates", "notes"]
 
 [[steps]]
 id = "final-grooming-report"
 title = "输出需求整理报告"
 depends_on = ["create-or-plan-beads"]
-input_context = ["understand-requirement", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout", "create-or-plan-beads"]
+input_context = ["understand-requirement", "load-existing-beads.stdout", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout", "create-or-plan-beads"]
 description = """
 基于全部上下文，输出面向用户的需求整理报告。不要再创建或修改 beads。
 
@@ -268,6 +358,9 @@ description = """
 
 ## 项目调研结论
 - ...
+
+## 与现有 beads 的整合关系
+说明现有 backlog 中哪些 beads 被复用、更新、链接、拆分或判定为重复；如果没有可整合项，也要说明原因。
 
 ## 已创建/规划的 beads
 用表格列出 bead id、标题、优先级、状态、说明。
@@ -289,6 +382,7 @@ description = """
 
 要求：
 - 说明这批 beads 如何对应用户原始需求；
+- 说明这批 beads 如何融入已有 backlog，不能只描述新增需求；
 - 如果没有创建任何 bead，要解释原因；
 - 如果 ensure-beads-workspace.initialized=true，要说明本次已自动初始化 beads workspace；
 - 如果 create_mode=create 但 created_beads/updated_beads 为空或 dependency_links 失败，必须把结论写成“创建未完成/需要处理”，不能说需求整理已经完全落库；
