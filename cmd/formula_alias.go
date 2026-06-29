@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	formulacmd "github.com/sjzsdu/tt/cmd/formula"
@@ -21,6 +22,7 @@ func registerFormulaShortcutCommands() {
 	if err != nil {
 		return
 	}
+	rootCmd.Long = rootLongBase + buildFormulaShortcutHelp(entries)
 	existing := rootCommandNamesAndAliases()
 	for _, entry := range entries {
 		formulaName := entry.Name
@@ -34,6 +36,31 @@ func registerFormulaShortcutCommands() {
 			existing[alias] = true
 		}
 	}
+}
+
+func buildFormulaShortcutHelp(entries []formula.BuiltinEntry) string {
+	rows := []string{}
+	for _, entry := range entries {
+		for _, alias := range entry.Aliases {
+			alias = strings.TrimSpace(alias)
+			if alias == "" {
+				continue
+			}
+			rows = append(rows, fmt.Sprintf("  tt %-22s run/show/help/compile/copy/runs  # formula: %s", alias, entry.Name))
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.Strings(rows)
+	var b strings.Builder
+	b.WriteString("\n\nFormula shortcut aliases:\n")
+	b.WriteString("Use these top-level aliases instead of `tt formula <subcommand> <formula>`:\n")
+	for _, row := range rows {
+		b.WriteString(row)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func rootCommandNamesAndAliases() map[string]bool {
