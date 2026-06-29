@@ -151,7 +151,7 @@ description = """
 2. 使用 code-context 调研项目结构、相关模块、现有模式和测试；
 3. 只实现当前 bead 的范围，不顺手实现下游 bead；
 4. 如果发现当前 bead 被未完成依赖阻塞，或需求不清，停止编码并说明 blocked_reason；
-5. 尽量补测试或更新相关文档；
+5. 根据 bead 的验收标准稳定交付：可能是代码、测试、配置、脚本、文档或设计说明；不要因为产出是文档就降低完成标准，也不要为追求“写代码”而偏离 bead 范围；
 6. 不要 commit，不要关闭 bead。
 
 输出 ONLY compact JSON：
@@ -192,7 +192,7 @@ depends_on = ["implement-bead", "run-validation"]
 input_context = ["load-bead-tree.stdout", "implement-bead", "run-validation.validation.stdout"]
 condition = "select-bead.stdout.selected == true"
 description = """
-判断本次 bead-coding 是否可以提交和关闭 bead。不要编造验证结果。
+判断本次 bead-coding 是否可以提交和关闭 bead。不要编造验证结果。核心目标是让 bead 进入真实闭环：如果交付物已经满足 bead 验收标准，就应该 ready_to_close=true；如果不能关闭，必须给出可执行缺口，而不是泛泛要求人工复核。
 
 输出 ONLY compact JSON：
 {
@@ -206,8 +206,10 @@ description = """
 
 规则：
 - implement-bead.blocked=true 时 ready_to_commit=false 且 ready_to_close=false；
-- 没有实际代码/文档改动时 ready_to_commit=false；如果已有交付物满足验收且验证通过，可以仍然 ready_to_close=true；
-- 验证失败或未运行且风险较高时 ready_to_close=false；
+- 没有实际代码/文档/配置/测试改动时 ready_to_commit=false；如果已有交付物已经满足验收，可以仍然 ready_to_close=true；
+- 文档、调研、需求收敛类 bead 也是有效需求：如果改动覆盖验收标准，并且可通过文件存在性、内容检查、命令输出或自检说明验证，则可以 ready_to_close=true，不要强制要求人工复核；
+- 验证命令未运行时，要区分原因：若仓库暂无可用自动验证但交付物可人工/静态检查且风险低，可以 ready_to_close=true，并在 validation_summary 说明使用了静态/内容自检；若存在无法判断的实质缺口，才 ready_to_close=false；
+- ready_to_close=false 时，gaps 必须是下一轮 agent 可以继续处理的具体事项；不要只写“人工复核”这类不可自动推进的泛化理由；
 - commit_message 必须简短，建议包含 bead id，例如 `feat: implement <bead-id> ...`。
 """
 agent.name = "tester"
@@ -256,7 +258,7 @@ required = ["stdout"]
 [[steps]]
 id = "close-bead"
 title = "成功后关闭 bead"
-depends_on = ["commit-changes"]
+depends_on = ["final-check", "commit-changes"]
 condition = "final-check.ready_to_close == true && '{{close_on_success}}' == 'true'"
 execution = "script"
 continue_on_error = true

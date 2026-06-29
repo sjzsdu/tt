@@ -576,6 +576,43 @@ func TestKeepCodingAppendSkipListScriptIsValidPython(t *testing.T) {
 	}
 }
 
+func TestKeepCodingDoesNotSkipProgressedPartialBeads(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
+		t.Fatalf("missing cycle node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want steps.LoopStep", cycle.Step)
+	}
+	var script string
+	for _, child := range loop.Body {
+		if child.Meta().ID != "append-skip-list" {
+			continue
+		}
+		scriptStep, ok := child.(steps.ScriptStep)
+		if !ok {
+			t.Fatalf("append-skip-list = %T, want ScriptStep", child)
+		}
+		if len(scriptStep.Command) >= 3 {
+			script = scriptStep.Command[2]
+		}
+	}
+	if script == "" {
+		t.Fatalf("missing append-skip-list script")
+	}
+	if !strings.Contains(script, "status == 'partial' and not committed and not closed") {
+		t.Fatalf("append-skip-list should skip only non-progressed partial beads, script:\n%s", script)
+	}
+	if !strings.Contains(script, "status in {'blocked', 'failed'}") {
+		t.Fatalf("append-skip-list should still skip blocked/failed beads, script:\n%s", script)
+	}
+}
+
 func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, nil)
 	if err != nil {
@@ -591,6 +628,19 @@ func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
 	}
 	if !strings.Contains(condition, "final-check.ready_to_close == true") {
 		t.Fatalf("close-bead condition should honor final-check.ready_to_close: %q", condition)
+	}
+	finalCheck := workflow.Graph.Nodes[ir.NodeID("final-check")]
+	if finalCheck == nil {
+		t.Fatalf("missing final-check node")
+	}
+	agentStep, ok := finalCheck.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("final-check step = %T, want steps.AgentStep", finalCheck.Step)
+	}
+	for _, want := range []string{"文档、调研、需求收敛类 bead 也是有效需求", "不要强制要求人工复核", "已有交付物已经满足验收"} {
+		if !strings.Contains(agentStep.Prompt, want) {
+			t.Fatalf("final-check prompt should contain %q", want)
+		}
 	}
 }
 
