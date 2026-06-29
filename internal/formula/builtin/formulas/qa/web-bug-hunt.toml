@@ -1,0 +1,243 @@
+formula = "web-bug-hunt"
+aliases = ["web-bug-hunt"]
+title = "Web Bug 探测器"
+description = "输入 URL 和可选 metadata，使用 agent-browser 像谨慎 QA 一样探索网站、复现可见 bug、输出报告，并可选创建 bug beads。"
+version = 1
+type = "workflow"
+category = "qa"
+tags = ["web", "browser", "qa", "bug", "beads"]
+
+[vars]
+url = { description = "要测试的网站入口 URL", required = true }
+metadata = { description = "可选测试上下文，可包含账号、密码、登录提示、测试范围、禁止动作、期望流程等；支持 JSON 或自然语言", default = "" }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+max_pages = { description = "最多探索多少个页面/路由，避免无限爬取", default = "20", pattern = "^[1-9][0-9]*$" }
+max_depth = { description = "导航探索最大深度", default = "3", pattern = "^[1-9][0-9]*$" }
+create_beads = { description = "是否使用 bead-manager 为 high/medium bug 创建 beads：true/false", default = "false" }
+severity_threshold = { description = "建议创建 bead 的最低严重级别：low/medium/high", default = "medium" }
+
+[[steps]]
+id = "normalize-scope"
+title = "规范化测试输入和安全边界"
+description = """
+基于 URL='{{url}}' 和 metadata='{{metadata}}'，整理本次 Web bug hunt 的测试上下文、登录信息使用方式、允许/禁止动作和测试重点。
+
+你不是浏览器执行者，而是测试策略整理者。metadata 可能是 JSON，也可能是自然语言；请容错解析。
+
+默认安全策略：
+- 可以打开页面、浏览、搜索、填写低风险表单；
+- 未经明确授权，不执行付款、删除真实数据、发送真实邮件、公开发布、修改真实生产配置、授权敏感权限等不可逆动作；
+- 如果 metadata 没有明确允许 mutation，则把提交类动作视为需要确认或只做 dry-run；
+- 如果包含用户名/密码，只用于登录目标站点，不要在报告中明文泄露密码。
+
+输出 ONLY compact JSON：
+{
+  "target_url":"...",
+  "metadata_summary":"...",
+  "has_credentials":true,
+  "login_strategy":"...",
+  "allowed_actions":["..."],
+  "forbidden_actions":["..."],
+  "expected_flows":["..."],
+  "bug_categories":["availability","login-auth","forms-input","navigation-flow","permissions","ui-ux","low-risk-security"],
+  "safety_notes":["..."],
+  "exploration_limits":{"max_pages":20,"max_depth":3}
+}
+
+要求：
+- 不要输出明文密码；
+- forbidden_actions 至少包含 payment/delete/send-email/publish/destructive-admin-change，除非 metadata 明确允许；
+- expected_flows 可以从 metadata 推断，缺失时使用登录、导航、搜索、表单、列表/详情、设置等通用 flow；
+- bug_categories 保持低侵入，不包含爆破、绕过、攻击性扫描。
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["target_url", "allowed_actions", "forbidden_actions", "expected_flows", "bug_categories", "safety_notes"]
+
+[[steps]]
+id = "site-exploration"
+title = "使用浏览器探索站点地图和核心状态"
+depends_on = ["normalize-scope"]
+input_context = ["normalize-scope"]
+description = """
+你是 agent-browser agent。请基于 normalize-scope 的目标、限制和安全边界，打开并探索 {{url}}。
+
+目标：建立第一版站点地图和页面状态，不要急着下结论。
+
+执行要求：
+1. 使用 agent-browser 实际打开 target_url，观察 URL、标题、主要内容、登录状态、可交互元素；
+2. 如 metadata 提供账号密码且登录属于允许动作，尝试登录；不要在输出中泄露密码；
+3. 探索最多 {{max_pages}} 个页面/路由，深度最多 {{max_depth}}；优先导航栏、菜单、列表页、详情页、设置页、搜索页、表单页；
+4. 不执行 forbidden_actions 中的动作；遇到危险提交按钮可以记录为未测试点；
+5. 记录页面加载失败、错误提示、明显空状态、权限异常、布局/交互异常。
+
+输出 ONLY compact JSON：
+{
+  "target_url":"...",
+  "login_state":"not-needed|logged-in|login-failed|blocked|unknown",
+  "pages":[{"url":"...","title":"...","purpose":"...","status":"ok|error|empty|blocked|unknown","key_elements":["..."],"observations":["..."]}],
+  "flows_attempted":[{"name":"...","steps":["..."],"result":"passed|failed|blocked|not-tested","notes":"..."}],
+  "candidate_bugs":[{"temp_id":"OBS-1","page_url":"...","category":"...","summary":"...","evidence":"...","suspected_severity":"low|medium|high","needs_reproduction":true}],
+  "blocked_or_untested":[{"area":"...","reason":"..."}],
+  "safety_events":["..."]
+}
+
+要求：
+- candidate_bugs 只是候选，不要夸大；
+- 每个候选必须来自页面观察；
+- 如果没有发现 bug，candidate_bugs 为空数组，但仍输出 pages 和 flows_attempted；
+- 明确哪些 flow 因安全边界没有执行。
+"""
+agent.name = "agent-browser"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["target_url", "login_state", "pages", "flows_attempted", "candidate_bugs", "blocked_or_untested", "safety_events"]
+
+[[steps]]
+id = "reproduce-and-triage"
+title = "复现候选问题并分级"
+depends_on = ["site-exploration"]
+input_context = ["normalize-scope", "site-exploration"]
+description = """
+你是 agent-browser agent。基于 site-exploration.candidate_bugs，对候选问题做低风险复现和分级。
+
+目标：把 observation 转成可复现 bug，或者降级为未确认观察。
+
+复现原则：
+- 对每个候选至少尝试一次可逆复现；
+- 不执行 normalize-scope.forbidden_actions；
+- 复现步骤要足够让人或后续自动化测试重复；
+- 如果无法复现，不要保留为 confirmed bug，可以放入 observations；
+- 对登录、权限、表单、导航、错误提示、空状态、状态丢失、刷新/后退异常等进行重点判断；
+- 低风险安全检查仅限页面可见泄露、未授权可见入口、错误堆栈、URL 敏感信息、明显 XSS 显示风险线索，不做攻击性扫描。
+
+输出 ONLY compact JSON：
+{
+  "confirmed_bugs":[
+    {
+      "id":"BUG-1",
+      "severity":"low|medium|high",
+      "category":"availability|login-auth|forms-input|navigation-flow|permissions|ui-ux|low-risk-security",
+      "title":"...",
+      "page_url":"...",
+      "preconditions":["..."],
+      "repro_steps":["..."],
+      "actual_result":"...",
+      "expected_result":"...",
+      "evidence":["..."],
+      "safe_to_retest":true,
+      "suggested_fix_direction":"..."
+    }
+  ],
+  "observations":[{"summary":"...","why_not_confirmed":"...","page_url":"..."}],
+  "not_tested":[{"area":"...","reason":"forbidden|blocked|needs-user-confirmation|out-of-scope","suggested_manual_check":"..."}],
+  "coverage_summary":{"pages_seen":0,"flows_attempted":0,"confirmed_bug_count":0,"high":0,"medium":0,"low":0},
+  "risk_notes":["..."]
+}
+
+要求：
+- confirmed_bugs 必须可复现；没有复现步骤的不要放入 confirmed_bugs；
+- severity 判断：high=核心流程不可用/明显权限问题/数据风险；medium=重要流程异常/表单或状态错误；low=文案、布局、轻微 UX；
+- evidence 可以是页面文本、URL、错误提示、截图说明或交互结果。
+"""
+agent.name = "agent-browser"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["confirmed_bugs", "observations", "not_tested", "coverage_summary", "risk_notes"]
+
+[[steps]]
+id = "create-bug-beads"
+title = "可选创建 bug beads"
+depends_on = ["reproduce-and-triage"]
+condition = "{{create_beads}} == true"
+input_context = ["normalize-scope", "reproduce-and-triage"]
+description = """
+你是 bead-manager agent。根据 reproduce-and-triage.confirmed_bugs 为严重级别不低于 '{{severity_threshold}}' 的确认 bug 创建或更新 beads。
+
+执行规则：
+1. 先查询已有 beads，避免重复创建；
+2. high/medium bug 默认各建一个 bug bead；low bug 只有 severity_threshold=low 时创建，可合并同类低优先级问题；
+3. 每个 bug bead 必须包含页面 URL、前置条件、复现步骤、实际结果、预期结果、证据、建议修复方向；
+4. 不要为 observations 或 not_tested 创建 bug bead，除非明确标记为需要人工验证的 research/task；
+5. 如果 bd 不可用或 workspace 不存在，不要假装创建，输出失败原因。
+
+输出 ONLY compact JSON：
+{
+  "mode":"create",
+  "created_beads":[{"id":"...","title":"...","severity":"..."}],
+  "updated_beads":[{"id":"...","title":"...","reason":"..."}],
+  "skipped_bugs":[{"bug_id":"...","reason":"..."}],
+  "commands_or_plan":["..."],
+  "notes":["..."]
+}
+"""
+agent.name = "bead-manager"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["mode", "created_beads", "updated_beads", "skipped_bugs", "notes"]
+
+[[steps]]
+id = "final-report"
+title = "输出 Web Bug Hunt 报告"
+depends_on = ["reproduce-and-triage", "create-bug-beads"]
+input_context = ["normalize-scope", "site-exploration", "reproduce-and-triage", "create-bug-beads"]
+description = """
+基于全部上下文，输出中文 Markdown 报告。不要输出 JSON，不要用代码块包裹全文。
+
+固定结构：
+
+# Web Bug Hunt 报告
+
+## 结论
+说明是否发现确认 bug、严重级别分布、是否登录成功、是否创建 beads。
+
+## 测试范围与安全边界
+- URL
+- 身份/登录状态，禁止泄露密码
+- 允许动作
+- 未执行的高风险动作
+- 探索页数/流程
+
+## 站点地图与覆盖
+列出访问过的关键页面和流程结果。
+
+## 确认 Bug 列表
+用表格列出 ID、严重级别、类别、页面、摘要、是否可安全复测。
+
+## 详细复现
+每个 bug 写：
+- 严重级别
+- 页面 URL
+- 前置条件
+- 复现步骤
+- 实际结果
+- 预期结果
+- 证据
+- 建议修复方向
+
+## 未确认观察与未测试区域
+说明哪些只是 observation，哪些因为安全边界/权限/验证码/登录/危险动作未测试。
+
+## Beads 落库情况
+如果 create_beads=true，列出 created/updated/skipped；如果 false，说明未创建但可复制为 bug beads。
+
+## 下一步建议
+给出 3-5 条可执行建议。
+
+要求：
+- 没有 confirmed_bugs 时，也要给出覆盖范围和“未发现确认 bug”的可信边界；
+- 不要泄露 metadata 中的密码、token、cookie；
+- 不要把未复现 observation 说成 bug；
+- 报告应能直接交给 QA、开发或产品经理使用。
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"

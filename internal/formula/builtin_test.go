@@ -715,6 +715,61 @@ func TestRequirementGroomingLoadsExistingBeadsBeforeResearchAndCreate(t *testing
 	}
 }
 
+func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "web-bug-hunt", nil, map[string]string{"url": "https://example.com"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(web-bug-hunt) error = %v", err)
+	}
+	for _, nodeID := range []ir.NodeID{"normalize-scope", "site-exploration", "reproduce-and-triage", "final-report"} {
+		if workflow.Graph.Nodes[nodeID] == nil {
+			t.Fatalf("missing web-bug-hunt node %s", nodeID)
+		}
+	}
+	if workflow.Graph.Nodes[ir.NodeID("create-bug-beads")] != nil {
+		t.Fatalf("create-bug-beads should be filtered out by default create_beads=false")
+	}
+	explore := workflow.Graph.Nodes[ir.NodeID("site-exploration")]
+	exploreAgent, ok := explore.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("site-exploration step = %T, want AgentStep", explore.Step)
+	}
+	if exploreAgent.Agent != "agent-browser" {
+		t.Fatalf("site-exploration agent = %q, want agent-browser", exploreAgent.Agent)
+	}
+	repro := workflow.Graph.Nodes[ir.NodeID("reproduce-and-triage")]
+	reproAgent, ok := repro.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("reproduce-and-triage step = %T, want AgentStep", repro.Step)
+	}
+	if reproAgent.Agent != "agent-browser" {
+		t.Fatalf("reproduce-and-triage agent = %q, want agent-browser", reproAgent.Agent)
+	}
+	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
+	finalAgent, ok := final.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
+	}
+	if !slices.Contains(finalAgent.InputCtx, "create-bug-beads") {
+		t.Fatalf("final-report context = %v, want create-bug-beads", finalAgent.InputCtx)
+	}
+
+	workflowWithBeads, err := CompileWorkflowByName(context.Background(), "web-bug-hunt", nil, map[string]string{"url": "https://example.com", "create_beads": "true"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(web-bug-hunt create_beads=true) error = %v", err)
+	}
+	create := workflowWithBeads.Graph.Nodes[ir.NodeID("create-bug-beads")]
+	if create == nil {
+		t.Fatalf("missing create-bug-beads when create_beads=true")
+	}
+	createAgent, ok := create.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("create-bug-beads step = %T, want AgentStep", create.Step)
+	}
+	if createAgent.Agent != "bead-manager" {
+		t.Fatalf("create-bug-beads agent = %q, want bead-manager", createAgent.Agent)
+	}
+}
+
 func TestBuiltinFormulaAliasesAreCataloged(t *testing.T) {
 	entries, err := BuiltinFormulas()
 	if err != nil {
@@ -724,6 +779,7 @@ func TestBuiltinFormulaAliasesAreCataloged(t *testing.T) {
 		"keep-coding":          "keep-coding",
 		"bead-coding":          "bead-coding",
 		"requirement-grooming": "requirement-grooming",
+		"web-bug-hunt":         "web-bug-hunt",
 	}
 	for _, entry := range entries {
 		alias, ok := want[entry.Name]
@@ -748,6 +804,8 @@ func builtinCompileSmokeVars(name string) map[string]string {
 		return map[string]string{"topic": "smoke topic"}
 	case "feature":
 		return map[string]string{"feature_request": "smoke feature"}
+	case "web-bug-hunt":
+		return map[string]string{"url": "https://example.com"}
 	case "github-pr-review", "github-pr-fix-comments", "github-pr-rebase-main":
 		return map[string]string{"pr_ref": "1"}
 	case "code-docs":
