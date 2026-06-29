@@ -116,6 +116,7 @@ func (a *App) installOptions() {
 	formulaOutput = a.opts.Output
 	formulaTitle = a.opts.Title
 	formulaMarkdown = a.opts.Markdown
+	formulaMarkdownHideGraphVars = a.opts.MarkdownHideGraphVars
 	formulaPort = a.opts.Port
 	formulaAgent = a.opts.Agent
 	formulaModel = a.opts.Model

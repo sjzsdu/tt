@@ -40,3 +40,14 @@ func TestGenerateMermaidGraphRespectsFormulaMarkdownHideGraphVars(t *testing.T) 
 		t.Fatalf("graph should keep step nodes when hiding variable nodes:\n%s", hiddenVars)
 	}
 }
+
+func TestInstallOptionsCopiesMarkdownHideGraphVars(t *testing.T) {
+	previous := formulaMarkdownHideGraphVars
+	t.Cleanup(func() { formulaMarkdownHideGraphVars = previous })
+
+	app := &App{opts: formulaOptions{MarkdownHideGraphVars: true}}
+	app.installOptions()
+	if !formulaMarkdownHideGraphVars {
+		t.Fatal("installOptions should copy MarkdownHideGraphVars into formulaMarkdownHideGraphVars")
+	}
+}
