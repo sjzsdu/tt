@@ -32,6 +32,7 @@ const (
 	Repo2SkillID            = "repo2skill"
 	CodeResearchID          = "code-research"
 	CodeContextManagerID    = "code-context"
+	AgentBrowserID          = "agent-browser"
 	FormulaWriterID         = "formula-writer"
 	DocsAnalystID           = "docs-analyst"
 	BeadManagerID           = "bead-manager"

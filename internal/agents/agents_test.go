@@ -108,6 +108,26 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("CodeContextManager prompt and soul should be loaded")
 	}
 
+	agentBrowser, err := Get(AgentBrowserID)
+	if err != nil {
+		t.Fatalf("Get(AgentBrowserID) error = %v", err)
+	}
+	if agentBrowser.Name != "Agent Browser 管理员" {
+		t.Fatalf("AgentBrowser name = %q", agentBrowser.Name)
+	}
+	if !containsString(agentBrowser.Tools, "skills") {
+		t.Fatalf("AgentBrowser tools = %v, want skills", agentBrowser.Tools)
+	}
+	if !containsString(agentBrowser.Skills, "agent-browser") {
+		t.Fatalf("AgentBrowser skills = %v, want agent-browser", agentBrowser.Skills)
+	}
+	if !containsString(agentBrowser.Aliases, "ab") {
+		t.Fatalf("AgentBrowser aliases = %v, want ab", agentBrowser.Aliases)
+	}
+	if agentBrowser.Prompt == "" || agentBrowser.Soul == "" {
+		t.Fatalf("AgentBrowser prompt and soul should be loaded")
+	}
+
 	stock, err := StockDiscussion()
 	if err != nil {
 		t.Fatalf("StockDiscussion() error = %v", err)
