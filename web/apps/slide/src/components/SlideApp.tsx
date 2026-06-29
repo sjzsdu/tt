@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Reveal from 'reveal.js';
 import { parseSlides } from '../parser';
-import { getTemplate } from '../templates';
+import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
 import type { SlideMeta } from '../types';
 import { fetchSlideContent, fetchRawContent, fetchSlideList, createWS, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
@@ -9,9 +9,10 @@ import { SlideContent } from './SlideContent';
 interface SlideAppProps {
   contentMode: boolean;
   filePath?: string;
+  templateOverride?: string;
 }
 
-export function SlideApp({ contentMode, filePath }: SlideAppProps) {
+export function SlideApp({ contentMode, filePath, templateOverride = '' }: SlideAppProps) {
   const [slides, setSlides] = useState<Awaited<ReturnType<typeof parseSlides>>['slides']>([]);
   const [meta, setMeta] = useState<SlideMeta | null>(null);
   const [error, setError] = useState('');
@@ -43,8 +44,8 @@ export function SlideApp({ contentMode, filePath }: SlideAppProps) {
         return;
       }
 
-      setSlides(parsed);
       setMeta(parsedMeta);
+      setSlides(parsed);
       setError('');
     } catch (e: any) {
       setError(String(e));
@@ -76,7 +77,7 @@ export function SlideApp({ contentMode, filePath }: SlideAppProps) {
       deckRef.current = null;
     }
 
-    const tpl = getTemplate(meta?.template || 'dark');
+    const tpl = getTemplate(templateOverride || meta?.template || DEFAULT_TEMPLATE);
 
     const deck = new Reveal(containerRef.current, {
       hash: true,
@@ -101,7 +102,7 @@ export function SlideApp({ contentMode, filePath }: SlideAppProps) {
       deck.destroy();
       deckRef.current = null;
     };
-  }, [slides, meta]);
+  }, [slides, meta, templateOverride]);
 
   useEffect(() => {
     if (contentMode) return;
@@ -309,7 +310,7 @@ export function SlideApp({ contentMode, filePath }: SlideAppProps) {
     );
   }
 
-  const tpl = getTemplate(meta?.template || 'dark');
+  const tpl = getTemplate(templateOverride || meta?.template || DEFAULT_TEMPLATE);
 
   return (
     <div className="slide-wrapper" ref={wrapperRef}>
@@ -318,7 +319,7 @@ export function SlideApp({ contentMode, filePath }: SlideAppProps) {
         <div className="slides">
           {slides.map((slide) => (
             <section key={slide.index} className={slide.class || ''}>
-              <SlideContent slide={slide} />
+              <SlideContent slide={slide} theme={tpl.defaults.theme} />
             </section>
           ))}
         </div>

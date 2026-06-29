@@ -1,8 +1,8 @@
-import type { SlideData } from '../parser';
+import type { AppTheme, SlideData } from '../types';
 import { MermaidBlock } from './MermaidBlock';
 import { D2Block } from './D2Block';
 
-export function SlideContent({ slide }: { slide: SlideData }) {
+export function SlideContent({ slide, theme = 'dark' }: { slide: SlideData; theme?: AppTheme }) {
   return (
     <div className="slide-content">
       {slide.parts.map((part, i) => {
@@ -10,16 +10,16 @@ export function SlideContent({ slide }: { slide: SlideData }) {
           return (
             <div
               key={i}
-              className="slide-markdown"
+              className={`slide-markdown ${part.role ? `slide-part-${part.role}` : ''}`}
               dangerouslySetInnerHTML={{ __html: part.html }}
             />
           );
         }
         if (part.type === 'mermaid') {
-          return <MermaidBlock key={i} code={part.code} index={slide.index * 100 + i} />;
+          return <MermaidBlock key={i} code={part.code} index={slide.index * 100 + i} theme={theme} />;
         }
         if (part.type === 'd2') {
-          return <D2Block key={i} code={part.code} index={slide.index * 100 + i} />;
+          return <D2Block key={i} code={part.code} index={slide.index * 100 + i} theme={theme} />;
         }
         return null;
       })}

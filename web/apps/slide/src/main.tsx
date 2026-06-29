@@ -8,5 +8,8 @@ import './styles.css';
 const params = new URLSearchParams(location.search);
 const filePath = params.get('file') || '';
 const contentMode = params.get('content') === '1';
+const templateOverride = params.get('template') || '';
 
-createRoot(document.getElementById('root')!).render(<SlideApp contentMode={contentMode} filePath={filePath} />);
+createRoot(document.getElementById('root')!).render(
+  <SlideApp contentMode={contentMode} filePath={filePath} templateOverride={templateOverride} />
+);

@@ -1,5 +1,6 @@
 import { marked, type Token } from 'marked';
 import hljs from 'highlight.js';
+import { DEFAULT_TEMPLATE } from './templates';
 import type { SlideData, SlidePart, SlideMeta, SlideLayout } from './types';
 
 marked.setOptions({
@@ -13,14 +14,24 @@ marked.setOptions({
   },
 });
 
-function splitParts(markdown: string): SlidePart[] {
+type MarkdownRole = Extract<SlidePart, { type: 'markdown' }>['role'];
+
+type MarkdownSegment = {
+  markdown: string;
+  role?: MarkdownRole;
+};
+
+function splitMarkedParts(markdown: string, role?: MarkdownRole): SlidePart[] {
+  const source = markdown.trim();
+  if (!source) return [];
+
   const tokens = marked.lexer(markdown);
   const parts: SlidePart[] = [];
   let buffer: Token[] = [];
 
   const flush = () => {
     if (buffer.length) {
-      parts.push({ type: 'markdown', html: marked.parser(buffer) });
+      parts.push({ type: 'markdown', html: marked.parser(buffer), role });
       buffer = [];
     }
   };
@@ -41,6 +52,50 @@ function splitParts(markdown: string): SlidePart[] {
   return parts;
 }
 
+function splitColumnSegments(markdown: string): MarkdownSegment[] | null {
+  const lines = markdown.split('\n');
+  const segments: MarkdownSegment[] = [];
+  let buffer: string[] = [];
+  let inColumn = false;
+  let sawColumn = false;
+
+  const flush = (role?: MarkdownRole) => {
+    const text = buffer.join('\n').trim();
+    if (text) {
+      segments.push({ markdown: text, role });
+    }
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!inColumn && /^:::\s*columns\s*$/i.test(trimmed)) {
+      flush();
+      inColumn = true;
+      sawColumn = true;
+      continue;
+    }
+    if (inColumn && /^:::\s*$/.test(trimmed)) {
+      flush('column');
+      inColumn = false;
+      continue;
+    }
+    buffer.push(line);
+  }
+
+  if (inColumn) return null;
+  flush();
+
+  return sawColumn ? segments : null;
+}
+
+function splitParts(markdown: string): SlidePart[] {
+  const segments = splitColumnSegments(markdown);
+  if (!segments) return splitMarkedParts(markdown);
+
+  return segments.flatMap(segment => splitMarkedParts(segment.markdown, segment.role));
+}
+
 function parseSlideMeta(line: string): { key: string; value: string } | null {
   const match = line.match(/^(\w[\w-]*):\s*(.+)$/);
   if (!match) return null;
@@ -48,6 +103,7 @@ function parseSlideMeta(line: string): { key: string; value: string } | null {
 }
 
 function parseLayoutFromParts(parts: SlidePart[]): SlideLayout {
+  if (parts.some(part => part.type === 'markdown' && part.role === 'column')) return 'two-column';
   for (const part of parts) {
     if (part.type !== 'markdown') continue;
     const html = part.html;
@@ -61,7 +117,7 @@ function parseLayoutFromParts(parts: SlidePart[]): SlideLayout {
 export function parseSlides(markdown: string): { slides: SlideData[]; meta: SlideMeta } {
   const lines = markdown.split('\n');
   let title = '';
-  let template = 'dark';
+  let template = DEFAULT_TEMPLATE;
   let layout: SlideLayout = 'default';
   let transition = '';
 

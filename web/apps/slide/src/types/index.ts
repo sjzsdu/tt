@@ -29,6 +29,6 @@ export type SlideData = {
 };
 
 export type SlidePart =
-  | { type: 'markdown'; html: string }
+  | { type: 'markdown'; html: string; role?: 'column' }
   | { type: 'mermaid'; code: string }
   | { type: 'd2'; code: string };

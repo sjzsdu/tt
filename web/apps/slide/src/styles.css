@@ -229,8 +229,8 @@ html, body, #root {
   opacity: 0;
   transition: opacity 0.2s;
 }
-.slide-wrapper:hover .slide-fullscreen-btn { opacity: 0.7; }
-.slide-fullscreen-btn:hover { opacity: 1 !important; background: var(--slide-accent); color: #fff; }
+.slide-fullscreen-btn:hover,
+.slide-fullscreen-btn:focus-visible { opacity: 1; background: var(--slide-accent); color: #fff; }
 
 .slide-back-btn {
   position: fixed;
@@ -251,8 +251,8 @@ html, body, #root {
   opacity: 0;
   transition: opacity 0.2s, background 0.2s;
 }
-.slide-wrapper:hover .slide-back-btn { opacity: 0.78; }
-.slide-back-btn:hover { opacity: 1 !important; background: var(--slide-accent); color: #fff; }
+.slide-back-btn:hover,
+.slide-back-btn:focus-visible { opacity: 1; background: var(--slide-accent); color: #fff; }
 
 /* ========== Two-column with diagrams ========== */
 .slide-two-column .slide-diagram { flex: 1; min-width: 0; margin: 0; border: none; background: transparent; }
@@ -337,8 +337,8 @@ html, body, #root {
   opacity: 0;
   transition: opacity 0.2s;
 }
-.slide-wrapper:hover .slide-list-btn { opacity: 0.7; }
-.slide-list-btn:hover { opacity: 1 !important; background: var(--slide-accent); color: #fff; }
+.slide-list-btn:hover,
+.slide-list-btn:focus-visible { opacity: 1; background: var(--slide-accent); color: #fff; }
 
 /* ========== Reveal overview strip ========== */
 .reveal.overview {

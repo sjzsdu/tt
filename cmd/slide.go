@@ -24,9 +24,10 @@ import (
 )
 
 var (
-	slidePort    = 9596
-	slideContent string
-	slideFiles   []string
+	slidePort     = 9596
+	slideContent  string
+	slideTemplate string
+	slideFiles    []string
 
 	slideServer *http.Server
 	slideMu     sync.Mutex
@@ -105,6 +106,7 @@ func init() {
 	rootCmd.AddCommand(slideCmd)
 	slideCmd.Flags().IntVarP(&slidePort, "port", "p", 9596, "service port")
 	slideCmd.Flags().StringVarP(&slideContent, "content", "c", "", "render provided markdown content directly as slides")
+	slideCmd.Flags().StringVar(&slideTemplate, "template", "", "override slide template at runtime, e.g. magicloud, dark, light, serif, white")
 }
 
 func isSlideFile(name string) bool {
@@ -191,10 +193,17 @@ func runSlideServer() error {
 				fmt.Printf("slide watcher init warning: %v\n", err)
 			}
 			browserURL := fmt.Sprintf("http://localhost:%d", port)
+			params := url.Values{}
 			if slideContent != "" {
-				browserURL += "?content=1"
+				params.Set("content", "1")
 			} else if len(slideFiles) == 1 {
-				browserURL += "?file=" + url.QueryEscape(slideRelPath(slideFiles[0]))
+				params.Set("file", slideRelPath(slideFiles[0]))
+			}
+			if strings.TrimSpace(slideTemplate) != "" {
+				params.Set("template", strings.TrimSpace(slideTemplate))
+			}
+			if encoded := params.Encode(); encoded != "" {
+				browserURL += "?" + encoded
 			}
 			go openBrowser(browserURL)
 			quit := make(chan os.Signal, 1)
