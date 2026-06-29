@@ -122,7 +122,7 @@ func collectFormulaShowAllMarkdownFormulas() []*spec.Formula {
 }
 
 func generateFormulaMarkdown(f *spec.Formula, workflow *ir.Workflow) string {
-	return doc.GenerateMarkdown(f, workflow)
+	return doc.GenerateMarkdownWithOptions(f, workflow, doc.MarkdownOptions{HideGraphVars: formulaMarkdownHideGraphVars})
 }
 
 func generateMermaidGraph(workflow *ir.Workflow) string {

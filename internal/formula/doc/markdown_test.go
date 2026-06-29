@@ -50,6 +50,74 @@ func TestGenerateMermaidGraphEscapesMustacheLabels(t *testing.T) {
 }
 
 func TestGenerateMermaidGraphShowsDeclaredVariableConsumers(t *testing.T) {
+	workflow := variableConsumerWorkflow()
+
+	graph := GenerateMermaidGraph(workflow)
+	for _, want := range []string{
+		`var__docs["$ docs"]`,
+		`var__repo["$ repo"]`,
+		`var__repo -. var .-> prepare_repo`,
+		`var__repo -. var .-> scope_analysis`,
+		`var__docs -. var .-> write_docs`,
+		`var__repo -. var .-> write_docs__draft`,
+	} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("graph missing %q:\n%s", want, graph)
+		}
+	}
+	for _, notWant := range []string{`var__doc[`, `var__prepare_repo[`} {
+		if strings.Contains(graph, notWant) {
+			t.Fatalf("graph should not contain %q for local loop vars or step output refs:\n%s", notWant, graph)
+		}
+	}
+}
+
+func TestGenerateMermaidGraphCanHideDeclaredVariableConsumers(t *testing.T) {
+	workflow := variableConsumerWorkflow()
+
+	graph := GenerateMermaidGraphWithOptions(workflow, MermaidGraphOptions{HideVars: true})
+	for _, want := range []string{
+		`prepare_repo["Prepare repo"]`,
+		`scope_analysis["Scope"]`,
+		`write_docs["Write docs"]`,
+		`write_docs__draft["Draft"]`,
+	} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("graph missing step node %q:\n%s", want, graph)
+		}
+	}
+	for _, notWant := range []string{`var__docs[`, `var__repo[`, `-. var .->`} {
+		if strings.Contains(graph, notWant) {
+			t.Fatalf("graph should hide variable graph element %q:\n%s", notWant, graph)
+		}
+	}
+}
+
+func TestGenerateMarkdownCanHideGraphVarsWithoutHidingVariablesTable(t *testing.T) {
+	repoDefault := "https://example.test/repo.git"
+	f := &spec.Formula{
+		Formula: "github-repo-docs",
+		Version: 1,
+		Type:    spec.TypeWorkflow,
+		Vars: map[string]*spec.VarDef{
+			"repo": {Description: "Repository URL", Default: &repoDefault, Required: true},
+			"docs": {Description: "Docs to write"},
+		},
+	}
+	markdown := GenerateMarkdownWithOptions(f, variableConsumerWorkflow(), MarkdownOptions{HideGraphVars: true})
+	for _, want := range []string{"## Variables", "| `repo` | Repository URL | `https://example.test/repo.git` | ✅ |", "| `docs` | Docs to write | - |  |"} {
+		if !strings.Contains(markdown, want) {
+			t.Fatalf("markdown should keep variables table entry %q:\n%s", want, markdown)
+		}
+	}
+	for _, notWant := range []string{`var__docs[`, `var__repo[`, `-. var .->`} {
+		if strings.Contains(markdown, notWant) {
+			t.Fatalf("markdown graph should hide variable graph element %q:\n%s", notWant, markdown)
+		}
+	}
+}
+
+func variableConsumerWorkflow() *ir.Workflow {
 	workflow := &ir.Workflow{
 		ID:    "github-repo-docs",
 		Name:  "github-repo-docs",
@@ -73,25 +141,7 @@ func TestGenerateMermaidGraphShowsDeclaredVariableConsumers(t *testing.T) {
 			steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "draft", Kind: steps.KindAgent, Title: "Draft"}}, Prompt: "Write {{doc.title}} for {{repo}}"},
 		},
 	}})
-
-	graph := GenerateMermaidGraph(workflow)
-	for _, want := range []string{
-		`var__docs["$ docs"]`,
-		`var__repo["$ repo"]`,
-		`var__repo -. var .-> prepare_repo`,
-		`var__repo -. var .-> scope_analysis`,
-		`var__docs -. var .-> write_docs`,
-		`var__repo -. var .-> write_docs__draft`,
-	} {
-		if !strings.Contains(graph, want) {
-			t.Fatalf("graph missing %q:\n%s", want, graph)
-		}
-	}
-	for _, notWant := range []string{`var__doc[`, `var__prepare_repo[`} {
-		if strings.Contains(graph, notWant) {
-			t.Fatalf("graph should not contain %q for local loop vars or step output refs:\n%s", notWant, graph)
-		}
-	}
+	return workflow
 }
 
 func TestGenerateMarkdownUsesExecutionOrderAndFoldsScripts(t *testing.T) {

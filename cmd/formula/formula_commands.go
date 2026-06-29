@@ -161,6 +161,7 @@ With --markdown and no name, generates a combined Markdown preview of all formul
 		RunE: runFormulaShow,
 	}
 	cmd.Flags().BoolVar(&a.opts.Markdown, "markdown", false, "render formula as Markdown with Mermaid diagram and preview in browser")
+	cmd.Flags().BoolVar(&a.opts.MarkdownHideGraphVars, "hide-graph-vars", false, "hide variable nodes and variable edges in the Markdown dependency graph")
 	cmd.Flags().IntVarP(&a.opts.Port, "port", "p", 9598, "web server port for --markdown preview")
 	return cmd
 }

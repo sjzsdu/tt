@@ -13,7 +13,19 @@ import (
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
+type MarkdownOptions struct {
+	HideGraphVars bool
+}
+
+type MermaidGraphOptions struct {
+	HideVars bool
+}
+
 func GenerateMarkdown(f *spec.Formula, workflow *ir.Workflow) string {
+	return GenerateMarkdownWithOptions(f, workflow, MarkdownOptions{})
+}
+
+func GenerateMarkdownWithOptions(f *spec.Formula, workflow *ir.Workflow, opts MarkdownOptions) string {
 	if f == nil {
 		return ""
 	}
@@ -70,7 +82,7 @@ func GenerateMarkdown(f *spec.Formula, workflow *ir.Workflow) string {
 
 	b.WriteString("## Dependency Graph\n\n")
 	b.WriteString("```mermaid\n")
-	b.WriteString(GenerateMermaidGraph(workflow))
+	b.WriteString(GenerateMermaidGraphWithOptions(workflow, MermaidGraphOptions{HideVars: opts.HideGraphVars}))
 	b.WriteString("\n```\n\n")
 
 	b.WriteString("## Quick Start\n\n")
@@ -260,6 +272,10 @@ func writeLoopMarkdown(b *strings.Builder, loop steps.LoopStep) {
 }
 
 func GenerateMermaidGraph(workflow *ir.Workflow) string {
+	return GenerateMermaidGraphWithOptions(workflow, MermaidGraphOptions{})
+}
+
+func GenerateMermaidGraphWithOptions(workflow *ir.Workflow, opts MermaidGraphOptions) string {
 	var b strings.Builder
 	b.WriteString("graph TD\n")
 	stepsList := orderedWorkflowSteps(workflow, nil)
@@ -268,18 +284,25 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 		return b.String()
 	}
 	ids := map[ir.NodeID]struct{}{}
-	allowedVars := workflowVarNames(workflow)
+	allowedVars := map[string]struct{}{}
+	if !opts.HideVars {
+		allowedVars = workflowVarNames(workflow)
+	}
 	varEdges := []mermaidVarEdge{}
 	for _, step := range stepsList {
 		meta := step.Meta()
 		id := ir.NodeID(meta.ID)
 		ids[id] = struct{}{}
-		collectMermaidVarEdges(step, string(id), allowedVars, nil, &varEdges)
+		if !opts.HideVars {
+			collectMermaidVarEdges(step, string(id), allowedVars, nil, &varEdges)
+		}
 		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidNodeID(string(id)), mermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
 		writeLoopMermaidSubgraph(&b, step, string(id))
 	}
-	for _, name := range sortedWorkflowVarNames(workflow) {
-		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidVarNodeID(name), mermaidLabel("$ "+name)))
+	if !opts.HideVars {
+		for _, name := range sortedWorkflowVarNames(workflow) {
+			b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidVarNodeID(name), mermaidLabel("$ "+name)))
+		}
 	}
 	if workflow != nil {
 		for _, edge := range workflow.Graph.Edges {
@@ -292,8 +315,10 @@ func GenerateMermaidGraph(workflow *ir.Workflow) string {
 			b.WriteString(fmt.Sprintf("  %s --> %s\n", mermaidNodeID(string(edge.From)), mermaidNodeID(string(edge.To))))
 		}
 	}
-	for _, edge := range varEdges {
-		b.WriteString(fmt.Sprintf("  %s -. var .-> %s\n", mermaidVarNodeID(edge.Name), mermaidNodeID(edge.TargetID)))
+	if !opts.HideVars {
+		for _, edge := range varEdges {
+			b.WriteString(fmt.Sprintf("  %s -. var .-> %s\n", mermaidVarNodeID(edge.Name), mermaidNodeID(edge.TargetID)))
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
