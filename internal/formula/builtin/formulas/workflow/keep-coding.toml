@@ -35,10 +35,36 @@ workspace_path = { description = "可选执行工作区路径；为空时使用 
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
 close_on_success = { description = "每轮成功后是否关闭 bead", default = "true" }
 ready_limit = { description = "每轮自动选择 ready bead 时最多读取多少个候选", default = "10" }
+skip_file = { description = "本次 keep-coding 运行内跳过 partial/blocked bead 的临时文件", default = ".tt/tmp/keep-coding-skip.txt" }
+
+[[steps]]
+id = "prepare-skip-list"
+title = "初始化本次运行跳过列表"
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib
+path = pathlib.Path(os.environ.get('SKIP_FILE', '.tt/tmp/keep-coding-skip.txt'))
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text('', encoding='utf-8')
+print(json.dumps({"skip_file": str(path), "reset": True}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.script.env]
+SKIP_FILE = "{{skip_file}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
 
 [[steps]]
 id = "cycle"
 title = "循环执行 bead-coding"
+depends_on = ["prepare-skip-list"]
 
 [steps.loop]
 max = "{{max_cycles}}"
@@ -56,46 +82,105 @@ workspace_path = "{{workspace_path}}"
 validation_command = "{{validation_command}}"
 close_on_success = "{{close_on_success}}"
 ready_limit = "{{ready_limit}}"
+exclude_bead_file = "{{skip_file}}"
 
 [[steps.loop.body]]
 id = "cycle-note"
 title = "记录本轮结果"
 depends_on = ["run-bead-coding"]
-input_context = ["run-bead-coding.cycle-summary", "run-bead-coding.final-report"]
-description = """
-基于 run-bead-coding 的输出，生成本轮循环的紧凑 JSON 摘要，供最终报告汇总，并决定 keep-coding 是否继续下一轮。
+execution = "script"
 
-关键规则：
-- selected 表示“可以安全继续下一轮”，不是仅表示本轮是否选中过 bead；
-- 只要本轮 closed=true 且 status 不是 blocked/failed/partial/no-work，就输出 selected=true，即使 committed=false；
-- committed=false 且 closed=true 是合法闭环，表示本轮无新改动但 bead 已被验证并关闭；
-- 如果本轮选中了 bead 但 status 是 partial/blocked/failed/no-work，或 closed=false，必须输出 selected=false，避免下一轮重复处理同一个 ready bead；
-- no-work/没有 ready bead 时输出 selected=false。
+[steps.loop.body.script]
+command = ["python3", "-c", """
+import json, os
+status = os.environ.get('STATUS', '').strip() or 'partial'
+bead_id = os.environ.get('BEAD_ID', '').strip()
+closed = os.environ.get('CLOSED', '').strip().lower() == 'true'
+committed = os.environ.get('COMMITTED', '').strip().lower() == 'true'
+commit_hash = os.environ.get('COMMIT_HASH', '').strip()
+summary = os.environ.get('SUMMARY', '').strip()
+next_action = os.environ.get('NEXT_ACTION', '').strip()
+selected_in = os.environ.get('SELECTED_IN', '').strip().lower() == 'true'
+# Continue after partial/blocked/failed so append-skip-list can exclude this bead
+# and the next iteration can try another ready bead. Stop only when no selectable
+# ready bead remains.
+selected = False if status == 'no-work' or not selected_in else True
+if status == 'no-work':
+    next_action = next_action or '没有可处理的 ready bead，keep-coding 可以正常结束。'
+elif not closed and not next_action:
+    next_action = '本 bead 未闭环，已加入本次运行跳过列表，继续尝试其它 ready bead。'
+print(json.dumps({
+  "selected": selected,
+  "bead_id": bead_id,
+  "status": status,
+  "committed": committed,
+  "commit_hash": commit_hash,
+  "closed": closed,
+  "summary": summary,
+  "next_action": next_action,
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
 
-输出 ONLY compact JSON：
-{
-  "selected":true,
-  "bead_id":"...",
-  "status":"completed|blocked|no-work|failed|partial",
-  "committed":false,
-  "commit_hash":"",
-  "closed":true,
-  "summary":"...",
-  "next_action":"..."
-}
-"""
-agent.name = "reporter"
-agent.cwd = "{{workspace_path}}"
+[steps.loop.body.script.env]
+SELECTED_IN = "{{run-bead-coding.cycle-summary.selected}}"
+BEAD_ID = "{{run-bead-coding.cycle-summary.bead_id}}"
+STATUS = "{{run-bead-coding.cycle-summary.status}}"
+COMMITTED = "{{run-bead-coding.cycle-summary.committed}}"
+COMMIT_HASH = "{{run-bead-coding.cycle-summary.commit_hash}}"
+CLOSED = "{{run-bead-coding.cycle-summary.closed}}"
+SUMMARY = "{{run-bead-coding.cycle-summary.summary}}"
+NEXT_ACTION = "{{run-bead-coding.cycle-summary.next_action}}"
 
 [steps.loop.body.validate]
 format = "json"
 required = ["selected", "status", "committed", "closed", "summary", "next_action"]
 
+[[steps.loop.body]]
+id = "append-skip-list"
+title = "记录本轮需要跳过的 bead"
+depends_on = ["cycle-note"]
+execution = "script"
+idempotent = true
+
+[steps.loop.body.script]
+command = ["python3", "-c", """
+import json, os, pathlib
+bead_id = os.environ.get('BEAD_ID', '').strip()
+status = os.environ.get('STATUS', '').strip()
+closed = os.environ.get('CLOSED', '').strip().lower() == 'true'
+selected = os.environ.get('SELECTED', '').strip().lower() == 'true'
+path = pathlib.Path(os.environ.get('SKIP_FILE', '.tt/tmp/keep-coding-skip.txt'))
+path.parent.mkdir(parents=True, exist_ok=True)
+should_skip = bool(bead_id) and selected and (not closed or status in {'partial', 'blocked', 'failed'})
+existing = []
+if path.exists():
+    existing = [line.strip() for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+if should_skip and bead_id not in existing:
+    existing.append(bead_id)
+path.write_text('\n'.join(existing) + ('\n' if existing else ''), encoding='utf-8')
+print(json.dumps({"skip_file": str(path), "appended": should_skip, "bead_id": bead_id, "skipped_bead_ids": existing}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.loop.body.script.env]
+SKIP_FILE = "{{skip_file}}"
+BEAD_ID = "{{cycle-note.bead_id}}"
+STATUS = "{{cycle-note.status}}"
+CLOSED = "{{cycle-note.closed}}"
+SELECTED = "{{cycle-note.selected}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["stdout"]
+
 [[steps]]
 id = "final-report"
 title = "输出持续编码最终报告"
 depends_on = ["cycle"]
-input_context = ["cycle"]
+input_context = ["cycle", "append-skip-list.stdout"]
 description = """
 输出中文 Markdown 最终报告，不要输出 JSON，不要粘贴完整子报告。
 

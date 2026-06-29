@@ -495,6 +495,46 @@ func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
 	}
 }
 
+func TestKeepCodingSkipsPartialBeadsWithinRun(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("prepare-skip-list")] == nil {
+		t.Fatalf("missing prepare-skip-list node")
+	}
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
+		t.Fatalf("missing cycle node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want steps.LoopStep", cycle.Step)
+	}
+	var sawAppend bool
+	var sawExclude bool
+	for _, child := range loop.Body {
+		if child.Meta().ID == "append-skip-list" {
+			sawAppend = true
+		}
+		if child.Meta().ID == "run-bead-coding.select-bead" {
+			script, ok := child.(steps.ScriptStep)
+			if !ok {
+				t.Fatalf("run-bead-coding.select-bead = %T, want ScriptStep", child)
+			}
+			if strings.Contains(script.Env["EXCLUDE_BEAD_FILE"], "keep-coding-skip.txt") {
+				sawExclude = true
+			}
+		}
+	}
+	if !sawAppend {
+		t.Fatalf("keep-coding loop body should append partial beads to a skip list")
+	}
+	if !sawExclude {
+		t.Fatalf("embedded bead-coding select-bead should receive the skip file")
+	}
+}
+
 func TestBeadCodingCanCloseWithoutNewCommit(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, nil)
 	if err != nil {

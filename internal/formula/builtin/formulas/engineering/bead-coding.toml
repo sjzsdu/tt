@@ -35,6 +35,7 @@ workspace_path = { description = "可选执行工作区路径；为空时使用 
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
 close_on_success = { description = "验证和提交成功后是否关闭 bead", default = "true" }
 ready_limit = { description = "自动选择 ready bead 时最多读取多少个候选", default = "10" }
+exclude_bead_file = { description = "可选排除 bead id 文件；自动选择 ready bead 时跳过文件中的 bead", default = "" }
 
 [[steps]]
 id = "select-bead"
@@ -52,6 +53,14 @@ def run(cmd):
 
 bead_id = os.environ.get('BEAD_ID', '').strip()
 limit = os.environ.get('READY_LIMIT', '10').strip() or '10'
+exclude_file = os.environ.get('EXCLUDE_BEAD_FILE', '').strip()
+excluded = set()
+if exclude_file:
+    try:
+        with open(exclude_file, 'r', encoding='utf-8') as f:
+            excluded = {line.strip() for line in f if line.strip()}
+    except FileNotFoundError:
+        pass
 result = {"selected": False, "bead_id": bead_id, "goal": os.environ.get('GOAL', '').strip(), "source": "explicit" if bead_id else "ready", "ready_candidates": [], "error": ""}
 if not bead_id:
     ready = run(['bd', 'ready', '--json', '--limit', limit])
@@ -65,9 +74,13 @@ if not bead_id:
         result['error'] = 'parse bd ready JSON failed: ' + str(exc)
         print(json.dumps(result, ensure_ascii=False)); sys.exit(0)
     result['ready_candidates'] = items
-    if items:
-        bead_id = items[0].get('id', '')
-        result['bead_id'] = bead_id
+    for item in items:
+        candidate_id = item.get('id', '')
+        if candidate_id and candidate_id not in excluded:
+            bead_id = candidate_id
+            result['bead_id'] = bead_id
+            break
+    result['excluded_bead_ids'] = sorted(excluded)
 if bead_id:
     result['selected'] = True
 print(json.dumps(result, ensure_ascii=False))
@@ -79,6 +92,7 @@ timeout = "30s"
 BEAD_ID = "{{bead_id}}"
 GOAL = "{{goal}}"
 READY_LIMIT = "{{ready_limit}}"
+EXCLUDE_BEAD_FILE = "{{exclude_bead_file}}"
 
 [steps.validate]
 format = "json"
