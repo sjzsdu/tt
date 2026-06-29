@@ -364,6 +364,11 @@ flowchart TD
 - `internal/formula/steps/`
 - `cmd/formula/`
 
+如果目标和“多 formula 运行 / 多 run 统一观察”有关，先额外对照：
+- `docs/formula/current-run-model-and-top-level-concurrency-boundaries.md`（先分清单 run 内 loop 并发 vs 顶层多 run）
+- `docs/formula/run-store-and-web-dashboard-gaps-for-multi-run-monitoring.md`（先分清 run store / dashboard 目前哪些地方天然是单 run）
+- `docs/formula/reusable-patterns-for-parallel-scheduling-and-multi-run-research.md`（先盘点已有 schedule、resume、worktree、human input、builtin 样例和测试夹具）
+
 ### 我想让 formula 的运行结果保存更多信息
 先看：
 - `internal/formula/run/store.go`

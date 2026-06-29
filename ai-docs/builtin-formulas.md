@@ -105,6 +105,38 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 - 写"代码 feature 端到端"：默认从 `feature` 拷贝；如果需要隔离 worktree 与按需提交，再参考 `gongbu`。
 - 写"PR / Jira 自动化"：从 `github-pr-review` / `jira-bug-fix` 拷贝，然后嵌入对应的 atomic 子步骤。
 
+## 与多 formula / 多 run 研究最相关的现有模式
+
+这部分只盘点**最接近后续 `tt-2tr` / `tt-4ce` 的真实拼图**，帮助后续 bead 先复用现有能力，而不是把需求描述成从零设计。
+
+| 模式 | 现有样例 / 入口 | 可直接复用 | 不能覆盖什么 |
+| --- | --- | --- | --- |
+| loop 并发 / foreach 并发 | `san-sheng-liu-bu`、`fresh-topic-docs`、`keep-coding` | 证明 runtime 已支持单个 run 内的 foreach/loop 并发、分批汇总与循环推进；很适合拿来构造“一个 run 里并发处理多任务”的对照样例 | 不能代表多个顶层 formula run 的统一调度、统一取消、统一状态页 |
+| schedule 触发 | `tt formula schedule`（CLI 与 tests 在 `cmd/formula/formula_schedule_test.go`） | 可直接复用 every / cron / run-now / max-runs 这些已有触发语义，作为未来多 run 场景的“启动条件” | schedule 只负责决定何时启动新 run，不提供跨 run 聚合观察或批次管理 |
+| worktree 隔离工作区 | `gongbu`、`github-pr-rebase-main` | 可直接复用 run 级隔离 workspace、自动 cleanup、agent/script 在独立目录中执行的约束 | 不能替代多个 run 之间的资源池、批量 worktree 总览或跨 run 资源编排 |
+| resume / human input | `bug-fix` 的动态澄清入口；runtime/CLI 对 human input 与 resume 的支持 | 可复用等待态、人类补充输入后继续执行、失败后 resume 等单 run 生命周期能力 | 仍围绕单个 run snapshot 设计，不能直接回答“多个 run 谁在等人、如何统一提交输入” |
+| 嵌套 formula / 复用公式 | `github-pr-fix-comments` → `bug-fix`、`keep-coding` → `bead-coding` | 证明当前已经有“一个公式驱动另一个公式”的真实样例，可供后续 bead 提炼最小验证矩阵 | 复用的是执行拼图，不是多 run 监控/聚合平面 |
+
+### 建议优先深挖的测试 / 样例入口
+
+- `cmd/formula/formula_runtime_test.go`
+  - workspace guard 注入
+  - loop iteration session 隔离
+  - dashboard snapshot 映射
+  - resume dependency exclusions（尤其 loop ancestor 重跑）
+- `cmd/formula/formula_schedule_test.go`
+  - every / cron / max-runs 的核心行为
+- `cmd/formula/formula_human_input_test.go`
+  - human input CLI 路径与字段提交
+- `cmd/formula/formula_dashboard_updates_test.go`
+  - timeline、workspace ready、final report chat 等 reopen/dashboard 相关路径
+- `internal/formula/runtime/formularun_store_test.go`
+  - snapshot / run store / waiting-human-input 状态落盘
+- `internal/formula/runtime/executor_test.go`
+  - runtime 执行、repair/fixer、workspace/environment 等底层夹具
+
+如果后续目的是定义“多 run 最小场景矩阵”，优先从这些现有样例反推覆盖面，再补缺口；不要先抽象再找例子。
+
 ## 目录组织原则
 
 - `formulas/github/`: GitHub PR 批处理、审阅、rebase、评论修复。

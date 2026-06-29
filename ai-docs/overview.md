@@ -186,3 +186,4 @@ flowchart TD
 
 - `docs/formula/current-run-model-and-top-level-concurrency-boundaries.md`：解释当前 formula 的真实顶层运行单位、单 run 边界，以及为什么 loop 内并发不等于多个 formula 顶层并发。
 - `docs/formula/run-store-and-web-dashboard-gaps-for-multi-run-monitoring.md`：梳理 run store、dashboard API 与 web 前端为什么天然以单 run 为中心，并整理统一监视多个 formula run 时最可能需要新增的聚合概念与最小数据清单。
+- `docs/formula/reusable-patterns-for-parallel-scheduling-and-multi-run-research.md`：盘点 builtin formulas、runtime 与 CLI tests 中已经存在的 loop 并发、schedule、resume/human input、worktree、dashboard reopen 等可复用拼图，并标出哪些能力只能覆盖单 run，哪些内容可直接作为后续多 formula 运行 beads 的样例入口。
