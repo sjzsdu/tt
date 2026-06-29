@@ -15,5 +15,6 @@ making it suitable for task grouping, automation, and tool aggregation.`,
 
 func Execute() error {
 	registerEmbeddedAgentShortcutCommands()
+	registerFormulaShortcutCommands()
 	return rootCmd.Execute()
 }

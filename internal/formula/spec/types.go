@@ -5,6 +5,7 @@ type Formula struct {
 	Formula     string             `json:"formula" toml:"formula"`
 	Description string             `json:"description,omitempty" toml:"description,omitempty"`
 	Title       string             `json:"title,omitempty" toml:"title,omitempty"`
+	Aliases     []string           `json:"aliases,omitempty" toml:"aliases,omitempty"`
 	Category    string             `json:"category,omitempty" toml:"category,omitempty"`
 	Tags        []string           `json:"tags,omitempty" toml:"tags,omitempty"`
 	Version     int                `json:"version" toml:"version"`

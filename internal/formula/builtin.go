@@ -17,6 +17,7 @@ type BuiltinEntry struct {
 	Name        string
 	Title       string
 	Description string
+	Aliases     []string
 	Category    string
 	Tags        []string
 	Source      string
@@ -51,7 +52,7 @@ func builtinFormulasInDir(dir string) ([]BuiltinEntry, error) {
 			base := filepath.Base(path)
 			name = strings.TrimSuffix(base, filepath.Ext(base))
 		}
-		out = append(out, BuiltinEntry{Name: name, Title: f.Title, Description: f.Description, Category: f.Category, Tags: f.Tags, Source: "builtin:" + name})
+		out = append(out, BuiltinEntry{Name: name, Title: f.Title, Description: f.Description, Aliases: f.Aliases, Category: f.Category, Tags: f.Tags, Source: "builtin:" + name})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil

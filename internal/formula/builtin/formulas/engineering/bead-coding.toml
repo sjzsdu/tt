@@ -1,4 +1,5 @@
 formula = "bead-coding"
+aliases = ["bead-coding"]
 title = "Bead 编码执行器"
 description = "选择一个 ready bead 或指定 bead，读取其依赖树，用 coder 完成实现、验证、提交代码，并在成功后关闭 bead。"
 version = 1

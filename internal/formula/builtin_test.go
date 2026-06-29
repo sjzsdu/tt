@@ -552,6 +552,31 @@ func TestRequirementGroomingEnsuresBeadsWorkspaceBeforeCreate(t *testing.T) {
 	}
 }
 
+func TestBuiltinFormulaAliasesAreCataloged(t *testing.T) {
+	entries, err := BuiltinFormulas()
+	if err != nil {
+		t.Fatalf("BuiltinFormulas() error = %v", err)
+	}
+	want := map[string]string{
+		"keep-coding":          "keep-coding",
+		"bead-coding":          "bead-coding",
+		"requirement-grooming": "requirement-grooming",
+	}
+	for _, entry := range entries {
+		alias, ok := want[entry.Name]
+		if !ok {
+			continue
+		}
+		if !slices.Contains(entry.Aliases, alias) {
+			t.Fatalf("builtin formula %s aliases = %v, want %q", entry.Name, entry.Aliases, alias)
+		}
+		delete(want, entry.Name)
+	}
+	if len(want) > 0 {
+		t.Fatalf("missing builtin formulas with aliases: %v", want)
+	}
+}
+
 func builtinCompileSmokeVars(name string) map[string]string {
 	switch name {
 	case "bug-fix":

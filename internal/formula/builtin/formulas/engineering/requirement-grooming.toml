@@ -1,4 +1,5 @@
 formula = "requirement-grooming"
+aliases = ["requirement-grooming"]
 title = "需求整理器"
 description = "根据用户需求提示调研当前项目，提炼产品/架构上下文，并使用 bead-manager 创建或更新一组可执行 beads。"
 version = 1
