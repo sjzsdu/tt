@@ -18,6 +18,7 @@ func TestFormulaShortcutForwardArgs(t *testing.T) {
 	}{
 		{name: "run inserts formula name", formulaName: "keep-coding", subcmd: "run", args: []string{"--no-web"}, want: []string{"run", "keep-coding", "--no-web"}},
 		{name: "show inserts formula name", formulaName: "keep-coding", subcmd: "show", args: nil, want: []string{"show", "keep-coding"}},
+		{name: "show forwards markdown graph flags", formulaName: "keep-coding", subcmd: "show", args: []string{"--markdown", "--hide-graph-vars"}, want: []string{"show", "keep-coding", "--markdown", "--hide-graph-vars"}},
 		{name: "runs filters formula", formulaName: "keep-coding", subcmd: "runs", args: []string{"--limit", "5"}, want: []string{"runs", "--formula", "keep-coding", "--limit", "5"}},
 	}
 	for _, tt := range tests {
