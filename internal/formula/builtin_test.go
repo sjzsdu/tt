@@ -799,6 +799,7 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	var form struct {
 		Fields []struct {
 			Name string `json:"name"`
+			Type string `json:"type"`
 		} `json:"fields"`
 	}
 	rawForm, err := json.Marshal(human.Form)
@@ -809,15 +810,34 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 		t.Fatalf("unmarshal human form: %v\nraw=%s", err, rawForm)
 	}
 	fieldNames := map[string]bool{}
+	fieldTypes := map[string]string{}
+	textareaCount := 0
 	for _, field := range form.Fields {
 		fieldNames[field.Name] = true
+		fieldTypes[field.Name] = field.Type
+		if field.Type == "textarea" {
+			textareaCount++
+		}
 	}
-	for _, want := range []string{"main_choice", "current_status", "desired_outcome", "resources_and_constraints", "costs_and_risks", "desired_guidance"} {
+	for _, want := range []string{"decision_shape", "current_stage", "primary_focus", "known_constraints", "risk_posture", "desired_guidance", "extra_context"} {
 		if !fieldNames[want] {
 			t.Fatalf("clarify-situation form missing field %q; fields=%v", want, fieldNames)
 		}
 	}
-	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure"} {
+	if textareaCount != 1 || fieldTypes["extra_context"] != "textarea" {
+		t.Fatalf("clarify-situation should keep subjective text minimal; textareaCount=%d fieldTypes=%v", textareaCount, fieldTypes)
+	}
+	for _, want := range []string{"decision_shape", "current_stage", "risk_posture"} {
+		if fieldTypes[want] != "radio" {
+			t.Fatalf("%s type = %q, want radio; fieldTypes=%v", want, fieldTypes[want], fieldTypes)
+		}
+	}
+	for _, want := range []string{"primary_focus", "known_constraints", "desired_guidance"} {
+		if fieldTypes[want] != "checkbox" {
+			t.Fatalf("%s type = %q, want checkbox; fieldTypes=%v", want, fieldTypes[want], fieldTypes)
+		}
+	}
+	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure", "main_choice", "current_status"} {
 		if fieldNames[notWant] {
 			t.Fatalf("shan-yi-zhe should remain universal and not hard-code field %q; fields=%v", notWant, fieldNames)
 		}

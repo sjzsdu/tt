@@ -53,51 +53,60 @@ condition = "discern-situation.needs_clarification == true"
 description = "辨事阶段认为信息不足。请补充选择边界、时间压力、约束和你最关心的判断。"
 
 [steps.form]
-title = "请补充关键背景"
-description = "回答后会继续取象、定卦、解爻，并给出可执行建议。"
+title = "请用几个选择补足决策背景"
+description = "尽量用单选/多选快速补足关键背景；如果选项无法表达，再在最后一栏补充。回答后会继续取象、定卦、解爻，并给出可执行建议。"
 submit_label = "继续解卦"
 
 [[steps.form.fields]]
-name = "main_choice"
-label = "你现在真正要取舍的选项是什么？"
-type = "textarea"
+name = "decision_shape"
+label = "这件事最像哪一种决策？"
+type = "radio"
 required = true
-placeholder = "例如：A 与 B 如何取舍；是否推进某事；是否转向另一条路"
+options = ["二选一/多选一", "要不要推进某事", "什么时候行动", "关系如何处理", "风险是否可承受", "方向不清，想先看局势", "修身与心态调整"]
+help = "选择最贴近的一项即可，不必追求完全准确。"
 
 [[steps.form.fields]]
-name = "current_status"
-label = "你现在的实际状态"
-type = "textarea"
+name = "current_stage"
+label = "事情现在大概处于什么阶段？"
+type = "radio"
 required = true
-placeholder = "例如：事情进展到哪一步，已经做过什么，当前最卡在哪里"
+options = ["刚开始考虑", "已经有几个备选方案", "快到截止时间", "已经行动但卡住了", "外部变化逼我重新选择", "内心摇摆但现实还不急"]
 
 [[steps.form.fields]]
-name = "desired_outcome"
-label = "你真正想得到的结果"
-type = "textarea"
+name = "primary_focus"
+label = "你最在意哪些方面？"
+type = "checkbox"
 required = false
-placeholder = "例如：短期希望解决什么，长期更看重什么，最不能接受什么结果"
+options = ["短期安全", "长期发展", "收入/资源", "名声/认可", "自由度", "关系稳定", "学习成长", "身心状态", "避免后悔", "不辜负他人期待"]
+help = "可多选。"
 
 [[steps.form.fields]]
-name = "resources_and_constraints"
-label = "现实资源与约束"
-type = "textarea"
+name = "known_constraints"
+label = "目前有哪些现实约束？"
+type = "checkbox"
 required = false
-placeholder = "例如：时间、金钱、能力、关系、健康、外部期限、他人期待等"
+options = ["时间窗口很短", "经济压力", "能力/经验不足", "信息不足", "家人/团队期待", "地域限制", "健康/精力限制", "机会成本高", "失败后代价较大", "暂时没有明显约束"]
 
 [[steps.form.fields]]
-name = "costs_and_risks"
-label = "各选项的代价与风险"
-type = "textarea"
+name = "risk_posture"
+label = "你现在更能接受哪种取向？"
+type = "radio"
 required = false
-placeholder = "例如：选择 A 会失去什么，选择 B 会承担什么，拖延不决有什么后果"
+options = ["宁稳勿躁，先保底", "可以承担一定风险换成长", "愿意孤注一掷争取突破", "先试探，不宜重押", "我还不清楚自己的承受力"]
 
 [[steps.form.fields]]
 name = "desired_guidance"
-label = "你最希望得到哪类指引？"
-type = "select"
+label = "你最希望得到哪些指引？"
+type = "checkbox"
 required = true
-options = ["是否推进", "如何取舍", "关系应对", "风险判断", "修身与心态", "时机判断"]
+options = ["是否推进", "如何取舍", "先后顺序", "时机判断", "风险判断", "关系应对", "修身与心态", "行动方案", "需要避开什么"]
+
+[[steps.form.fields]]
+name = "extra_context"
+label = "还有没有选项表达不了、但你觉得关键的一句话？"
+type = "textarea"
+required = false
+placeholder = "可不填。比如：两个选项分别是什么、某个硬性期限、一个最不能接受的后果。"
 
 [[steps]]
 id = "merge-situation"
