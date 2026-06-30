@@ -391,21 +391,40 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
             {slides.map((slide) => {
               const isActive = deckRef.current?.getIndices().h === slide.index;
               return (
-                <button
+                <div
                   key={slide.index}
+                  role="button"
+                  tabIndex={0}
                   className={`slide-overview-item ${isActive ? 'active' : ''}`}
                   onClick={() => {
                     deckRef.current?.slide(slide.index, 0, 0);
                     setShowOverview(false);
                   }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    deckRef.current?.slide(slide.index, 0, 0);
+                    setShowOverview(false);
+                  }}
                 >
                   <span className="slide-overview-number">{slide.index + 1}</span>
-                  <span className={`slide-overview-thumb ${slide.class || ''}`}>
-                    <span className="slide-overview-thumb-inner">
-                      <SlideContent slide={slide} theme={tpl.defaults.theme} />
-                    </span>
-                  </span>
-                </button>
+                  <div className={`slide-overview-thumb theme-${tpl.revealTheme}`}>
+                    <div className="slide-overview-thumb-inner reveal">
+                      <div className="slides">
+                        {Array.from({ length: slide.index }).map((_, placeholderIndex) => (
+                          <section
+                            key={`placeholder-${placeholderIndex}`}
+                            className="slide-overview-placeholder"
+                            aria-hidden="true"
+                          />
+                        ))}
+                        <section className={`${slide.class || ''} present`.trim()}>
+                          <SlideContent slide={slide} theme={tpl.defaults.theme} />
+                        </section>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               );
             })}
           </div>

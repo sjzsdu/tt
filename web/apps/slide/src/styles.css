@@ -555,57 +555,27 @@ html, body, #root {
 }
 .slide-overview-thumb-inner {
   position: absolute;
-  inset: 0;
-  width: var(--slide-thumb-width, 1600px);
-  height: var(--slide-thumb-height, 900px);
-  padding: var(--slide-thumb-padding, 112px 96px 58px);
-  transform: scale(var(--slide-thumb-scale, 0.18));
+  top: 0;
+  left: 0;
+  width: 1600px;
+  height: 900px;
+  transform: scale(var(--slide-thumb-scale, 0.17375));
   transform-origin: 0 0;
   pointer-events: none;
-  font-family: var(--r-main-font);
-  font-size: var(--slide-thumb-base-size, var(--r-main-font-size, 34px));
-  background: var(--slide-thumb-bg, var(--slide-bg, #ffffff));
-  color: var(--slide-fg, #334155);
 }
-.slide-overview-thumb h1 {
-  color: var(--slide-thumb-title-color, var(--slide-title, var(--slide-fg, #334155)));
-  font-size: var(--slide-thumb-h1-size, 54px);
-  line-height: var(--slide-thumb-heading-line-height, 1.12);
-  margin-bottom: var(--slide-thumb-heading-margin, 22px);
+.slide-overview-thumb-inner .slides,
+.slide-overview-thumb-inner .slides section {
+  position: relative !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 1600px !important;
+  height: 900px !important;
+  min-height: 900px !important;
+  transform: none !important;
+  opacity: 1 !important;
 }
-.slide-overview-thumb h2 {
-  color: var(--slide-thumb-title-color, var(--slide-title, var(--slide-fg, #334155)));
-  font-size: var(--slide-thumb-h2-size, 34px);
-  margin-bottom: var(--slide-thumb-h2-margin, 14px);
-}
-.slide-overview-thumb p,
-.slide-overview-thumb li {
-  color: var(--slide-thumb-fg, var(--slide-fg, #535E59));
-  font-size: var(--slide-thumb-body-size, 22px);
-  line-height: var(--slide-thumb-body-line-height, 1.45);
-}
-.slide-overview-thumb ul,
-.slide-overview-thumb ol { margin-left: 28px; }
-.slide-overview-thumb.slide-closing,
-.slide-overview-thumb.slide-cover {
-  background: var(--slide-thumb-cover-bg, linear-gradient(135deg, #000000 0%, #00130D 20%, #00643C 58%, #008D55 100%));
-}
-.slide-overview-thumb.slide-closing .slide-overview-thumb-inner,
-.slide-overview-thumb.slide-cover .slide-overview-thumb-inner {
-  color: var(--slide-thumb-cover-fg, #fff);
-  background: transparent;
-}
-.slide-overview-thumb.slide-closing::after {
-  content: var(--slide-thumb-closing-label, "");
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+.slide-overview-thumb-inner .slides section.slide-overview-placeholder {
+  display: none !important;
 }
 
 /* ========== Reveal overview strip ========== */
