@@ -1,40 +1,167 @@
 ---
 name: slide-writer
-description: Write, polish, refactor, and validate tt .slide presentation decks. Use when the user asks to create slides, improve a deck, make MagiCloud slides more beautiful, add cover/closing pages, tune slide structure, or convert notes into a polished .slide presentation.
+description: Write, polish, refactor, and validate template-agnostic tt .slide presentation decks. Use when the user asks to create slides, improve a deck, add semantic cover/brand/closing pages, tune slide structure, or convert notes into a .slide presentation.
 license: MIT
 ---
 
 # Slide Writer
 
-Use this skill to author beautiful `.slide` decks for `tt slide`.
+Use this skill to author `.slide` documents for `tt slide`.
 
-The goal is not to dump Markdown onto pages. The goal is to create a **presentation rhythm**: one idea per slide, clear visual hierarchy, concise text, and MagiCloud-compatible page types.
+The source of truth is the `.slide` document format. A `.slide` deck defines presentation content and semantic structure only. It must not depend on any specific template, brand, color palette, font, logo, CSS class, or visual implementation. Templates beautify the same semantic deck at runtime.
 
-## Current product facts
+## Core rule
 
-- `tt slide` only scans and opens `.slide` files. Do not create `.md` files for slide decks.
+Write a `.slide` so that another template can render it correctly without changing the document.
+
+Do:
+
+- Use Markdown for content.
+- Use `---` to separate slides.
+- Use semantic slide directives such as `.center`, `.cover`, `.split`, `.two-column`, `.brand`, and `.end`.
+- Use Mermaid / D2 fenced code blocks for diagrams.
+- Keep content concise and presentation-ready.
+
+Do not:
+
+- Add `template:` to front matter.
+- Mention template names as required document syntax.
+- Depend on any template-specific behavior.
+- Write raw template CSS classes or template-specific HTML for layout.
+- Use brand-specific copy, logo placeholders, colors, or visual instructions unless the user explicitly asked for that content as part of the message.
+
+## File basics
+
+- Deck files must use the `.slide` extension.
+- `tt slide` only scans and opens `.slide` files.
 - Start a deck with `tt slide path/to/deck.slide`.
-- Slides are separated by `---`.
-- Default template is `magicloud`.
-- Template override is available with `--template` / `-t`.
-- Supported page directives include:
-  - `.center`
-  - `.cover`
-  - `.split`
-  - `.two-column` / `.columns`
-  - `.logo` / `.brand`
-  - `.end` / `.closing` / `.final`
-- MagiCloud closing page uses `.end`, `.closing`, or `.final` on its own slide.
-- ESC overview is a centered horizontal scroller. Do not design content that depends on overview layout.
-- Per-file slide position is persisted independently in browser localStorage.
+- Slides are separated by a line containing only `---`.
+- Styling is intentionally outside the `.slide` document. The document only records content and semantic structure.
 
-## Default deck shape
+## Optional front matter
 
-For most polished decks, use this structure:
+A deck may start with front matter:
+
+```markdown
+---
+title: Quarterly Platform Review
+transition: fade
+---
+```
+
+Allowed document-level fields:
+
+- `title:` browser/window title metadata.
+- `transition:` generic Reveal transition hint.
+- `layout:` generic default layout hint, used sparingly.
+
+Do not use `template:`. Template selection is outside the `.slide` document.
+
+## Slide separators
+
+Each slide begins after `---`:
+
+```markdown
+# First slide
+
+One clear message.
+
+---
+
+# Second slide
+
+- Point A
+- Point B
+```
+
+Do not use horizontal rules for decoration inside a slide, because `---` is the slide separator.
+
+## Supported semantic directives
+
+A directive appears at the top of a slide and is not rendered as visible content.
+
+| Directive | Meaning |
+| --- | --- |
+| `.cover` | This slide is a cover/title page |
+| `.center` | Center one important message |
+| `.split` | Two-part slide, usually concept plus evidence, text plus diagram, or before plus after |
+| `.two-column` / `.columns` | Balanced two-column content |
+| `.brand` / `.logo` | Brand/identity page semantics; template decides presentation |
+| `.end` / `.closing` / `.final` | Closing/end page semantics; template decides presentation |
+
+Prefer `.end` for a final closing page because it is short and template-agnostic.
+
+## Columns syntax
+
+For two-column content, use one `:::columns` block per column:
+
+```markdown
+---
+
+.two-column
+
+# Compare operating models
+
+:::columns
+## Current
+
+- Manual capacity planning
+- Long queue times
+- Fragmented utilization
+:::
+
+:::columns
+## Target
+
+- Elastic pools
+- Predictable throughput
+- Shared utilization
+:::
+```
+
+Keep the two sides roughly balanced. If one side is much longer, split the slide.
+
+Use one `:::columns ... :::` block for each column. Do not use ad-hoc separators for columns.
+
+## Diagrams
+
+Use fenced code blocks for diagrams. The document should describe the diagram semantically, not prescribe template styling.
+
+Mermaid:
+
+````markdown
+---
+
+# Request lifecycle
+
+```mermaid
+sequenceDiagram
+    User->>API: Submit job
+    API->>Scheduler: Place workload
+    Scheduler->>Worker: Execute
+```
+````
+
+D2:
+
+````markdown
+---
+
+# System boundaries
+
+```d2
+api -> scheduler -> worker
+scheduler -> database
+```
+````
+
+## Recommended deck shape
+
+For most decks:
 
 ```text
-1. Cover: title + subtitle + speaker/date
-2. Problem / context
+1. Cover: title + subtitle + speaker/date if needed
+2. Context / problem
 3. Key message / thesis
 4. 3 to 5 body sections
 5. Architecture / process / comparison slide if useful
@@ -44,9 +171,9 @@ For most polished decks, use this structure:
 
 Prefer 8 to 14 slides for a normal internal presentation. If the user gives long notes, split by narrative purpose, not by paragraph count.
 
-## Style rules for beautiful MagiCloud slides
+## Writing rules
 
-### 1. One slide, one job
+### One slide, one job
 
 Each slide should answer one question:
 
@@ -56,23 +183,21 @@ Each slide should answer one question:
 
 If a slide has multiple unrelated points, split it.
 
-### 2. Use short titles
+### Use takeaway titles
 
-Good titles are conclusions, not labels.
-
-Prefer:
+Prefer conclusion titles:
 
 ```markdown
-# Compute moves from static clusters to elastic pools
+# Elastic pools turn burst demand into predictable throughput
 ```
 
-Avoid:
+Avoid vague labels:
 
 ```markdown
 # Architecture
 ```
 
-### 3. Keep text sparse
+### Keep text sparse
 
 Target per normal slide:
 
@@ -83,9 +208,7 @@ Target per normal slide:
 
 Avoid full sentences when a crisp phrase works.
 
-### 4. Make hierarchy obvious
-
-Use Markdown hierarchy consistently:
+### Use hierarchy consistently
 
 ```markdown
 # Main conclusion
@@ -99,72 +222,30 @@ Short supporting sentence.
 
 Use `**bold**` only for keywords, not whole sentences.
 
-### 5. Prefer layout directives over dense prose
+## Common slide patterns
 
-Use `.two-column` when comparing two concepts:
-
-```markdown
----
-
-.two-column
-
-## Today
-
-- Manual capacity planning
-- Long queue times
-- Siloed utilization
-
-||
-
-## MagiCloud
-
-- Elastic compute pools
-- Predictable throughput
-- Shared utilization model
-```
-
-Use `.split` for text + image/diagram or concept + evidence.
-
-Use `.center` for a single big message.
-
-### 6. Always finish MagiCloud decks with `.end`
-
-For a MagiCloud deck, add a final closing page:
+### Cover
 
 ```markdown
----
+.cover
 
-.end
+# Platform Review
+
+How we improve throughput and reliability
+
+Team · 2026-06-30
 ```
-
-Aliases `.closing` and `.final` are valid, but `.end` is the recommended default because it is short and readable.
-
-## Authoring patterns
-
-### Cover slide
-
-The first slide automatically receives the MagiCloud cover treatment.
-
-```markdown
-# MagiCloud Platform Update
-
-Elastic cloud HPC for engineering simulation
-
-Name · Team · 2026-06-30
-```
-
-Keep cover content short. Do not add many bullets on the cover.
 
 ### Executive summary
 
 ```markdown
 ---
 
-# Three changes define the next MagiCloud release
+# Three changes define the next release
 
-- **Elastic scheduling** reduces queue waiting for burst workloads
-- **Unified observability** makes cost and performance visible together
-- **Template-driven onboarding** shortens time from request to first run
+- **Elastic scheduling** reduces waiting for burst workloads
+- **Unified observability** connects cost and performance
+- **Repeatable workflows** shorten time to first successful run
 ```
 
 ### Two-column comparison
@@ -174,22 +255,26 @@ Keep cover content short. Do not add many bullets on the cover.
 
 .two-column
 
+# The operating model becomes more predictable
+
+:::columns
 ## Before
 
-- Static cluster assumptions
-- Fragmented job queues
+- Static capacity assumptions
+- Fragmented queues
 - Manual environment setup
+:::
 
-||
-
+:::columns
 ## After
 
 - Elastic compute pools
 - Policy-aware placement
 - Repeatable run templates
+:::
 ```
 
-### Center message slide
+### Center message
 
 ```markdown
 ---
@@ -211,35 +296,35 @@ Less waiting, fewer manual steps, clearer operating data.
 
 ## Polishing checklist
 
-Before calling the deck done:
+Before calling a deck done:
 
-1. Every slide has one clear purpose.
-2. Titles read like takeaways.
-3. No slide has more than 5 bullets unless it is a reference appendix.
-4. Bullet lines are short and parallel.
-5. `.two-column` slides have balanced left/right content.
-6. The final slide is `.end` for MagiCloud decks.
-7. The file extension is `.slide`.
-8. Run `tt slide deck.slide` or at least ensure the syntax uses `---` correctly.
-
-## Validation
-
-When editing code or docs in this repo for slide behavior:
-
-```bash
-cd web/apps/slide && npm run build
-go test ./cmd
-```
-
-When only writing a `.slide` deck, no build is required, but visually inspect with `tt slide` when possible.
+1. File extension is `.slide`.
+2. Slides are separated by `---`.
+3. No `template:` front matter exists.
+4. No slide depends on one template's brand, CSS, colors, fonts, or logo.
+5. Every slide has one clear purpose.
+6. Titles read like takeaways.
+7. No normal slide has more than 5 bullets unless it is a reference appendix.
+8. Bullet lines are short and parallel.
+9. Two-column slides have balanced left/right content.
+10. Final closing page uses `.end` when a closing page is appropriate.
+11. Run `tt slide deck.slide` or at least inspect syntax manually.
 
 ## Common mistakes
 
-- Do not create `.md` decks. Use `.slide`.
-- Do not paste long Markdown reports as slides.
-- Do not rely on raw HTML for layout before trying built-in directives.
-- Do not use `.end` with extra visible text unless the user explicitly wants a custom closing page.
-- Do not overuse bold, emoji, or code blocks in executive decks.
+- Creating `.md` decks instead of `.slide` decks.
+- Putting `template:` in the document.
+- Writing a deck that only makes sense in one template.
+- Pasting long Markdown reports as slides.
+- Using raw HTML or CSS classes for layout before trying semantic directives.
+- Overusing bold, emoji, or code blocks in executive decks.
+- Adding visible text to `.end` unless the user explicitly wants a custom closing message.
+
+## Boundary with slide-template-writer
+
+Use `slide-writer` for document content and `.slide` syntax.
+
+Use `slide-template-writer` for template implementation, CSS, brand styling, assets, template-specific cover/closing visuals, and Reveal.js rendering behavior.
 
 ## Handoff
 
