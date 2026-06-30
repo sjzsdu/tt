@@ -107,6 +107,8 @@ fetch-data -> aggregate-manifest -> write-files -> report
 
 - final report 不要默认复述内部安全约束。比如“不要 push / 不要 checkout / 不要 continue rebase / 只允许改这些文件”应写在对应 step instruction 里，只有当它影响用户下一步操作时才在报告里一句话说明。
 - final report 回答用户关心的问题：发生了什么、哪些文件/对象被处理、还有什么 blocker、跑了什么验证、下一步做什么。
+- 所有可能出现在 web/dashboard/runtime UI 中的 `title`、step `description`、`[steps.form].title`、`[steps.form].description`、`submit_label`、field `label/help/placeholder` 都是产品文案，不是写给 agent 或开发者看的注释。不要把编排原因、实现细节、作者提示、agent 指令、元解释写进去。
+- `human_input` 要区分内部设计原因和用户可见文案：流程内部可以知道“为什么需要澄清”，但表单上只应自然地告诉用户下一步做什么。避免出现“上一步判断信息不足”“尽量用单选/多选”“收集约束”“供下游 agent 使用”等内部口吻。
 - 不是所有上游 step 输出都应该进入 `final-report.input_context`。优先做一个确定性的 summary/report-data step，再让 reporter 只读这个摘要和可选 validation 输出。
 - 多个确定性 script step 如果只是机械 plumbing，且中间输出不需要被 downstream agent/user 单独消费，应合并成一个 step。
 - 只有在这些情况下才拆 step：更好的失败/重试语义、需要分支/循环、是有意义的 UI 里程碑、产出可复用数据契约、或要把确定性采集和 agent 判断隔离。

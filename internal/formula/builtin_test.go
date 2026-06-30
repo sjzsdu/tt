@@ -797,7 +797,9 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 		t.Fatalf("clarify-situation step = %T, want HumanInputStep", clarify.Step)
 	}
 	var form struct {
-		Fields []struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Fields      []struct {
 			Name string `json:"name"`
 			Type string `json:"type"`
 		} `json:"fields"`
@@ -808,6 +810,11 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	}
 	if err := json.Unmarshal(rawForm, &form); err != nil {
 		t.Fatalf("unmarshal human form: %v\nraw=%s", err, rawForm)
+	}
+	for _, notWant := range []string{"辨事阶段", "信息不足", "尽量用单选", "下游 agent", "收集约束"} {
+		if strings.Contains(human.Reason, notWant) || strings.Contains(form.Title, notWant) || strings.Contains(form.Description, notWant) {
+			t.Fatalf("clarify-situation user-facing copy should not expose internal wording %q; reason=%q title=%q description=%q", notWant, human.Reason, form.Title, form.Description)
+		}
 	}
 	fieldNames := map[string]bool{}
 	fieldTypes := map[string]string{}

@@ -50,11 +50,11 @@ title = "补充决策背景"
 execution = "human_input"
 depends_on = ["discern-situation"]
 condition = "discern-situation.needs_clarification == true"
-description = "辨事阶段认为信息不足。请补充选择边界、时间压力、约束和你最关心的判断。"
+description = "为了给出更贴近你处境的判断，请再补充几项背景。"
 
 [steps.form]
-title = "请用几个选择补足决策背景"
-description = "尽量用单选/多选快速补足关键背景；如果选项无法表达，再在最后一栏补充。回答后会继续取象、定卦、解爻，并给出可执行建议。"
+title = "再补充几项背景"
+description = "选最贴近你处境的答案即可；如果选项表达不了，可以在最后补充一句。"
 submit_label = "继续解卦"
 
 [[steps.form.fields]]

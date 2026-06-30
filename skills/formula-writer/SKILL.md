@@ -100,6 +100,8 @@ Rules:
 
 - Do not expose internal safety constraints in the final report unless they materially affect the user's next action. Put constraints like "do not push", "do not checkout", "do not continue rebase", or "only touch these files" in step instructions, not in the user report.
 - The final report should answer user-facing questions: what happened, what files/items changed, what remains blocked, what validation ran, what to do next.
+- Treat every `title`, step `description`, `[steps.form].title`, `[steps.form].description`, `submit_label`, field `label`, field `help`, and `placeholder` as product UI copy when it can appear in the web/dashboard/runtime UI. Do not put authoring notes, agent instructions, implementation reasons, or meta explanations there.
+- For `human_input`, separate internal reason from user copy: the step prompt/design may know "why clarification is needed", but the visible form should simply tell the user what to do next in natural language. Avoid phrases like "the previous step decided...", "use radio/checkbox...", "collect constraints...", or "this is required for downstream agent".
 - Not every upstream step belongs in `final-report.input_context`. Prefer one curated summary/report-data step plus optional validation output.
 - If multiple deterministic script steps are only mechanical plumbing and no downstream agent/user needs their intermediate outputs, combine them into one step.
 - Split steps only when it improves retry/failure semantics, enables branching/looping, provides a meaningful UI milestone, produces a reusable data contract, or separates deterministic collection from agent judgment.
