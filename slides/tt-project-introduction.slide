@@ -12,11 +12,25 @@ title: tt 项目介绍
 
 ---
 
-.center
+.two-column
 
-# 我们把常用开发流程放进同一个入口
+# 今天按五条主线展开
 
-本地内容、Agent、Formula 和代码理解看起来是不同命令，实际复用同一套配置、运行时、前端嵌入和状态记录。
+:::columns
+## 先看入口
+
+- tt 解决哪些本地开发问题
+- 当前覆盖哪些核心能力
+- 不同命令背后的执行方式
+:::
+
+:::columns
+## 再看实现
+
+- Go CLI、internal 和 Web UI 如何协作
+- Agent 与 Formula runtime 如何复用
+- 新命令、新 agent、新 formula 如何接入
+:::
 
 ---
 
