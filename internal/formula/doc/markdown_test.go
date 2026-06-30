@@ -42,6 +42,12 @@ func TestGenerateMermaidGraphStylesAgentNodes(t *testing.T) {
 		Base: steps.Base{Metadata: steps.Metadata{ID: "review-loop", Kind: steps.KindLoop, Title: "Review loop"}},
 		Body: []steps.Step{
 			steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "review", Kind: steps.KindAgent, Title: "Review"}}},
+			steps.LoopStep{
+				Base: steps.Base{Metadata: steps.Metadata{ID: "nested-loop", Kind: steps.KindLoop, Title: "Nested loop"}},
+				Body: []steps.Step{
+					steps.ScriptStep{Base: steps.Base{Metadata: steps.Metadata{ID: "nested-script", Kind: steps.KindScript, Title: "Nested script"}}},
+				},
+			},
 		},
 	}})
 
@@ -50,13 +56,24 @@ func TestGenerateMermaidGraphStylesAgentNodes(t *testing.T) {
 		`classDef agentStep fill:#e8f3ff,stroke:#2563eb,stroke-width:1.5px,color:#0f172a`,
 		`class analyze agentStep`,
 		`class review_loop__review agentStep`,
+		`classDef loopStep fill:#fff7ed,stroke:#ea580c,stroke-width:1.5px,color:#7c2d12`,
+		`class review_loop loopStep`,
+		`class review_loop__nested_loop loopStep`,
 	} {
 		if !strings.Contains(graph, want) {
-			t.Fatalf("graph missing agent style %q:\n%s", want, graph)
+			t.Fatalf("graph missing style %q:\n%s", want, graph)
 		}
 	}
-	if strings.Contains(graph, `class prepare agentStep`) || strings.Contains(graph, `class review_loop agentStep`) {
-		t.Fatalf("graph should style only agent nodes:\n%s", graph)
+	for _, notWant := range []string{
+		`class prepare agentStep`,
+		`class review_loop agentStep`,
+		`class prepare loopStep`,
+		`class review_loop__review loopStep`,
+		`class review_loop__nested_loop__nested_script loopStep`,
+	} {
+		if strings.Contains(graph, notWant) {
+			t.Fatalf("graph should not contain style %q:\n%s", notWant, graph)
+		}
 	}
 }
 

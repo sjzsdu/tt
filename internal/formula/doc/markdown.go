@@ -329,15 +329,25 @@ func writeMermaidStyleClasses(b *strings.Builder, stepsList []steps.Step) {
 		return
 	}
 	agentNodes := []string{}
+	loopNodes := []string{}
 	for _, step := range stepsList {
 		collectMermaidAgentNodeIDs(step, string(step.Meta().ID), &agentNodes)
+		collectMermaidLoopNodeIDs(step, string(step.Meta().ID), &loopNodes)
 	}
-	if len(agentNodes) == 0 {
+	if len(agentNodes) == 0 && len(loopNodes) == 0 {
 		return
 	}
-	b.WriteString("  classDef agentStep fill:#e8f3ff,stroke:#2563eb,stroke-width:1.5px,color:#0f172a\n")
-	for _, nodeID := range agentNodes {
-		b.WriteString(fmt.Sprintf("  class %s agentStep\n", mermaidNodeID(nodeID)))
+	if len(agentNodes) > 0 {
+		b.WriteString("  classDef agentStep fill:#e8f3ff,stroke:#2563eb,stroke-width:1.5px,color:#0f172a\n")
+		for _, nodeID := range agentNodes {
+			b.WriteString(fmt.Sprintf("  class %s agentStep\n", mermaidNodeID(nodeID)))
+		}
+	}
+	if len(loopNodes) > 0 {
+		b.WriteString("  classDef loopStep fill:#fff7ed,stroke:#ea580c,stroke-width:1.5px,color:#7c2d12\n")
+		for _, nodeID := range loopNodes {
+			b.WriteString(fmt.Sprintf("  class %s loopStep\n", mermaidNodeID(nodeID)))
+		}
 	}
 }
 
@@ -358,6 +368,23 @@ func collectMermaidAgentNodeIDs(step steps.Step, nodeID string, out *[]string) {
 			continue
 		}
 		collectMermaidAgentNodeIDs(child, nodeID+"__"+string(child.Meta().ID), out)
+	}
+}
+
+func collectMermaidLoopNodeIDs(step steps.Step, nodeID string, out *[]string) {
+	if step == nil || out == nil {
+		return
+	}
+	loop, ok := asLoopStep(step)
+	if !ok {
+		return
+	}
+	*out = append(*out, nodeID)
+	for _, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		collectMermaidLoopNodeIDs(child, nodeID+"__"+string(child.Meta().ID), out)
 	}
 }
 
