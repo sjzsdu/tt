@@ -191,6 +191,17 @@ scheduler -> database
 ```
 ````
 
+## Tables
+
+Use tables only when the audience needs side-by-side comparison. Tables must stay readable on a fixed `1600px × 900px` canvas.
+
+Rules:
+
+- Prefer 3 to 5 columns and 3 to 6 body rows.
+- Keep cell text short; use phrases, not paragraphs.
+- If a table needs many rows, split it into multiple slides or summarize the key rows.
+- Do not compensate for dense tables by asking the template to use tiny fonts.
+
 ## Recommended deck shape
 
 For most decks:
