@@ -864,7 +864,7 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 		t.Fatalf("cast-frame deps = %v, want merge-situation", cast.Step.Meta().DependsOn)
 	}
 	life := workflow.Graph.Nodes[ir.NodeID("life-guidance")].Step.(steps.AgentStep)
-	for _, want := range []string{"已知事实与信息缺口", "结论置信度", "决策阈值", "30 天行动方案", "不要编造用户未提供"} {
+	for _, want := range []string{"已知事实与信息缺口", "结论置信度", "决策阈值", "行动方案", "不要编造用户未提供", "依据链", "本卦义理", "卦辞与彖传讲解", "易学概念", "复盘问题清单"} {
 		if !strings.Contains(life.Prompt, want) {
 			t.Fatalf("life-guidance prompt missing %q:\n%s", want, life.Prompt)
 		}
