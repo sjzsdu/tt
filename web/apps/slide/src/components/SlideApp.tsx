@@ -215,6 +215,12 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     history.pushState(null, '', url.pathname + url.search);
   }, [contentMode]);
 
+  const closeOverviewFromStage = useCallback(() => {
+    if (showOverview) {
+      setShowOverview(false);
+    }
+  }, [showOverview]);
+
   useEffect(() => {
     const deck = deckRef.current;
     if (!deck || contentMode || !currentFile) return;
@@ -298,7 +304,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   return (
     <div className="slide-wrapper" ref={wrapperRef}>
       <style>{tpl.css}</style>
-      <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef}>
+      <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef} onClick={closeOverviewFromStage}>
         <div className="slides">
           {slides.map((slide) => (
             <section key={slide.index} className={slide.class || ''}>
