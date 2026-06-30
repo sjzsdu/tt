@@ -792,4 +792,103 @@ flowchart LR
 
 ---
 
+# 示例：Markdown 图片与链接
+
+![tt runtime map](/raw/slides/assets/tt-runtime-map.svg)
+
+[README 项目说明](/raw/README.md) · [架构示例 Deck](/raw/slides/architecture.slide) · [GitHub 仓库](https://github.com/sjzsdu/tt)
+
+---
+
+.two-column
+
+# 示例：链接、图片和文字可以组合成说明页
+
+:::columns
+## 用一页讲清 runtime
+
+- 左侧保留解释文本
+- 右侧放项目专属架构素材
+- 链接用于跳转到仓库文档
+- 图片使用 `/raw/...` 读取工作区文件
+
+[查看 README](/raw/README.md)
+:::
+
+:::columns
+![tt runtime map](/raw/slides/assets/tt-runtime-map.svg)
+:::
+
+---
+
+# 示例：项目能力矩阵
+
+| 能力 | 入口 | 产物 | 适合测试 |
+|------|------|------|----------|
+| Slide 演示 | `tt slide` | `.slide` + template | 图片、链接、表格、缩略图 |
+| Markdown 浏览 | `tt markdown` | Markdown 文件 | live reload、主题、Mermaid |
+| Formula Workflow | `tt formula` | run store / dashboard | 状态视图、报告、恢复执行 |
+| Agent Runtime | `tt agent` | embedded agents | skills、工具调用、配置解析 |
+| Skill 生成 | `tt cmd2skill` | skill Markdown | 文档结构、代码块、示例 |
+
+---
+
+# 示例：一次本地演示请求的生命周期
+
+```mermaid
+sequenceDiagram
+    participant Speaker as 演示者
+    participant CLI as tt slide
+    participant Server as Go localhost server
+    participant UI as Reveal Web UI
+    participant FS as Workspace files
+
+    Speaker->>CLI: tt slide slides/tt-project-introduction.slide
+    CLI->>Server: 启动本地 HTTP + WebSocket
+    UI->>Server: 请求 .slide 文档与模板
+    Server->>FS: 读取 slide、template、assets
+    FS-->>Server: 返回 Markdown 与资源
+    Server-->>UI: 渲染 1600x900 固定画布
+    UI-->>Speaker: 普通窗口 / 全屏等比缩放展示
+```
+
+---
+
+# 示例：Formula 与 Agent 的协作边界
+
+```d2
+Formula runtime: {
+  shape: rectangle
+  style.fill: "#EAF7F1"
+}
+Agent runtime: {
+  shape: rectangle
+  style.fill: "#E7F0FF"
+}
+Workspace: {
+  shape: rectangle
+  style.fill: "#FFF7E6"
+}
+Dashboard: {
+  shape: rectangle
+  style.fill: "#F6F6F6"
+}
+
+Formula runtime -> Agent runtime: agent step
+Formula runtime -> Workspace: script / file step
+Formula runtime -> Dashboard: run events
+Agent runtime -> Workspace: read context
+Dashboard -> Workspace: final report
+```
+
+---
+
+.center
+
+# 示例页的测试重点
+
+图片是否完整显示、链接是否可点击、表格是否可读、Mermaid / D2 是否默认全图显示、缩略图是否与真实 slide 同比例。
+
+---
+
 .end

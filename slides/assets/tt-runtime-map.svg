@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">tt runtime map</title>
+  <desc id="desc">A presentation diagram showing tt CLI connected to web UI, Picoclaw agents, formula runtime and project files.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f7fffb"/>
+      <stop offset="0.55" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7f6ef"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" x2="1">
+      <stop offset="0" stop-color="#00643c"/>
+      <stop offset="1" stop-color="#00a878"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#003c28" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="675" rx="34" fill="url(#bg)"/>
+  <circle cx="1060" cy="80" r="210" fill="#b1decc" opacity="0.28"/>
+  <circle cx="150" cy="610" r="240" fill="#00a878" opacity="0.1"/>
+  <g font-family="Aptos, Inter, Segoe UI, PingFang SC, sans-serif">
+    <text x="80" y="92" font-size="44" font-weight="760" fill="#00643c">tt local automation runtime</text>
+    <text x="82" y="132" font-size="22" fill="#535e59">CLI first · workspace aware · local web UI · agent/formula reuse</text>
+    <g filter="url(#shadow)">
+      <rect x="464" y="245" width="272" height="150" rx="28" fill="url(#green)"/>
+      <text x="600" y="306" text-anchor="middle" font-size="42" font-weight="800" fill="#fff">tt</text>
+      <text x="600" y="346" text-anchor="middle" font-size="22" fill="#eafff6">Go CLI + local server</text>
+    </g>
+    <g fill="#ffffff" stroke="#d8e7df" stroke-width="2" filter="url(#shadow)">
+      <rect x="80" y="225" width="250" height="120" rx="24"/>
+      <rect x="870" y="225" width="250" height="120" rx="24"/>
+      <rect x="80" y="430" width="250" height="120" rx="24"/>
+      <rect x="870" y="430" width="250" height="120" rx="24"/>
+    </g>
+    <g fill="#00643c" font-weight="740" font-size="28">
+      <text x="205" y="276" text-anchor="middle">Web UI</text>
+      <text x="995" y="276" text-anchor="middle">Picoclaw Agents</text>
+      <text x="205" y="481" text-anchor="middle">Formula Runtime</text>
+      <text x="995" y="481" text-anchor="middle">Workspace Files</text>
+    </g>
+    <g fill="#535e59" font-size="18">
+      <text x="205" y="310" text-anchor="middle">markdown · slide · json</text>
+      <text x="995" y="310" text-anchor="middle">coder · planner · analyst</text>
+      <text x="205" y="515" text-anchor="middle">TOML → IR → run store</text>
+      <text x="995" y="515" text-anchor="middle">read · edit · live reload</text>
+    </g>
+    <g stroke="#008d55" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85">
+      <path d="M330 285 C390 285 405 300 464 310"/>
+      <path d="M736 310 C795 300 810 285 870 285"/>
+      <path d="M330 490 C400 480 420 380 464 350"/>
+      <path d="M736 350 C780 380 800 480 870 490"/>
+    </g>
+    <g fill="#008d55">
+      <circle cx="464" cy="310" r="7"/><circle cx="736" cy="310" r="7"/>
+      <circle cx="464" cy="350" r="7"/><circle cx="736" cy="350" r="7"/>
+    </g>
+  </g>
+</svg>
