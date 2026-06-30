@@ -99,7 +99,7 @@ Fields:
 | `defaults.margin` | optional | Reveal viewport margin. Usually `0`; use CSS padding variables for actual page margins. |
 | `vars` | optional | Template-level CSS variables injected into `:root`. Use this for page padding, brand colors, background images, logo sizes, etc. |
 
-Avoid setting `defaults.width` and `defaults.height` unless there is a strong compatibility reason. The slide app should fill the browser viewport and let Reveal scale naturally. Use CSS variables and section padding for layout.
+The app renders every slide on a fixed 16:9 presentation canvas (`1600px × 900px`) and scales that whole canvas to fit the browser window or fullscreen viewport. Do not set `defaults.width` or `defaults.height`; templates should design inside the fixed canvas using CSS variables, section padding, and stable grid/flex layouts.
 
 Do not put large CSS blocks inside JSON. Keep visual rules in `template.css`; use `vars` only for global knobs that a template owner may tune.
 

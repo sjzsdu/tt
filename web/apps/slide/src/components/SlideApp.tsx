@@ -6,6 +6,9 @@ import type { SlideMeta, SlideRuntimeConfig, TemplateConfig } from '../types';
 import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, createWS, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
+const DESIGN_WIDTH = 1600;
+const DESIGN_HEIGHT = 900;
+
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
 
 interface SlideAppProps {
@@ -26,6 +29,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [showOverview, setShowOverview] = useState(false);
   const [isListLoaded, setIsListLoaded] = useState(contentMode);
   const [deckVersion, setDeckVersion] = useState(0);
+  const [stageScale, setStageScale] = useState(1);
   const [template, setTemplate] = useState<TemplateConfig>(() => getTemplate(templateOverride || DEFAULT_TEMPLATE));
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -200,6 +204,25 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     };
   }, []);
 
+  useEffect(() => {
+    const updateStageScale = () => {
+      const viewportWidth = window.innerWidth || DESIGN_WIDTH;
+      const viewportHeight = window.innerHeight || DESIGN_HEIGHT;
+      setStageScale(Math.min(viewportWidth / DESIGN_WIDTH, viewportHeight / DESIGN_HEIGHT));
+      deckRef.current?.layout();
+    };
+
+    updateStageScale();
+    window.addEventListener('resize', updateStageScale);
+    document.addEventListener('fullscreenchange', updateStageScale);
+    document.addEventListener('webkitfullscreenchange', updateStageScale);
+    return () => {
+      window.removeEventListener('resize', updateStageScale);
+      document.removeEventListener('fullscreenchange', updateStageScale);
+      document.removeEventListener('webkitfullscreenchange', updateStageScale);
+    };
+  }, []);
+
   const selectFile = useCallback((path: string) => {
     setCurrentFile(path);
     setSlides([]);
@@ -315,13 +338,19 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   return (
     <div className="slide-wrapper" ref={wrapperRef}>
       <style>{tpl.css}</style>
-      <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef} onClick={closeOverviewFromStage}>
-        <div className="slides">
-          {slides.map((slide) => (
-            <section key={slide.index} className={slide.class || ''}>
-              <SlideContent slide={slide} theme={tpl.defaults.theme} />
-            </section>
-          ))}
+      <div
+        className="slide-stage"
+        style={{ transform: `scale(${stageScale})` }}
+        aria-label="16:9 presentation stage"
+      >
+        <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef} onClick={closeOverviewFromStage}>
+          <div className="slides">
+            {slides.map((slide) => (
+              <section key={slide.index} className={slide.class || ''}>
+                <SlideContent slide={slide} theme={tpl.defaults.theme} />
+              </section>
+            ))}
+          </div>
         </div>
       </div>
 
