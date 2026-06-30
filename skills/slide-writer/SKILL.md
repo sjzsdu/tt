@@ -153,6 +153,8 @@ Use fenced code blocks for diagrams. The document should describe the diagram se
 
 Diagram slides should usually be almost all diagram. Use a short takeaway title, optionally one short subtitle, then the Mermaid/D2 block. The renderer marks diagram-heavy slides so templates can expand diagrams toward full-slide size.
 
+During presentation, Mermaid and D2 diagrams are fit inside the slide by default. Viewers can use the diagram toolbar or mouse wheel to zoom, drag to pan, and double-click / Reset to return to the full-fit view. Because of this, prefer one meaningful diagram per slide instead of multiple small diagrams.
+
 Avoid:
 
 - Long bullet lists before a diagram.

@@ -1,5 +1,6 @@
 import { useMermaid } from '../hooks/useMermaid';
 import type { AppTheme } from '../utils/mermaidConfig';
+import { DiagramViewport } from './DiagramViewport';
 
 export function MermaidBlock({ code, index, theme = 'dark' }: { code: string; index: number; theme?: AppTheme }) {
   const { svg, err } = useMermaid(code, index, theme);
@@ -14,7 +15,7 @@ export function MermaidBlock({ code, index, theme = 'dark' }: { code: string; in
   }
 
   if (svg) {
-    return <div className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} />;
+    return <DiagramViewport svg={svg} label="Mermaid diagram" />;
   }
 
   return (

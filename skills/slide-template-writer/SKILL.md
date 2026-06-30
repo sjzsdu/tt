@@ -385,6 +385,7 @@ Do not rely on Go to know the user's display size. The Go command starts the loc
 - Use template `vars` for tunable padding/background/logo sizes.
 - Avoid hardcoding canvas `width` / `height` unless a template absolutely requires a fixed design canvas.
 - Let diagram-heavy slides use available space via `.slide-diagram-heavy` and `.slide-diagram-only` classes.
+- Preserve `.diagram-viewport`, `.diagram-panzoom`, `.diagram-svg`, and `.diagram-toolbar` behavior; these provide full-fit display plus zoom/pan controls for Mermaid and D2 diagrams.
 
 The goal is that the same `.slide` document automatically looks balanced on projector screens, browser windows, and fullscreen mode.
 
