@@ -28,7 +28,7 @@ type SlideDirective = {
   hasDirective: boolean;
 };
 
-const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|cover)\s*$/i;
+const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|cover|closing|end|final)\s*$/i;
 
 function extractSlideDirectives(markdown: string): SlideDirective {
   const classNames: string[] = [];
@@ -49,6 +49,8 @@ function extractSlideDirectives(markdown: string): SlideDirective {
       layoutHint = 'center';
     } else if (directive === 'logo' || directive === 'brand') {
       layoutHint = 'logo';
+    } else if (directive === 'closing' || directive === 'end' || directive === 'final') {
+      layoutHint = 'closing';
     } else if (directive === 'split') {
       layoutHint = 'split';
     } else if (directive === 'two-column' || directive === 'columns') {
@@ -158,6 +160,7 @@ function classForLayout(layout: SlideLayout): string {
   if (layout === 'two-column') return 'slide-two-column';
   if (layout === 'split') return 'slide-split';
   if (layout === 'logo') return 'slide-logo';
+  if (layout === 'closing') return 'slide-closing';
   return '';
 }
 

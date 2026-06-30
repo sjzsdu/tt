@@ -5,6 +5,7 @@
 ## Features
 
 - Local web UI for Markdown files with live reload.
+- Local presentation UI for `.slide` decks with the MagiCloud template and closing slide support.
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
 - Formula dashboard final report view with a dedicated follow-up coder chat.
@@ -74,6 +75,7 @@ Available commands:
 | `debate` | Run a professional stock research discussion between embedded investor agents, then save the full JSON transcript. |
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
+| `slide` | Present `.slide` decks in a local Reveal.js web UI. |
 | `mirror` | Mirror selected files from a source directory. |
 | `nvwa` | Generate role-specific `Agent.md` and `soul.md` prompts with an embedded LLM prompt designer. |
 | `skill` | Browse and edit skill Markdown files. |
@@ -114,6 +116,35 @@ Flags:
 - `-c, --content string`: render provided Markdown content directly.
 - `--content-only`: only show provided Markdown content.
 - `-f, --pattern strings`: filter Markdown files by glob patterns.
+
+
+### `tt slide`
+
+Start a local web service for presenting `.slide` decks. Slide files use Markdown-like content separated by `---`, but the command intentionally only scans and opens `.slide` files.
+
+```bash
+tt slide
+tt slide deck.slide
+tt slide slides/ --port 9596
+```
+
+The default template is `magicloud`, aligned with the MagiCloud PPT template. For full authoring notes, see `ai-docs/slide.md`.
+
+MagiCloud closing slide:
+
+```markdown
+---
+
+.end
+```
+
+`.closing` and `.final` are aliases. The closing slide matches the PPTX page 15 style: full-area green/black gradient, honeycomb mesh background, and a centered white `FLEXCOMPUTE | MagiCloud` logo.
+
+Flags:
+
+- `-p, --port int`: service port, default `9596`.
+- `-c, --content string`: render provided slide content directly.
+- `--template string`: override slide template, e.g. `magicloud`, `dark`, `light`, `serif`, `white`.
 
 ### `tt json`
 

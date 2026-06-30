@@ -18,7 +18,7 @@ flowchart LR
     subgraph CMD[cmd/]
         C1[agent / agent_info / agent_optimize / translate / debate]
         C2[formula/]
-        C3[markdown / json / conversation / skill]
+        C3[markdown / slide / json / conversation / skill]
         C4[cmd2skill / repo2skill / nvwa]
         C5[mirror / config / docs]
     end
@@ -81,15 +81,18 @@ flowchart LR
 | 文件 | 作用 |
 | --- | --- |
 | `cmd/markdown.go` | Markdown 浏览/预览 |
+| `cmd/slide.go` | `.slide` deck 演示服务；MagiCloud 默认模板、文件切换、live reload |
 | `cmd/json.go` | JSON 浏览/编辑 |
 | `cmd/conversation.go` | 会话型 JSON 浏览 |
 | `cmd/formula/` | Formula 子命令实现与 dashboard 服务 glue |
 
 这类命令通常会：
-1. 解析路径 / 端口 / pattern
+1. 解析路径 / 端口 / pattern；`slide` 只接受 `.slide` 文件
 2. 启动本地 HTTP 服务
-3. 挂载 `internal/webui` 中内嵌的前端资源
-4. 暴露文件读写或运行状态接口
+3. 挂载 `internal/webui` 中内嵌的前端资源（例如 `web/apps/slide`）
+4. 暴露文件读写、deck 列表、热更新或运行状态接口
+
+`tt slide` 额外支持 Reveal.js 演示体验：`---` 分页、MagiCloud 模板、`.end` / `.closing` / `.final` 尾页封底、按 `Esc` 进入 overview。更多 authoring 细节见 [tt slide 与 MagiCloud 模板](./slide.md)。
 
 ### Agent / LLM 命令
 

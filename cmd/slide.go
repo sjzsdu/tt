@@ -42,8 +42,8 @@ var (
 var slideCmd = &cobra.Command{
 	Use:     "slide [files...]",
 	Aliases: []string{"sl"},
-	Short:   "Present markdown as a slide deck in the browser",
-	Long:    "Start a local web service that renders markdown files as a reveal.js presentation. Supports .slide and .md extensions. Use --- to separate slides.",
+	Short:   "Present .slide files as a slide deck in the browser",
+	Long:    "Start a local web service that renders .slide files as a reveal.js presentation. Use --- to separate slides.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -78,6 +78,9 @@ var slideCmd = &cobra.Command{
 				slideFiles = files
 				return runSlideServer()
 			}
+			if !isSlideFile(candidate) {
+				return fmt.Errorf("unsupported slide file %s: only .slide files are supported", candidate)
+			}
 			slideRoot = filepath.Dir(candidate)
 			slideFiles = []string{candidate}
 			return runSlideServer()
@@ -89,6 +92,9 @@ var slideCmd = &cobra.Command{
 			p := arg
 			if !filepath.IsAbs(p) {
 				p = filepath.Join(cwd, p)
+			}
+			if !isSlideFile(p) {
+				return fmt.Errorf("unsupported slide file %s: only .slide files are supported", p)
 			}
 			if info, err := os.Stat(p); err == nil && !info.IsDir() {
 				resolved = append(resolved, p)
@@ -106,13 +112,13 @@ var slideCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(slideCmd)
 	slideCmd.Flags().IntVarP(&slidePort, "port", "p", 9596, "service port")
-	slideCmd.Flags().StringVarP(&slideContent, "content", "c", "", "render provided markdown content directly as slides")
-	slideCmd.Flags().StringVar(&slideTemplate, "template", "", "override slide template at runtime, e.g. magicloud, dark, light, serif, white")
+	slideCmd.Flags().StringVarP(&slideContent, "content", "c", "", "render provided slide content directly")
+	slideCmd.Flags().StringVarP(&slideTemplate, "template", "t", "", "override slide template at runtime, e.g. magicloud, dark, light, serif, white")
 }
 
 func isSlideFile(name string) bool {
 	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, ".slide") || strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+	return strings.HasSuffix(lower, ".slide")
 }
 
 func collectSlideFiles(root string) []string {
@@ -250,6 +256,10 @@ func handleSlideRawFile(w http.ResponseWriter, r *http.Request) {
 	absPath, err := safeJoin(slideRoot, relPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !isSlideFile(absPath) {
+		http.Error(w, "only .slide files are supported", http.StatusBadRequest)
 		return
 	}
 

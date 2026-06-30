@@ -41,26 +41,26 @@ flowchart TD
 ## 四类核心运行路径
 
 ### 1. 本地 Web UI 路径
-例如 `markdown`、`json`、`conversation`、`skill`。
+例如 `markdown`、`slide`、`json`、`conversation`、`skill`。
 
 ```mermaid
 sequenceDiagram
     participant User as 用户
-    participant Cmd as cmd/markdown.go 等
+    participant Cmd as cmd/markdown.go / cmd/slide.go 等
     participant HTTP as 本地 HTTP 服务
     participant FS as 工作区文件系统
     participant UI as 嵌入式前端
 
-    User->>Cmd: tt markdown / tt json
+    User->>Cmd: tt markdown / tt slide / tt json
     Cmd->>HTTP: 启动本地服务并注册路由
     Cmd->>UI: 提供内嵌静态资源
     HTTP->>FS: 读取/保存文件
     User->>UI: 浏览器访问 localhost
-    UI->>HTTP: 请求文件列表、内容、保存接口
+    UI->>HTTP: 请求文件列表、内容、保存接口或 slide deck API
     HTTP->>UI: 返回 HTML / JSON / 原始文件内容
 ```
 
-这类命令的特点是：**Go 负责后端文件 API 和安全边界，前端负责交互体验**。
+这类命令的特点是：**Go 负责后端文件 API 和安全边界，前端负责交互体验**。其中 `tt slide` 专门处理 `.slide` deck，前端用 Reveal.js 渲染，MagiCloud 模板支持 `.end` / `.closing` / `.final` 尾页封底。
 
 ### 2. Picoclaw 运行时路径
 例如 `agent`、`translate`、`debate`、`nvwa`、`repo2skill` 的 agent 模式。

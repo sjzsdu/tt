@@ -14,7 +14,7 @@ export type TemplateConfig = {
   };
 };
 
-export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'logo' | 'full-image';
+export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'logo' | 'closing' | 'full-image';
 
 export type SlideMeta = {
   title: string;

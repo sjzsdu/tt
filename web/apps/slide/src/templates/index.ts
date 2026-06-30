@@ -1,4 +1,8 @@
 import type { TemplateConfig } from '../types';
+import magicloudCoverMeshUrl from '../assets/magicloud/cover-mesh.png';
+import magicloudLogoDarkUrl from '../assets/magicloud/logo-dark.png';
+import magicloudLogoWhiteUrl from '../assets/magicloud/logo-white.png';
+import magicloudWhiteMeshUrl from '../assets/magicloud/white-mesh.jpeg';
 
 export const DEFAULT_TEMPLATE = 'magicloud';
 
@@ -7,15 +11,15 @@ const magicloud: TemplateConfig = {
   revealTheme: 'white',
   css: `
     :root {
-      --r-background-color: #f5faf8;
-      --r-main-font: 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --r-background-color: #ffffff;
+      --r-main-font: 'Aptos', 'Segoe UI', Arial, 'PingFang SC', 'Noto Sans SC', sans-serif;
       --r-main-font-size: 34px;
-      --r-main-color: #143b33;
+      --r-main-color: #595959;
       --r-block-margin: 18px;
-      --r-heading-margin: 0 0 16px 0;
-      --r-heading-font: 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --r-heading-color: #005f4d;
-      --r-heading-line-height: 1.15;
+      --r-heading-margin: 0 0 18px 0;
+      --r-heading-font: 'Aptos Display', 'Aptos', 'Segoe UI', Arial, 'PingFang SC', 'Noto Sans SC', sans-serif;
+      --r-heading-color: #00643C;
+      --r-heading-line-height: 1.12;
       --r-heading-letter-spacing: 0;
       --r-heading-text-transform: none;
       --r-heading-text-shadow: none;
@@ -24,56 +28,101 @@ const magicloud: TemplateConfig = {
       --r-heading2-size: 0.9em;
       --r-heading3-size: 0.68em;
       --r-code-font: 'SF Mono', 'Fira Code', monospace;
-      --r-link-color: #007a62;
-      --r-link-color-hover: #00a77f;
-      --r-selection-background-color: rgba(0, 122, 98, 0.18);
-      --r-selection-color: #0a2d27;
+      --r-link-color: #00643C;
+      --r-link-color-hover: #008D55;
+      --r-selection-background-color: rgba(0, 141, 85, 0.18);
+      --r-selection-color: #1F2329;
 
-      --slide-bg: #f5faf8;
-      --slide-fg: #143b33;
-      --slide-accent: #007a62;
-      --slide-accent-strong: #005f4d;
-      --slide-accent-soft: #eaf6f1;
-      --slide-muted: #698078;
-      --slide-code-bg: #eef6f3;
-      --slide-card-bg: #f0f8f4;
-      --slide-card-border: #d7e8e1;
-      --slide-table-border: #d7e8e1;
-      --slide-table-header-bg: #007a62;
-      --slide-table-row-alt: #eef7f3;
-      --slide-blockquote-border: #007a62;
+      --slide-bg: #ffffff;
+      --slide-fg: #535E59;
+      --slide-title: #00643C;
+      --slide-text-dark: #1F2329;
+      --slide-accent: #008D55;
+      --slide-accent-strong: #00643C;
+      --slide-accent-soft: #B1DECC;
+      --slide-muted: #595959;
+      --slide-code-bg: #F4F4F4;
+      --slide-card-bg: #F4F4F4;
+      --slide-card-border: #DEE0E3;
+      --slide-table-border: #DEE0E3;
+      --slide-table-header-bg: #00643C;
+      --slide-table-row-alt: #F4F4F4;
+      --slide-blockquote-border: #008D55;
     }
 
     .reveal {
-      background: #f5faf8;
+      background: #ffffff;
       color: var(--slide-fg);
       font-family: var(--r-main-font);
+    }
+
+    .reveal::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0;
+      background: #ffffff;
+      transition: opacity 260ms ease;
+    }
+
+    .reveal:has(.slides section:first-child.present) {
+      background: #ffffff;
+    }
+
+    .reveal:has(.slides section:first-child.present)::before {
+      opacity: 1;
+      background:
+        url("${magicloudCoverMeshUrl}") center / cover no-repeat,
+        linear-gradient(135deg, #000000 0%, #00130D 20%, #00643C 58%, #008D55 100%);
+    }
+
+    .reveal:has(.slides section.slide-closing.present) {
+      background: #ffffff;
+    }
+
+    .reveal:has(.slides section.slide-closing.present)::before {
+      opacity: 1;
+      background:
+        url("${magicloudCoverMeshUrl}") center / cover no-repeat,
+        linear-gradient(135deg, #000000 0%, #00130D 20%, #00643C 58%, #008D55 100%);
+    }
+
+    .reveal:has(.slides section.slide-logo.present) {
+      background: #ffffff;
+    }
+
+    .reveal:has(.slides section.slide-logo.present)::before {
+      opacity: 0.55;
+      background:
+        url("${magicloudWhiteMeshUrl}") center center / 100% 100% no-repeat,
+        #ffffff;
     }
 
     .reveal .slides section {
       overflow: hidden;
       min-height: 100%;
       height: 100%;
-      padding: 76px 76px 52px;
+      padding: 146px 112px 70px;
       background:
-        linear-gradient(180deg, rgba(0, 122, 98, 0.035), rgba(255, 255, 255, 0) 32%),
+        linear-gradient(180deg, rgba(0, 100, 60, 0.025), rgba(255, 255, 255, 0) 32%),
         #ffffff;
       border: 0;
       box-shadow: none;
       color: var(--slide-fg);
+      font-size: var(--r-main-font-size);
     }
 
     .reveal .slides section:not(:first-child)::before {
-      content: "FLEXCOMPUTE  |  MagiCloud";
+      content: "";
       position: absolute;
-      top: 26px;
-      left: 34px;
+      top: 50px;
+      left: 64px;
       z-index: 2;
-      color: #0d4f42;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0;
-      line-height: 1;
+      width: 340px;
+      height: 26px;
+      background: url("${magicloudLogoDarkUrl}") left center / contain no-repeat;
     }
 
     .reveal .slides section:not(:first-child)::after {
@@ -84,44 +133,43 @@ const magicloud: TemplateConfig = {
       width: 48%;
       height: 112px;
       pointer-events: none;
-      opacity: 0.42;
-      background:
-        linear-gradient(135deg, transparent 0 44%, rgba(0, 122, 98, 0.1) 45% 46%, transparent 47%),
-        repeating-linear-gradient(165deg, rgba(0, 122, 98, 0.09) 0 1px, transparent 1px 24px);
-      mask-image: linear-gradient(90deg, transparent, #000 36%, transparent);
+      display: none;
     }
 
     .reveal h1,
     .reveal h2,
     .reveal h3 {
-      color: var(--slide-accent-strong);
+      color: var(--slide-title);
       letter-spacing: 0;
       text-transform: none;
     }
 
     .reveal h1 {
-      max-width: 940px;
-      font-size: 1.38em;
-      font-weight: 800;
-      line-height: 1.08;
+      max-width: 1080px;
+      font-size: 1.2em;
+      font-weight: 700;
+      line-height: 1.12;
+      margin: 0 0 26px;
     }
 
     .reveal h2 {
       margin-top: 4px;
-      font-size: 0.74em;
-      font-weight: 780;
+      font-size: 0.78em;
+      font-weight: 700;
+      line-height: 1.2;
     }
 
     .reveal h3 {
-      font-size: 0.58em;
-      color: #1e6859;
+      font-size: 0.62em;
+      color: #00643C;
     }
 
     .reveal p {
-      max-width: 760px;
-      color: var(--slide-muted);
-      font-size: 0.46em;
-      line-height: 1.55;
+      max-width: 900px;
+      color: #535E59;
+      font-size: 0.5em;
+      line-height: 1.58;
+      font-weight: 400;
     }
 
     .reveal strong {
@@ -131,10 +179,11 @@ const magicloud: TemplateConfig = {
 
     .reveal ul,
     .reveal ol {
-      margin: 18px 0 0;
-      color: var(--slide-fg);
-      font-size: 0.43em;
-      line-height: 1.55;
+      margin: 20px 0 0;
+      color: #535E59;
+      font-size: 0.48em;
+      line-height: 1.62;
+      font-weight: 400;
     }
 
     .reveal ul {
@@ -143,8 +192,8 @@ const magicloud: TemplateConfig = {
 
     .reveal li {
       position: relative;
-      margin: 0 0 8px;
-      padding-left: 18px;
+      margin: 0 0 9px;
+      padding-left: 22px;
     }
 
     .reveal ul li::before {
@@ -152,14 +201,14 @@ const magicloud: TemplateConfig = {
       position: absolute;
       left: 0;
       top: 0.72em;
-      width: 5px;
-      height: 5px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--slide-accent);
     }
 
     .reveal ol {
-      padding-left: 24px;
+      padding-left: 30px;
     }
 
     .reveal ol li {
@@ -172,30 +221,32 @@ const magicloud: TemplateConfig = {
     }
 
     .reveal blockquote {
-      margin: 22px 0;
-      padding: 18px 22px;
+      margin: 26px 0 32px;
+      padding: 24px 30px;
       border-left: 5px solid var(--slide-blockquote-border);
-      border-radius: 0 8px 8px 0;
+      border-radius: 0;
       background: var(--slide-accent-soft);
-      color: var(--slide-fg);
+      color: #404040;
       box-shadow: none;
     }
 
     .reveal blockquote p {
-      color: var(--slide-fg);
-      font-size: 0.44em;
+      color: #404040;
+      max-width: none;
+      font-size: 0.5em;
+      line-height: 1.58;
     }
 
     .reveal code {
       background: var(--slide-code-bg);
-      color: #005f4d;
+      color: #00643C;
     }
 
     .reveal pre {
       border: 1px solid var(--slide-card-border);
-      background: #f4faf7;
+      background: #F4F4F4;
       box-shadow: none;
-      color: #0f3d35;
+      color: #404040;
     }
 
     .reveal table {
@@ -205,7 +256,7 @@ const magicloud: TemplateConfig = {
       width: 100%;
       margin-top: 22px;
       border: 1px solid var(--slide-table-border);
-      border-radius: 8px;
+      border-radius: 0;
       font-size: 0.38em;
     }
 
@@ -243,34 +294,31 @@ const magicloud: TemplateConfig = {
     }
 
     .reveal .controls {
-      color: rgba(0, 95, 77, 0.72);
+      color: rgba(0, 100, 60, 0.72);
     }
 
     .reveal .slide-number {
-      color: rgba(0, 95, 77, 0.65);
+      color: rgba(0, 100, 60, 0.65);
       background: transparent;
       font-size: 12px;
     }
 
     .reveal .slides section:first-child {
       padding: 0 96px 60px;
-      background:
-        linear-gradient(115deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 20, 16, 0.86) 27%, rgba(0, 70, 49, 0.45) 56%, rgba(0, 91, 61, 0.2) 100%),
-        linear-gradient(135deg, #071f1b 0%, #003b2e 54%, #00533f 100%);
+      background: transparent;
       color: #ffffff;
       border: 0;
     }
 
     .reveal .slides section:first-child::before {
-      content: "FLEXCOMPUTE  |  MagiCloud";
+      content: "";
       position: absolute;
-      top: 96px;
+      top: 110px;
       left: 690px;
       z-index: 2;
-      color: rgba(255, 255, 255, 0.96);
-      font-size: 42px;
-      font-weight: 800;
-      letter-spacing: 0;
+      width: 824px;
+      height: 70px;
+      background: url("${magicloudLogoWhiteUrl}") center / contain no-repeat;
     }
 
     .reveal .slides section:first-child::after {
@@ -278,17 +326,16 @@ const magicloud: TemplateConfig = {
       position: absolute;
       inset: 0;
       pointer-events: none;
-      opacity: 0.42;
-      background:
-        repeating-radial-gradient(circle at 7% 16%, rgba(182, 255, 225, 0.18) 0 1px, transparent 2px 18px),
-        repeating-linear-gradient(31deg, transparent 0 38px, rgba(167, 255, 221, 0.17) 39px 40px, transparent 41px 76px),
-        repeating-linear-gradient(151deg, transparent 0 42px, rgba(167, 255, 221, 0.13) 43px 44px, transparent 45px 84px),
-        radial-gradient(ellipse at -8% 18%, rgba(205, 255, 237, 0.26), transparent 36%),
-        radial-gradient(ellipse at 90% 88%, rgba(159, 255, 216, 0.2), transparent 34%);
-      mask-image:
-        radial-gradient(ellipse at 7% 20%, #000 0 36%, transparent 58%),
-        radial-gradient(ellipse at 88% 88%, #000 0 30%, transparent 54%);
-      mask-composite: add;
+      opacity: 0.48;
+      background: url("${magicloudCoverMeshUrl}") center / cover no-repeat;
+    }
+
+    .reveal:not(.overview) .slides section:first-child {
+      background: transparent;
+    }
+
+    .reveal:not(.overview) .slides section:first-child::after {
+      display: none;
     }
 
     .reveal .slides section:first-child .slide-content {
@@ -298,15 +345,15 @@ const magicloud: TemplateConfig = {
       flex-direction: column;
       justify-content: flex-start;
       min-height: 100%;
-      padding-top: 294px;
+      padding-top: 372px;
     }
 
     .reveal .slides section:first-child h1 {
       margin: 0 0 2px;
       color: #03a778;
-      font-size: 72px;
-      font-weight: 820;
-      line-height: 0.98;
+      font-size: 58px;
+      font-weight: 700;
+      line-height: 1.06;
     }
 
     .reveal .slides section:first-child h2,
@@ -322,11 +369,11 @@ const magicloud: TemplateConfig = {
 
     .reveal .slides section:first-child p {
       font-size: 38px;
-      line-height: 1.08;
+      line-height: 1.18;
     }
 
     .reveal .slides section:first-child ul {
-      margin-top: 180px;
+      margin-top: 210px;
       font-size: 42px;
     }
 
@@ -336,44 +383,87 @@ const magicloud: TemplateConfig = {
 
     .reveal .slides section.slide-logo {
       padding: 0;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.96) 66%),
-        #ffffff;
+      background: #ffffff;
       color: #1f292b;
     }
 
     .reveal .slides section.slide-logo::before {
-      content: "FLEXCOMPUTE  |  MagiCloud";
+      content: "";
       position: absolute;
-      top: 158px;
-      left: 96px;
+      top: 229px;
+      left: 85px;
       z-index: 2;
-      color: #22282a;
-      font-size: 46px;
-      font-weight: 850;
-      letter-spacing: 0;
-      line-height: 1;
+      width: 810px;
+      height: 62px;
+      background: url("${magicloudLogoDarkUrl}") left center / contain no-repeat;
     }
 
     .reveal .slides section.slide-logo::after {
       content: "";
       position: absolute;
       inset: 0;
+      width: auto;
+      height: auto;
       z-index: 1;
       pointer-events: none;
-      opacity: 0.74;
-      background:
-        radial-gradient(ellipse at 86% 30%, rgba(83, 104, 103, 0.08), transparent 56%),
-        repeating-linear-gradient(24deg, transparent 0 46px, rgba(90, 104, 104, 0.22) 47px 48px, transparent 49px 92px),
-        repeating-linear-gradient(146deg, transparent 0 50px, rgba(90, 104, 104, 0.2) 51px 52px, transparent 53px 100px),
-        repeating-linear-gradient(90deg, transparent 0 62px, rgba(90, 104, 104, 0.12) 63px 64px, transparent 65px 124px);
-      mask-image:
-        linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.92) 42%, rgba(0, 0, 0, 0.26) 76%, transparent 100%),
-        radial-gradient(ellipse at 88% 46%, rgba(0, 0, 0, 0.76) 0 24%, transparent 58%);
-      mask-composite: add;
+      display: block;
+      opacity: 0.55;
+      background: url("${magicloudWhiteMeshUrl}") center center / 100% 100% no-repeat;
+    }
+
+    .reveal:not(.overview) .slides section.slide-logo {
+      background: transparent;
+    }
+
+    .reveal:not(.overview) .slides section.slide-logo::after {
+      display: none;
     }
 
     .reveal .slides section.slide-logo .slide-content {
+      position: relative;
+      z-index: 2;
+      min-height: 100%;
+    }
+
+    .reveal .slides section.slide-closing {
+      padding: 0;
+      background: transparent;
+      color: #ffffff;
+    }
+
+    .reveal .slides section.slide-closing::before {
+      content: "";
+      position: absolute;
+      top: 365px;
+      left: 247px;
+      z-index: 2;
+      width: 1105px;
+      height: 94px;
+      background: url("${magicloudLogoWhiteUrl}") center / contain no-repeat;
+    }
+
+    .reveal .slides section.slide-closing::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: auto;
+      height: auto;
+      z-index: 1;
+      pointer-events: none;
+      display: block;
+      opacity: 0.48;
+      background: url("${magicloudCoverMeshUrl}") center / cover no-repeat;
+    }
+
+    .reveal:not(.overview) .slides section.slide-closing {
+      background: transparent;
+    }
+
+    .reveal:not(.overview) .slides section.slide-closing::after {
+      display: none;
+    }
+
+    .reveal .slides section.slide-closing .slide-content {
       position: relative;
       z-index: 2;
       min-height: 100%;
@@ -402,8 +492,8 @@ const magicloud: TemplateConfig = {
       min-height: 172px;
       padding: 24px 28px 26px;
       border: 1px solid var(--slide-card-border);
-      border-radius: 8px;
-      background: var(--slide-card-bg);
+      border-radius: 0;
+      background: #F4F4F4;
     }
 
     .slide-two-column .slide-part-column::after {
@@ -421,12 +511,12 @@ const magicloud: TemplateConfig = {
 
     .slide-two-column .slide-part-column h2 {
       margin-bottom: 8px;
-      font-size: 0.52em;
+      font-size: 0.53em;
     }
 
     .slide-two-column .slide-part-column p,
     .slide-two-column .slide-part-column li {
-      font-size: 0.36em;
+      font-size: 0.35em;
     }
 
     .slide-two-column .slide-part-column ul {
@@ -478,13 +568,13 @@ const magicloud: TemplateConfig = {
     .slide-center p {
       margin-left: auto;
       margin-right: auto;
-      color: var(--slide-muted);
+      color: #595959;
     }
 
     .slide-diagram {
       border: 1px solid var(--slide-card-border);
-      background: #fbfefd;
-      border-radius: 8px;
+      background: #ffffff;
+      border-radius: 0;
     }
 
     .diagram-svg svg {

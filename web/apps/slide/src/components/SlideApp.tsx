@@ -6,6 +6,8 @@ import type { SlideMeta } from '../types';
 import { fetchSlideContent, fetchRawContent, fetchSlideList, createWS, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
+const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
+
 interface SlideAppProps {
   contentMode: boolean;
   filePath?: string;
@@ -129,7 +131,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
         exitFullscreen();
       }
       if (e.key === 'l' || e.key === 'L') {
-        if (files.length > 1) {
+        if (files.length > 0) {
           e.preventDefault();
           setShowFileList(v => !v);
         }
@@ -184,6 +186,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
     setShowFileList(false);
     const url = new URL(location.href);
     url.searchParams.set('file', path);
+    url.hash = '';
     history.pushState(null, '', url.toString());
   }, []);
 
@@ -196,8 +199,46 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
     setShowFileList(false);
     const url = new URL(location.href);
     url.searchParams.delete('file');
-    history.pushState(null, '', url.pathname + url.search + url.hash);
+    url.hash = '';
+    history.pushState(null, '', url.pathname + url.search);
   }, [contentMode]);
+
+  useEffect(() => {
+    const deck = deckRef.current;
+    if (!deck || contentMode || !currentFile) return;
+
+    const restorePosition = () => {
+      const saved = localStorage.getItem(slidePositionKey(currentFile));
+      if (!saved) {
+        deck.slide(0, 0, 0);
+        return;
+      }
+
+      try {
+        const indices = JSON.parse(saved) as { h?: number; v?: number; f?: number };
+        deck.slide(indices.h ?? 0, indices.v ?? 0, indices.f ?? 0);
+      } catch {
+        deck.slide(0, 0, 0);
+      }
+    };
+
+    const savePosition = () => {
+      const indices = deck.getIndices();
+      localStorage.setItem(slidePositionKey(currentFile), JSON.stringify(indices));
+    };
+
+    restorePosition();
+    deck.on('slidechanged', savePosition);
+    deck.on('fragmentshown', savePosition);
+    deck.on('fragmenthidden', savePosition);
+
+    return () => {
+      savePosition();
+      deck.off('slidechanged', savePosition);
+      deck.off('fragmentshown', savePosition);
+      deck.off('fragmenthidden', savePosition);
+    };
+  }, [deckVersion, contentMode, currentFile]);
 
   useEffect(() => {
     const deck = deckRef.current;
@@ -217,13 +258,26 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       const slideSize = deck.getComputedSlideSize();
       const overviewGap = 70;
       const overviewStep = slideSize.width + overviewGap;
-      const scale = Math.max(0.16, Math.min(0.32, (window.innerHeight - 180) / slideSize.height));
+      const overviewHeight = Math.min(420, Math.max(280, window.innerHeight * 0.42));
+      const overviewWidth = Math.min(1280, Math.max(320, window.innerWidth - 96));
+      const scale = Math.max(0.16, Math.min(0.32, (overviewHeight - 72) / slideSize.height));
       const visualWidth = horizontalSlides.length * overviewStep * scale;
 
       revealEl.style.overflowX = 'auto';
       revealEl.style.overflowY = 'hidden';
       revealEl.style.scrollBehavior = 'smooth';
-      revealEl.style.padding = '0 48px';
+      revealEl.style.position = 'fixed';
+      revealEl.style.top = '50%';
+      revealEl.style.left = '50%';
+      revealEl.style.right = 'auto';
+      revealEl.style.bottom = 'auto';
+      revealEl.style.width = `${overviewWidth}px`;
+      revealEl.style.height = `${overviewHeight}px`;
+      revealEl.style.zIndex = '300';
+      revealEl.style.overscrollBehavior = 'contain';
+      revealEl.style.contain = 'layout paint size';
+      revealEl.style.transform = 'translate(-50%, -50%)';
+      revealEl.style.padding = '0 40px';
       slidesEl.style.left = '48px';
       slidesEl.style.top = '50%';
       slidesEl.style.width = `${visualWidth / scale}px`;
@@ -232,7 +286,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       slidesEl.style.transform = `translateY(-50%) scale(${scale})`;
 
       const indices = deck.getIndices();
-      const target = Math.max(0, indices.h * overviewStep * scale - window.innerWidth / 2 + (slideSize.width * scale) / 2);
+      const target = Math.max(0, indices.h * overviewStep * scale - overviewWidth / 2 + (slideSize.width * scale) / 2);
       revealEl.scrollLeft = target;
     };
 
@@ -243,6 +297,18 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
         revealEl.style.overflowX = '';
         revealEl.style.overflowY = '';
         revealEl.style.scrollBehavior = '';
+        revealEl.style.position = '';
+        revealEl.style.inset = '';
+        revealEl.style.top = '';
+        revealEl.style.left = '';
+        revealEl.style.right = '';
+        revealEl.style.bottom = '';
+        revealEl.style.width = '';
+        revealEl.style.height = '';
+        revealEl.style.zIndex = '';
+        revealEl.style.overscrollBehavior = '';
+        revealEl.style.contain = '';
+        revealEl.style.transform = '';
         revealEl.style.padding = '';
         revealEl.scrollLeft = 0;
       }
@@ -252,6 +318,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
         slidesEl.style.width = '';
         slidesEl.style.height = '';
         slidesEl.style.transformOrigin = '';
+        slidesEl.style.transform = '';
       }
     };
 
@@ -260,11 +327,24 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
     deck.on('overviewhidden', resetOverviewStrip);
     window.addEventListener('resize', applyOverviewStrip);
 
+    const onOverviewWheel = (event: WheelEvent) => {
+      if (!deck.isOverview?.()) return;
+      const revealEl = containerRef.current;
+      if (!revealEl) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      revealEl.scrollLeft += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    };
+
+    containerRef.current?.addEventListener('wheel', onOverviewWheel, { passive: false });
+
     return () => {
       deck.off('overviewshown', applyOverviewStrip);
       deck.off('slidechanged', applyOverviewStrip);
       deck.off('overviewhidden', resetOverviewStrip);
       window.removeEventListener('resize', applyOverviewStrip);
+      containerRef.current?.removeEventListener('wheel', onOverviewWheel);
       resetOverviewStrip();
     };
   }, [deckVersion, slides]);
@@ -285,7 +365,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
           <div className="slide-list-title">tt slide</div>
           <div className="slide-list-subtitle">选择一个 slide 文档开始演示</div>
           {files.length === 0 ? (
-            <div className="slide-list-empty">No .slide or markdown files found.</div>
+            <div className="slide-list-empty">No .slide files found.</div>
           ) : (
             <div className="slide-list-grid">
               {files.map(f => (
@@ -325,7 +405,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
         </div>
       </div>
 
-      {files.length > 1 && (
+      {files.length > 0 && (
         <div className={`slide-file-panel ${showFileList ? 'open' : ''}`}>
           <div className="slide-file-header">
             <span>Slides ({files.length})</span>
@@ -363,14 +443,16 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
         </button>
       )}
 
-      {files.length > 1 && (
-        <button
-          className="slide-list-btn"
-          onClick={() => setShowFileList(v => !v)}
-          title="File list (L)"
-        >
-          ☰
-        </button>
+      {files.length > 0 && (
+        <div className="slide-list-control">
+          <button
+            className="slide-list-btn"
+            onClick={() => setShowFileList(v => !v)}
+            title="File list (L)"
+          >
+            ☰
+          </button>
+        </div>
       )}
     </div>
   );

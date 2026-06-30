@@ -6,7 +6,7 @@
 
 `tt` 是一个 Go 编写的集合式 CLI。它不是围绕单一业务打造的专用命令，而是把多类"本地开发辅助能力"统一放在同一根命令下：
 
-- Markdown / JSON / conversation / skill 文件的本地浏览与编辑
+- Markdown / `.slide` / JSON / conversation / skill 文件的本地浏览、编辑与演示
 - Picoclaw agent 运行时的嵌入式复用
 - formula 模板的编译、实例化、执行与运行看板
 - `cmd2skill`、`repo2skill`、`nvwa` 这类偏"生成式工程工具"能力
@@ -27,9 +27,10 @@ flowchart LR
     A --> E[代码分析与文档生成型命令]
 
     B --> B1[markdown]
-    B --> B2[json]
-    B --> B3[conversation]
-    B --> B4[skill]
+    B --> B2[slide]
+    B --> B3[json]
+    B --> B4[conversation]
+    B --> B5[skill]
 
     C --> C1[agent / agent info / agent optimize]
     C --> C2[translate]
@@ -65,10 +66,10 @@ flowchart LR
 | Go 1.25 | 主体实现语言，承载 CLI、工作流、HTTP 服务与运行时整合 |
 | Cobra | 根命令与子命令体系 |
 | Picoclaw | agent 运行时、provider、agent loop、skills 生态（通过 `internal/picoclaw` 嵌入） |
-| React / Vite | Markdown 与 Formula Dashboard 等 Web UI 前端 |
+| React / Vite | Markdown、Slide 与 Formula Dashboard 等 Web UI 前端 |
 | Ant Design / React Flow / Mermaid | Formula Dashboard 的组件库、图编辑、图渲染 |
 | `embed` | 把前端构建产物和嵌入式 agent 提示词打包进二进制 |
-| fsnotify / nhooyr.io/websocket | markdown 等本地页面的热更新能力 |
+| fsnotify / nhooyr.io/websocket | markdown / slide 等本地页面的热更新能力 |
 | TOML / JSON | formula 定义格式与运行状态持久化格式 |
 | BurntSushi/toml | formula 解析 |
 
@@ -157,7 +158,7 @@ flowchart TD
 - `nvwa`
 - `cmd2skill`
 - `repo2skill`
-- `markdown` / `json` / `conversation` / `skill`（本地 Web UI 命令）
+- `markdown` / `slide` / `json` / `conversation` / `skill`（本地 Web UI 命令；`slide` 只处理 `.slide` deck，并提供 MagiCloud 模板与 `.end` / `.closing` / `.final` 尾页）
 - `mirror`
 - `docs`（含 `docs analyze`，嵌入式 `docs-analyst` agent）
 - `formula` 全部子命令（list/show/validate/compile/copy/create/optimize/run/runs/resume/input/show/rm/open）
