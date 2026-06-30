@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent, WheelEvent } from 'react';
 
 type DiagramViewportProps = {
@@ -14,9 +14,17 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function numericSvgLength(value: string | null) {
+  if (!value) return 0;
+  if (value.includes('%')) return 0;
+  const match = value.match(/([0-9]*\.?[0-9]+)/);
+  return match ? Number(match[1]) : 0;
+}
+
 export function DiagramViewport({ svg, label }: DiagramViewportProps) {
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const svgRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
   const reset = useCallback(() => {
@@ -27,6 +35,31 @@ export function DiagramViewport({ svg, label }: DiagramViewportProps) {
   useEffect(() => {
     reset();
   }, [svg, reset]);
+
+  useLayoutEffect(() => {
+    const svgElement = svgRef.current?.querySelector('svg') as SVGSVGElement | null;
+    if (!svgElement) return;
+
+    if (!svgElement.getAttribute('viewBox')) {
+      const width = numericSvgLength(svgElement.getAttribute('width'));
+      const height = numericSvgLength(svgElement.getAttribute('height'));
+      if (width > 0 && height > 0) {
+        svgElement.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      }
+    }
+
+    svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svgElement.removeAttribute('width');
+    svgElement.removeAttribute('height');
+    Object.assign(svgElement.style, {
+      display: 'block',
+      width: '100%',
+      height: '100%',
+      maxWidth: '100%',
+      maxHeight: '100%',
+      overflow: 'visible',
+    });
+  }, [svg]);
 
   const zoomBy = useCallback((delta: number) => {
     setScale(current => clamp(Number((current + delta).toFixed(3)), MIN_SCALE, MAX_SCALE));
@@ -78,6 +111,7 @@ export function DiagramViewport({ svg, label }: DiagramViewportProps) {
         onPointerCancel={onPointerUp}
       >
         <div
+          ref={svgRef}
           className="diagram-svg"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
           dangerouslySetInnerHTML={{ __html: svg }}
