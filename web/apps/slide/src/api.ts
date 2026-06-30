@@ -17,8 +17,6 @@ export type ExternalTemplate = {
     transition: string;
     center: boolean;
     margin?: number;
-    width?: number;
-    height?: number;
   };
 };
 

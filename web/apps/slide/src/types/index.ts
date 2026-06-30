@@ -9,8 +9,6 @@ export type TemplateConfig = {
     transition: string;
     center: boolean;
     margin?: number;
-    width?: number;
-    height?: number;
   };
 };
 
@@ -31,8 +29,6 @@ export type SlideRuntimeConfig = {
   overview?: boolean;
   center?: boolean;
   autoSlide?: number;
-  width?: number;
-  height?: number;
   margin?: number;
 };
 

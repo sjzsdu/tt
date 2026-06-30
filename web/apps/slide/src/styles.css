@@ -57,6 +57,19 @@ html, body, #root {
   height: 100%;
 }
 
+.slide-wrapper .reveal .slides {
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
+}
+
+.slide-wrapper .reveal .slides section {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
 .slide-wrapper {
   position: relative;
   overflow: hidden;

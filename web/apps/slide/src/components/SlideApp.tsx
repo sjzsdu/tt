@@ -104,11 +104,10 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       center: runtimeConfig.center ?? template.defaults.center,
       transition: runtimeConfig.transition || meta?.transition || template.defaults.transition,
       autoSlide: runtimeConfig.autoSlide ?? 0,
-      width: runtimeConfig.width ?? template.defaults.width ?? 1200,
-      height: runtimeConfig.height ?? template.defaults.height ?? 700,
+      disableLayout: true,
       margin: runtimeConfig.margin ?? template.defaults.margin ?? 0.04,
-      minScale: 0.2,
-      maxScale: 2.0,
+      minScale: 1,
+      maxScale: 1,
     });
 
     deck.initialize().then(() => {
