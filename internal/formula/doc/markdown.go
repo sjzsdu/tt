@@ -299,6 +299,7 @@ func GenerateMermaidGraphWithOptions(workflow *ir.Workflow, opts MermaidGraphOpt
 		b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidNodeID(string(id)), mermaidLabel(nonEmpty(meta.Title, string(meta.ID)))))
 		writeLoopMermaidSubgraph(&b, step, string(id))
 	}
+	writeMermaidStyleClasses(&b, stepsList)
 	if !opts.HideVars {
 		for _, name := range sortedWorkflowVarNames(workflow) {
 			b.WriteString(fmt.Sprintf("  %s[%s]\n", mermaidVarNodeID(name), mermaidLabel("$ "+name)))
@@ -321,6 +322,43 @@ func GenerateMermaidGraphWithOptions(workflow *ir.Workflow, opts MermaidGraphOpt
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeMermaidStyleClasses(b *strings.Builder, stepsList []steps.Step) {
+	if b == nil || len(stepsList) == 0 {
+		return
+	}
+	agentNodes := []string{}
+	for _, step := range stepsList {
+		collectMermaidAgentNodeIDs(step, string(step.Meta().ID), &agentNodes)
+	}
+	if len(agentNodes) == 0 {
+		return
+	}
+	b.WriteString("  classDef agentStep fill:#e8f3ff,stroke:#2563eb,stroke-width:1.5px,color:#0f172a\n")
+	for _, nodeID := range agentNodes {
+		b.WriteString(fmt.Sprintf("  class %s agentStep\n", mermaidNodeID(nodeID)))
+	}
+}
+
+func collectMermaidAgentNodeIDs(step steps.Step, nodeID string, out *[]string) {
+	if step == nil || out == nil {
+		return
+	}
+	meta := step.Meta()
+	if meta.Kind == steps.KindAgent || meta.Kind == steps.KindExternalAgent {
+		*out = append(*out, nodeID)
+	}
+	loop, ok := asLoopStep(step)
+	if !ok {
+		return
+	}
+	for _, child := range loop.Body {
+		if child == nil {
+			continue
+		}
+		collectMermaidAgentNodeIDs(child, nodeID+"__"+string(child.Meta().ID), out)
+	}
 }
 
 func writeLoopMermaidSubgraph(b *strings.Builder, step steps.Step, parentID string) {

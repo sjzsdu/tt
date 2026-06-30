@@ -30,6 +30,36 @@ func TestGenerateMermaidGraphExpandsLoopBody(t *testing.T) {
 	}
 }
 
+func TestGenerateMermaidGraphStylesAgentNodes(t *testing.T) {
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	workflow.Graph.AddNode(&ir.Node{ID: "prepare", Step: steps.ScriptStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "prepare", Kind: steps.KindScript, Title: "Prepare"}},
+	}})
+	workflow.Graph.AddNode(&ir.Node{ID: "analyze", Step: steps.AgentStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "analyze", Kind: steps.KindAgent, Title: "Analyze"}},
+	}})
+	workflow.Graph.AddNode(&ir.Node{ID: "review-loop", Step: steps.LoopStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "review-loop", Kind: steps.KindLoop, Title: "Review loop"}},
+		Body: []steps.Step{
+			steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "review", Kind: steps.KindAgent, Title: "Review"}}},
+		},
+	}})
+
+	graph := GenerateMermaidGraph(workflow)
+	for _, want := range []string{
+		`classDef agentStep fill:#e8f3ff,stroke:#2563eb,stroke-width:1.5px,color:#0f172a`,
+		`class analyze agentStep`,
+		`class review_loop__review agentStep`,
+	} {
+		if !strings.Contains(graph, want) {
+			t.Fatalf("graph missing agent style %q:\n%s", want, graph)
+		}
+	}
+	if strings.Contains(graph, `class prepare agentStep`) || strings.Contains(graph, `class review_loop agentStep`) {
+		t.Fatalf("graph should style only agent nodes:\n%s", graph)
+	}
+}
+
 func TestGenerateMermaidGraphEscapesMustacheLabels(t *testing.T) {
 	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
 	loop := steps.LoopStep{
