@@ -54,6 +54,90 @@ tt slide demo.slide --template light
 
 不要在 `.slide` front matter 中写 `template:`。当前渲染器会忽略 `.slide` 内的 `template:`，以避免文档和模板耦合。
 
+## `.tt` 中的自定义模板约定
+
+当前内置模板在前端代码里实现；如果要把模板开放给项目自定义，推荐统一放在项目 `.tt` 下，而不是写进 `.slide` 文件：
+
+```text
+.tt/
+└── slide/
+    └── templates/
+        └── my-template/
+            ├── template.json
+            ├── template.css
+            └── assets/
+                ├── cover-bg.png
+                ├── logo-dark.png
+                └── logo-white.svg
+```
+
+`template.json` 只描述模板元数据和 Reveal 默认值：
+
+```json
+{
+  "name": "my-template",
+  "revealTheme": "white",
+  "css": "template.css",
+  "defaults": {
+    "theme": "light",
+    "transition": "fade",
+    "center": false,
+    "width": 1600,
+    "height": 900,
+    "margin": 0
+  }
+}
+```
+
+`template.css` 写视觉实现。资源放在同模板目录的 `assets/` 下，并用相对路径引用：
+
+```css
+:root {
+  --slide-bg: #ffffff;
+  --slide-fg: #1f2329;
+  --slide-accent: #008d55;
+}
+
+.reveal .slides section {
+  background: var(--slide-bg);
+  color: var(--slide-fg);
+}
+
+.reveal:has(.slides section:first-child.present)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: url("./assets/cover-bg.png") center / cover no-repeat;
+}
+
+.reveal .slides section:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  top: 48px;
+  left: 64px;
+  width: 280px;
+  height: 32px;
+  background: url("./assets/logo-dark.png") left center / contain no-repeat;
+}
+```
+
+资源规则：
+
+- 背景、logo、纹理等 template 专属资源放在 `.tt/slide/templates/<name>/assets/`。
+- `.slide` 文档里的业务图片仍然放在文档附近，用正常 Markdown 图片引用。
+- template CSS 只能引用自己目录下的相对资源，避免依赖用户机器上的绝对路径。
+- 不要把二进制资源写进 `.slide`，也不要把 template asset 路径写进 `.slide`。
+- 如果同名模板同时存在于项目 `.tt` 和全局 `~/.tt`，项目模板应该优先。
+
+启动时仍然应该通过运行时配置选择模板，例如：
+
+```bash
+tt slide deck.slide --template my-template
+```
+
+这样 `.slide` 继续保持模板无关，`.tt/slide/templates/my-template/` 只负责视觉美化和 assets 打包。
+
 ## MagiCloud 模板
 
 默认模板是 `magicloud`，风格贴近 `MC PPT Template.pptx`：

@@ -29,6 +29,7 @@ A template is not only a color palette. It is a coordinated system of:
 - MagiCloud assets live under `web/apps/slide/src/assets/magicloud/`.
 - Default template is `magicloud`.
 - `tt slide --template NAME` and `tt slide -t NAME` override the runtime template.
+- User/project templates should use `.tt/slide/templates/<name>/` as the external template package shape when that loader is implemented.
 
 ## Template implementation workflow
 
@@ -75,6 +76,70 @@ const example: TemplateConfig = {
 ```
 
 Register it in the template map at the bottom of `templates/index.ts`.
+
+## `.tt` project template package shape
+
+When designing user-defined templates, keep the package self-contained under `.tt`:
+
+```text
+.tt/slide/templates/<template-name>/
+├── template.json
+├── template.css
+└── assets/
+    ├── cover-bg.png
+    ├── logo-dark.png
+    └── logo-white.svg
+```
+
+`template.json` should mirror the frontend `TemplateConfig` shape without embedding CSS inline:
+
+```json
+{
+  "name": "customer-brand",
+  "revealTheme": "white",
+  "css": "template.css",
+  "defaults": {
+    "theme": "light",
+    "transition": "fade",
+    "center": false,
+    "width": 1600,
+    "height": 900,
+    "margin": 0
+  }
+}
+```
+
+`template.css` owns all visual styling and references assets by relative URL:
+
+```css
+.reveal:has(.slides section:first-child.present)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: url("./assets/cover-bg.png") center / cover no-repeat;
+}
+
+.reveal .slides section:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  top: 48px;
+  left: 64px;
+  width: 280px;
+  height: 32px;
+  background: url("./assets/logo-dark.png") left center / contain no-repeat;
+}
+```
+
+Asset rules:
+
+1. Template-specific backgrounds, logos, textures, and decorative images go in `assets/` beside the template.
+2. CSS should use relative paths like `url("./assets/cover-bg.png")`; do not use absolute local filesystem paths.
+3. Business images referenced from `.slide` content are not template assets and should stay next to the `.slide` deck or in a deck-local image folder.
+4. A template package must not require edits to `.slide` documents. `.slide` documents remain semantic and template-agnostic.
+5. Project `.tt/slide/templates/<name>/` should take precedence over global `~/.tt/slide/templates/<name>/` if both exist.
+
+Security/serving rule for implementation: serve only files inside the selected template directory, rewrite relative CSS asset URLs to the slide server asset endpoint, and reject `..` traversal or absolute paths.
 
 ## Adding a page directive
 
