@@ -46,67 +46,31 @@ agent.name = "planner"
 
 [[steps]]
 id = "clarify-situation"
-title = "补充决策背景"
-execution = "human_input"
+title = "按当前问题生成澄清表单"
+form = true
 depends_on = ["discern-situation"]
 condition = "discern-situation.needs_clarification == true"
-description = "为了给出更贴近你处境的判断，请再补充几项背景。"
+input_context = ["discern-situation"]
+description = """
+根据 discern-situation 的分析结果，为用户生成一份只针对当前问题的澄清表单。
 
-[steps.form]
-title = "再补充几项背景"
-description = "选最贴近你处境的答案即可；如果选项表达不了，可以在最后补充一句。"
-submit_label = "继续解卦"
+你必须输出 ONLY 一个 fenced `tt-human-input` JSON block，不要输出 Markdown 解释，也不要直接给建议。
 
-[[steps.form.fields]]
-name = "decision_shape"
-label = "这件事最像哪一种决策？"
-type = "radio"
-required = true
-options = ["二选一/多选一", "要不要推进某事", "什么时候行动", "关系如何处理", "风险是否可承受", "方向不清，想先看局势", "修身与心态调整"]
-help = "选择最贴近的一项即可，不必追求完全准确。"
+表单设计原则：
+1. 表单必须由用户原问题和 discern-situation 中的 missing facts / clarification_reason / key_choices / constraints 衍生出来，不能使用千篇一律的固定字段。
+2. 优先使用 radio / checkbox / select，减少主观 textarea；除非确实需要用户补充一个无法枚举的事实，否则最多 1 个 textarea，且必须 optional。
+3. 字段数量 3-5 个，问最影响判断的问题，不要为了“全面”而追问所有背景。
+4. 每个字段都要有具体、贴近当前问题的 label 和 options。例如用户问就业/考研，就选项化询问专业方向、家庭经济压力、考研把握、目标行业清晰度、是否接受二战等；用户问关系，就改问关系状态、冲突类型、对方反馈、可接受边界等。
+5. 用户可见文案必须是产品文案，不要暴露“辨事阶段”“信息不足”“下游 agent”“动态表单”“单选/多选”等内部说法。
+6. reason、form.title、form.description 要自然、简短、面向用户。
+7. field name 使用英文 snake_case，匹配 ^[a-z][a-z0-9_]*$。
 
-[[steps.form.fields]]
-name = "current_stage"
-label = "事情现在大概处于什么阶段？"
-type = "radio"
-required = true
-options = ["刚开始考虑", "已经有几个备选方案", "快到截止时间", "已经行动但卡住了", "外部变化逼我重新选择", "内心摇摆但现实还不急"]
-
-[[steps.form.fields]]
-name = "primary_focus"
-label = "你最在意哪些方面？"
-type = "checkbox"
-required = false
-options = ["短期安全", "长期发展", "收入/资源", "名声/认可", "自由度", "关系稳定", "学习成长", "身心状态", "避免后悔", "不辜负他人期待"]
-help = "可多选。"
-
-[[steps.form.fields]]
-name = "known_constraints"
-label = "目前有哪些现实约束？"
-type = "checkbox"
-required = false
-options = ["时间窗口很短", "经济压力", "能力/经验不足", "信息不足", "家人/团队期待", "地域限制", "健康/精力限制", "机会成本高", "失败后代价较大", "暂时没有明显约束"]
-
-[[steps.form.fields]]
-name = "risk_posture"
-label = "你现在更能接受哪种取向？"
-type = "radio"
-required = false
-options = ["宁稳勿躁，先保底", "可以承担一定风险换成长", "愿意孤注一掷争取突破", "先试探，不宜重押", "我还不清楚自己的承受力"]
-
-[[steps.form.fields]]
-name = "desired_guidance"
-label = "你最希望得到哪些指引？"
-type = "checkbox"
-required = true
-options = ["是否推进", "如何取舍", "先后顺序", "时机判断", "风险判断", "关系应对", "修身与心态", "行动方案", "需要避开什么"]
-
-[[steps.form.fields]]
-name = "extra_context"
-label = "还有没有选项表达不了、但你觉得关键的一句话？"
-type = "textarea"
-required = false
-placeholder = "可不填。比如：两个选项分别是什么、某个硬性期限、一个最不能接受的后果。"
+输出形状示例，仅表示协议，不要照抄字段：
+```tt-human-input json
+{"reason":"为了判断更贴近你的真实处境，请再补充几项背景。","form":{"title":"再补充几项背景","description":"选最贴近你处境的答案即可。","submit_label":"继续解卦","fields":[{"name":"example_choice","label":"示例问题？","type":"radio","required":true,"options":["选项 A","选项 B"]}]}}
+```
+"""
+agent.name = "planner"
 
 [[steps]]
 id = "merge-situation"

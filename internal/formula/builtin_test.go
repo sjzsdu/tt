@@ -792,61 +792,24 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if clarify == nil {
 		t.Fatalf("missing clarify-situation node")
 	}
-	human, ok := clarify.Step.(steps.HumanInputStep)
+	clarifyAgent, ok := clarify.Step.(steps.AgentStep)
 	if !ok {
-		t.Fatalf("clarify-situation step = %T, want HumanInputStep", clarify.Step)
+		t.Fatalf("clarify-situation step = %T, want AgentStep", clarify.Step)
 	}
-	var form struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Fields      []struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-		} `json:"fields"`
+	if !clarifyAgent.DynamicForm {
+		t.Fatalf("clarify-situation should use dynamic_form so forms are derived from the user's question")
 	}
-	rawForm, err := json.Marshal(human.Form)
-	if err != nil {
-		t.Fatalf("marshal human form: %v", err)
+	if !slices.Contains(clarifyAgent.InputCtx, "discern-situation") {
+		t.Fatalf("clarify-situation input_context = %v, want discern-situation", clarifyAgent.InputCtx)
 	}
-	if err := json.Unmarshal(rawForm, &form); err != nil {
-		t.Fatalf("unmarshal human form: %v\nraw=%s", err, rawForm)
-	}
-	for _, notWant := range []string{"辨事阶段", "信息不足", "尽量用单选", "下游 agent", "收集约束"} {
-		if strings.Contains(human.Reason, notWant) || strings.Contains(form.Title, notWant) || strings.Contains(form.Description, notWant) {
-			t.Fatalf("clarify-situation user-facing copy should not expose internal wording %q; reason=%q title=%q description=%q", notWant, human.Reason, form.Title, form.Description)
-		}
-	}
-	fieldNames := map[string]bool{}
-	fieldTypes := map[string]string{}
-	textareaCount := 0
-	for _, field := range form.Fields {
-		fieldNames[field.Name] = true
-		fieldTypes[field.Name] = field.Type
-		if field.Type == "textarea" {
-			textareaCount++
-		}
-	}
-	for _, want := range []string{"decision_shape", "current_stage", "primary_focus", "known_constraints", "risk_posture", "desired_guidance", "extra_context"} {
-		if !fieldNames[want] {
-			t.Fatalf("clarify-situation form missing field %q; fields=%v", want, fieldNames)
-		}
-	}
-	if textareaCount != 1 || fieldTypes["extra_context"] != "textarea" {
-		t.Fatalf("clarify-situation should keep subjective text minimal; textareaCount=%d fieldTypes=%v", textareaCount, fieldTypes)
-	}
-	for _, want := range []string{"decision_shape", "current_stage", "risk_posture"} {
-		if fieldTypes[want] != "radio" {
-			t.Fatalf("%s type = %q, want radio; fieldTypes=%v", want, fieldTypes[want], fieldTypes)
-		}
-	}
-	for _, want := range []string{"primary_focus", "known_constraints", "desired_guidance"} {
-		if fieldTypes[want] != "checkbox" {
-			t.Fatalf("%s type = %q, want checkbox; fieldTypes=%v", want, fieldTypes[want], fieldTypes)
+	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "radio / checkbox / select", "最多 1 个 textarea", "字段数量 3-5 个", "用户可见文案必须是产品文案"} {
+		if !strings.Contains(clarifyAgent.Prompt, want) {
+			t.Fatalf("clarify-situation prompt missing %q:\n%s", want, clarifyAgent.Prompt)
 		}
 	}
 	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure", "main_choice", "current_status"} {
-		if fieldNames[notWant] {
-			t.Fatalf("shan-yi-zhe should remain universal and not hard-code field %q; fields=%v", notWant, fieldNames)
+		if strings.Contains(clarifyAgent.Prompt, notWant) {
+			t.Fatalf("shan-yi-zhe should remain universal and not hard-code prompt field %q:\n%s", notWant, clarifyAgent.Prompt)
 		}
 	}
 
