@@ -19,7 +19,7 @@
    - 想理解命令分布：看 [命令与模块地图](./module-map.md)
    - 想理解 formula：看 [Formula 工作流系统](./formula-system.md) + [Step Kinds 参考](./step-kinds-reference.md)
    - 想看仓库自带的 formula 模板：看 [内置 Formula 与 Atomic 清单](./builtin-formulas.md)
-   - 想写 `.slide` 演示和 MagiCloud 尾页：看 [tt slide 与 MagiCloud 模板](./slide.md)
+   - 想写 `.slide` 演示：看 [tt slide 与 .slide 语义规范](./slide.md)，先保证文档模板无关，再用 template 美化
    - 想理解 agent runtime 复用：看 [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)
 
 ### 如果你准备修改命令实现
@@ -76,7 +76,7 @@ ai-docs/
 ├── formula-system.md              # formula 编译、执行、运行记录、控制流
 ├── step-kinds-reference.md        # step kind 速查与示例
 ├── builtin-formulas.md            # 内置 formulas / atomics 清单与用途
-├── slide.md                       # tt slide、MagiCloud 模板、尾页指令
+├── slide.md                       # tt slide、.slide 语义规范、模板美化职责
 └── picoclaw-integration.md        # Picoclaw 运行时复用、嵌入式 agent、相关命令
 ```
 
@@ -157,5 +157,5 @@ overview → architecture → picoclaw-integration → module-map
   - 同步在 architecture / overview / module-map / step-kinds-reference / builtin-formulas / picoclaw-integration 中增加对应章节
 - 新增 [Step Kinds 参考](./step-kinds-reference.md)，集中解释每种 step 的字段、典型 TOML 与使用陷阱
 - 新增 [内置 Formula 与 Atomic 清单](./builtin-formulas.md)，列出仓库自带的 formulas 与 atomics
-- 新增 [tt slide 与 MagiCloud 模板](./slide.md)，说明 `.slide` 文件、MagiCloud 风格、`.end` / `.closing` / `.final` 尾页
+- 新增 [tt slide 与 .slide 语义规范](./slide.md)，说明 `.slide` 模板无关写法、语义指令和 template 美化职责
 - README 维持导读页定位，加入新文档索引

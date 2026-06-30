@@ -130,9 +130,9 @@ tt slide deck.slide --template dark --transition fade --slide-number c/t --contr
 tt slide deck.slide --width 1600 --height 900 --margin 0.02 --auto-slide 8000
 ```
 
-The default template is `magicloud`, aligned with the MagiCloud PPT template. For full authoring notes, see `ai-docs/slide.md`.
+`.slide` files should stay template-agnostic: write semantic content and layout directives, then choose visual styling at runtime with `--template`. The default runtime template is `magicloud`. For full authoring rules, see `ai-docs/slide.md`.
 
-MagiCloud closing slide:
+Semantic closing slide:
 
 ```markdown
 ---
@@ -140,7 +140,7 @@ MagiCloud closing slide:
 .end
 ```
 
-`.closing` and `.final` are aliases. The closing slide matches the PPTX page 15 style: full-area green/black gradient, honeycomb mesh background, and a centered white `FLEXCOMPUTE | MagiCloud` logo.
+`.closing` and `.final` are aliases. Templates decide how to beautify this semantic ending page. In the MagiCloud template it matches the PPTX page 15 style: full-area green/black gradient, honeycomb mesh background, and a centered white `FLEXCOMPUTE | MagiCloud` logo.
 
 Flags:
 

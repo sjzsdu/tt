@@ -18,7 +18,6 @@ export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'logo'
 
 export type SlideMeta = {
   title: string;
-  template: string;
   layout: SlideLayout;
   total: number;
   transition: string;

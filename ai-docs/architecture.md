@@ -60,7 +60,7 @@ sequenceDiagram
     HTTP->>UI: 返回 HTML / JSON / 原始文件内容
 ```
 
-这类命令的特点是：**Go 负责后端文件 API 和安全边界，前端负责交互体验**。其中 `tt slide` 专门处理 `.slide` deck，前端用 Reveal.js 渲染，MagiCloud 模板支持 `.end` / `.closing` / `.final` 尾页封底。
+这类命令的特点是：**Go 负责后端文件 API 和安全边界，前端负责交互体验**。其中 `tt slide` 专门处理 `.slide` deck，前端用 Reveal.js 渲染；`.slide` 保持模板无关，template 根据 `.end` / `.closing` / `.final` 等语义指令美化结束页。
 
 ### 2. Picoclaw 运行时路径
 例如 `agent`、`translate`、`debate`、`nvwa`、`repo2skill` 的 agent 模式。

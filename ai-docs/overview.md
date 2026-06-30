@@ -158,7 +158,7 @@ flowchart TD
 - `nvwa`
 - `cmd2skill`
 - `repo2skill`
-- `markdown` / `slide` / `json` / `conversation` / `skill`（本地 Web UI 命令；`slide` 只处理 `.slide` deck，并提供 MagiCloud 模板与 `.end` / `.closing` / `.final` 尾页）
+- `markdown` / `slide` / `json` / `conversation` / `skill`（本地 Web UI 命令；`slide` 只处理 `.slide` deck，要求文档模板无关，并由 template 美化 `.end` / `.closing` / `.final` 结束页）
 - `mirror`
 - `docs`（含 `docs analyze`，嵌入式 `docs-analyst` agent）
 - `formula` 全部子命令（list/show/validate/compile/copy/create/optimize/run/runs/resume/input/show/rm/open）

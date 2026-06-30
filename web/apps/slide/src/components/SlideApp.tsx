@@ -81,7 +81,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       deckRef.current = null;
     }
 
-    const tpl = getTemplate(templateOverride || meta?.template || DEFAULT_TEMPLATE);
+    const tpl = getTemplate(templateOverride || DEFAULT_TEMPLATE);
 
     const deck = new Reveal(containerRef.current, {
       hash: true,
@@ -299,7 +299,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     );
   }
 
-  const tpl = getTemplate(templateOverride || meta?.template || DEFAULT_TEMPLATE);
+  const tpl = getTemplate(templateOverride || DEFAULT_TEMPLATE);
 
   return (
     <div className="slide-wrapper" ref={wrapperRef}>

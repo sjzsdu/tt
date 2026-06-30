@@ -92,7 +92,7 @@ flowchart LR
 3. 挂载 `internal/webui` 中内嵌的前端资源（例如 `web/apps/slide`）
 4. 暴露文件读写、deck 列表、热更新或运行状态接口
 
-`tt slide` 额外支持 Reveal.js 演示体验：`---` 分页、MagiCloud 模板、`.end` / `.closing` / `.final` 尾页封底、按 `Esc` 进入 overview。更多 authoring 细节见 [tt slide 与 MagiCloud 模板](./slide.md)。
+`tt slide` 额外支持 Reveal.js 演示体验：`---` 分页、模板无关 `.slide` 语义、`.end` / `.closing` / `.final` 结束页、按 `Esc` 进入 overview。更多 authoring 细节见 [tt slide 与 .slide 语义规范](./slide.md)。
 
 ### Agent / LLM 命令
 

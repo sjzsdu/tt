@@ -1,6 +1,5 @@
 import { marked, type Token } from 'marked';
 import hljs from 'highlight.js';
-import { DEFAULT_TEMPLATE } from './templates';
 import type { SlideData, SlidePart, SlideMeta, SlideLayout } from './types';
 
 marked.setOptions({
@@ -167,7 +166,6 @@ function classForLayout(layout: SlideLayout): string {
 export function parseSlides(markdown: string): { slides: SlideData[]; meta: SlideMeta } {
   const lines = markdown.split('\n');
   let title = '';
-  let template = DEFAULT_TEMPLATE;
   let layout: SlideLayout = 'default';
   let transition = '';
 
@@ -186,7 +184,6 @@ export function parseSlides(markdown: string): { slides: SlideData[]; meta: Slid
         if (!parsed) continue;
         switch (parsed.key) {
           case 'title': title = parsed.value; break;
-          case 'template': template = parsed.value; break;
           case 'layout': layout = parsed.value as SlideLayout; break;
           case 'transition': transition = parsed.value; break;
         }
@@ -233,6 +230,6 @@ export function parseSlides(markdown: string): { slides: SlideData[]; meta: Slid
 
   return {
     slides,
-    meta: { title, template, layout, total: slides.length, transition },
+    meta: { title, layout, total: slides.length, transition },
   };
 }
