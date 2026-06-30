@@ -1,0 +1,894 @@
+---
+title: tt 项目介绍
+---
+
+# tt 项目介绍
+
+本地开发自动化 CLI 的功能、架构与工作流
+
+90 分钟技术介绍
+
+按 **F** 全屏 · 方向键翻页 · `O` 键总览模式
+
+---
+
+# 这次要讲清楚什么
+
+1. `tt` 是什么，为什么它不是一个单一用途 CLI
+2. 它对外提供哪些功能，分别解决什么问题
+3. 代码在 `cmd/`、`internal/`、`web/` 中如何分层
+4. Formula 工作流如何从 TOML 变成可执行、可恢复、可观察的 run
+5. Picoclaw runtime 与 embedded agents 如何被多个命令复用
+6. 后续扩展新命令、新 formula、新 agent、新 Web UI 时该从哪里入手
+
+---
+
+# 建议节奏
+
+| 模块 | 时间 | 重点 |
+|------|------|------|
+| 项目定位 | 10 min | 统一心智模型 |
+| 功能地图 | 15 min | 对外命令与用户价值 |
+| 总体架构 | 15 min | 分层、目录、运行路径 |
+| Formula 深入 | 25 min | 编译、执行、run store、dashboard、自修复 |
+| Picoclaw / Agent | 12 min | DirectRunner 与 embedded agents |
+| 扩展与阅读路线 | 13 min | 如何继续开发这个项目 |
+
+---
+
+# 一句话定位
+
+> `tt` 是一个 Go 编写的集合式 CLI，把本地文件工具、Agent 运行、Formula 工作流、技能生成和代码理解文档生成，收拢到同一个开发者工作台里。
+
+它的重点不是“大而全平台”，而是：
+
+- 把分散但常用的本地开发辅助能力放到一个入口
+- 复用同一套配置、runtime、agent 和 Web UI 嵌入方式
+- 让复杂流程可以声明化、可执行、可恢复、可观察
+
+---
+
+# 是什么，不是什么
+
+:::columns
+## 是什么
+
+- 集合式 CLI 工具箱
+- 本地开发工作台
+- Picoclaw runtime 的宿主
+- Formula typed workflow 引擎
+- 前端 UI 可嵌入 Go 二进制的本地服务
+- 可扩展的命令、agent、formula 容器
+
+:::
+
+:::columns
+## 不是什么
+
+- 不是单一业务命令
+- 不是只做 Markdown / JSON 预览的小工具
+- 不是重新实现一套 LLM runtime
+- 不是简单的模板替换器
+- 不是只有终端输出、没有运行状态的脚本集合
+
+:::
+
+---
+
+# 功能全景
+
+```mermaid
+flowchart LR
+    T[tt 根命令] --> W[本地文件 / Web UI]
+    T --> A[Picoclaw Agent Runtime]
+    T --> F[Formula Workflow]
+    T --> G[生成式工程工具]
+    T --> D[代码理解与文档]
+
+    W --> W1[markdown]
+    W --> W2[slide]
+    W --> W3[json]
+    W --> W4[conversation]
+    W --> W5[skill]
+
+    A --> A1[agent]
+    A --> A2[translate]
+    A --> A3[debate]
+    A --> A4[nvwa]
+
+    F --> F1[list / show / compile]
+    F --> F2[run / resume / input]
+    F --> F3[schedule / dashboard]
+
+    G --> G1[cmd2skill]
+    G --> G2[repo2skill]
+    G --> G3[agent optimize]
+
+    D --> D1[docs analyze]
+```
+
+---
+
+# 命令组与用户价值
+
+| 命令组 | 解决什么问题 | 实现特征 |
+|--------|--------------|----------|
+| `markdown` / `slide` / `json` / `conversation` | 本地浏览、编辑、演示结构化内容 | Go 提供文件 API，前端负责交互 |
+| `agent` / `translate` / `debate` | 直接调用嵌入式 agents | Picoclaw DirectRunner |
+| `formula` | 声明式工作流的创建、验证、运行、看板 | typed IR + runtime + run store |
+| `cmd2skill` / `repo2skill` | 把 CLI 或仓库转成 agent skill | 结构化分析 + Markdown 渲染 |
+| `docs analyze` | 自动生成代码理解文档 | `docs-analyst` agent |
+| `config` / `mirror` / `version` | 配置、目录同步、辅助信息 | 确定性工具 |
+
+---
+
+# 第一类运行模型：本地 Web UI
+
+代表命令：
+
+- `tt markdown`
+- `tt slide`
+- `tt json`
+- `tt conversation`
+- `tt formula run ... --web`
+
+共同模式：
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Cmd as cmd/*.go
+    participant HTTP as 本地 HTTP 服务
+    participant FS as 工作区文件系统
+    participant UI as 嵌入式前端
+
+    User->>Cmd: 执行 tt markdown / tt slide / tt json
+    Cmd->>HTTP: 启动 localhost 服务
+    Cmd->>UI: 挂载 go:embed 前端资源
+    UI->>HTTP: 请求文件列表 / 内容 / 保存接口
+    HTTP->>FS: 读写本地文件
+    HTTP-->>UI: 返回内容与状态
+```
+
+---
+
+# `tt slide` 的设计原则
+
+`.slide` 文档只表达内容和语义，template 负责视觉美化。
+
+:::columns
+## `.slide` 负责
+
+- 标题、正文、列表、表格
+- 代码块
+- Mermaid / D2 图
+- `---` 分页
+- `.center`、`.split`、`.two-column`、`.end` 等通用语义
+
+:::
+
+:::columns
+## template 负责
+
+- 字体、颜色、背景
+- logo、封面、封底
+- MagiCloud / dark / light / white 等视觉风格
+- Reveal.js 播放体验
+
+:::
+
+不要在 `.slide` 内容里依赖某个模板的 CSS class、资源路径或品牌细节。
+
+---
+
+# 第二类运行模型：Picoclaw Agent
+
+很多命令共享同一条 agent 调用链：
+
+```mermaid
+sequenceDiagram
+    participant Cmd as 命令层
+    participant CFG as ttconfig
+    participant PC as internal/picoclaw
+    participant AG as internal/agents
+    participant Loop as Picoclaw AgentLoop
+
+    Cmd->>CFG: 加载全局 / 项目配置
+    Cmd->>PC: Load runtime
+    PC->>PC: 解析 home / config
+    PC->>Loop: 创建 provider / message bus / loop
+    AG->>PC: 注册 embedded agents
+    Cmd->>PC: NewDirectRunner
+    Cmd->>Loop: ProcessDirect / ProcessDirectForAgent
+    Loop-->>Cmd: 返回响应
+```
+
+---
+
+# 第三类运行模型：Formula Workflow
+
+`tt formula` 是项目里最复杂的子系统。
+
+它可以理解为：
+
+> Formula = TOML 定义 + Workflow IR 编译 + Step 接口实现 + typed runtime 调度 + run store / dashboard 可观察性
+
+```mermaid
+flowchart LR
+    A[Formula TOML / JSON] --> B[Resolve]
+    B --> C[Compile]
+    C --> D[ir.Workflow]
+    D --> E[typed runtime]
+    E --> F[run store]
+    F --> G[dashboard / resume]
+```
+
+---
+
+# 第四类运行模型：代码理解与文档生成
+
+代表命令：`tt docs analyze`
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Cmd as cmd/docs.go
+    participant Resolve as 本地目录 / GitHub 仓库
+    participant PC as Picoclaw DirectRunner
+    participant Agent as docs-analyst
+    participant FS as ai-docs / 输出目录
+
+    User->>Cmd: tt docs analyze <target>
+    Cmd->>Resolve: 解析目标并准备代码上下文
+    Cmd->>PC: 加载 runtime
+    Cmd->>Agent: 发送代码理解任务
+    Agent-->>Cmd: 生成结构化中文文档
+    Cmd->>FS: 写入或更新文档
+```
+
+这个项目已经开始把“代码理解”本身产品化成命令。
+
+---
+
+# 总体架构：三层理解
+
+```mermaid
+flowchart TD
+    U[用户 / CLI 调用] --> C[cmd/ 命令编排层]
+    C --> I[internal/ 领域能力层]
+    I --> R[运行时与呈现层]
+
+    C --> C1[Cobra 命令]
+    C --> C2[flags / 输入归一化]
+    C --> C3[输出组织]
+
+    I --> I1[formula]
+    I --> I2[picoclaw]
+    I --> I3[agents]
+    I --> I4[webui]
+    I --> I5[cmd2skill / repo2skill / ttconfig]
+
+    R --> R1[Picoclaw provider / AgentLoop]
+    R --> R2[本地 HTTP / React UI]
+    R --> R3[formula run store / dashboard]
+```
+
+---
+
+# 目录地图
+
+| 目录 | 职责 |
+|------|------|
+| `cmd/` | 对外 CLI 入口，Cobra 命令、flags、依赖装配 |
+| `cmd/formula/` | formula 子命令、run/resume/input、dashboard glue |
+| `internal/formula/` | formula 语言、解析、编译、builtin、doc、ui |
+| `internal/formula/runtime/` | typed workflow executor、condition、workspace、repair |
+| `internal/formula/steps/` | `agent` / `script` / `loop` 等 step 实现 |
+| `internal/picoclaw/` | Picoclaw runtime 适配层与 DirectRunner |
+| `internal/agents/embedded/` | 嵌入式 agent Markdown 定义 |
+| `internal/webui/` | 前端构建产物嵌入与静态资源 handler |
+| `web/apps/` | Markdown、Slide、Formula Dashboard 等前端源码 |
+| `ai-docs/` | 面向人阅读的项目导读文档 |
+
+---
+
+# `cmd/` 与 `internal/` 的边界
+
+`cmd/` 更像适配层：
+
+- 解析命令行参数
+- 加载配置
+- 组装依赖
+- 调用 `internal/` 中的能力
+- 渲染终端输出或启动本地服务
+
+`internal/` 才是复用点：
+
+- 领域模型
+- 解析和编译
+- runtime 执行
+- 文件持久化
+- embedded agent 注册
+- Web UI 嵌入
+
+改代码时不要只盯着 `cmd/`。真正复杂的逻辑大多在 `internal/`。
+
+---
+
+# 配置模型
+
+```mermaid
+flowchart LR
+    G[全局配置<br/>~/.tt/config.json<br/>TT_CONFIG] --> M[Merge]
+    P[项目配置<br/>.tt/config.json<br/>TT_PROJECT_CONFIG] --> M
+    M --> F[命令行 flags]
+    F --> R[最终运行参数]
+
+    R --> A[Picoclaw home / config]
+    R --> B[agent session / model]
+    R --> C[Web UI port / pattern]
+    R --> D[formula runtime options]
+```
+
+项目配置覆盖全局配置，命令行显式参数再覆盖配置结果。
+
+---
+
+# Formula：为什么值得单独讲
+
+Formula 已经不是“模板渲染 + 调脚本”。
+
+它包含：
+
+- 变量校验与默认值
+- `extends` / `compose` / `embed` / `expand` / `advice`
+- compile-time condition 与 runtime condition
+- typed `ir.Workflow`
+- 多种 step kind
+- preflight 检查
+- worktree workspace
+- human input / resume
+- output validation
+- StepFixer 自我修复
+- run store 与 dashboard
+
+---
+
+# Formula 编译链路
+
+```mermaid
+flowchart TD
+    A[Load formula] --> B[Resolve extends / compose]
+    B --> C[Validate vars]
+    C --> D[Apply control flow]
+    D --> E[Apply advice]
+    E --> F[Apply inline expansions]
+    F --> G[Apply compose expansions]
+    G --> H[Apply embeds]
+    H --> I[Filter compile-time conditions]
+    I --> J[WorkflowFromFormula]
+    J --> K[ir.Workflow]
+```
+
+关键点：
+
+- 编译阶段把声明式公式转成 typed workflow
+- workflow 的 node 持有 `steps.Step` 接口实例
+- 编译和执行分离，便于测试、dashboard、resume 和后续扩展
+
+---
+
+# Formula 执行链路
+
+```mermaid
+flowchart TD
+    A[ir.Workflow] --> B[StartWorkflow]
+    B --> C[prepareWorkspace]
+    C --> D[PlanTopological]
+    D --> E{Step Kind}
+
+    E -->|agent| F[Picoclaw AgentRunner]
+    E -->|script| G[ScriptCapability]
+    E -->|human_input| H[AwaitRequest]
+    E -->|loop / retry| I[Nested typed steps]
+    E -->|aggregate / tool / write_files| J[Deterministic steps]
+
+    F --> K[ContextStore]
+    G --> K
+    H --> L[waiting_input]
+    I --> K
+    J --> K
+
+    K --> M[StateStore / events]
+    M --> N[run store]
+    N --> O[Dashboard / resume]
+```
+
+---
+
+# Step Kind 速览
+
+| 类别 | Step Kind | 作用 |
+|------|-----------|------|
+| 智能执行 | `agent` / `external_agent` | 调用 Picoclaw 或外部 agent CLI |
+| 确定性执行 | `script` / `tool` / `write_files` | 运行命令或内置工具 |
+| 人机协作 | `human_input` / dynamic form | 暂停等待用户补充信息 |
+| 流程控制 | `loop` / `retry` / `noop` | 迭代、重试、占位 |
+| 数据处理 | `aggregate` / `condition` / `gate` | 聚合、过滤、闸门 |
+| 编译期复用 | `embed` / `expand` | 引入或生成步骤 |
+
+推荐约定：
+
+- step `id` 同时作为默认输出 key
+- 跨步读取数据用 `input_context = ["<step-id>"]`
+- 普通公式尽量少用自定义 `output_key`
+
+---
+
+# Agent Step
+
+Agent step 是大多数智能工作流的核心。
+
+它负责：
+
+- 构造 prompt
+- 附加 input context
+- 调用 Picoclaw DirectRunner
+- 支持动态 human input 协议
+- 做输出 schema 校验
+- 失败时进入 `agentFixer` 自我修复路径
+
+典型用途：
+
+- 代码调研
+- 修复方案设计
+- 文档写作
+- PR review
+- 冲突解决
+- formula 创建 / 优化
+
+---
+
+# Script Step
+
+Script step 用来执行确定性命令。
+
+它负责：
+
+- 用 `exec.CommandContext` 执行 argv
+- 注入 `TT_INVOCATION_CWD`
+- 注入 `TT_WORKSPACE_CWD`
+- 注入 `TT_FORMULA_RUN_DIR`
+- 返回 text / json / raw 输出
+- 走安全策略拦截高风险命令
+
+关键安全点：
+
+> script 默认 `idempotent = false`。如果要允许失败后自动修复并重跑，必须显式写 `idempotent = true`。
+
+---
+
+# Human Input 与 Resume
+
+Formula 可以在信息不足时暂停。
+
+两种方式：
+
+- 静态 `human_input` form：字段固定，适合确定性输入
+- `agent` + `dynamic_form = true`：由 agent 判断是否需要补充信息
+
+运行态：
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running
+    Running --> WaitingInput: needs human input
+    WaitingInput --> Running: tt formula run input
+    Running --> Completed
+    Running --> Failed
+    Failed --> Running: resume
+```
+
+---
+
+# Worktree Workspace
+
+某些 formula 会修改代码。为了避免污染当前工作区，runtime 支持 worktree workspace。
+
+```mermaid
+flowchart LR
+    A[invocation cwd] --> B[prepareWorkspace]
+    B --> C[git worktree]
+    C --> D[自动分支]
+    C --> E[可选 sparse checkout]
+    D --> F[agent / script 在隔离目录执行]
+    E --> F
+    F --> G[cleanup 策略]
+```
+
+典型使用场景：
+
+- `gongbu`
+- `github-pr-rebase-main`
+- 需要并行处理多个代码任务的 workflow
+
+---
+
+# Self-Repair：失败不是只有日志
+
+```mermaid
+flowchart TD
+    A[step failed<br/>或 output validation failed] --> B[StepFixer lookup]
+    B --> C{step kind}
+    C -->|agent| D[agentFixer]
+    C -->|script| E[scriptFixer]
+    D --> F{idempotent?}
+    E --> F
+    F -->|no| G[skipped_non_idempotent]
+    F -->|yes| H[最多 3 次 attempt]
+    H --> I[注入 advice 后重跑]
+    I --> J[RepairRecord]
+    J --> K[state + patches/<run-id>.json]
+    K --> L[Dashboard Repairs 面板]
+```
+
+设计意义：
+
+- agent 输出不满足 schema，可以让 prompt 逐步收紧
+- script 失败时，可以让 `coder` 产出修复后的命令
+- repair 过程可审计，不会悄悄吞掉失败
+
+---
+
+# Run Store：一次运行的可追踪目录
+
+```text
+.tt/runs/formula/<formula>/<run-id>/
+  run.json
+  workflow.json
+  state.json
+  logs.jsonl
+  steps/
+    <step>.prompt
+    <step>.output
+    <step>.error
+  patches/
+    <run-id>.json
+```
+
+这些文件支撑：
+
+- run 列表
+- dashboard reopen
+- resume
+- waiting human input
+- final report chat
+- repair 审核
+- 运行审计
+
+---
+
+# Formula Dashboard
+
+Dashboard 不是“锦上添花”的 UI，而是 workflow runtime 的观察面。
+
+它展示：
+
+- workflow timeline
+- graph / list 视图
+- step 状态
+- workspace ready 事件
+- prompt / output / error
+- waiting input form
+- repairs 面板
+- final report
+- final report follow-up coder chat
+
+当前 dashboard 的核心形状是 single-run snapshot。
+
+---
+
+# 内置 Formula
+
+仓库内置了一组可直接运行或复制改写的 formulas。
+
+| 类别 | 代表公式 | 用途 |
+|------|----------|------|
+| GitHub | `github-pr-review` / `github-pr-rebase-main` / `github-my-prs-fix-comments` | PR 审阅、rebase、评论修复 |
+| Engineering | `feature` / `bug-fix` / `bead-coding` / `gongbu` / `jira-bug-fix` | 端到端编码、修 bug、Jira 修复 |
+| Workflow | `san-sheng-liu-bu` / `shan-yi-zhe` / `keep-coding` | 决策流、持续处理 beads |
+| Docs | `fresh-topic-docs` / `code-docs` / `code-arch` | 主题文档、代码文档、架构文档 |
+| Examples | `external-agent-review` | 外部 agent CLI 集成示例 |
+
+---
+
+# Atomic Formula
+
+Atomic 是被上层 builtin formula 复用的最小原子步骤。
+
+当前重要 atomic：
+
+| Atomic | 被谁复用 | 作用 |
+|--------|----------|------|
+| `run-validation` | `feature` / `gongbu` / `github-pr-rebase-main` | 运行验证命令，或按项目标记自动选择轻量验证 |
+| `github-fetch-pr` | GitHub PR 系列 | 一次获取 PR metadata、files、patch diff 和 review 上下文 |
+| `github-list-my-prs` | 批量 PR 系列 | 列出当前用户 open PR，供 loop 并发处理 |
+
+Atomic 的价值是减少 workflow 中重复写确定性采集步骤。
+
+---
+
+# Picoclaw 集成层
+
+`tt` 没有重写 LLM / agent runtime，而是做了一个适配层。
+
+`internal/picoclaw` 负责：
+
+- 解析 Picoclaw home/config 路径
+- 临时设置环境变量并恢复
+- 加载 Picoclaw 原生配置
+- 创建 provider、message bus、AgentLoop
+- 注册 embedded agents
+- 暴露 `DirectRunner.ProcessDirect()`
+
+上层命令看到的是稳定同步接口，底层复杂度被封装起来。
+
+---
+
+# Embedded Agents
+
+嵌入式 agent 定义放在：
+
+```text
+internal/agents/embedded/<category>/*.md
+```
+
+Markdown frontmatter 描述：
+
+- `id`
+- `name`
+- `soul`
+- `skills`
+- `tools`
+- `no_history`
+
+好处：
+
+- prompt 对人可读
+- 可 code review
+- 可版本化
+- 新增 agent 成本低
+- 多个命令可以复用同一批 agent
+
+---
+
+# 当前 Agent 生态
+
+| Agent | 用途 |
+|-------|------|
+| `coder` | 通用编码、修复、重构、实现 |
+| `planner` | 需求收敛、任务拆解、方案计划 |
+| `tester` | 测试设计与质量评估 |
+| `code-research` | 证据导向代码研究 |
+| `formula-writer` | 编写 / 优化 formula |
+| `docs-analyst` | 代码理解与中文文档生成 |
+| `agent-optimizer` | 针对仓库优化 agent |
+| `merge-conflict-resolver` | merge / rebase / cherry-pick 冲突解决 |
+| `writer` / `reporter` / `translate-master` | 写作、汇报、翻译 |
+| stock agents | 股票投研讨论 |
+
+---
+
+# 多命令复用同一套 Agent Runtime
+
+```mermaid
+flowchart LR
+    A[tt agent] --> P[Picoclaw DirectRunner]
+    B[tt translate] --> P
+    C[tt debate] --> P
+    D[tt nvwa] --> P
+    E[tt repo2skill] --> P
+    F[tt docs analyze] --> P
+    G[tt formula create / optimize] --> P
+    H[formula agent step] --> P
+    I[StepFixer scriptFixer] --> P
+
+    P --> EA[embedded agents]
+    P --> CA[configured agents]
+    P --> M[provider / model]
+```
+
+这就是项目能持续长大但不散掉的关键之一。
+
+---
+
+# 端到端流程示例：Feature Formula
+
+```mermaid
+flowchart TD
+    A[动态澄清需求] --> B[代码调研]
+    B --> C[实现计划]
+    C --> D[编码 / 修改文件]
+    D --> E[运行验证]
+    E --> F[影响评估]
+    F --> G[最终报告]
+
+    E -->|失败| H[repair / retry]
+    H --> E
+```
+
+适合讲：
+
+- 一个用户需求如何进入 workflow
+- agent 和 script 如何串联
+- 验证失败如何被处理
+- final report 如何成为后续 chat 的上下文
+
+---
+
+# 端到端流程示例：GitHub PR Rebase
+
+```mermaid
+flowchart TD
+    A[preflight: gh / git / auth] --> B[fetch PR metadata]
+    B --> C[prepare worktree]
+    C --> D[checkout PR branch]
+    D --> E[rebase base branch]
+    E --> F{conflict?}
+    F -->|no| G[run validation]
+    F -->|yes| H[merge-conflict-resolver agent]
+    H --> G
+    G --> I[git push --force-with-lease]
+    I --> J[final report]
+```
+
+这个例子体现：
+
+- preflight
+- worktree 隔离
+- agent 处理冲突
+- 确定性脚本推送
+- dashboard 观察过程
+
+---
+
+# 端到端流程示例：Docs Analyze
+
+```mermaid
+flowchart LR
+    A[目标仓库 / 目录] --> B[准备代码证据]
+    B --> C[docs-analyst agent]
+    C --> D[规划文档结构]
+    D --> E[生成 Markdown]
+    E --> F[ai-docs/]
+    F --> G[README 导读]
+```
+
+这个能力的意义：
+
+- 让代码理解过程有输出物
+- 文档不只是 README 的安装说明
+- 对复杂项目提供阅读路径、架构图、模块地图、子系统说明
+
+---
+
+# 扩展路径：新增命令
+
+新增一个普通命令时：
+
+1. 在 `cmd/` 新增 Cobra 命令文件
+2. 解析 flags 与配置
+3. 将复杂逻辑沉到 `internal/<domain>/`
+4. 在 `cmd/root.go` 注册
+5. 补测试与 README / ai-docs
+
+如果命令要调用 agent：
+
+1. 读取 `ttconfig`
+2. `internal/picoclaw.Load`
+3. 准备 embedded agents
+4. `NewDirectRunner`
+5. `ProcessDirect`
+
+---
+
+# 扩展路径：新增 Formula
+
+新增公式时优先思考：
+
+- 它是用户 formula，还是应该进入 builtin？
+- 有没有现成 atomic 可复用？
+- 哪些步骤是 agent，哪些步骤是 script？
+- script 是否幂等，是否允许自修复？
+- 是否需要 preflight？
+- 是否需要 worktree workspace？
+- 是否需要 human input？
+- 输出是否需要 schema validation？
+
+推荐先从相近 builtin copy：
+
+```bash
+tt formula copy bug-fix .tt/formulas/my-bug-fix.toml
+```
+
+---
+
+# 扩展路径：新增 Agent
+
+新增 embedded agent 的一般路径：
+
+1. 在 `internal/agents/embedded/<category>/` 新增 Markdown
+2. 写清 frontmatter：`id`、`name`、`skills`、`tools`
+3. 把职责边界写进 soul / prompt
+4. 用 `tt agent --list` 或 `tt agent info` 验证
+5. 在命令或 formula 中指定 agent
+
+Agent 定义是产品能力的一部分，不要把大段 prompt 硬编码进 Go 代码。
+
+---
+
+# 扩展路径：新增 Web UI
+
+当前模式：
+
+```mermaid
+flowchart LR
+    A[web/apps/<name>] --> B[Vite build]
+    B --> C[dist/]
+    C --> D[internal/webui/<name>.go]
+    D --> E[go:embed]
+    E --> F[cmd/<name>.go 本地 HTTP 服务]
+```
+
+关键分工：
+
+- Go 控制本地文件和 API 边界
+- 前端提供交互体验
+- 构建产物嵌入二进制
+- 命令启动 localhost 服务
+
+---
+
+# 读源码建议路线
+
+| 目标 | 建议阅读路径 |
+|------|--------------|
+| 第一次理解项目 | `README.md` → `ai-docs/overview.md` → `ai-docs/architecture.md` → `ai-docs/module-map.md` |
+| 修改 formula | `ai-docs/formula-system.md` → `ai-docs/step-kinds-reference.md` → `cmd/formula/` → `internal/formula/runtime/` |
+| 修改 agent runtime | `ai-docs/picoclaw-integration.md` → `internal/picoclaw/` → `internal/agents/` |
+| 修改 slide/markdown/json UI | `cmd/<ui>.go` → `internal/webui/` → `web/apps/<ui>/` |
+| 新增代码理解能力 | `cmd/docs.go` → `internal/agents/embedded/docs/` |
+
+---
+
+# 关键边界与风险
+
+- `cmd/` 不是复杂逻辑中心，不能把新子系统都堆在命令层
+- Formula 的 loop 内并发，不等于多个顶层 formula run 的统一调度
+- 当前 dashboard 主要是 single-run snapshot 形状
+- script 有副作用风险，所以默认不自动 repair retry
+- Picoclaw 能力依赖外部 provider、模型、skills 和配置
+- embedded agent 变更需要像代码一样审查
+- `.slide` 文档应保持模板无关，避免把视觉细节写进内容
+
+---
+
+# 总结
+
+`tt` 的核心价值是把四件事整合在一起：
+
+1. 本地文件与演示工具
+2. Picoclaw agent runtime
+3. Formula typed workflow
+4. 可观察、可恢复的运行记录与 dashboard
+
+理解这个项目时，最重要的不是背命令列表，而是看清：
+
+- 哪类命令属于哪种运行模型
+- 哪些能力被多个命令复用
+- 复杂逻辑在 `internal/` 的哪个边界里
+- workflow 如何从定义、编译、执行走到观察和恢复
+
+---
+
+.end
