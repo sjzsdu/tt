@@ -783,6 +783,94 @@ func TestRequirementGroomingLoadsExistingBeadsBeforeResearchAndCreate(t *testing
 	}
 }
 
+func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "shan-yi-zhe", nil, map[string]string{"question": "毕业后找工作还是考研？"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(shan-yi-zhe) error = %v", err)
+	}
+	clarify := workflow.Graph.Nodes[ir.NodeID("clarify-situation")]
+	if clarify == nil {
+		t.Fatalf("missing clarify-situation node")
+	}
+	human, ok := clarify.Step.(steps.HumanInputStep)
+	if !ok {
+		t.Fatalf("clarify-situation step = %T, want HumanInputStep", clarify.Step)
+	}
+	var form struct {
+		Fields []struct {
+			Name string `json:"name"`
+		} `json:"fields"`
+	}
+	rawForm, err := json.Marshal(human.Form)
+	if err != nil {
+		t.Fatalf("marshal human form: %v", err)
+	}
+	if err := json.Unmarshal(rawForm, &form); err != nil {
+		t.Fatalf("unmarshal human form: %v\nraw=%s", err, rawForm)
+	}
+	fieldNames := map[string]bool{}
+	for _, field := range form.Fields {
+		fieldNames[field.Name] = true
+	}
+	for _, want := range []string{"main_choice", "current_status", "desired_outcome", "resources_and_constraints", "costs_and_risks", "desired_guidance"} {
+		if !fieldNames[want] {
+			t.Fatalf("clarify-situation form missing field %q; fields=%v", want, fieldNames)
+		}
+	}
+	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure"} {
+		if fieldNames[notWant] {
+			t.Fatalf("shan-yi-zhe should remain universal and not hard-code field %q; fields=%v", notWant, fieldNames)
+		}
+	}
+
+	merge := workflow.Graph.Nodes[ir.NodeID("merge-situation")]
+	if merge == nil {
+		t.Fatalf("missing merge-situation node")
+	}
+	if !slices.Contains(merge.Step.Meta().DependsOn, steps.ID("discern-situation")) || !slices.Contains(merge.Step.Meta().DependsOn, steps.ID("clarify-situation")) {
+		t.Fatalf("merge-situation deps = %v, want discern-situation and clarify-situation", merge.Step.Meta().DependsOn)
+	}
+	mergeAgent, ok := merge.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("merge-situation step = %T, want AgentStep", merge.Step)
+	}
+	if !strings.Contains(mergeAgent.Prompt, "advice_confidence") || !strings.Contains(mergeAgent.Prompt, "conclusion_mode") {
+		t.Fatalf("merge-situation prompt should require confidence and conclusion mode:\n%s", mergeAgent.Prompt)
+	}
+
+	for _, check := range []struct {
+		id      ir.NodeID
+		wantCtx string
+	}{
+		{"cast-frame", "merge-situation"},
+		{"line-plan", "merge-situation"},
+		{"change-reading", "merge-situation"},
+		{"life-guidance", "merge-situation"},
+	} {
+		node := workflow.Graph.Nodes[check.id]
+		if node == nil {
+			t.Fatalf("missing %s node", check.id)
+		}
+		agent, ok := node.Step.(steps.AgentStep)
+		if !ok {
+			t.Fatalf("%s step = %T, want AgentStep", check.id, node.Step)
+		}
+		if !slices.Contains(agent.InputCtx, check.wantCtx) {
+			t.Fatalf("%s input_context = %v, want %s", check.id, agent.InputCtx, check.wantCtx)
+		}
+	}
+	cast := workflow.Graph.Nodes[ir.NodeID("cast-frame")]
+	if !slices.Contains(cast.Step.Meta().DependsOn, steps.ID("merge-situation")) {
+		t.Fatalf("cast-frame deps = %v, want merge-situation", cast.Step.Meta().DependsOn)
+	}
+	life := workflow.Graph.Nodes[ir.NodeID("life-guidance")].Step.(steps.AgentStep)
+	for _, want := range []string{"已知事实与信息缺口", "结论置信度", "决策阈值", "30 天行动方案", "不要编造用户未提供"} {
+		if !strings.Contains(life.Prompt, want) {
+			t.Fatalf("life-guidance prompt missing %q:\n%s", want, life.Prompt)
+		}
+	}
+}
+
 func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "web-bug-hunt", nil, map[string]string{"url": "https://example.com"})
 	if err != nil {
