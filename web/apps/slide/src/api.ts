@@ -8,6 +8,20 @@ export type ListResponse = {
   total: number;
 };
 
+export type ExternalTemplate = {
+  name: string;
+  revealTheme: string;
+  css: string;
+  defaults: {
+    theme: 'light' | 'dark';
+    transition: string;
+    center: boolean;
+    margin?: number;
+    width?: number;
+    height?: number;
+  };
+};
+
 export function apiFetch<T>(path: string): Promise<T> {
   return fetch(path).then(r => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -31,6 +45,10 @@ export function fetchRawContent(): Promise<string> {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.text();
   });
+}
+
+export function fetchTemplate(name: string): Promise<ExternalTemplate> {
+  return apiFetch(`/api/template/${encodeURIComponent(name)}`);
 }
 
 export function createWS(onMessage: (data: any) => void): WebSocket {

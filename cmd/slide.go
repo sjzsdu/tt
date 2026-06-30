@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -187,6 +188,8 @@ func runSlideServer() error {
 	mux.HandleFunc("/raw-content", handleSlideRawContent)
 	mux.HandleFunc("/raw/", handleSlideRawFile)
 	mux.HandleFunc("/api/list", handleSlideList)
+	mux.HandleFunc("/api/template/", handleSlideTemplate)
+	mux.HandleFunc("/template-assets/", handleSlideTemplateAsset)
 	mux.HandleFunc("/api/d2", handleD2Render)
 	mux.HandleFunc("/images/", handleSlideImages)
 	mux.HandleFunc("/ws", handleSlideWS)
@@ -336,6 +339,212 @@ func handleSlideList(w http.ResponseWriter, r *http.Request) {
 		"files": files,
 		"total": len(files),
 	})
+}
+
+type slideTemplateDefaults struct {
+	Theme      string   `json:"theme"`
+	Transition string   `json:"transition"`
+	Center     bool     `json:"center"`
+	Margin     *float64 `json:"margin,omitempty"`
+	Width      *int     `json:"width,omitempty"`
+	Height     *int     `json:"height,omitempty"`
+}
+
+type slideTemplateManifest struct {
+	Name        string                `json:"name"`
+	RevealTheme string                `json:"revealTheme"`
+	CSS         string                `json:"css"`
+	Defaults    slideTemplateDefaults `json:"defaults"`
+}
+
+type slideTemplateResponse struct {
+	Name        string                `json:"name"`
+	RevealTheme string                `json:"revealTheme"`
+	CSS         string                `json:"css"`
+	Defaults    slideTemplateDefaults `json:"defaults"`
+}
+
+var slideTemplateAssetURLPattern = regexp.MustCompile(`url\(\s*(['"]?)([^'")]+)['"]?\s*\)`)
+
+func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
+	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/template/"), "/")
+	if !isSafeSlideTemplateName(name) {
+		http.Error(w, "invalid template name", http.StatusBadRequest)
+		return
+	}
+
+	templateDir, err := findSlideTemplateDir(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	manifestBytes, err := os.ReadFile(filepath.Join(templateDir, "template.json"))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read template manifest failed: %v", err), http.StatusNotFound)
+		return
+	}
+
+	var manifest slideTemplateManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		http.Error(w, fmt.Sprintf("parse template manifest failed: %v", err), http.StatusBadRequest)
+		return
+	}
+	if manifest.Name == "" {
+		manifest.Name = name
+	}
+	if manifest.RevealTheme == "" {
+		manifest.RevealTheme = "white"
+	}
+	if manifest.CSS == "" {
+		manifest.CSS = "template.css"
+	}
+	if manifest.Defaults.Theme == "" {
+		manifest.Defaults.Theme = "light"
+	}
+	if manifest.Defaults.Transition == "" {
+		manifest.Defaults.Transition = "fade"
+	}
+	if filepath.IsAbs(manifest.CSS) || strings.Contains(filepath.Clean("/"+manifest.CSS), "..") {
+		http.Error(w, "invalid template css path", http.StatusBadRequest)
+		return
+	}
+
+	cssPath := filepath.Join(templateDir, filepath.FromSlash(manifest.CSS))
+	cssBytes, err := os.ReadFile(cssPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read template css failed: %v", err), http.StatusNotFound)
+		return
+	}
+
+	css := rewriteSlideTemplateAssetURLs(name, filepath.ToSlash(filepath.Dir(manifest.CSS)), string(cssBytes))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(slideTemplateResponse{
+		Name:        manifest.Name,
+		RevealTheme: manifest.RevealTheme,
+		CSS:         css,
+		Defaults:    manifest.Defaults,
+	})
+}
+
+func handleSlideTemplateAsset(w http.ResponseWriter, r *http.Request) {
+	rel := strings.TrimPrefix(r.URL.Path, "/template-assets/")
+	parts := strings.SplitN(rel, "/", 2)
+	if len(parts) != 2 || !isSafeSlideTemplateName(parts[0]) {
+		http.Error(w, "invalid template asset path", http.StatusBadRequest)
+		return
+	}
+	templateName := parts[0]
+	assetPath := filepath.Clean("/" + parts[1])
+	if assetPath == "/" || strings.Contains(assetPath, "..") {
+		http.Error(w, "invalid template asset path", http.StatusBadRequest)
+		return
+	}
+
+	templateDir, err := findSlideTemplateDir(templateName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	absPath, err := safeJoin(templateDir, assetPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read template asset failed: %v", err), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", mimeType(absPath))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+	_, _ = w.Write(content)
+}
+
+func isSafeSlideTemplateName(name string) bool {
+	if name == "" || strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func findSlideTemplateDir(name string) (string, error) {
+	for _, base := range slideTemplateSearchRoots() {
+		candidate := filepath.Join(base, name)
+		info, err := os.Stat(filepath.Join(candidate, "template.json"))
+		if err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("template %s not found", name)
+}
+
+func slideTemplateSearchRoots() []string {
+	var roots []string
+	if projectRoot := findNearestTTDir(slideRoot); projectRoot != "" {
+		roots = append(roots, filepath.Join(projectRoot, "slide", "templates"))
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		roots = append(roots, filepath.Join(home, ".tt", "slide", "templates"))
+	}
+	return roots
+}
+
+func findNearestTTDir(start string) string {
+	if start == "" {
+		return ""
+	}
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return ""
+	}
+	for {
+		candidate := filepath.Join(dir, ".tt")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func rewriteSlideTemplateAssetURLs(templateName, cssDir, css string) string {
+	return slideTemplateAssetURLPattern.ReplaceAllStringFunc(css, func(match string) string {
+		parts := slideTemplateAssetURLPattern.FindStringSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		raw := strings.TrimSpace(parts[2])
+		lower := strings.ToLower(raw)
+		if strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "#") {
+			return match
+		}
+		joined := filepath.ToSlash(filepath.Clean("/" + pathJoinSlash(cssDir, raw)))
+		joined = strings.TrimPrefix(joined, "/")
+		if joined == "" || strings.Contains(joined, "..") {
+			return match
+		}
+		return fmt.Sprintf("url(\"/template-assets/%s/%s\")", templateName, joined)
+	})
+}
+
+func pathJoinSlash(base, rel string) string {
+	if base == "." || base == "/" {
+		base = ""
+	}
+	if base == "" {
+		return rel
+	}
+	return strings.TrimSuffix(base, "/") + "/" + rel
 }
 
 func handleSlideImages(w http.ResponseWriter, r *http.Request) {

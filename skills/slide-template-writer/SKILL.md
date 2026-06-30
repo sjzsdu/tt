@@ -29,7 +29,7 @@ A template is not only a color palette. It is a coordinated system of:
 - MagiCloud assets live under `web/apps/slide/src/assets/magicloud/`.
 - Default template is `magicloud`.
 - `tt slide --template NAME` and `tt slide -t NAME` override the runtime template.
-- User/project templates should use `.tt/slide/templates/<name>/` as the external template package shape when that loader is implemented.
+- User/project templates use `.tt/slide/templates/<name>/` as the external template package shape.
 
 ## Template implementation workflow
 
@@ -139,7 +139,7 @@ Asset rules:
 4. A template package must not require edits to `.slide` documents. `.slide` documents remain semantic and template-agnostic.
 5. Project `.tt/slide/templates/<name>/` should take precedence over global `~/.tt/slide/templates/<name>/` if both exist.
 
-Security/serving rule for implementation: serve only files inside the selected template directory, rewrite relative CSS asset URLs to the slide server asset endpoint, and reject `..` traversal or absolute paths.
+Security/serving rule: serve only files inside the selected template directory, rewrite relative CSS asset URLs to the slide server asset endpoint, and reject `..` traversal or absolute paths.
 
 ## Adding a page directive
 

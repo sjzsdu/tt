@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Reveal from 'reveal.js';
 import { parseSlides } from '../parser';
 import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
-import type { SlideMeta, SlideRuntimeConfig } from '../types';
-import { fetchSlideContent, fetchRawContent, fetchSlideList, createWS, type SlideFile } from '../api';
+import type { SlideMeta, SlideRuntimeConfig, TemplateConfig } from '../types';
+import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, createWS, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
@@ -26,6 +26,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [showOverview, setShowOverview] = useState(false);
   const [isListLoaded, setIsListLoaded] = useState(contentMode);
   const [deckVersion, setDeckVersion] = useState(0);
+  const [template, setTemplate] = useState<TemplateConfig>(() => getTemplate(templateOverride || DEFAULT_TEMPLATE));
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -74,6 +75,19 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   }, [currentFile, contentMode, loadSlides]);
 
   useEffect(() => {
+    let cancelled = false;
+    const name = templateOverride || DEFAULT_TEMPLATE;
+    fetchTemplate(name)
+      .then(tpl => {
+        if (!cancelled) setTemplate(tpl);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplate(getTemplate(name));
+      });
+    return () => { cancelled = true; };
+  }, [templateOverride]);
+
+  useEffect(() => {
     if (slides.length === 0 || !containerRef.current) return;
 
     if (deckRef.current) {
@@ -81,20 +95,18 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       deckRef.current = null;
     }
 
-    const tpl = getTemplate(templateOverride || DEFAULT_TEMPLATE);
-
     const deck = new Reveal(containerRef.current, {
       hash: true,
       slideNumber: runtimeConfig.slideNumber ?? true,
       controls: runtimeConfig.controls ?? true,
       progress: runtimeConfig.progress ?? true,
       overview: runtimeConfig.overview ?? false,
-      center: runtimeConfig.center ?? tpl.defaults.center,
-      transition: runtimeConfig.transition || meta?.transition || tpl.defaults.transition,
+      center: runtimeConfig.center ?? template.defaults.center,
+      transition: runtimeConfig.transition || meta?.transition || template.defaults.transition,
       autoSlide: runtimeConfig.autoSlide ?? 0,
-      width: runtimeConfig.width ?? tpl.defaults.width ?? 1200,
-      height: runtimeConfig.height ?? tpl.defaults.height ?? 700,
-      margin: runtimeConfig.margin ?? tpl.defaults.margin ?? 0.04,
+      width: runtimeConfig.width ?? template.defaults.width ?? 1200,
+      height: runtimeConfig.height ?? template.defaults.height ?? 700,
+      margin: runtimeConfig.margin ?? template.defaults.margin ?? 0.04,
       minScale: 0.2,
       maxScale: 2.0,
     });
@@ -108,7 +120,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       deck.destroy();
       deckRef.current = null;
     };
-  }, [slides, meta, templateOverride, runtimeConfig]);
+  }, [slides, meta, runtimeConfig, template]);
 
   useEffect(() => {
     if (contentMode) return;
@@ -299,7 +311,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     );
   }
 
-  const tpl = getTemplate(templateOverride || DEFAULT_TEMPLATE);
+  const tpl = template;
 
   return (
     <div className="slide-wrapper" ref={wrapperRef}>

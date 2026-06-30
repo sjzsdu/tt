@@ -1,0 +1,13 @@
+{
+  "name": "magicloud",
+  "revealTheme": "white",
+  "css": "template.css",
+  "defaults": {
+    "theme": "light",
+    "transition": "fade",
+    "center": false,
+    "margin": 0,
+    "width": 1600,
+    "height": 900
+  }
+}
