@@ -439,6 +439,7 @@ type slideTemplateManifest struct {
 	RevealTheme string                `json:"revealTheme"`
 	CSS         string                `json:"css"`
 	Defaults    slideTemplateDefaults `json:"defaults"`
+	Vars        map[string]string     `json:"vars,omitempty"`
 }
 
 type slideTemplateResponse struct {
@@ -506,7 +507,7 @@ func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	css := rewriteSlideTemplateAssetURLs(name, filepath.ToSlash(filepath.Dir(manifest.CSS)), string(cssBytes))
+	css := renderSlideTemplateVarsCSS(name, manifest.Vars) + rewriteSlideTemplateAssetURLs(name, filepath.ToSlash(filepath.Dir(manifest.CSS)), string(cssBytes))
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(slideTemplateResponse{
 		Name:        manifest.Name,
@@ -514,6 +515,51 @@ func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
 		CSS:         css,
 		Defaults:    manifest.Defaults,
 	})
+}
+
+func renderSlideTemplateVarsCSS(templateName string, vars map[string]string) string {
+	if len(vars) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(vars))
+	for key := range vars {
+		if isSafeSlideTemplateCSSVarName(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(":root {\n")
+	for _, key := range keys {
+		value := strings.TrimSpace(vars[key])
+		if value == "" || strings.ContainsAny(value, "{};") {
+			continue
+		}
+		value = rewriteSlideTemplateAssetURLs(templateName, ".", value)
+		b.WriteString("  --")
+		b.WriteString(key)
+		b.WriteString(": ")
+		b.WriteString(value)
+		b.WriteString(";\n")
+	}
+	b.WriteString("}\n\n")
+	return b.String()
+}
+
+func isSafeSlideTemplateCSSVarName(name string) bool {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func handleSlideTemplateAsset(w http.ResponseWriter, r *http.Request) {

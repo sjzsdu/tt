@@ -17,7 +17,7 @@ func writeSlideTemplateFixture(t *testing.T, root, name string) string {
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(templateDir, "template.json"), []byte(`{"name":"`+name+`","revealTheme":"white","css":"template.css","defaults":{"theme":"light","transition":"fade","center":false}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(templateDir, "template.json"), []byte(`{"name":"`+name+`","revealTheme":"white","css":"template.css","defaults":{"theme":"light","transition":"fade","center":false},"vars":{"slide-padding":"96px 112px 72px","cover-bg":"url(\"./assets/bg.png\") center / cover no-repeat"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(templateDir, "template.css"), []byte(`.cover { background: url("./assets/bg.png") center / cover no-repeat; }`), 0o644); err != nil {
@@ -49,6 +49,9 @@ func TestHandleSlideTemplateLoadsProjectTTTemplateAndRewritesAssets(t *testing.T
 	body := rr.Body.String()
 	if !strings.Contains(body, `/template-assets/brand/assets/bg.png`) {
 		t.Fatalf("template css did not rewrite asset URL: %s", body)
+	}
+	if !strings.Contains(body, `--slide-padding: 96px 112px 72px`) || !strings.Contains(body, `--cover-bg: url(\"/template-assets/brand/assets/bg.png\") center / cover no-repeat`) {
+		t.Fatalf("template vars were not injected/re-written: %s", body)
 	}
 }
 

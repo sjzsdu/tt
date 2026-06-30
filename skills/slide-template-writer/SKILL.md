@@ -76,9 +76,12 @@ Minimal valid template:
     "theme": "light",
     "transition": "fade",
     "center": false,
-    "width": 1600,
-    "height": 900,
     "margin": 0
+  },
+  "vars": {
+    "slide-padding": "96px 112px 72px",
+    "cover-background": "url(\"./assets/cover-bg.png\") center / cover no-repeat",
+    "brand-logo-width": "280px"
   }
 }
 ```
@@ -93,10 +96,53 @@ Fields:
 | `defaults.theme` | optional | App theme for diagram/content rendering: `light` or `dark`. Defaults to `light`. |
 | `defaults.transition` | optional | Reveal transition: `fade`, `slide`, `none`, `convex`, `concave`, `zoom`. Defaults to `fade`. |
 | `defaults.center` | optional | Reveal vertical centering default. Usually `false` for designed 16:9 pages. |
-| `defaults.width` / `height` | optional | Slide canvas size. Use `1600 x 900` for 16:9 designed templates. |
-| `defaults.margin` | optional | Reveal viewport margin. Use `0` for full-bleed designed templates. |
+| `defaults.margin` | optional | Reveal viewport margin. Usually `0`; use CSS padding variables for actual page margins. |
+| `vars` | optional | Template-level CSS variables injected into `:root`. Use this for page padding, brand colors, background images, logo sizes, etc. |
 
-Do not put CSS inside JSON. Keep CSS in `template.css` so assets and styles are easy to edit.
+Avoid setting `defaults.width` and `defaults.height` unless there is a strong compatibility reason. The slide app should fill the browser viewport and let Reveal scale naturally. Use CSS variables and section padding for layout.
+
+Do not put large CSS blocks inside JSON. Keep visual rules in `template.css`; use `vars` only for global knobs that a template owner may tune.
+
+## Template-level `vars`
+
+`vars` in `template.json` are converted to CSS variables before `template.css` is loaded:
+
+```json
+{
+  "vars": {
+    "slide-padding": "120px 112px 72px",
+    "cover-background": "url(\"./assets/cover-bg.png\") center / cover no-repeat",
+    "content-bg": "#ffffff",
+    "logo-width": "280px"
+  }
+}
+```
+
+Then use them in `template.css`:
+
+```css
+.reveal .slides section {
+  padding: var(--slide-padding);
+  background: var(--content-bg);
+}
+
+.reveal:has(.slides section:first-child.present)::before {
+  background: var(--cover-background);
+}
+
+.reveal .slides section:not(:first-child)::before {
+  width: var(--logo-width);
+}
+```
+
+Good candidates for `vars`:
+
+- `slide-padding`, `cover-padding`, `content-padding`
+- `content-bg`, `cover-background`, `closing-background`
+- `logo-width`, `logo-height`, `logo-top`, `logo-left`
+- brand colors such as `brand-primary`, `brand-accent`, `text-muted`
+
+Keep fine-grained selectors and layout rules in `template.css`.
 
 ## `template.css` basics
 
@@ -123,7 +169,7 @@ Start by defining CSS variables and normal slide defaults:
   height: 100%;
   min-height: 100%;
   overflow: hidden;
-  padding: 120px 112px 72px;
+  padding: var(--slide-padding, 120px 112px 72px);
   background: var(--slide-bg);
   color: var(--slide-fg);
 }

@@ -85,12 +85,17 @@ tt slide demo.slide --template light
     "theme": "light",
     "transition": "fade",
     "center": false,
-    "width": 1600,
-    "height": 900,
     "margin": 0
+  },
+  "vars": {
+    "slide-padding": "96px 112px 72px",
+    "cover-background": "url(\"./assets/cover-bg.png\") center / cover no-repeat",
+    "logo-width": "280px"
   }
 }
 ```
+
+`vars` 会被注入为 CSS 变量，例如 `slide-padding` 变成 `--slide-padding`。上下左右边距、背景图、logo 尺寸、品牌颜色等全局视觉参数优先写在 `vars` 中；细节布局仍写在 `template.css`。
 
 `template.css` 写视觉实现。资源放在同模板目录的 `assets/` 下，并用相对路径引用：
 
@@ -102,6 +107,7 @@ tt slide demo.slide --template light
 }
 
 .reveal .slides section {
+  padding: var(--slide-padding, 96px 112px 72px);
   background: var(--slide-bg);
   color: var(--slide-fg);
 }
@@ -111,7 +117,7 @@ tt slide demo.slide --template light
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: url("./assets/cover-bg.png") center / cover no-repeat;
+  background: var(--cover-background);
 }
 
 .reveal .slides section:not(:first-child)::before {
@@ -119,7 +125,7 @@ tt slide demo.slide --template light
   position: absolute;
   top: 48px;
   left: 64px;
-  width: 280px;
+  width: var(--logo-width, 280px);
   height: 32px;
   background: url("./assets/logo-dark.png") left center / contain no-repeat;
 }
