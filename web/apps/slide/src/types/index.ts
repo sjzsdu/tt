@@ -24,6 +24,19 @@ export type SlideMeta = {
   transition: string;
 };
 
+export type SlideRuntimeConfig = {
+  transition?: string;
+  controls?: boolean;
+  progress?: boolean;
+  slideNumber?: boolean | string;
+  overview?: boolean;
+  center?: boolean;
+  autoSlide?: number;
+  width?: number;
+  height?: number;
+  margin?: number;
+};
+
 export type SlideData = {
   index: number;
   parts: SlidePart[];

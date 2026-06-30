@@ -126,6 +126,8 @@ Start a local web service for presenting `.slide` decks. Slide files use Markdow
 tt slide
 tt slide deck.slide
 tt slide slides/ --port 9596
+tt slide deck.slide --template dark --transition fade --slide-number c/t --controls=false --progress=false
+tt slide deck.slide --width 1600 --height 900 --margin 0.02 --auto-slide 8000
 ```
 
 The default template is `magicloud`, aligned with the MagiCloud PPT template. For full authoring notes, see `ai-docs/slide.md`.
@@ -145,6 +147,16 @@ Flags:
 - `-p, --port int`: service port, default `9596`.
 - `-c, --content string`: render provided slide content directly.
 - `--template string`: override slide template, e.g. `magicloud`, `dark`, `light`, `serif`, `white`.
+- `--transition string`: override Reveal transition, e.g. `none`, `fade`, `slide`, `convex`, `concave`, `zoom`.
+- `--controls bool`: show navigation controls, default `true`.
+- `--progress bool`: show progress bar, default `true`.
+- `--slide-number string`: slide number mode, e.g. `true`, `false`, `h.v`, `h/v`, `c`, `c/t`.
+- `--overview bool`: enable Reveal built-in overview mode, default `false`.
+- `--center auto|true|false`: override vertical centering; `auto` uses template defaults.
+- `--auto-slide int`: auto-advance interval in milliseconds; `0` disables.
+- `--width int`, `--height int`, `--margin float`: override slide canvas size and viewport margin.
+
+These options are also accepted as URL query parameters, for example `?transition=fade&slideNumber=c/t&controls=false`.
 
 ### `tt json`
 

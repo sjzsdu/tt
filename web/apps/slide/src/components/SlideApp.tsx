@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Reveal from 'reveal.js';
 import { parseSlides } from '../parser';
 import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
-import type { SlideMeta } from '../types';
+import type { SlideMeta, SlideRuntimeConfig } from '../types';
 import { fetchSlideContent, fetchRawContent, fetchSlideList, createWS, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
@@ -12,9 +12,10 @@ interface SlideAppProps {
   contentMode: boolean;
   filePath?: string;
   templateOverride?: string;
+  runtimeConfig?: SlideRuntimeConfig;
 }
 
-export function SlideApp({ contentMode, filePath, templateOverride = '' }: SlideAppProps) {
+export function SlideApp({ contentMode, filePath, templateOverride = '', runtimeConfig = {} }: SlideAppProps) {
   const [slides, setSlides] = useState<Awaited<ReturnType<typeof parseSlides>>['slides']>([]);
   const [meta, setMeta] = useState<SlideMeta | null>(null);
   const [error, setError] = useState('');
@@ -84,15 +85,16 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
 
     const deck = new Reveal(containerRef.current, {
       hash: true,
-      slideNumber: true,
-      controls: true,
-      progress: true,
-      overview: false,
-      center: tpl.defaults.center,
-      transition: meta?.transition || tpl.defaults.transition,
-      width: tpl.defaults.width ?? 1200,
-      height: tpl.defaults.height ?? 700,
-      margin: tpl.defaults.margin ?? 0.04,
+      slideNumber: runtimeConfig.slideNumber ?? true,
+      controls: runtimeConfig.controls ?? true,
+      progress: runtimeConfig.progress ?? true,
+      overview: runtimeConfig.overview ?? false,
+      center: runtimeConfig.center ?? tpl.defaults.center,
+      transition: runtimeConfig.transition || meta?.transition || tpl.defaults.transition,
+      autoSlide: runtimeConfig.autoSlide ?? 0,
+      width: runtimeConfig.width ?? tpl.defaults.width ?? 1200,
+      height: runtimeConfig.height ?? tpl.defaults.height ?? 700,
+      margin: runtimeConfig.margin ?? tpl.defaults.margin ?? 0.04,
       minScale: 0.2,
       maxScale: 2.0,
     });
@@ -106,7 +108,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       deck.destroy();
       deckRef.current = null;
     };
-  }, [slides, meta, templateOverride]);
+  }, [slides, meta, templateOverride, runtimeConfig]);
 
   useEffect(() => {
     if (contentMode) return;

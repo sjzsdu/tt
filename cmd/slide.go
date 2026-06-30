@@ -24,10 +24,20 @@ import (
 )
 
 var (
-	slidePort     = 9596
-	slideContent  string
-	slideTemplate string
-	slideFiles    []string
+	slidePort        = 9596
+	slideContent     string
+	slideTemplate    string
+	slideTransition  string
+	slideControls    bool
+	slideProgress    bool
+	slideSlideNumber string
+	slideOverview    bool
+	slideCenter      string
+	slideAutoSlide   int
+	slideWidth       int
+	slideHeight      int
+	slideMargin      float64
+	slideFiles       []string
 
 	slideServer *http.Server
 	slideMu     sync.Mutex
@@ -114,6 +124,16 @@ func init() {
 	slideCmd.Flags().IntVarP(&slidePort, "port", "p", 9596, "service port")
 	slideCmd.Flags().StringVarP(&slideContent, "content", "c", "", "render provided slide content directly")
 	slideCmd.Flags().StringVarP(&slideTemplate, "template", "t", "", "override slide template at runtime, e.g. magicloud, dark, light, serif, white")
+	slideCmd.Flags().StringVar(&slideTransition, "transition", "", "override slide transition, e.g. none, fade, slide, convex, concave, zoom")
+	slideCmd.Flags().BoolVar(&slideControls, "controls", true, "show reveal navigation controls")
+	slideCmd.Flags().BoolVar(&slideProgress, "progress", true, "show reveal progress bar")
+	slideCmd.Flags().StringVar(&slideSlideNumber, "slide-number", "true", "slide number mode: true, false, h.v, h/v, c, c/t")
+	slideCmd.Flags().BoolVar(&slideOverview, "overview", false, "enable reveal built-in overview mode")
+	slideCmd.Flags().StringVar(&slideCenter, "center", "auto", "vertical centering: auto, true, false")
+	slideCmd.Flags().IntVar(&slideAutoSlide, "auto-slide", 0, "auto-advance interval in milliseconds, 0 disables")
+	slideCmd.Flags().IntVar(&slideWidth, "width", 0, "slide canvas width, 0 uses template default")
+	slideCmd.Flags().IntVar(&slideHeight, "height", 0, "slide canvas height, 0 uses template default")
+	slideCmd.Flags().Float64Var(&slideMargin, "margin", -1, "slide viewport margin, e.g. 0.04; negative uses template default")
 }
 
 func isSlideFile(name string) bool {
@@ -209,6 +229,7 @@ func runSlideServer() error {
 			if strings.TrimSpace(slideTemplate) != "" {
 				params.Set("template", strings.TrimSpace(slideTemplate))
 			}
+			appendSlideConfigParams(params)
 			if encoded := params.Encode(); encoded != "" {
 				browserURL += "?" + encoded
 			}
@@ -228,6 +249,33 @@ func runSlideServer() error {
 	}
 
 	return fmt.Errorf("all candidate ports unavailable: %v", lastErr)
+}
+
+func appendSlideConfigParams(params url.Values) {
+	if strings.TrimSpace(slideTransition) != "" {
+		params.Set("transition", strings.TrimSpace(slideTransition))
+	}
+	params.Set("controls", fmt.Sprintf("%t", slideControls))
+	params.Set("progress", fmt.Sprintf("%t", slideProgress))
+	if strings.TrimSpace(slideSlideNumber) != "" {
+		params.Set("slideNumber", strings.TrimSpace(slideSlideNumber))
+	}
+	params.Set("overview", fmt.Sprintf("%t", slideOverview))
+	if strings.TrimSpace(slideCenter) != "" && strings.TrimSpace(slideCenter) != "auto" {
+		params.Set("center", strings.TrimSpace(slideCenter))
+	}
+	if slideAutoSlide > 0 {
+		params.Set("autoSlide", fmt.Sprintf("%d", slideAutoSlide))
+	}
+	if slideWidth > 0 {
+		params.Set("width", fmt.Sprintf("%d", slideWidth))
+	}
+	if slideHeight > 0 {
+		params.Set("height", fmt.Sprintf("%d", slideHeight))
+	}
+	if slideMargin >= 0 {
+		params.Set("margin", fmt.Sprintf("%g", slideMargin))
+	}
 }
 
 func handleSlideApp(w http.ResponseWriter, r *http.Request) {
