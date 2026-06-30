@@ -181,8 +181,8 @@
 .reveal p {
     max-width: 900px;
     color: #535e59;
-    font-size: 0.5em;
-    line-height: 1.58;
+    font-size: 0.62em;
+    line-height: 1.5;
     font-weight: 400;
 }
 
@@ -195,8 +195,8 @@
 .reveal ol {
     margin: 20px 0 0;
     color: #535e59;
-    font-size: 0.48em;
-    line-height: 1.62;
+    font-size: 0.6em;
+    line-height: 1.5;
     font-weight: 400;
 }
 
@@ -206,8 +206,8 @@
 
 .reveal li {
     position: relative;
-    margin: 0 0 9px;
-    padding-left: 22px;
+    margin: 0 0 12px;
+    padding-left: 24px;
 }
 
 .reveal ul li::before {
@@ -531,15 +531,15 @@
 
 .slide-two-column .slide-part-column h2 {
     margin-bottom: 14px;
-    font-size: 0.72em;
+    font-size: 0.84em;
     line-height: 1.18;
 }
 
 .slide-two-column .slide-part-column p,
 .slide-two-column .slide-part-column ul,
 .slide-two-column .slide-part-column ol {
-    font-size: 0.46em;
-    line-height: 1.58;
+    font-size: 0.58em;
+    line-height: 1.5;
 }
 
 .slide-two-column .slide-part-column li {

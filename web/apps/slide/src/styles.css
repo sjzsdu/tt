@@ -106,9 +106,9 @@ html, body, #root {
 .reveal h1 { font-size: 2.2em; font-weight: 700; margin-bottom: 0.4em; color: var(--slide-fg); }
 .reveal h2 { font-size: 1.6em; font-weight: 600; margin-bottom: 0.3em; color: var(--slide-fg); }
 .reveal h3 { font-size: 1.2em; font-weight: 600; margin-bottom: 0.2em; color: var(--slide-muted); }
-.reveal p { font-size: 0.95em; line-height: 1.6; margin-bottom: 0.6em; color: var(--slide-fg); }
-.reveal ul, .reveal ol { font-size: 0.9em; margin-left: 1.2em; margin-bottom: 0.6em; }
-.reveal li { margin-bottom: 0.3em; line-height: 1.5; }
+.reveal p { font-size: 1em; line-height: 1.58; margin-bottom: 0.6em; color: var(--slide-fg); }
+.reveal ul, .reveal ol { font-size: 0.98em; line-height: 1.55; margin-left: 1.2em; margin-bottom: 0.6em; }
+.reveal li { margin-bottom: 0.36em; line-height: 1.55; }
 .reveal a { color: var(--slide-accent); text-decoration: none; }
 .reveal a:hover { text-decoration: underline; }
 
@@ -198,6 +198,10 @@ html, body, #root {
 .slide-two-column .slide-markdown { flex: 1; min-width: 0; }
 .slide-two-column .slide-markdown:first-child { padding-right: 16px; }
 .slide-two-column .slide-markdown:nth-child(2) { padding-left: 16px; border-left: 1px solid var(--slide-card-border); }
+.slide-two-column .slide-markdown h2 { font-size: 1.35em; }
+.slide-two-column .slide-markdown p,
+.slide-two-column .slide-markdown ul,
+.slide-two-column .slide-markdown ol { font-size: 0.94em; line-height: 1.55; }
 
 /* ========== Layout: split ========== */
 .slide-split .slide-content { display: flex; gap: 0; align-items: stretch; height: 100%; }
