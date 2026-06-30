@@ -22,6 +22,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
   const [files, setFiles] = useState<SlideFile[]>([]);
   const [currentFile, setCurrentFile] = useState(filePath || '');
   const [showFileList, setShowFileList] = useState(false);
+  const [showOverview, setShowOverview] = useState(false);
   const [isListLoaded, setIsListLoaded] = useState(contentMode);
   const [deckVersion, setDeckVersion] = useState(0);
   const deckRef = useRef<Reveal.Api | null>(null);
@@ -86,6 +87,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       slideNumber: true,
       controls: true,
       progress: true,
+      overview: false,
       center: tpl.defaults.center,
       transition: meta?.transition || tpl.defaults.transition,
       width: tpl.defaults.width ?? 1200,
@@ -129,6 +131,12 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       }
       if (e.key === 'Escape' && isFullscreen) {
         exitFullscreen();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowOverview(v => !v);
+        return;
       }
       if (e.key === 'l' || e.key === 'L') {
         if (files.length > 0) {
@@ -184,6 +192,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
     setSlides([]);
     setError('');
     setShowFileList(false);
+    setShowOverview(false);
     const url = new URL(location.href);
     url.searchParams.set('file', path);
     url.hash = '';
@@ -197,6 +206,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
     setMeta(null);
     setError('');
     setShowFileList(false);
+    setShowOverview(false);
     const url = new URL(location.href);
     url.searchParams.delete('file');
     url.hash = '';
@@ -239,115 +249,6 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
       deck.off('fragmenthidden', savePosition);
     };
   }, [deckVersion, contentMode, currentFile]);
-
-  useEffect(() => {
-    const deck = deckRef.current;
-    if (!deck) return;
-
-    const applyOverviewStrip = () => {
-      if (!deck.isOverview?.()) return;
-      const revealEl = containerRef.current;
-      const slidesEl = revealEl?.querySelector<HTMLElement>('.slides');
-      if (!revealEl || !slidesEl) return;
-
-      const horizontalSlides = Array.from(slidesEl.children).filter(
-        child => (child as HTMLElement).tagName.toLowerCase() === 'section'
-      ) as HTMLElement[];
-      if (horizontalSlides.length === 0) return;
-
-      const slideSize = deck.getComputedSlideSize();
-      const overviewGap = 70;
-      const overviewStep = slideSize.width + overviewGap;
-      const overviewHeight = Math.min(420, Math.max(280, window.innerHeight * 0.42));
-      const overviewWidth = Math.min(1280, Math.max(320, window.innerWidth - 96));
-      const scale = Math.max(0.16, Math.min(0.32, (overviewHeight - 72) / slideSize.height));
-      const visualWidth = horizontalSlides.length * overviewStep * scale;
-
-      revealEl.style.overflowX = 'auto';
-      revealEl.style.overflowY = 'hidden';
-      revealEl.style.scrollBehavior = 'smooth';
-      revealEl.style.position = 'fixed';
-      revealEl.style.top = '50%';
-      revealEl.style.left = '50%';
-      revealEl.style.right = 'auto';
-      revealEl.style.bottom = 'auto';
-      revealEl.style.width = `${overviewWidth}px`;
-      revealEl.style.height = `${overviewHeight}px`;
-      revealEl.style.zIndex = '300';
-      revealEl.style.overscrollBehavior = 'contain';
-      revealEl.style.contain = 'layout paint size';
-      revealEl.style.transform = 'translate(-50%, -50%)';
-      revealEl.style.padding = '0 40px';
-      slidesEl.style.left = '48px';
-      slidesEl.style.top = '50%';
-      slidesEl.style.width = `${visualWidth / scale}px`;
-      slidesEl.style.height = `${slideSize.height}px`;
-      slidesEl.style.transformOrigin = '0 50%';
-      slidesEl.style.transform = `translateY(-50%) scale(${scale})`;
-
-      const indices = deck.getIndices();
-      const target = Math.max(0, indices.h * overviewStep * scale - overviewWidth / 2 + (slideSize.width * scale) / 2);
-      revealEl.scrollLeft = target;
-    };
-
-    const resetOverviewStrip = () => {
-      const revealEl = containerRef.current;
-      const slidesEl = revealEl?.querySelector<HTMLElement>('.slides');
-      if (revealEl) {
-        revealEl.style.overflowX = '';
-        revealEl.style.overflowY = '';
-        revealEl.style.scrollBehavior = '';
-        revealEl.style.position = '';
-        revealEl.style.inset = '';
-        revealEl.style.top = '';
-        revealEl.style.left = '';
-        revealEl.style.right = '';
-        revealEl.style.bottom = '';
-        revealEl.style.width = '';
-        revealEl.style.height = '';
-        revealEl.style.zIndex = '';
-        revealEl.style.overscrollBehavior = '';
-        revealEl.style.contain = '';
-        revealEl.style.transform = '';
-        revealEl.style.padding = '';
-        revealEl.scrollLeft = 0;
-      }
-      if (slidesEl) {
-        slidesEl.style.left = '';
-        slidesEl.style.top = '';
-        slidesEl.style.width = '';
-        slidesEl.style.height = '';
-        slidesEl.style.transformOrigin = '';
-        slidesEl.style.transform = '';
-      }
-    };
-
-    deck.on('overviewshown', applyOverviewStrip);
-    deck.on('slidechanged', applyOverviewStrip);
-    deck.on('overviewhidden', resetOverviewStrip);
-    window.addEventListener('resize', applyOverviewStrip);
-
-    const onOverviewWheel = (event: WheelEvent) => {
-      if (!deck.isOverview?.()) return;
-      const revealEl = containerRef.current;
-      if (!revealEl) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      revealEl.scrollLeft += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    };
-
-    containerRef.current?.addEventListener('wheel', onOverviewWheel, { passive: false });
-
-    return () => {
-      deck.off('overviewshown', applyOverviewStrip);
-      deck.off('slidechanged', applyOverviewStrip);
-      deck.off('overviewhidden', resetOverviewStrip);
-      window.removeEventListener('resize', applyOverviewStrip);
-      containerRef.current?.removeEventListener('wheel', onOverviewWheel);
-      resetOverviewStrip();
-    };
-  }, [deckVersion, slides]);
 
   if (error) {
     return (
@@ -421,6 +322,37 @@ export function SlideApp({ contentMode, filePath, templateOverride = '' }: Slide
                 {f.name}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {showOverview && (
+        <div className="slide-overview-modal" role="dialog" aria-label="Slide overview">
+          <div className="slide-overview-header">
+            <span>Slides</span>
+            <button className="slide-overview-close" onClick={() => setShowOverview(false)} title="Close overview">×</button>
+          </div>
+          <div className="slide-overview-list">
+            {slides.map((slide) => {
+              const isActive = deckRef.current?.getIndices().h === slide.index;
+              return (
+                <button
+                  key={slide.index}
+                  className={`slide-overview-item ${isActive ? 'active' : ''}`}
+                  onClick={() => {
+                    deckRef.current?.slide(slide.index, 0, 0);
+                    setShowOverview(false);
+                  }}
+                >
+                  <span className="slide-overview-number">{slide.index + 1}</span>
+                  <span className={`slide-overview-thumb ${slide.class || ''}`}>
+                    <span className="slide-overview-thumb-inner">
+                      <SlideContent slide={slide} theme={tpl.defaults.theme} />
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
