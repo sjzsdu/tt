@@ -14,15 +14,15 @@ title: tt 项目介绍
 
 .center
 
-# tt 的核心不是命令数量，而是共享运行模型
+# 我们把常用开发流程放进同一个入口
 
-本地内容、Agent、Formula 和代码理解共享配置、运行时、前端嵌入与状态模型。
+本地内容、Agent、Formula 和代码理解看起来是不同命令，实际复用同一套配置、运行时、前端嵌入和状态记录。
 
 ---
 
 .two-column
 
-# tt 把分散的开发辅助能力收拢到一个入口
+# tt 覆盖四类日常开发场景
 
 :::columns
 ## 工作台能力
@@ -34,7 +34,7 @@ title: tt 项目介绍
 :::
 
 :::columns
-## 平台化底座
+## 共用能力
 
 - 统一配置解析
 - 统一 agent 调用链
@@ -44,17 +44,17 @@ title: tt 项目介绍
 
 ---
 
-# 分散的本地流程需要可复用的自动化底座
+# 日常开发里有很多重复但不好复用的流程
 
 - 文件预览、演示和编辑分散在不同工具中
 - LLM / agent 调用需要接入仓库、配置和工具
 - 工程流程需要声明化、可复用、可恢复
 - 自动化运行过程需要 dashboard，而不是只留终端日志
-- 代码理解需要沉淀成文档，而不是一次性问答
+- 代码理解需要产出文档，而不是只停留在一次性问答
 
 ---
 
-# 五组能力构成 tt 的产品面
+# tt 现在主要覆盖五组能力
 
 ```mermaid
 flowchart LR
@@ -88,9 +88,9 @@ flowchart LR
 
 ---
 
-# 同一 CLI 外壳下面是五种运行模型
+# 不同命令背后对应不同执行方式
 
-| 类型 | 代表命令 | 核心运行模型 |
+| 类型 | 代表命令 | 运行方式 |
 |------|----------|--------------|
 | 本地 Web UI | `markdown` / `slide` / `json` / `conversation` | Go 本地 HTTP 服务 + 嵌入式 React 前端 |
 | Agent 命令 | `agent` / `translate` / `debate` / `nvwa` | Picoclaw DirectRunner |
@@ -98,13 +98,13 @@ flowchart LR
 | 工程生成工具 | `cmd2skill` / `repo2skill` / `agent optimize` | 结构化分析 + agent / fallback analyzer |
 | 代码理解 | `docs analyze` | docs-analyst agent + Markdown 文档包 |
 
-理解 `tt` 的关键，是先按运行模型分组，而不是按命令列表逐个记忆。
+这些命令共用入口，但执行路径并不相同。
 
 ---
 
 .two-column
 
-# 本地内容命令把文件系统接到浏览器 UI
+# 本地内容命令负责查看和编辑工作区文件
 
 :::columns
 ## 对外命令
@@ -130,7 +130,7 @@ flowchart LR
 
 .two-column
 
-# .slide 只记录语义，视觉交给运行时模板
+# .slide 文档只描述内容结构
 
 :::columns
 ## 文档层
@@ -154,7 +154,7 @@ flowchart LR
 
 ---
 
-# 本地 Web UI 路径把文件访问留在 Go 侧
+# 本地 Web UI 的文件访问由 Go 后端处理
 
 ```mermaid
 sequenceDiagram
@@ -174,7 +174,7 @@ sequenceDiagram
 
 ---
 
-# tt 复用 Picoclaw，而不是重写 agent runtime
+# Agent 能力通过 Picoclaw 接入
 
 ```mermaid
 flowchart TD
@@ -195,7 +195,7 @@ flowchart TD
 
 .two-column
 
-# Embedded agents 是可审查、可版本化的产品资产
+# Embedded agents 以 Markdown 形式维护
 
 :::columns
 ## 文件形态
@@ -222,7 +222,7 @@ internal/agents/embedded/<category>/*.md
 
 ---
 
-# 当前 agent 生态覆盖编码、研究、文档和写作
+# 当前内置 agents 覆盖主要开发任务
 
 | Agent | 用途 |
 |-------|------|
@@ -238,7 +238,7 @@ internal/agents/embedded/<category>/*.md
 
 ---
 
-# Agent runtime 的价值来自多命令复用
+# 多个命令共用同一条 agent 调用链
 
 ```mermaid
 flowchart LR
@@ -259,7 +259,7 @@ flowchart LR
 
 ---
 
-# tt 的架构分成命令、领域能力和运行呈现三层
+# tt 的实现分成三层
 
 ```mermaid
 flowchart TD
@@ -284,7 +284,7 @@ flowchart TD
 
 ---
 
-# 目录结构反映了命令层薄、领域层厚的设计
+# 主要目录按职责拆分
 
 | 目录 | 职责 |
 |------|------|
@@ -302,7 +302,7 @@ flowchart TD
 
 .two-column
 
-# cmd/ 保持轻量，internal/ 承载复杂度
+# cmd/ 负责命令装配，internal/ 负责具体实现
 
 :::columns
 ## `cmd/` 负责
@@ -328,7 +328,7 @@ flowchart TD
 
 ---
 
-# 配置分层让同一命令适配全局和项目上下文
+# 配置来自全局、项目和命令行
 
 ```mermaid
 flowchart LR
@@ -345,7 +345,7 @@ flowchart LR
 
 ---
 
-# Formula 把工程流程变成可编译、可恢复的 workflow
+# Formula 用声明式文件描述工程流程
 
 - **定义**：变量、步骤、依赖、preflight、workspace
 - **编译**：扩展、组合、嵌入、条件过滤，生成 `ir.Workflow`
@@ -355,7 +355,7 @@ flowchart LR
 
 ---
 
-# Formula 生命周期从声明文件走到 dashboard
+# Formula run 从定义文件进入运行看板
 
 ```mermaid
 flowchart LR
@@ -371,7 +371,7 @@ flowchart LR
 
 .two-column
 
-# Formula 定义同时描述任务、数据流和运行边界
+# Formula 文件同时写任务和运行要求
 
 :::columns
 ## 任务结构
@@ -393,7 +393,7 @@ flowchart LR
 
 ---
 
-# 编译阶段把声明式结构变成 typed workflow
+# 编译阶段生成可执行的 workflow
 
 ```mermaid
 flowchart TD
@@ -411,7 +411,7 @@ flowchart TD
 
 ---
 
-# 执行阶段按依赖图调度具体 Step
+# 执行阶段按依赖顺序运行 Step
 
 ```mermaid
 flowchart TD
@@ -439,7 +439,7 @@ flowchart TD
 
 ---
 
-# Step kind 让 workflow 同时表达智能、脚本和人工输入
+# Step kind 覆盖 agent、script 和 human input
 
 | 类别 | Step Kind | 作用 |
 |------|-----------|------|
@@ -454,7 +454,7 @@ flowchart TD
 
 .two-column
 
-# Agent step 把 workflow 接到 Picoclaw runtime
+# Agent step 调用 Picoclaw 中的 agent
 
 :::columns
 ## 运行职责
@@ -483,7 +483,7 @@ flowchart TD
 
 .two-column
 
-# Script step 承担确定性执行，也承担副作用风险
+# Script step 负责执行确定性命令
 
 :::columns
 ## 执行能力
@@ -502,13 +502,13 @@ flowchart TD
 
 - 默认 `idempotent = false`
 - 不自动重跑有副作用脚本
-- 显式 `idempotent = true` 才进入自修复
+- 只有 `idempotent = true` 才进入自修复
 - 修复建议会记录到 run artifacts
 :::
 
 ---
 
-# Human input 让 workflow 支持自动化与人工决策混合
+# Human input 用来暂停并收集人工输入
 
 ```mermaid
 stateDiagram-v2
@@ -522,7 +522,7 @@ stateDiagram-v2
 
 ---
 
-# Worktree workspace 把代码修改隔离到 run 级目录
+# Worktree workspace 用来隔离代码修改
 
 ```mermaid
 flowchart LR
@@ -537,7 +537,7 @@ flowchart LR
 
 ---
 
-# Self-repair 把失败转成可审计的修复尝试
+# Self-repair 会记录每一次修复尝试
 
 ```mermaid
 flowchart TD
@@ -557,7 +557,7 @@ flowchart TD
 
 ---
 
-# Run store 让每次 workflow 运行都有完整痕迹
+# Run store 保存每次运行的状态和产物
 
 每次 formula run 都有可追踪目录：
 
@@ -579,7 +579,7 @@ flowchart TD
 
 .two-column
 
-# Dashboard 是 formula runtime 的观察面
+# Dashboard 用来查看 run 的进度和产物
 
 :::columns
 ## 运行状态
@@ -602,7 +602,7 @@ flowchart TD
 
 ---
 
-# 内置 formulas 是 workflow 能力的产品化样例
+# 内置 formulas 覆盖常见工程流程
 
 | 类别 | 代表公式 | 用途 |
 |------|----------|------|
@@ -614,7 +614,7 @@ flowchart TD
 
 ---
 
-# Atomic formulas 把稳定采集和验证步骤抽出来
+# Atomic formulas 复用采集和验证步骤
 
 Atomic 是被上层 formula 复用的最小原子步骤。
 
@@ -626,7 +626,7 @@ Atomic 是被上层 formula 复用的最小原子步骤。
 
 ---
 
-# Feature formula 串起需求、实现、验证和报告
+# Feature formula 覆盖一次功能开发
 
 ```mermaid
 flowchart TD
@@ -644,7 +644,7 @@ flowchart TD
 
 ---
 
-# PR rebase formula 组合确定性脚本和冲突处理 agent
+# PR rebase formula 处理 rebase、冲突和验证
 
 ```mermaid
 flowchart TD
@@ -662,7 +662,7 @@ flowchart TD
 
 ---
 
-# Docs analyze 把代码问答沉淀成文档包
+# Docs analyze 生成可继续维护的代码文档
 
 ```mermaid
 flowchart LR
@@ -676,7 +676,7 @@ flowchart LR
 
 ---
 
-# 新命令沿 cmd/ 到 internal/ 的边界扩展
+# 新命令通常从 cmd/ 接入
 
 新增命令时，代码落点通常是：
 
@@ -699,10 +699,10 @@ flowchart LR
 
 .two-column
 
-# 新 formula 的质量取决于步骤边界和失败处理
+# 新 formula 需要先定清步骤边界
 
 :::columns
-## 结构设计
+## 先看结构
 
 - 它是用户 formula，还是应该进入 builtin？
 - 是否能复用现有 atomic？
@@ -711,7 +711,7 @@ flowchart LR
 :::
 
 :::columns
-## 运行设计
+## 再看运行
 
 - 是否需要 `preflight`？
 - 是否需要 worktree workspace？
@@ -721,7 +721,7 @@ flowchart LR
 
 ---
 
-# 新 Web UI 走 web/apps 到 go:embed 的路径
+# 新 Web UI 通过 web/apps 构建并嵌入
 
 ```mermaid
 flowchart LR
@@ -734,7 +734,7 @@ flowchart LR
 
 ---
 
-# 代码修改入口按子系统边界定位
+# 修改代码时先按子系统找入口
 
 | 修改目标 | 主要入口 |
 |----------|----------|
@@ -750,7 +750,7 @@ flowchart LR
 
 ---
 
-# 设计边界让扩展风险显式化
+# 当前实现还有几个需要注意的边界
 
 - Formula 的 loop 内并发，不等于多个顶层 formula run 的统一调度
 - 当前 dashboard 主要围绕 single-run snapshot 设计
@@ -761,20 +761,20 @@ flowchart LR
 
 ---
 
-# tt 的主线是命令入口、领域实现、运行时复用和可沉淀产物
+# 整个项目围绕四层能力展开
 
 1. **命令入口**：Cobra 命令把能力暴露给用户
 2. **领域实现**：`internal/` 下的子系统承载复杂逻辑
 3. **运行时复用**：Picoclaw、typed workflow、Web UI、run store 被多命令共享
-4. **可沉淀产物**：slides、docs、skills、run records、embedded agents 都进入仓库或本地工作区
+4. **可复用产物**：slides、docs、skills、run records、embedded agents 都保存在仓库或本地工作区
 
 ---
 
 .center
 
-# tt 的价值是统一本地内容、agent 能力和声明式 workflow
+# tt 把本地内容、agent 和 workflow 放到同一个工作台
 
-新命令挂到 `cmd/`，新领域逻辑沉到 `internal/`，新 agent 写成 Markdown，新 workflow 写成 formula，新 UI 走 `web/apps` 到 `go:embed`。
+扩展时，新命令接入 `cmd/`，领域逻辑放到 `internal/`，agent 写成 Markdown，workflow 写成 formula，UI 通过 `web/apps` 构建后嵌入。
 
 ---
 
