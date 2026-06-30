@@ -393,19 +393,20 @@ func handleSlideRawFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !isSlideFile(absPath) {
-		http.Error(w, "only .slide files are supported", http.StatusBadRequest)
-		return
-	}
-
-	content, err := os.ReadFile(absPath)
+	info, err := os.Stat(absPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("file not found: %v", err), http.StatusNotFound)
 		return
 	}
+	if info.IsDir() {
+		http.Error(w, "directories cannot be served through /raw", http.StatusBadRequest)
+		return
+	}
 
-	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	_, _ = w.Write(content)
+	if isSlideFile(absPath) {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	}
+	http.ServeFile(w, r, absPath)
 }
 
 func handleSlideList(w http.ResponseWriter, r *http.Request) {
