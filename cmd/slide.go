@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -25,20 +26,21 @@ import (
 )
 
 var (
-	slidePort        = 9596
-	slideContent     string
-	slideTemplate    string
-	slideTransition  string
-	slideControls    bool
-	slideProgress    bool
-	slideSlideNumber string
-	slideOverview    bool
-	slideCenter      string
-	slideAutoSlide   int
-	slideWidth       int
-	slideHeight      int
-	slideMargin      float64
-	slideFiles       []string
+	slidePort          = 9596
+	slideContent       string
+	slideTemplate      string
+	slideTransition    string
+	slideControls      bool
+	slideProgress      bool
+	slideSlideNumber   string
+	slideOverview      bool
+	slideCenter        string
+	slideAutoSlide     int
+	slideWidth         int
+	slideHeight        int
+	slideMargin        float64
+	slideListTemplates bool
+	slideFiles         []string
 
 	slideServer *http.Server
 	slideMu     sync.Mutex
@@ -61,6 +63,9 @@ var slideCmd = &cobra.Command{
 			return fmt.Errorf("resolve slide cwd failed: %w", err)
 		}
 		slideRoot = cwd
+		if slideListTemplates {
+			return printSlideTemplates(cmd.OutOrStdout())
+		}
 
 		if slideContent != "" {
 			return runSlideServer()
@@ -135,6 +140,7 @@ func init() {
 	slideCmd.Flags().IntVar(&slideWidth, "width", 0, "slide canvas width, 0 uses template default")
 	slideCmd.Flags().IntVar(&slideHeight, "height", 0, "slide canvas height, 0 uses template default")
 	slideCmd.Flags().Float64Var(&slideMargin, "margin", -1, "slide viewport margin, e.g. 0.04; negative uses template default")
+	slideCmd.Flags().BoolVar(&slideListTemplates, "list-templates", false, "list available slide templates and exit")
 }
 
 func isSlideFile(name string) bool {
@@ -164,6 +170,84 @@ func collectSlideFiles(root string) []string {
 	})
 	sort.Strings(files)
 	return files
+}
+
+type slideTemplateListItem struct {
+	Name   string
+	Source string
+	Path   string
+}
+
+func printSlideTemplates(w io.Writer) error {
+	items := listAvailableSlideTemplates()
+	if len(items) == 0 {
+		_, err := fmt.Fprintln(w, "No slide templates found.")
+		return err
+	}
+	_, _ = fmt.Fprintln(w, "Available slide templates:")
+	for _, item := range items {
+		if item.Path == "" {
+			_, _ = fmt.Fprintf(w, "  %-16s %s\n", item.Name, item.Source)
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "  %-16s %-8s %s\n", item.Name, item.Source, item.Path)
+	}
+	return nil
+}
+
+func listAvailableSlideTemplates() []slideTemplateListItem {
+	items := []slideTemplateListItem{
+		{Name: "dark", Source: "built-in"},
+		{Name: "light", Source: "built-in"},
+		{Name: "serif", Source: "built-in"},
+		{Name: "white", Source: "built-in"},
+	}
+	seen := map[string]int{}
+	for i, item := range items {
+		seen[item.Name] = i
+	}
+
+	for _, root := range slideTemplateSearchRootsWithSource() {
+		entries, err := os.ReadDir(root.Path)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() || !isSafeSlideTemplateName(entry.Name()) {
+				continue
+			}
+			templateDir := filepath.Join(root.Path, entry.Name())
+			if info, err := os.Stat(filepath.Join(templateDir, "template.json")); err != nil || info.IsDir() {
+				continue
+			}
+			item := slideTemplateListItem{Name: entry.Name(), Source: root.Source, Path: templateDir}
+			if idx, ok := seen[item.Name]; ok {
+				items[idx] = item
+				continue
+			}
+			seen[item.Name] = len(items)
+			items = append(items, item)
+		}
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Source == items[j].Source {
+			return items[i].Name < items[j].Name
+		}
+		return slideTemplateSourceRank(items[i].Source) < slideTemplateSourceRank(items[j].Source)
+	})
+	return items
+}
+
+func slideTemplateSourceRank(source string) int {
+	switch source {
+	case "project":
+		return 0
+	case "global":
+		return 1
+	default:
+		return 2
+	}
 }
 
 func slideRelPath(abs string) string {
@@ -364,6 +448,11 @@ type slideTemplateResponse struct {
 	Defaults    slideTemplateDefaults `json:"defaults"`
 }
 
+type slideTemplateSearchRoot struct {
+	Source string
+	Path   string
+}
+
 var slideTemplateAssetURLPattern = regexp.MustCompile(`url\(\s*(['"]?)([^'")]+)['"]?\s*\)`)
 
 func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
@@ -487,11 +576,19 @@ func findSlideTemplateDir(name string) (string, error) {
 
 func slideTemplateSearchRoots() []string {
 	var roots []string
+	for _, root := range slideTemplateSearchRootsWithSource() {
+		roots = append(roots, root.Path)
+	}
+	return roots
+}
+
+func slideTemplateSearchRootsWithSource() []slideTemplateSearchRoot {
+	var roots []slideTemplateSearchRoot
 	if projectRoot := findNearestTTDir(slideRoot); projectRoot != "" {
-		roots = append(roots, filepath.Join(projectRoot, "slide", "templates"))
+		roots = append(roots, slideTemplateSearchRoot{Source: "project", Path: filepath.Join(projectRoot, "slide", "templates")})
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, filepath.Join(home, ".tt", "slide", "templates"))
+		roots = append(roots, slideTemplateSearchRoot{Source: "global", Path: filepath.Join(home, ".tt", "slide", "templates")})
 	}
 	return roots
 }

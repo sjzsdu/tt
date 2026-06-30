@@ -48,9 +48,12 @@ tt slide slides/
 默认模板是 `magicloud`，但这是 `tt slide` 的运行时默认值，不是 `.slide` 文档的一部分。需要换模板时用命令行：
 
 ```bash
+tt slide --list-templates
 tt slide demo.slide --template dark
 tt slide demo.slide --template light
 ```
+
+`tt slide --list-templates` 会列出内置模板、项目 `.tt/slide/templates/` 模板和全局 `~/.tt/slide/templates/` 模板，并显示来源路径。
 
 不要在 `.slide` front matter 中写 `template:`。当前渲染器会忽略 `.slide` 内的 `template:`，以避免文档和模板耦合。
 

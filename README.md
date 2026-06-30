@@ -126,6 +126,7 @@ Start a local web service for presenting `.slide` decks. Slide files use Markdow
 tt slide
 tt slide deck.slide
 tt slide slides/ --port 9596
+tt slide --list-templates
 tt slide deck.slide --template dark --transition fade --slide-number c/t --controls=false --progress=false
 tt slide deck.slide --width 1600 --height 900 --margin 0.02 --auto-slide 8000
 ```
@@ -147,6 +148,7 @@ Flags:
 - `-p, --port int`: service port, default `9596`.
 - `-c, --content string`: render provided slide content directly.
 - `--template string`: override slide template, e.g. `magicloud`, `dark`, `light`, `serif`, `white`.
+- `--list-templates`: list available built-in, project `.tt`, and global `~/.tt` templates, then exit.
 - `--transition string`: override Reveal transition, e.g. `none`, `fade`, `slide`, `convex`, `concave`, `zoom`.
 - `--controls bool`: show navigation controls, default `true`.
 - `--progress bool`: show progress bar, default `true`.
