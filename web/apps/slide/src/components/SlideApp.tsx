@@ -9,6 +9,13 @@ import { SlideContent } from './SlideContent';
 const DESIGN_WIDTH = 1600;
 const DESIGN_HEIGHT = 900;
 
+function calculateStageScale() {
+  const viewport = window.visualViewport;
+  const viewportWidth = viewport?.width || window.innerWidth || DESIGN_WIDTH;
+  const viewportHeight = viewport?.height || window.innerHeight || DESIGN_HEIGHT;
+  return Math.min(viewportWidth / DESIGN_WIDTH, viewportHeight / DESIGN_HEIGHT);
+}
+
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
 
 interface SlideAppProps {
@@ -206,18 +213,18 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
   useEffect(() => {
     const updateStageScale = () => {
-      const viewportWidth = window.innerWidth || DESIGN_WIDTH;
-      const viewportHeight = window.innerHeight || DESIGN_HEIGHT;
-      setStageScale(Math.min(viewportWidth / DESIGN_WIDTH, viewportHeight / DESIGN_HEIGHT));
+      setStageScale(calculateStageScale());
       deckRef.current?.layout();
     };
 
     updateStageScale();
     window.addEventListener('resize', updateStageScale);
+    window.visualViewport?.addEventListener('resize', updateStageScale);
     document.addEventListener('fullscreenchange', updateStageScale);
     document.addEventListener('webkitfullscreenchange', updateStageScale);
     return () => {
       window.removeEventListener('resize', updateStageScale);
+      window.visualViewport?.removeEventListener('resize', updateStageScale);
       document.removeEventListener('fullscreenchange', updateStageScale);
       document.removeEventListener('webkitfullscreenchange', updateStageScale);
     };

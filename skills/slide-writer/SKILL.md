@@ -14,6 +14,8 @@ The source of truth is the `.slide` document format. A `.slide` deck defines pre
 
 Write a `.slide` so that another template can render it correctly without changing the document.
 
+`tt slide` presents content on a fixed `1600px × 900px` 16:9 canvas that is uniformly scaled for normal windows, fullscreen, and different screen sizes. Do not compensate for screen size in the `.slide` document. If content feels crowded on that canvas, split it into more slides instead of adding template-specific layout tricks or shrinking text.
+
 Do:
 
 - Use Markdown for content.

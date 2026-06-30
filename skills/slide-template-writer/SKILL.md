@@ -12,6 +12,18 @@ A slide template is a self-contained visual package. It decides how a template-a
 
 The `.slide` document remains semantic. The template owns all visual decisions.
 
+## Rendering contract
+
+`tt slide` uses a presentation-canvas model, not a normal responsive webpage model:
+
+- The browser viewport is a stage: `100vw × 100vh`.
+- The slide canvas is fixed at `1600px × 900px` (`16:9`).
+- The whole canvas is scaled uniformly with `min(viewportWidth / 1600, viewportHeight / 900)`.
+- The canvas is centered in the viewport and never stretched.
+- Different screens may show stage margins, but the slide composition must not reflow.
+
+Templates should therefore design for a stable `1600 × 900` canvas. Use CSS grid/flex inside the canvas, but avoid breakpoint-driven layout changes that make fullscreen and windowed presentation look like different pages.
+
 ## Mental model
 
 ```text
