@@ -163,6 +163,27 @@ function classForLayout(layout: SlideLayout): string {
   return '';
 }
 
+function plainTextLength(html: string): number {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+}
+
+function classesForSlideDensity(parts: SlidePart[], layout: SlideLayout, index: number): string[] {
+  const diagramCount = parts.filter(part => part.type === 'mermaid' || part.type === 'd2').length;
+  const markdownParts = parts.filter((part): part is Extract<SlidePart, { type: 'markdown' }> => part.type === 'markdown');
+  const textLength = markdownParts.reduce((total, part) => total + plainTextLength(part.html), 0);
+  const classes: string[] = [];
+  if (diagramCount > 0) {
+    classes.push('slide-diagram-heavy');
+  }
+  if (diagramCount > 0 && textLength <= 80) {
+    classes.push('slide-diagram-only');
+  }
+  if (layout === 'default' && index > 0 && diagramCount === 0 && textLength > 0 && textLength <= 140 && markdownParts.length <= 1) {
+    classes.push('slide-sparse');
+  }
+  return classes;
+}
+
 export function parseSlides(markdown: string): { slides: SlideData[]; meta: SlideMeta } {
   const lines = markdown.split('\n');
   let title = '';
@@ -207,7 +228,7 @@ export function parseSlides(markdown: string): { slides: SlideData[]; meta: Slid
 
     const inferredLayout = parseLayoutFromParts(parts);
     const slideLayout = inferredLayout === 'default' && directives.layoutHint ? directives.layoutHint : inferredLayout;
-    const slideClass = [classForLayout(slideLayout), ...directives.classNames]
+    const slideClass = [classForLayout(slideLayout), ...directives.classNames, ...classesForSlideDensity(parts, slideLayout, idx)]
       .filter(Boolean)
       .filter((value, index, values) => values.indexOf(value) === index)
       .join(' ');

@@ -376,6 +376,18 @@ Rules:
 - If normal playback uses a fixed `.reveal::before` background, also provide section-level fallback backgrounds for overview thumbnails if needed.
 - Keep pseudo-elements `pointer-events: none`.
 
+## Viewport adaptation
+
+Do not rely on Go to know the user's display size. The Go command starts the local server, but the actual viewport is known only in the browser. Template adaptation should happen in CSS and Reveal configuration:
+
+- Prefer full-size containers: `height: 100%`, `width: 100%`, flex/grid layouts.
+- Use viewport-aware limits such as `max-height: 72vh`, `min()`, `clamp()`, and CSS variables.
+- Use template `vars` for tunable padding/background/logo sizes.
+- Avoid hardcoding canvas `width` / `height` unless a template absolutely requires a fixed design canvas.
+- Let diagram-heavy slides use available space via `.slide-diagram-heavy` and `.slide-diagram-only` classes.
+
+The goal is that the same `.slide` document automatically looks balanced on projector screens, browser windows, and fullscreen mode.
+
 ## How to create a new template
 
 1. Pick a lowercase name: `customer-brand`.

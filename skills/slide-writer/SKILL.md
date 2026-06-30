@@ -91,6 +91,30 @@ A directive appears at the top of a slide and is not rendered as visible content
 
 Prefer `.end` for a final closing page because it is short and template-agnostic.
 
+## Per-slide visual planning
+
+Before writing each slide, decide its visual role. Do not simply place a title and a few bullets in the top-left corner. A good `.slide` document gives the template enough semantic structure to make every page feel intentionally composed.
+
+For every slide, choose one of these patterns:
+
+| Content situation | Recommended structure | Why |
+| --- | --- | --- |
+| One strong message, little text | `.center` | Prevents sparse top-left pages; lets template center and enlarge the message. |
+| Two comparable ideas | `.two-column` with one `:::columns` block per side | Fills horizontal space and creates balance. |
+| Text plus diagram / evidence | `.split` or `.two-column` | Avoids squeezing diagram under text. |
+| Main diagram / architecture / flow | Short title plus Mermaid/D2 only | Lets renderer treat it as diagram-heavy and use most of the slide. |
+| Dense notes | Split into several slides | Prevents tiny text and visual clutter. |
+| Closing / thank-you | `.end` | Leaves visual rendering to the template. |
+
+Rules:
+
+- If a slide has fewer than 2 bullets or less than ~120 characters, use `.center` unless it is a cover, diagram, or closing page.
+- If a slide has a diagram, keep surrounding text very short: title plus one sentence at most.
+- Do not put a large diagram below a long bullet list. Split it into “message” and “diagram” slides, or use `.split`.
+- Prefer 3 to 5 visually balanced blocks over one short lonely paragraph.
+- For lists, keep bullets parallel and similar length so the template can distribute them cleanly.
+- When converting notes, plan the deck as pages first, then write content. Do not preserve the note order if it creates awkward sparse pages.
+
 ## Columns syntax
 
 For two-column content, use one `:::columns` block per column:
@@ -126,6 +150,14 @@ Use one `:::columns ... :::` block for each column. Do not use ad-hoc separators
 ## Diagrams
 
 Use fenced code blocks for diagrams. The document should describe the diagram semantically, not prescribe template styling.
+
+Diagram slides should usually be almost all diagram. Use a short takeaway title, optionally one short subtitle, then the Mermaid/D2 block. The renderer marks diagram-heavy slides so templates can expand diagrams toward full-slide size.
+
+Avoid:
+
+- Long bullet lists before a diagram.
+- Multiple unrelated diagrams on one slide.
+- Tiny diagrams that should be expanded into a process, architecture, or sequence slide.
 
 Mermaid:
 
@@ -207,6 +239,13 @@ Target per normal slide:
 - Paragraphs: 1 to 2 short paragraphs only.
 
 Avoid full sentences when a crisp phrase works.
+
+Sparse does not mean empty. If a slide has very little content, either:
+
+- make it a `.center` message slide;
+- combine it with a related point into a balanced `.two-column` slide;
+- add a diagram/table/example that genuinely helps; or
+- delete it.
 
 ### Use hierarchy consistently
 
@@ -303,12 +342,15 @@ Before calling a deck done:
 3. No `template:` front matter exists.
 4. No slide depends on one template's brand, CSS, colors, fonts, or logo.
 5. Every slide has one clear purpose.
-6. Titles read like takeaways.
-7. No normal slide has more than 5 bullets unless it is a reference appendix.
-8. Bullet lines are short and parallel.
-9. Two-column slides have balanced left/right content.
-10. Final closing page uses `.end` when a closing page is appropriate.
-11. Run `tt slide deck.slide` or at least inspect syntax manually.
+6. Every slide has an intentional visual pattern: center, columns, split, diagram-heavy, normal content, or closing.
+7. Very sparse slides use `.center` or are merged/deleted.
+8. Diagram slides have minimal surrounding text and are intended to fill most of the slide.
+9. Titles read like takeaways.
+10. No normal slide has more than 5 bullets unless it is a reference appendix.
+11. Bullet lines are short and parallel.
+12. Two-column slides have balanced left/right content.
+13. Final closing page uses `.end` when a closing page is appropriate.
+14. Run `tt slide deck.slide` or at least inspect syntax manually.
 
 ## Common mistakes
 
