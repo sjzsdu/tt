@@ -1,6 +1,6 @@
 ---
 name: slide-template-writer
-description: Design, implement, and refine tt slide templates in web/apps/slide/src/templates/index.ts. Use when changing MagiCloud or other reveal.js slide themes, adding page directives, tuning typography, colors, backgrounds, transitions, overview behavior, or creating a new slide template.
+description: Design, write, debug, and refine tt slide templates under .tt/slide/templates/<name>/. Use when changing template.json, template.css, template assets, typography, colors, backgrounds, cover/brand/closing visuals, or template-specific rendering behavior.
 license: MIT
 ---
 
@@ -8,90 +8,64 @@ license: MIT
 
 Use this skill when implementing or refining `tt slide` templates.
 
-A template is not only a color palette. It is a coordinated system of:
+A slide template is a self-contained visual package. It decides how a template-agnostic `.slide` document looks: colors, fonts, spacing, backgrounds, logos, cover pages, brand pages, closing pages, and diagram/card styling.
 
-- Reveal.js defaults
-- CSS variables
-- typography
-- page-level directives
-- background layers
-- content layouts
-- overview behavior
-- assets embedded by Vite
+The `.slide` document remains semantic. The template owns all visual decisions.
+
+## Mental model
+
+```text
+.slide document          template package
+------------------       ------------------------------
+# Title                  template.json: metadata/defaults
+.center                  template.css: visual rules
+.end                     assets/: backgrounds/logos/etc.
+Markdown content   --->  rendered presentation
+```
+
+Do not ask `.slide` authors to write template-specific asset paths, CSS classes, colors, or logo references. If a visual effect belongs to a brand or theme, put it in the template.
 
 ## Current architecture facts
 
-- Template definitions live in `web/apps/slide/src/templates/index.ts`.
-- Template type definitions live in `web/apps/slide/src/types/index.ts`.
-- Slide parsing and page directives live in `web/apps/slide/src/parser.ts`.
-- Global app styles live in `web/apps/slide/src/styles.css`.
-- Slide React app lives in `web/apps/slide/src/components/SlideApp.tsx`.
-- MagiCloud assets live under `web/apps/slide/src/assets/magicloud/`.
-- Default template is `magicloud`.
-- `tt slide --template NAME` and `tt slide -t NAME` override the runtime template.
-- User/project templates use `.tt/slide/templates/<name>/` as the external template package shape.
+- External templates live under `.tt/slide/templates/<name>/` for the current project.
+- Global external templates live under `~/.tt/slide/templates/<name>/`.
+- Project templates take precedence over global templates with the same name.
+- Built-in fallback templates are still available: `dark`, `light`, `serif`, `white`.
+- Default runtime template name is `magicloud`.
+- The MagiCloud template is stored as `.tt/slide/templates/magicloud/`.
+- `tt slide --template NAME` selects a template.
+- `tt slide --list-templates` lists available project, global, and built-in templates.
+- The slide server loads external templates through `/api/template/<name>` and serves template assets through `/template-assets/<name>/...`.
+- Slide parsing and semantic directives live in `web/apps/slide/src/parser.ts`.
+- Global app chrome styles live in `web/apps/slide/src/styles.css`.
 
-## Template implementation workflow
+## External template directory
 
-1. Inspect existing `TemplateConfig` shape before editing.
-2. Decide whether the change is:
-   - a CSS-only template change;
-   - a parser directive change;
-   - a React behavior change;
-   - a global style change.
-3. Keep template-specific visuals inside `templates/index.ts` whenever possible.
-4. Keep generic controls and overview styles in `styles.css`.
-5. Run `cd web/apps/slide && npm run build` after any template or frontend change.
-6. Run `go test ./cmd` when changing CLI flags, file handling, or command behavior.
-
-## TemplateConfig shape
-
-A template has this form:
-
-```ts
-const example: TemplateConfig = {
-  name: 'example',
-  revealTheme: 'white',
-  css: `
-    :root {
-      --slide-bg: #ffffff;
-      --slide-fg: #1f2329;
-      --slide-accent: #008D55;
-    }
-
-    .reveal .slides section {
-      background: var(--slide-bg);
-      color: var(--slide-fg);
-    }
-  `,
-  defaults: {
-    theme: 'light',
-    transition: 'fade',
-    center: false,
-    width: 1600,
-    height: 900,
-    margin: 0,
-  },
-};
-```
-
-Register it in the template map at the bottom of `templates/index.ts`.
-
-## `.tt` project template package shape
-
-When designing user-defined templates, keep the package self-contained under `.tt`:
+Create one directory per template:
 
 ```text
-.tt/slide/templates/<template-name>/
+.tt/slide/templates/customer-brand/
 ├── template.json
 ├── template.css
 └── assets/
     ├── cover-bg.png
     ├── logo-dark.png
-    └── logo-white.svg
+    ├── logo-white.svg
+    └── texture.webp
 ```
 
-`template.json` should mirror the frontend `TemplateConfig` shape without embedding CSS inline:
+Required files:
+
+- `template.json`: template metadata and Reveal defaults.
+- `template.css`: all template-specific visual styles.
+
+Optional:
+
+- `assets/`: backgrounds, logos, textures, icons, decorative images.
+
+## `template.json`
+
+Minimal valid template:
 
 ```json
 {
@@ -109,17 +83,80 @@ When designing user-defined templates, keep the package self-contained under `.t
 }
 ```
 
-`template.css` owns all visual styling and references assets by relative URL:
+Fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | recommended | Template name. Should match directory name. |
+| `revealTheme` | recommended | Reveal base theme, usually `white`, `black`, or `serif`. |
+| `css` | optional | CSS file path relative to template dir. Defaults to `template.css`. |
+| `defaults.theme` | optional | App theme for diagram/content rendering: `light` or `dark`. Defaults to `light`. |
+| `defaults.transition` | optional | Reveal transition: `fade`, `slide`, `none`, `convex`, `concave`, `zoom`. Defaults to `fade`. |
+| `defaults.center` | optional | Reveal vertical centering default. Usually `false` for designed 16:9 pages. |
+| `defaults.width` / `height` | optional | Slide canvas size. Use `1600 x 900` for 16:9 designed templates. |
+| `defaults.margin` | optional | Reveal viewport margin. Use `0` for full-bleed designed templates. |
+
+Do not put CSS inside JSON. Keep CSS in `template.css` so assets and styles are easy to edit.
+
+## `template.css` basics
+
+Start by defining CSS variables and normal slide defaults:
 
 ```css
-.reveal:has(.slides section:first-child.present)::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: url("./assets/cover-bg.png") center / cover no-repeat;
+:root {
+  --slide-bg: #ffffff;
+  --slide-fg: #1f2329;
+  --slide-title: #0f5132;
+  --slide-accent: #008d55;
+  --slide-muted: #667085;
+  --slide-card-bg: #f5f7f8;
+  --slide-card-border: #dde3e6;
 }
 
+.reveal {
+  background: var(--slide-bg);
+  color: var(--slide-fg);
+  font-family: "Inter", "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.reveal .slides section {
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  padding: 120px 112px 72px;
+  background: var(--slide-bg);
+  color: var(--slide-fg);
+}
+
+.reveal h1,
+.reveal h2,
+.reveal h3 {
+  color: var(--slide-title);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.reveal p,
+.reveal li {
+  color: var(--slide-fg);
+  line-height: 1.55;
+}
+```
+
+Recommended pattern:
+
+1. Define variables in `:root`.
+2. Style `.reveal` for global font/background.
+3. Style `.reveal .slides section` for normal pages.
+4. Style headings/body/list/table/code/blockquote.
+5. Add rules for semantic page classes.
+6. Add overview-safe background handling.
+
+## Assets and URLs
+
+Put template-owned resources in `assets/` and reference them with relative URLs:
+
+```css
 .reveal .slides section:not(:first-child)::before {
   content: "";
   position: absolute;
@@ -131,130 +168,238 @@ When designing user-defined templates, keep the package self-contained under `.t
 }
 ```
 
+The server rewrites relative URLs such as `./assets/logo-dark.png` to `/template-assets/<name>/assets/logo-dark.png`.
+
 Asset rules:
 
-1. Template-specific backgrounds, logos, textures, and decorative images go in `assets/` beside the template.
-2. CSS should use relative paths like `url("./assets/cover-bg.png")`; do not use absolute local filesystem paths.
-3. Business images referenced from `.slide` content are not template assets and should stay next to the `.slide` deck or in a deck-local image folder.
-4. A template package must not require edits to `.slide` documents. `.slide` documents remain semantic and template-agnostic.
-5. Project `.tt/slide/templates/<name>/` should take precedence over global `~/.tt/slide/templates/<name>/` if both exist.
+- Use relative URLs only: `url("./assets/file.png")`.
+- Do not use absolute local filesystem paths such as `/Users/.../logo.png`.
+- Do not use `../` traversal.
+- Do not put template asset paths in `.slide` documents.
+- Business images from slide content are not template assets. Keep those beside the `.slide` deck and reference them with Markdown.
 
-Security/serving rule: serve only files inside the selected template directory, rewrite relative CSS asset URLs to the slide server asset endpoint, and reject `..` traversal or absolute paths.
+## Semantic page classes you can style
 
-## Adding a page directive
+The parser maps `.slide` semantic directives to CSS classes:
 
-A new directive usually requires three edits:
+| `.slide` directive | Generated class | Template responsibility |
+| --- | --- | --- |
+| first slide or `.cover` | first `section`, sometimes `slide-cover` if supported | Cover/title visual |
+| `.center` | `.slide-center` | Big centered message |
+| `.split` | `.slide-split` | Split layout / text plus evidence |
+| `.two-column` / `.columns` | `.slide-two-column` | Balanced columns |
+| `.brand` / `.logo` | `.slide-logo` | Brand/identity page |
+| `.end` / `.closing` / `.final` | `.slide-closing` | End/closing page |
 
-1. `web/apps/slide/src/types/index.ts`
-   - Add the layout name to `SlideLayout`.
-2. `web/apps/slide/src/parser.ts`
-   - Add the directive to `slideDirectivePattern`.
-   - Map directive text to `layoutHint`.
-   - Map layout to CSS class in `classForLayout`.
-3. `web/apps/slide/src/templates/index.ts`
-   - Add CSS for the generated class, e.g. `.slide-closing`.
+Do not invent a new `.slide` directive unless the parser supports it. For new semantics, update parser/types/docs/tests first.
 
-Example directive mapping:
+## Cover page pattern
 
-```ts
-} else if (directive === 'closing' || directive === 'end' || directive === 'final') {
-  layoutHint = 'closing';
-}
-```
-
-Example class mapping:
-
-```ts
-if (layout === 'closing') return 'slide-closing';
-```
-
-## Background layers and transitions
-
-Avoid putting full-screen moving backgrounds only on the slide section when the transition moves slides vertically or horizontally. It can produce visible cut edges.
-
-Preferred pattern for special full-screen backgrounds:
-
-1. Put the active background on a fixed `.reveal::before` layer using `:has(.slides section.some-class.present)`.
-2. Fade the layer with `opacity` transition.
-3. Make the actual section background transparent during normal playback.
-4. Preserve section backgrounds in `.reveal.overview` so thumbnails remain recognizable.
-
-Pattern:
+The first slide often acts as the cover. Style it without requiring `.slide` authors to add template-specific markup:
 
 ```css
-.reveal::before {
+.reveal:has(.slides section:first-child.present)::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 260ms ease;
-}
-
-.reveal:has(.slides section.slide-closing.present)::before {
-  opacity: 1;
   background:
-    url("...") center / cover no-repeat,
-    linear-gradient(135deg, #000000 0%, #00130D 20%, #00643C 58%, #008D55 100%);
+    linear-gradient(135deg, rgba(0,0,0,0.8), rgba(0,141,85,0.75)),
+    url("./assets/cover-bg.png") center / cover no-repeat;
 }
 
-.reveal:not(.overview) .slides section.slide-closing {
+.reveal .slides section:first-child {
   background: transparent;
+  color: #ffffff;
+}
+
+.reveal .slides section:first-child .slide-content {
+  position: relative;
+  z-index: 1;
+  padding-top: 360px;
+}
+
+.reveal .slides section:first-child h1 {
+  color: #ffffff;
+  font-size: 64px;
 }
 ```
 
-## MagiCloud visual rules
+Why use `.reveal::before` or `:has(...present)::before` for full-screen backgrounds? It keeps backgrounds fixed during slide transitions and avoids visible cut edges.
 
-For MagiCloud, align with the PPT template direction:
+## Brand/logo page pattern
 
-- Primary greens: `#00643C`, `#00633B`, `#008D55`.
-- Body gray: `#535E59` / `#595959`.
-- Soft surfaces: `#F4F4F4`, borders `#DEE0E3`.
-- Font stack: `Aptos`, `Aptos Display`, `Segoe UI`, `Arial`, `PingFang SC`, `Noto Sans SC`.
-- Use clean rectangular surfaces more than heavy rounded cards.
-- Keep normal page titles slightly below the logo/header area.
-- Keep body text smaller, lighter, and more spacious than headings.
+For `.brand` / `.logo` slides:
 
-## Overview behavior
+```css
+.reveal:has(.slides section.slide-logo.present)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    url("./assets/texture.webp") center / cover no-repeat,
+    #ffffff;
+}
 
-ESC overview should be a centered, fixed-size horizontal scroller:
+.reveal .slides section.slide-logo {
+  background: transparent;
+}
 
-- The overview container is fixed and visually floats above the current slide.
-- The container scrolls horizontally.
-- It must not alter or stretch the underlying page layout.
-- Avoid CSS rules that override inline positioning from `SlideApp.tsx`, especially `inset: ... !important` on `.reveal.overview`.
-- Always reset inline `transform`, `width`, `height`, `position`, and scroll state when overview exits.
+.reveal .slides section.slide-logo::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 520px;
+  height: 120px;
+  transform: translate(-50%, -50%);
+  background: url("./assets/logo-dark.png") center / contain no-repeat;
+}
+```
+
+## Closing page pattern
+
+For `.end` / `.closing` / `.final` slides:
+
+```css
+.reveal:has(.slides section.slide-closing.present)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    url("./assets/cover-bg.png") center / cover no-repeat,
+    linear-gradient(135deg, #000000, #008d55);
+}
+
+.reveal .slides section.slide-closing {
+  background: transparent;
+  color: #ffffff;
+}
+
+.reveal .slides section.slide-closing .slide-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+```
+
+The `.slide` file should only contain:
+
+```markdown
+---
+
+.end
+```
+
+The template decides what the closing page looks like.
+
+## Two-column and split layouts
+
+Style parser-generated classes, not author-specific markup:
+
+```css
+.slide-two-column .slide-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  align-items: start;
+}
+
+.slide-two-column .slide-part-column {
+  min-width: 0;
+}
+
+.slide-split .slide-content {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 48px;
+  align-items: center;
+}
+```
+
+## Overview compatibility
+
+ESC overview renders thumbnails. Preserve recognizable backgrounds there.
+
+Rules:
+
+- Avoid global `.reveal.overview { inset: ... !important; }` style fights.
+- Avoid `!important` unless unavoidable.
+- If normal playback uses a fixed `.reveal::before` background, also provide section-level fallback backgrounds for overview thumbnails if needed.
+- Keep pseudo-elements `pointer-events: none`.
+
+## How to create a new template
+
+1. Pick a lowercase name: `customer-brand`.
+2. Create `.tt/slide/templates/customer-brand/`.
+3. Add `template.json` with defaults.
+4. Add `template.css` with variables and normal slide styling.
+5. Put assets under `assets/` and reference them with `url("./assets/...")`.
+6. Run:
+
+```bash
+tt slide --list-templates
+tt slide deck.slide --template customer-brand
+```
+
+7. Check normal slides, first slide, `.center`, `.two-column`, `.brand`, `.end`, code blocks, tables, diagrams, and ESC overview.
+
+## Updating MagiCloud
+
+The MagiCloud template lives at:
+
+```text
+.tt/slide/templates/magicloud/
+├── template.json
+├── template.css
+└── assets/
+```
+
+When changing it:
+
+- Keep the `.slide` syntax template-agnostic.
+- Put all MagiCloud-specific colors, logos, mesh backgrounds, and typography in `template.css` / `assets/`.
+- Use `tt slide --template magicloud` to inspect.
+- Use `tt slide --list-templates` to confirm it resolves as `project`.
 
 ## Validation checklist
 
 After template work:
 
 ```bash
-cd web/apps/slide && npm run build
-```
-
-If CLI flags or Go handlers changed:
-
-```bash
 go test ./cmd
+cd web && npm run build:slide
+tt slide --list-templates
 ```
 
-Review these before finishing:
+Review before finishing:
 
-1. Template compiles with Vite.
-2. No unsupported asset path is referenced.
-3. Normal slides, cover slides, logo pages, and `.end` pages all remain readable.
-4. ESC overview stays centered and does not affect the underlying page.
-5. `--template` / `-t` still works if template names changed.
-6. New directives are documented in `ai-docs/slide.md` when user-facing.
+1. `tt slide --list-templates` shows the template with the expected source.
+2. `template.json` parses and points to the right CSS file.
+3. Every `url("./assets/...")` asset exists.
+4. No CSS references absolute local paths or `../` traversal.
+5. Normal slides, cover, brand, and closing pages remain readable.
+6. Code blocks, tables, diagrams, and images remain readable.
+7. ESC overview thumbnails are recognizable.
+8. The template does not require `.slide` authors to write template-specific syntax.
 
 ## Common mistakes
 
-- Do not add a page directive only in CSS; the parser must emit the matching class.
-- Do not use `.md` examples for slide decks; use `.slide`.
-- Do not put global button/control styles inside one template unless they are template-specific.
-- Do not use `!important` on layout properties unless necessary; it can fight inline overview positioning.
-- Do not forget to preserve overview thumbnail recognizability when moving backgrounds to fixed layers.
+- Putting `template:` in `.slide` front matter instead of using `--template`.
+- Putting template assets next to the `.slide` deck instead of in `.tt/slide/templates/<name>/assets/`.
+- Referencing assets with absolute paths.
+- Styling only `.present` sections and leaving overview thumbnails blank.
+- Adding a new directive only in CSS without parser/type/docs support.
+- Using overly broad selectors that break Reveal controls or the file/overview panels.
+- Forgetting to run `tt slide --list-templates` after adding a new template.
+
+## Boundary with slide-writer
+
+Use `slide-template-writer` for template packages, CSS, assets, visual design, and template-specific behavior.
+
+Use `slide-writer` for `.slide` document content and syntax. The writer should not put visual implementation details into `.slide` files.
 
 ## Handoff
 
