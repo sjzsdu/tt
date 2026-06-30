@@ -228,7 +228,7 @@ export function parseSlides(markdown: string): { slides: SlideData[]; meta: Slid
 
     const inferredLayout = parseLayoutFromParts(parts);
     const slideLayout = inferredLayout === 'default' && directives.layoutHint ? directives.layoutHint : inferredLayout;
-    const slideClass = [classForLayout(slideLayout), ...directives.classNames, ...classesForSlideDensity(parts, slideLayout, idx)]
+    const slideClass = [idx === 0 ? 'slide-cover' : '', classForLayout(slideLayout), ...directives.classNames, ...classesForSlideDensity(parts, slideLayout, idx)]
       .filter(Boolean)
       .filter((value, index, values) => values.indexOf(value) === index)
       .join(' ');
