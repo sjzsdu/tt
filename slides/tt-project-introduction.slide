@@ -172,8 +172,8 @@ flowchart TD
     PC --> Runtime[Picoclaw Config]
     PC --> Provider[Provider]
     PC --> Bus[MessageBus]
-    PC --> Loop[AgentLoop]
-    Loop --> Direct[ProcessDirect / ProcessDirectForAgent]
+    PC --> AgentLoopNode[AgentLoop]
+    AgentLoopNode --> Direct[ProcessDirect / ProcessDirectForAgent]
 ```
 
 多个命令共享同一套 home/config 解析、provider 创建、agent 注册和同步调用接口。
