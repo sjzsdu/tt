@@ -802,12 +802,12 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !slices.Contains(clarifyAgent.InputCtx, "discern-situation") {
 		t.Fatalf("clarify-situation input_context = %v, want discern-situation", clarifyAgent.InputCtx)
 	}
-	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "radio / checkbox / select", "最多 1 个 textarea", "字段数量 3-5 个", "用户可见文案必须是产品文案"} {
+	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "radio / checkbox / select", "最多 1 个 textarea", "字段数量 3-5 个", "未经用户确认", "用户可见文案必须是产品文案"} {
 		if !strings.Contains(clarifyAgent.Prompt, want) {
 			t.Fatalf("clarify-situation prompt missing %q:\n%s", want, clarifyAgent.Prompt)
 		}
 	}
-	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure", "main_choice", "current_status"} {
+	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure", "main_choice", "current_status", "二战"} {
 		if strings.Contains(clarifyAgent.Prompt, notWant) {
 			t.Fatalf("shan-yi-zhe should remain universal and not hard-code prompt field %q:\n%s", notWant, clarifyAgent.Prompt)
 		}
