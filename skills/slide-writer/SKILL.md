@@ -229,6 +229,15 @@ Media layout:
 
 Available block roles: `:::columns`, `:::card`, `:::item`, `:::main`, `:::aside`, and `:::media`.
 
+Guidelines:
+
+- Use semantic layout directives before adding raw HTML. Raw HTML should be rare.
+- Do not write inline CSS such as `style="display:grid"`; use `.grid`, `.cards`, `.flex`, `.hero`, or `.media-*` and let templates render them.
+- Keep block fences flat. Do not nest `:::card` inside `:::columns` unless the parser explicitly supports that in the future.
+- For `.grid` / `.cards`, prefer 3 to 6 blocks. If you need more, split into multiple slides.
+- For `.media-left` / `.media-right`, put explanatory text in `:::main` and the image/SVG/video/diagram in `:::media`.
+- For `.hero`, use one large takeaway plus one supporting block; avoid turning it into a dense two-column slide.
+
 ## Diagrams
 
 Use fenced code blocks for diagrams. The document should describe the diagram semantically, not prescribe template styling.

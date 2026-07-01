@@ -246,10 +246,77 @@ The parser maps `.slide` semantic directives to CSS classes:
 | `.center` | `.slide-center` | Big centered message |
 | `.split` | `.slide-split` | Split layout / text plus evidence |
 | `.two-column` / `.columns` | `.slide-two-column` | Balanced columns |
+| `.grid` | `.slide-grid` | Equal-weight grid for repeated items |
+| `.cards` | `.slide-cards` | Card surfaces for features/options/risks |
+| `.flex` | `.slide-flex` | Flexible wrapping blocks within the fixed canvas |
+| `.hero` | `.slide-hero` | Large message plus supporting content/media |
+| `.media-left` | `.slide-media-left` | Media beside explanation, media on the left |
+| `.media-right` | `.slide-media-right` | Media beside explanation, media on the right |
 | `.brand` / `.logo` | `.slide-logo` | Brand/identity page |
 | `.end` / `.closing` / `.final` | `.slide-closing` | End/closing page |
 
 Do not invent a new `.slide` directive unless the parser supports it. For new semantics, update parser/types/docs/tests first.
+
+## Semantic block roles templates should support
+
+The parser also maps fenced semantic blocks to markdown part classes. Templates should style these as building blocks, not as template-specific document syntax:
+
+| `.slide` block | Generated part class | Typical parent layout |
+| --- | --- | --- |
+| `:::columns ... :::` | `.slide-part-column` | `.slide-two-column` |
+| `:::card ... :::` | `.slide-part-card` | `.slide-cards` |
+| `:::item ... :::` | `.slide-part-item` | `.slide-grid` / `.slide-flex` |
+| `:::main ... :::` | `.slide-part-main` | `.slide-hero` / `.slide-media-*` |
+| `:::aside ... :::` | `.slide-part-aside` | `.slide-hero` / supporting content |
+| `:::media ... :::` | `.slide-part-media` | `.slide-media-left` / `.slide-media-right` |
+
+Recommended CSS responsibilities:
+
+- `.slide-grid .slide-content`: use CSS Grid, equal rows/columns, stable gaps.
+- `.slide-cards .slide-content`: use CSS Grid; style `.slide-part-card` with card background, border, radius, and readable text.
+- `.slide-flex .slide-content`: use flex-wrap for short blocks, but keep composition stable inside `1600 × 900`.
+- `.slide-hero .slide-content`: use a two-area grid, larger heading on the main statement, supporting content/media on the other side.
+- `.slide-media-left/right .slide-content`: use a two-column grid; ensure `.slide-part-media img/svg/video` has `max-width: 100%`, `max-height: 100%`, and `object-fit: contain`.
+- `.slide-part-main`, `.slide-part-aside`, `.slide-part-media`: set `min-width: 0` so long text and media do not overflow.
+
+Example baseline:
+
+```css
+.slide-cards .slide-content,
+.slide-grid .slide-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 28px;
+  align-content: start;
+  height: 100%;
+}
+
+.slide-part-card,
+.slide-part-item {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--slide-card-border);
+  border-radius: 18px;
+  background: var(--slide-card-bg);
+}
+
+.slide-media-right .slide-content,
+.slide-media-left .slide-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 48px;
+  align-items: center;
+  height: 100%;
+}
+
+.slide-part-media img,
+.slide-part-media svg,
+.slide-part-media video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+```
 
 ## Cover page pattern
 
