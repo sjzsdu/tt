@@ -20,6 +20,10 @@ type MarkdownSegment = {
   role?: MarkdownRole;
 };
 
+type ParseOptions = {
+  assetBasePath?: string;
+};
+
 type SlideDirective = {
   markdown: string;
   layoutHint?: SlideLayout;
@@ -28,6 +32,36 @@ type SlideDirective = {
 };
 
 const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|cover|closing|end|final)\s*$/i;
+
+function isExternalOrSpecialUrl(value: string) {
+  return /^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(value);
+}
+
+function joinRawAssetPath(basePath: string, value: string) {
+  const match = value.match(/^([^?#]*)([?#].*)?$/);
+  const pathPart = match?.[1] || '';
+  const suffix = match?.[2] || '';
+  const base = basePath.replace(/^\/+|\/+$/g, '');
+  const combined = base ? `${base}/${pathPart}` : pathPart;
+  const normalized: string[] = [];
+  for (const segment of combined.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      normalized.pop();
+      continue;
+    }
+    normalized.push(segment);
+  }
+  return `/raw/${normalized.map(encodeURIComponent).join('/')}${suffix}`;
+}
+
+function rewriteRelativeUrls(html: string, assetBasePath = '') {
+  if (!assetBasePath) return html;
+  return html.replace(/\b(src|href)=(['"])([^'"]+)\2/g, (match, attr: string, quote: string, value: string) => {
+    if (isExternalOrSpecialUrl(value)) return match;
+    return `${attr}=${quote}${joinRawAssetPath(assetBasePath, value)}${quote}`;
+  });
+}
 
 function extractSlideDirectives(markdown: string): SlideDirective {
   const classNames: string[] = [];
@@ -61,7 +95,7 @@ function extractSlideDirectives(markdown: string): SlideDirective {
   return { markdown: lines.join('\n').trim(), layoutHint, classNames, hasDirective };
 }
 
-function splitMarkedParts(markdown: string, role?: MarkdownRole): SlidePart[] {
+function splitMarkedParts(markdown: string, role?: MarkdownRole, options: ParseOptions = {}): SlidePart[] {
   const source = markdown.trim();
   if (!source) return [];
 
@@ -71,7 +105,7 @@ function splitMarkedParts(markdown: string, role?: MarkdownRole): SlidePart[] {
 
   const flush = () => {
     if (buffer.length) {
-      parts.push({ type: 'markdown', html: marked.parser(buffer), role });
+      parts.push({ type: 'markdown', html: rewriteRelativeUrls(marked.parser(buffer), options.assetBasePath), role });
       buffer = [];
     }
   };
@@ -129,11 +163,11 @@ function splitColumnSegments(markdown: string): MarkdownSegment[] | null {
   return sawColumn ? segments : null;
 }
 
-function splitParts(markdown: string): SlidePart[] {
+function splitParts(markdown: string, options: ParseOptions = {}): SlidePart[] {
   const segments = splitColumnSegments(markdown);
-  if (!segments) return splitMarkedParts(markdown);
+  if (!segments) return splitMarkedParts(markdown, undefined, options);
 
-  return segments.flatMap(segment => splitMarkedParts(segment.markdown, segment.role));
+  return segments.flatMap(segment => splitMarkedParts(segment.markdown, segment.role, options));
 }
 
 function parseSlideMeta(line: string): { key: string; value: string } | null {
@@ -184,7 +218,7 @@ function classesForSlideDensity(parts: SlidePart[], layout: SlideLayout, index: 
   return classes;
 }
 
-export function parseSlides(markdown: string): { slides: SlideData[]; meta: SlideMeta } {
+export function parseSlides(markdown: string, options: ParseOptions = {}): { slides: SlideData[]; meta: SlideMeta } {
   const lines = markdown.split('\n');
   let title = '';
   let layout: SlideLayout = 'default';
@@ -223,7 +257,7 @@ export function parseSlides(markdown: string): { slides: SlideData[]; meta: Slid
     if (!trimmed) continue;
 
     const directives = extractSlideDirectives(trimmed);
-    const parts = splitParts(directives.markdown);
+    const parts = splitParts(directives.markdown, options);
     if (parts.length === 0 && !directives.hasDirective) continue;
 
     const inferredLayout = parseLayoutFromParts(parts);

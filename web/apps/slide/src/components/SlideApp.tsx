@@ -18,6 +18,13 @@ function calculateStageScale() {
 
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
 
+function dirname(path: string) {
+  const normalized = path.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  if (index <= 0) return '';
+  return normalized.slice(0, index);
+}
+
 interface SlideAppProps {
   contentMode: boolean;
   filePath?: string;
@@ -54,7 +61,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         return;
       }
 
-      const { slides: parsed, meta: parsedMeta } = parseSlides(md);
+      const { slides: parsed, meta: parsedMeta } = parseSlides(md, { assetBasePath: contentMode ? '' : dirname(file || '') });
       if (parsed.length === 0) {
         setError('No slides found. Use --- to separate slides.');
         return;

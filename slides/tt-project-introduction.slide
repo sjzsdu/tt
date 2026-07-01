@@ -794,7 +794,7 @@ flowchart LR
 
 # 示例：Markdown 图片与链接
 
-![tt runtime map](/raw/assets/tt-runtime-map.svg)
+![tt runtime map](./assets/tt-runtime-map.svg)
 
 [README 项目说明](https://github.com/sjzsdu/tt#readme) · [架构示例 Deck](/raw/architecture.slide) · [GitHub 仓库](https://github.com/sjzsdu/tt)
 
@@ -816,7 +816,7 @@ flowchart LR
 :::
 
 :::columns
-![tt runtime map](/raw/assets/tt-runtime-map.svg)
+![tt runtime map](./assets/tt-runtime-map.svg)
 :::
 
 ---

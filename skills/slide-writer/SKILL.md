@@ -202,6 +202,19 @@ Rules:
 - If a table needs many rows, split it into multiple slides or summarize the key rows.
 - Do not compensate for dense tables by asking the template to use tiny fonts.
 
+## Images and links
+
+Use standard Markdown image and link syntax. For local deck-owned assets, put files next to the deck, usually in an `assets/` directory, and use relative paths:
+
+```markdown
+![Runtime map](./assets/runtime-map.svg)
+[Design note](./docs/design.md)
+```
+
+The slide renderer resolves relative paths against the current `.slide` file directory and serves them through the local `/raw/...` route. Prefer relative paths over hand-written `/raw/...` URLs so the deck remains portable when moved as a folder.
+
+Do not reference template assets from `.slide` documents. Template-owned backgrounds, logos, and decorative images belong in `.tt/slide/templates/<name>/assets/` and should be referenced by template CSS.
+
 ## Recommended deck shape
 
 For most decks:
