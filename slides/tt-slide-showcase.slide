@@ -681,18 +681,18 @@ quadrantChart
 
 ```mermaid
 requirementDiagram
-    requirement semantic_deck {
-        id: REQ-001
-        text: .slide must stay template agnostic
-        risk: medium
-        verifymethod: inspection
-    }
+requirement semantic_deck {
+id: 1
+text: slide document stays template agnostic
+risk: medium
+verifymethod: inspection
+}
 
-    element template_runtime {
-        type: system
-    }
+element template_runtime {
+type: system
+}
 
-    template_runtime - satisfies -> semantic_deck
+template_runtime - satisfies -> semantic_deck
 ```
 
 ---
@@ -779,7 +779,7 @@ architecture-beta
     group local(cloud)[Local Machine]
     service cli(server)[tt slide] in local
     service ui(internet)[Browser UI] in local
-    service file(disk)[.slide files] in local
+    service file(disk)[Slide files] in local
     service template(disk)[templates] in local
 
     cli:R -- L:ui
@@ -970,12 +970,12 @@ SlideData: {
   shape: class
   +index: int
   +layout: SlideLayout
-  +parts: SlidePart[]
+  +parts: "SlidePart[]"
 }
 
 SlidePart: {
   shape: class
-  +type: markdown | mermaid | d2
+  +type: "markdown | mermaid | d2"
   +role: string
 }
 
