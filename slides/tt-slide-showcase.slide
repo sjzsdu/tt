@@ -9,7 +9,7 @@ transition: fade
 
 用一份 `.slide` 文档展示当前工具支持的页面规则、布局语义、Markdown、Mermaid 和 D2 图表
 
-`Semantic Deck` · `Reveal.js` · `Mermaid 11.15` · `D2` · `Template Runtime`
+`Semantic Deck` · `Reveal.js` · `Mermaid 11.16` · `D2` · `Template Runtime`
 
 ---
 
@@ -437,7 +437,7 @@ func main() {
 
 ```mermaid
 mindmap
-  root((Mermaid 11.15))
+  root((Mermaid 11.16))
     结构图
       flowchart
       block
