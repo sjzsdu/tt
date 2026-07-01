@@ -802,9 +802,14 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !slices.Contains(clarifyAgent.InputCtx, "discern-situation") {
 		t.Fatalf("clarify-situation input_context = %v, want discern-situation", clarifyAgent.InputCtx)
 	}
-	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "radio / checkbox / select", "最多 1 个 textarea", "字段数量 3-5 个", "未经用户确认", "用户可见文案必须是产品文案"} {
+	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "radio / checkbox / select", "问清", "不设硬性上限", "required", "未经用户确认", "用户可见文案必须是产品文案"} {
 		if !strings.Contains(clarifyAgent.Prompt, want) {
 			t.Fatalf("clarify-situation prompt missing %q:\n%s", want, clarifyAgent.Prompt)
+		}
+	}
+	for _, notWant := range []string{"最多 1 个 textarea", "字段数量 3-5 个"} {
+		if strings.Contains(clarifyAgent.Prompt, notWant) {
+			t.Fatalf("clarify-situation prompt should not impose artificial limit %q:\n%s", notWant, clarifyAgent.Prompt)
 		}
 	}
 	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure", "main_choice", "current_status", "二战"} {
@@ -824,7 +829,7 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !ok {
 		t.Fatalf("merge-situation step = %T, want AgentStep", merge.Step)
 	}
-	if !strings.Contains(mergeAgent.Prompt, "advice_confidence") || !strings.Contains(mergeAgent.Prompt, "conclusion_mode") {
+	if !strings.Contains(mergeAgent.Prompt, "advice_confidence") || !strings.Contains(mergeAgent.Prompt, "conclusion_mode") || !strings.Contains(mergeAgent.Prompt, "本该在表单里询问的问题") {
 		t.Fatalf("merge-situation prompt should require confidence and conclusion mode:\n%s", mergeAgent.Prompt)
 	}
 
