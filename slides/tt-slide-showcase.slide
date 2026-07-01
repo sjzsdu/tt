@@ -59,7 +59,12 @@ cover、center、hero、two-column、grid、cards、flex、media 和 end。
 
 ---
 
+.two-column
+
 # 最小 `.slide` 文档骨架
+
+:::columns
+## deck.slide
 
 ```markdown
 ---
@@ -67,11 +72,9 @@ title: Demo Deck
 transition: fade
 ---
 
-.cover
-
 # 第一页
 
-封面副标题
+一句话说明。
 
 ---
 
@@ -79,11 +82,17 @@ transition: fade
 
 - 观点 A
 - 观点 B
-
----
-
-.end
 ```
+:::
+
+:::columns
+## 关键规则
+
+- front matter 只出现在文件开头
+- 顶层 `---` 分隔 slide
+- `.cover` 和 `.end` 是可选语义页
+- 长代码示例要拆页，避免挤占
+:::
 
 ---
 
