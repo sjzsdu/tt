@@ -882,7 +882,7 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !slices.Contains(finalAgent.InputCtx, "settle-situation") || !slices.Contains(finalAgent.InputCtx, "cast-hexagram") {
 		t.Fatalf("teach-and-guide input_context = %v, want settle-situation and cast-hexagram", finalAgent.InputCtx)
 	}
-	for _, want := range []string{"取卦定像", "指导人生", "解释卦义", "依据链", "为什么此时此位适合此卦", "偏古文、半古文", "半文半白", "古意为骨", "白话为用", "现代咨询腔", "商业顾问腔", "OKR 清单腔", "夫事有时，位有当", "宜守不宜躁", "宜明界不宜空耗", "只有 7 个", "一句话结论", "你的时与位", "为什么取此卦", "这个卦在讲什么", "你站在哪一爻", "怎么做", "最后卦训", "默认 900-1300 字", "不要写成长篇教材", "不要编造用户未提供"} {
+	for _, want := range []string{"取卦定像", "指导人生", "解释卦义", "依据链", "为什么此时此位适合此卦", "清楚白话为主", "文言点睛", "不要强行半文半白", "文言表达更简洁、更有味道", "白话落地", "生硬半古文", "心理咨询报告腔", "商业顾问腔", "OKR 清单腔", "夫事有时，位有当", "宜守不宜躁", "宜明界不宜空耗", "只有 7 个", "一句话结论", "你的时与位", "为什么取此卦", "这个卦在讲什么", "你站在哪一爻", "怎么做", "最后卦训", "默认 900-1300 字", "不要写成长篇教材", "不要编造用户未提供"} {
 		if !strings.Contains(finalAgent.Prompt, want) {
 			t.Fatalf("teach-and-guide prompt missing %q:\n%s", want, finalAgent.Prompt)
 		}
