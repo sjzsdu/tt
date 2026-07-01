@@ -88,6 +88,23 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("BeadManager prompt and soul should be loaded")
 	}
 
+	yiJing, err := Get(YiJingID)
+	if err != nil {
+		t.Fatalf("Get(YiJingID) error = %v", err)
+	}
+	if yiJing.Name != "易经决策参谋" {
+		t.Fatalf("YiJing name = %q", yiJing.Name)
+	}
+	if !containsString(yiJing.Aliases, "yj") {
+		t.Fatalf("YiJing aliases = %v, want yj", yiJing.Aliases)
+	}
+	if yiJing.Prompt == "" || yiJing.Soul == "" {
+		t.Fatalf("YiJing prompt and soul should be loaded")
+	}
+	if !strings.Contains(yiJing.Prompt, "不是“算命”") || !strings.Contains(yiJing.Soul, "善易者") {
+		t.Fatalf("YiJing prompt/soul should define Yijing decision boundaries")
+	}
+
 	codeContextManager, err := Get(CodeContextManagerID)
 	if err != nil {
 		t.Fatalf("Get(CodeContextManagerID) error = %v", err)

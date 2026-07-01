@@ -36,6 +36,7 @@ const (
 	FormulaWriterID         = "formula-writer"
 	DocsAnalystID           = "docs-analyst"
 	BeadManagerID           = "bead-manager"
+	YiJingID                = "yi-jing"
 )
 
 //go:embed embedded

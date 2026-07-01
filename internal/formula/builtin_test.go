@@ -796,6 +796,9 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !ok {
 		t.Fatalf("clarify-situation step = %T, want AgentStep", clarify.Step)
 	}
+	if clarifyAgent.Agent != "yi-jing" {
+		t.Fatalf("clarify-situation agent = %q, want yi-jing", clarifyAgent.Agent)
+	}
 	if !clarifyAgent.DynamicForm {
 		t.Fatalf("clarify-situation should use dynamic_form so forms are derived from the user's question")
 	}
@@ -829,6 +832,9 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !ok {
 		t.Fatalf("merge-situation step = %T, want AgentStep", merge.Step)
 	}
+	if mergeAgent.Agent != "yi-jing" {
+		t.Fatalf("merge-situation agent = %q, want yi-jing", mergeAgent.Agent)
+	}
 	if !strings.Contains(mergeAgent.Prompt, "advice_confidence") || !strings.Contains(mergeAgent.Prompt, "conclusion_mode") || !strings.Contains(mergeAgent.Prompt, "本该在表单里询问的问题") {
 		t.Fatalf("merge-situation prompt should require confidence and conclusion mode:\n%s", mergeAgent.Prompt)
 	}
@@ -852,6 +858,9 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 		}
 		if !slices.Contains(agent.InputCtx, check.wantCtx) {
 			t.Fatalf("%s input_context = %v, want %s", check.id, agent.InputCtx, check.wantCtx)
+		}
+		if agent.Agent != "yi-jing" {
+			t.Fatalf("%s agent = %q, want yi-jing", check.id, agent.Agent)
 		}
 	}
 	cast := workflow.Graph.Nodes[ir.NodeID("cast-frame")]

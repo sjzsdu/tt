@@ -43,7 +43,7 @@ description = """
 - 如果信息足够，needs_clarification=false，但其它字段仍要填充。
 - 不要在本步骤给最终建议。
 """
-agent.name = "planner"
+agent.name = "yi-jing"
 
 [[steps]]
 id = "clarify-situation"
@@ -74,7 +74,7 @@ description = """
 {"reason":"为了判断更贴近你的真实处境，请再补充几项背景。","form":{"title":"再补充几项背景","description":"选最贴近你处境的答案即可。","submit_label":"继续解卦","fields":[{"name":"example_choice","label":"示例问题？","type":"radio","required":true,"options":["选项 A","选项 B"]}]}}
 ```
 """
-agent.name = "planner"
+agent.name = "yi-jing"
 
 [[steps]]
 id = "merge-situation"
@@ -98,7 +98,7 @@ description = """
 输出 ONLY compact JSON，不要 Markdown，不要代码块：
 {"known_facts":["..."],"user_supplied_facts":["..."],"missing_facts":["..."],"core_tradeoff":"...","decision_constraints":["..."],"near_term_risks":["..."],"long_term_risks":["..."],"advice_confidence":"medium","conclusion_mode":"conditional","yili_question":"...","guidance_boundary":"..."}
 """
-agent.name = "planner"
+agent.name = "yi-jing"
 
 [steps.validate]
 format = "json"
@@ -135,7 +135,7 @@ description = """
 - 不要给最终人生指导，留到最后 synthesis。
 - 可以引用广为流传且你确信的卦辞、爻辞、彖传原文；不确定逐字原文时不要伪造，改为“义理概述”，并标注“原文需核对”。
 """
-agent.name = "planner"
+agent.name = "yi-jing"
 
 [[steps]]
 id = "line-plan"
@@ -152,7 +152,7 @@ description = """
 {"hexagram":"卦名","hexagram_number":"卦序，如第十五卦","upper_trigram":"上卦及符号","lower_trigram":"下卦及符号","line":"初九/六二/九三/六四/九五/上六等","role":"动爻/重点爻","line_text":"可确信的爻辞原文；不确定则写义理概述并标注需核对","why":"为什么这个爻对应用户问题","question_angle":"这个爻主要回答用户问题中的哪个角度"}
 - 如果 divination_frame 中没有明确动爻，也要选择 1 个最关键的重点爻。
 """
-agent.name = "planner"
+agent.name = "yi-jing"
 
 [[steps]]
 id = "interpret-lines"
@@ -186,7 +186,7 @@ depends_on = ["line-plan"]
 - 文字要有传统文化传播的味道，让用户感到“读爻是在读人生处境”。
 - 可以引用你确信的爻辞/小象；不确定经典原文时不要伪造，可以概述并标注需核对。
 """
-  agent.name = "planner"
+  agent.name = "yi-jing"
 
 [[steps]]
 id = "change-reading"
@@ -211,7 +211,7 @@ description = """
 - 必须包含：当前态势、卦辞彖传义理、变化动力、可能走向、关键风险、转机条件、人生功课。
 - 不要宿命论，不要承诺必然结果。
 """
-agent.name = "planner"
+agent.name = "yi-jing"
 
 [[steps]]
 id = "life-guidance"
@@ -265,4 +265,4 @@ description = """
 - 给出明确方向，但不要伪装成百分百预言；不要编造用户未提供的经历、资源、关系、能力、风险承受力或外部约束。
 - 报告要让一个不懂易经的人也能看懂，并且读完能记住这个卦的核心义理。
 """
-agent.name = "planner"
+agent.name = "yi-jing"
