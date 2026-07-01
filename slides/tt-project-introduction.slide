@@ -805,18 +805,18 @@ flowchart LR
 # 示例：链接、图片和文字可以组合成说明页
 
 :::columns
+![tt runtime map](./assets/tt-runtime-map.svg)
+:::
+
+:::columns
 ## 用一页讲清 runtime
 
 - 左侧保留解释文本
 - 右侧放项目专属架构素材
 - 链接用于跳转到仓库文档
-- 图片使用 `/raw/...` 读取工作区文件
+- 图片使用 `/assets/...` 读取工作区文件
 
 [查看 README](https://github.com/sjzsdu/tt#readme)
-:::
-
-:::columns
-![tt runtime map](./assets/tt-runtime-map.svg)
 :::
 
 ---
@@ -880,6 +880,75 @@ Formula runtime -> Dashboard: run events
 Agent runtime -> Workspace: read context
 Dashboard -> Workspace: final report
 ```
+
+---
+
+.cards
+
+# 示例：cards 布局展示能力组
+
+:::card
+## 本地内容工作台
+- Markdown / Slide / JSON
+- live reload
+- 固定 16:9 演示画布
+:::
+
+:::card
+## Agent Runtime
+- embedded agents
+- skills / tools
+- Picoclaw DirectRunner
+:::
+
+:::card
+## Formula Workflow
+- TOML → IR
+- typed runtime
+- dashboard / report
+:::
+
+---
+
+.grid
+
+# 示例：grid 布局展示接入点
+
+:::item
+## `cmd/`
+命令入口、flag、HTTP server 组装。
+:::
+
+:::item
+## `internal/`
+领域逻辑、runtime、存储和复用能力。
+:::
+
+:::item
+## `web/apps/`
+React/Vite 前端，用 `go:embed` 进入二进制。
+:::
+
+:::item
+## `.tt/`
+项目模板、配置和可复用视觉资产。
+:::
+
+---
+
+.media-right
+
+:::main
+# 示例：media-right 布局
+
+- 左侧保留叙事和关键点
+- 右侧放图片、SVG 或其他媒体
+- 图片路径使用 `./assets/...`，随 deck 文件夹移动
+:::
+
+:::media
+![tt runtime map](./assets/tt-runtime-map.svg)
+:::
 
 ---
 

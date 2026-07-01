@@ -12,7 +12,7 @@ export type TemplateConfig = {
   };
 };
 
-export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'logo' | 'closing' | 'full-image';
+export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'grid' | 'cards' | 'flex' | 'hero' | 'media-left' | 'media-right' | 'logo' | 'closing' | 'full-image';
 
 export type SlideMeta = {
   title: string;
@@ -40,6 +40,6 @@ export type SlideData = {
 };
 
 export type SlidePart =
-  | { type: 'markdown'; html: string; role?: 'column' }
+  | { type: 'markdown'; html: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' }
   | { type: 'mermaid'; code: string }
   | { type: 'd2'; code: string };

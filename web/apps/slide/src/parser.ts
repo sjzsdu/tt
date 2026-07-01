@@ -31,7 +31,8 @@ type SlideDirective = {
   hasDirective: boolean;
 };
 
-const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|cover|closing|end|final)\s*$/i;
+const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|grid|cards|flex|hero|media-left|media-right|cover|closing|end|final)\s*$/i;
+const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
 
 function isExternalOrSpecialUrl(value: string) {
   return /^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(value);
@@ -88,6 +89,18 @@ function extractSlideDirectives(markdown: string): SlideDirective {
       layoutHint = 'split';
     } else if (directive === 'two-column' || directive === 'columns') {
       layoutHint = 'two-column';
+    } else if (directive === 'grid') {
+      layoutHint = 'grid';
+    } else if (directive === 'cards') {
+      layoutHint = 'cards';
+    } else if (directive === 'flex') {
+      layoutHint = 'flex';
+    } else if (directive === 'hero') {
+      layoutHint = 'hero';
+    } else if (directive === 'media-left') {
+      layoutHint = 'media-left';
+    } else if (directive === 'media-right') {
+      layoutHint = 'media-right';
     }
     classNames.push(`slide-${directive}`);
   }
@@ -126,12 +139,18 @@ function splitMarkedParts(markdown: string, role?: MarkdownRole, options: ParseO
   return parts;
 }
 
-function splitColumnSegments(markdown: string): MarkdownSegment[] | null {
+function normalizeBlockRole(role: string): MarkdownRole {
+  const normalized = role.toLowerCase();
+  if (normalized === 'columns' || normalized === 'column') return 'column';
+  return normalized as MarkdownRole;
+}
+
+function splitBlockSegments(markdown: string): MarkdownSegment[] | null {
   const lines = markdown.split('\n');
   const segments: MarkdownSegment[] = [];
   let buffer: string[] = [];
-  let inColumn = false;
-  let sawColumn = false;
+  let currentRole: MarkdownRole | undefined;
+  let sawBlock = false;
 
   const flush = (role?: MarkdownRole) => {
     const text = buffer.join('\n').trim();
@@ -143,28 +162,29 @@ function splitColumnSegments(markdown: string): MarkdownSegment[] | null {
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!inColumn && /^:::\s*columns\s*$/i.test(trimmed)) {
+    const blockMatch = trimmed.match(blockRolePattern);
+    if (!currentRole && blockMatch) {
       flush();
-      inColumn = true;
-      sawColumn = true;
+      currentRole = normalizeBlockRole(blockMatch[1]);
+      sawBlock = true;
       continue;
     }
-    if (inColumn && /^:::\s*$/.test(trimmed)) {
-      flush('column');
-      inColumn = false;
+    if (currentRole && /^:::\s*$/.test(trimmed)) {
+      flush(currentRole);
+      currentRole = undefined;
       continue;
     }
     buffer.push(line);
   }
 
-  if (inColumn) return null;
+  if (currentRole) return null;
   flush();
 
-  return sawColumn ? segments : null;
+  return sawBlock ? segments : null;
 }
 
 function splitParts(markdown: string, options: ParseOptions = {}): SlidePart[] {
-  const segments = splitColumnSegments(markdown);
+  const segments = splitBlockSegments(markdown);
   if (!segments) return splitMarkedParts(markdown, undefined, options);
 
   return segments.flatMap(segment => splitMarkedParts(segment.markdown, segment.role, options));
@@ -178,12 +198,19 @@ function parseSlideMeta(line: string): { key: string; value: string } | null {
 
 function parseLayoutFromParts(parts: SlidePart[]): SlideLayout {
   if (parts.some(part => part.type === 'markdown' && part.role === 'column')) return 'two-column';
+  if (parts.some(part => part.type === 'markdown' && part.role === 'card')) return 'cards';
+  if (parts.some(part => part.type === 'markdown' && part.role === 'item')) return 'grid';
+  if (parts.some(part => part.type === 'markdown' && (part.role === 'media' || part.role === 'main' || part.role === 'aside'))) return 'media-right';
   for (const part of parts) {
     if (part.type !== 'markdown') continue;
     const html = part.html;
     if (html.includes('class="two-column"') || html.includes(':::columns')) return 'two-column';
     if (html.includes('class="split"')) return 'split';
     if (html.includes('class="center"')) return 'center';
+    if (html.includes('class="grid"')) return 'grid';
+    if (html.includes('class="cards"')) return 'cards';
+    if (html.includes('class="flex"')) return 'flex';
+    if (html.includes('class="hero"')) return 'hero';
   }
   return 'default';
 }
@@ -192,6 +219,12 @@ function classForLayout(layout: SlideLayout): string {
   if (layout === 'center') return 'slide-center';
   if (layout === 'two-column') return 'slide-two-column';
   if (layout === 'split') return 'slide-split';
+  if (layout === 'grid') return 'slide-grid';
+  if (layout === 'cards') return 'slide-cards';
+  if (layout === 'flex') return 'slide-flex';
+  if (layout === 'hero') return 'slide-hero';
+  if (layout === 'media-left') return 'slide-media-left';
+  if (layout === 'media-right') return 'slide-media-right';
   if (layout === 'logo') return 'slide-logo';
   if (layout === 'closing') return 'slide-closing';
   return '';
@@ -261,7 +294,7 @@ export function parseSlides(markdown: string, options: ParseOptions = {}): { sli
     if (parts.length === 0 && !directives.hasDirective) continue;
 
     const inferredLayout = parseLayoutFromParts(parts);
-    const slideLayout = inferredLayout === 'default' && directives.layoutHint ? directives.layoutHint : inferredLayout;
+    const slideLayout = directives.layoutHint || inferredLayout;
     const slideClass = [idx === 0 ? 'slide-cover' : '', classForLayout(slideLayout), ...directives.classNames, ...classesForSlideDensity(parts, slideLayout, idx)]
       .filter(Boolean)
       .filter((value, index, values) => values.indexOf(value) === index)

@@ -88,6 +88,11 @@ A directive appears at the top of a slide and is not rendered as visible content
 | `.center` | Center one important message |
 | `.split` | Two-part slide, usually concept plus evidence, text plus diagram, or before plus after |
 | `.two-column` / `.columns` | Balanced two-column content |
+| `.grid` | Repeating item layout for 3 to 6 comparable blocks |
+| `.cards` | Card-based layout for features, capabilities, risks, or options |
+| `.flex` | Flexible wrapping layout for mixed short blocks |
+| `.hero` | Large message plus supporting visual or details |
+| `.media-left` / `.media-right` | Text plus image/diagram/media, with media side indicated |
 | `.brand` / `.logo` | Brand/identity page semantics; template decides presentation |
 | `.end` / `.closing` / `.final` | Closing/end page semantics; template decides presentation |
 
@@ -103,6 +108,11 @@ For every slide, choose one of these patterns:
 | --- | --- | --- |
 | One strong message, little text | `.center` | Prevents sparse top-left pages; lets template center and enlarge the message. |
 | Two comparable ideas | `.two-column` with one `:::columns` block per side | Fills horizontal space and creates balance. |
+| 3 to 6 peer items | `.grid` with `:::item` blocks | Gives each item equal visual weight. |
+| Feature / option / risk cards | `.cards` with `:::card` blocks | Lets templates add card surfaces and spacing. |
+| Short mixed blocks | `.flex` with normal Markdown or `:::item` blocks | Allows stable wrapping inside the fixed canvas. |
+| Big message plus proof | `.hero` | Emphasizes one main statement without top-left sparsity. |
+| Text plus image/media | `.media-left` / `.media-right` with `:::media` and `:::main` | Keeps media and explanation balanced. |
 | Text plus diagram / evidence | `.split` or `.two-column` | Avoids squeezing diagram under text. |
 | Main diagram / architecture / flow | Short title plus Mermaid/D2 only | Lets renderer treat it as diagram-heavy and use most of the slide. |
 | Dense notes | Split into several slides | Prevents tiny text and visual clutter. |
@@ -148,6 +158,76 @@ For two-column content, use one `:::columns` block per column:
 Keep the two sides roughly balanced. If one side is much longer, split the slide.
 
 Use one `:::columns ... :::` block for each column. Do not use ad-hoc separators for columns.
+
+## Rich layout blocks
+
+For richer layouts, use semantic block fences. These are `tt slide` document semantics, not template-specific CSS. Templates decide the exact visual treatment.
+
+Cards:
+
+```markdown
+---
+
+.cards
+
+# Runtime building blocks
+
+:::card
+## Local UI
+- Markdown
+- Slide
+- JSON
+:::
+
+:::card
+## Agent runtime
+- Embedded agents
+- Skills
+- Tool access
+:::
+```
+
+Grid items:
+
+```markdown
+---
+
+.grid
+
+# Integration points
+
+:::item
+## cmd/
+CLI entrypoints
+:::
+
+:::item
+## internal/
+Domain logic
+:::
+```
+
+Media layout:
+
+```markdown
+---
+
+.media-right
+
+:::main
+# Local-first presentation
+
+- Fixed 16:9 canvas
+- Relative assets
+- Template-owned styling
+:::
+
+:::media
+![Runtime map](./assets/tt-runtime-map.svg)
+:::
+```
+
+Available block roles: `:::columns`, `:::card`, `:::item`, `:::main`, `:::aside`, and `:::media`.
 
 ## Diagrams
 

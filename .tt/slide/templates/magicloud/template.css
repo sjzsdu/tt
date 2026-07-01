@@ -581,6 +581,117 @@
     object-fit: cover;
 }
 
+.slide-grid .slide-content,
+.slide-cards .slide-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 26px;
+    align-content: start;
+    height: 100%;
+}
+
+.slide-grid .slide-markdown:not(.slide-part-item):not(.slide-part-card),
+.slide-cards .slide-markdown:not(.slide-part-item):not(.slide-part-card) {
+    grid-column: 1 / -1;
+}
+
+.slide-part-item,
+.slide-part-card {
+    min-width: 0;
+    padding: 24px 26px;
+    border: 1px solid var(--slide-card-border);
+    border-radius: 0;
+    background: rgba(244, 244, 244, 0.82);
+}
+
+.slide-part-item h2,
+.slide-part-card h2 {
+    margin-bottom: 12px;
+    font-size: 0.72em;
+}
+
+.slide-part-item p,
+.slide-part-card p,
+.slide-part-item li,
+.slide-part-card li {
+    font-size: 0.52em;
+    line-height: 1.45;
+}
+
+.slide-flex .slide-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 26px;
+    align-content: center;
+    align-items: stretch;
+    height: 100%;
+}
+
+.slide-flex .slide-markdown {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+.slide-flex .slide-markdown:first-child {
+    flex-basis: 100%;
+}
+
+.slide-hero .slide-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    gap: 52px;
+    align-items: center;
+    height: 100%;
+}
+
+.slide-hero .slide-markdown:first-child h1 {
+    max-width: none;
+    font-size: 1.55em;
+    line-height: 1.06;
+}
+
+.slide-hero .slide-markdown:first-child p {
+    font-size: 0.68em;
+}
+
+.slide-media-left .slide-content,
+.slide-media-right .slide-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    gap: 44px;
+    align-items: center;
+    height: 100%;
+}
+
+.slide-media-left .slide-content {
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+}
+
+.slide-media-left .slide-part-media {
+    order: -1;
+}
+
+.slide-part-media,
+.slide-part-main,
+.slide-part-aside {
+    min-width: 0;
+}
+
+.slide-part-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.slide-part-media img,
+.slide-part-media svg,
+.slide-part-media video {
+    width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
 .slide-center .slide-content {
     justify-content: center;
     text-align: center;
