@@ -788,31 +788,50 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(shan-yi-zhe) error = %v", err)
 	}
-	clarify := workflow.Graph.Nodes[ir.NodeID("clarify-situation")]
-	if clarify == nil {
-		t.Fatalf("missing clarify-situation node")
+	for _, nodeID := range []ir.NodeID{"discern-shi-wei", "clarify-shi-wei", "settle-situation", "cast-hexagram", "teach-and-guide"} {
+		if workflow.Graph.Nodes[nodeID] == nil {
+			t.Fatalf("missing shan-yi-zhe node %s", nodeID)
+		}
 	}
+	for _, removed := range []ir.NodeID{"discern-situation", "merge-situation", "cast-frame", "line-plan", "interpret-lines", "change-reading", "life-guidance"} {
+		if workflow.Graph.Nodes[removed] != nil {
+			t.Fatalf("old verbose shan-yi-zhe node %s should be removed", removed)
+		}
+	}
+
+	discern := workflow.Graph.Nodes[ir.NodeID("discern-shi-wei")]
+	discernAgent, ok := discern.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("discern-shi-wei step = %T, want AgentStep", discern.Step)
+	}
+	for _, want := range []string{"定时位", "明确定“时”", "明确定“位”", "初起", "临界", "待时", "主动者/被动者", "needs_clarification", "shi", "wei"} {
+		if !strings.Contains(discernAgent.Prompt, want) {
+			t.Fatalf("discern-shi-wei prompt missing %q:\n%s", want, discernAgent.Prompt)
+		}
+	}
+
+	clarify := workflow.Graph.Nodes[ir.NodeID("clarify-shi-wei")]
 	clarifyAgent, ok := clarify.Step.(steps.AgentStep)
 	if !ok {
-		t.Fatalf("clarify-situation step = %T, want AgentStep", clarify.Step)
+		t.Fatalf("clarify-shi-wei step = %T, want AgentStep", clarify.Step)
 	}
 	if clarifyAgent.Agent != "yi-jing" {
-		t.Fatalf("clarify-situation agent = %q, want yi-jing", clarifyAgent.Agent)
+		t.Fatalf("clarify-shi-wei agent = %q, want yi-jing", clarifyAgent.Agent)
 	}
 	if !clarifyAgent.DynamicForm {
-		t.Fatalf("clarify-situation should use dynamic_form so forms are derived from the user's question")
+		t.Fatalf("clarify-shi-wei should use dynamic_form so forms are derived from the user's question")
 	}
-	if !slices.Contains(clarifyAgent.InputCtx, "discern-situation") {
-		t.Fatalf("clarify-situation input_context = %v, want discern-situation", clarifyAgent.InputCtx)
+	if !slices.Contains(clarifyAgent.InputCtx, "discern-shi-wei") {
+		t.Fatalf("clarify-shi-wei input_context = %v, want discern-shi-wei", clarifyAgent.InputCtx)
 	}
-	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "radio / checkbox / select", "问清", "不设硬性上限", "required", "未经用户确认", "用户可见文案必须是产品文案"} {
+	for _, want := range []string{"只针对当前问题", "不能使用千篇一律", "时", "位", "radio / checkbox / select", "问清", "不设硬性上限", "required", "未经用户确认", "用户可见文案必须是产品文案"} {
 		if !strings.Contains(clarifyAgent.Prompt, want) {
-			t.Fatalf("clarify-situation prompt missing %q:\n%s", want, clarifyAgent.Prompt)
+			t.Fatalf("clarify-shi-wei prompt missing %q:\n%s", want, clarifyAgent.Prompt)
 		}
 	}
 	for _, notWant := range []string{"最多 1 个 textarea", "字段数量 3-5 个"} {
 		if strings.Contains(clarifyAgent.Prompt, notWant) {
-			t.Fatalf("clarify-situation prompt should not impose artificial limit %q:\n%s", notWant, clarifyAgent.Prompt)
+			t.Fatalf("clarify-shi-wei prompt should not impose artificial limit %q:\n%s", notWant, clarifyAgent.Prompt)
 		}
 	}
 	for _, notWant := range []string{"career_direction", "postgraduate_readiness", "resources_and_pressure", "main_choice", "current_status", "二战"} {
@@ -821,61 +840,56 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 		}
 	}
 
-	merge := workflow.Graph.Nodes[ir.NodeID("merge-situation")]
-	if merge == nil {
-		t.Fatalf("missing merge-situation node")
+	settle := workflow.Graph.Nodes[ir.NodeID("settle-situation")]
+	if settle == nil {
+		t.Fatalf("missing settle-situation node")
 	}
-	if !slices.Contains(merge.Step.Meta().DependsOn, steps.ID("discern-situation")) || !slices.Contains(merge.Step.Meta().DependsOn, steps.ID("clarify-situation")) {
-		t.Fatalf("merge-situation deps = %v, want discern-situation and clarify-situation", merge.Step.Meta().DependsOn)
+	if !slices.Contains(settle.Step.Meta().DependsOn, steps.ID("discern-shi-wei")) || !slices.Contains(settle.Step.Meta().DependsOn, steps.ID("clarify-shi-wei")) {
+		t.Fatalf("settle-situation deps = %v, want discern-shi-wei and clarify-shi-wei", settle.Step.Meta().DependsOn)
 	}
-	mergeAgent, ok := merge.Step.(steps.AgentStep)
+	settleAgent, ok := settle.Step.(steps.AgentStep)
 	if !ok {
-		t.Fatalf("merge-situation step = %T, want AgentStep", merge.Step)
+		t.Fatalf("settle-situation step = %T, want AgentStep", settle.Step)
 	}
-	if mergeAgent.Agent != "yi-jing" {
-		t.Fatalf("merge-situation agent = %q, want yi-jing", mergeAgent.Agent)
-	}
-	if !strings.Contains(mergeAgent.Prompt, "advice_confidence") || !strings.Contains(mergeAgent.Prompt, "conclusion_mode") || !strings.Contains(mergeAgent.Prompt, "本该在表单里询问的问题") {
-		t.Fatalf("merge-situation prompt should require confidence and conclusion mode:\n%s", mergeAgent.Prompt)
+	for _, want := range []string{"最终时位画像", "advice_confidence", "conclusion_mode", "本该在表单里询问的问题", "shi", "wei"} {
+		if !strings.Contains(settleAgent.Prompt, want) {
+			t.Fatalf("settle-situation prompt missing %q:\n%s", want, settleAgent.Prompt)
+		}
 	}
 
-	for _, check := range []struct {
-		id      ir.NodeID
-		wantCtx string
-	}{
-		{"cast-frame", "merge-situation"},
-		{"line-plan", "merge-situation"},
-		{"change-reading", "merge-situation"},
-		{"life-guidance", "merge-situation"},
-	} {
-		node := workflow.Graph.Nodes[check.id]
-		if node == nil {
-			t.Fatalf("missing %s node", check.id)
-		}
-		agent, ok := node.Step.(steps.AgentStep)
-		if !ok {
-			t.Fatalf("%s step = %T, want AgentStep", check.id, node.Step)
-		}
-		if !slices.Contains(agent.InputCtx, check.wantCtx) {
-			t.Fatalf("%s input_context = %v, want %s", check.id, agent.InputCtx, check.wantCtx)
-		}
-		if agent.Agent != "yi-jing" {
-			t.Fatalf("%s agent = %q, want yi-jing", check.id, agent.Agent)
+	cast := workflow.Graph.Nodes[ir.NodeID("cast-hexagram")]
+	if !slices.Contains(cast.Step.Meta().DependsOn, steps.ID("settle-situation")) {
+		t.Fatalf("cast-hexagram deps = %v, want settle-situation", cast.Step.Meta().DependsOn)
+	}
+	castAgent, ok := cast.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("cast-hexagram step = %T, want AgentStep", cast.Step)
+	}
+	for _, want := range []string{"为什么此人、此事、此时、此位", "用户当前的“时”", "用户当前的“位”", "本卦", "关键的爻", "变卦/之卦", "shi_wei_basis"} {
+		if !strings.Contains(castAgent.Prompt, want) {
+			t.Fatalf("cast-hexagram prompt missing %q:\n%s", want, castAgent.Prompt)
 		}
 	}
-	cast := workflow.Graph.Nodes[ir.NodeID("cast-frame")]
-	if !slices.Contains(cast.Step.Meta().DependsOn, steps.ID("merge-situation")) {
-		t.Fatalf("cast-frame deps = %v, want merge-situation", cast.Step.Meta().DependsOn)
+
+	final := workflow.Graph.Nodes[ir.NodeID("teach-and-guide")]
+	if !slices.Contains(final.Step.Meta().DependsOn, steps.ID("cast-hexagram")) {
+		t.Fatalf("teach-and-guide deps = %v, want cast-hexagram", final.Step.Meta().DependsOn)
 	}
-	life := workflow.Graph.Nodes[ir.NodeID("life-guidance")].Step.(steps.AgentStep)
-	for _, want := range []string{"只有 6 个", "一句话结论", "为什么这么判断", "卦义简解", "怎么做", "决策阈值", "最后提醒", "默认 800-1200 字", "不要写成长篇教材", "不要编造用户未提供", "依据链"} {
-		if !strings.Contains(life.Prompt, want) {
-			t.Fatalf("life-guidance prompt missing %q:\n%s", want, life.Prompt)
+	finalAgent, ok := final.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("teach-and-guide step = %T, want AgentStep", final.Step)
+	}
+	if !slices.Contains(finalAgent.InputCtx, "settle-situation") || !slices.Contains(finalAgent.InputCtx, "cast-hexagram") {
+		t.Fatalf("teach-and-guide input_context = %v, want settle-situation and cast-hexagram", finalAgent.InputCtx)
+	}
+	for _, want := range []string{"取卦定像", "指导人生", "解释卦义", "依据链", "为什么此时此位适合此卦", "只有 7 个", "一句话结论", "你的时与位", "为什么取此卦", "这个卦在讲什么", "你站在哪一爻", "怎么做", "最后卦训", "默认 900-1300 字", "不要写成长篇教材", "不要编造用户未提供"} {
+		if !strings.Contains(finalAgent.Prompt, want) {
+			t.Fatalf("teach-and-guide prompt missing %q:\n%s", want, finalAgent.Prompt)
 		}
 	}
-	for _, notWant := range []string{"已知事实与信息缺口", "卦象总览", "卦辞与彖传讲解", "爻辞/动爻讲解", "复盘问题清单", "13. **最终寄语**"} {
-		if strings.Contains(life.Prompt, notWant) {
-			t.Fatalf("life-guidance prompt should not require verbose old section %q:\n%s", notWant, life.Prompt)
+	for _, notWant := range []string{"line-plan", "interpret-lines", "change-reading", "13. **最终寄语**"} {
+		if strings.Contains(finalAgent.Prompt, notWant) {
+			t.Fatalf("teach-and-guide prompt should not require verbose old section %q:\n%s", notWant, finalAgent.Prompt)
 		}
 	}
 }
@@ -1150,7 +1164,7 @@ func TestShanYiZheBuiltinFormula(t *testing.T) {
 	for _, s := range f.Steps {
 		stepIDs[s.ID] = true
 	}
-	for _, want := range []string{"discern-situation", "cast-frame", "line-plan", "interpret-lines", "change-reading", "life-guidance"} {
+	for _, want := range []string{"discern-shi-wei", "clarify-shi-wei", "settle-situation", "cast-hexagram", "teach-and-guide"} {
 		if !stepIDs[want] {
 			t.Fatalf("expected step %q in shan-yi-zhe", want)
 		}
