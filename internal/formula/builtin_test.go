@@ -882,7 +882,7 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !slices.Contains(finalAgent.InputCtx, "settle-situation") || !slices.Contains(finalAgent.InputCtx, "cast-hexagram") {
 		t.Fatalf("teach-and-guide input_context = %v, want settle-situation and cast-hexagram", finalAgent.InputCtx)
 	}
-	for _, want := range []string{"取卦定像", "指导人生", "解释卦义", "依据链", "为什么此时此位适合此卦", "只有 7 个", "一句话结论", "你的时与位", "为什么取此卦", "这个卦在讲什么", "你站在哪一爻", "怎么做", "最后卦训", "默认 900-1300 字", "不要写成长篇教材", "不要编造用户未提供"} {
+	for _, want := range []string{"取卦定像", "指导人生", "解释卦义", "依据链", "为什么此时此位适合此卦", "偏古文、半古文", "古意为骨，白话为用", "现代咨询报告腔", "夫事有时，位有当", "宜守不宜躁", "只有 7 个", "一句话结论", "你的时与位", "为什么取此卦", "这个卦在讲什么", "你站在哪一爻", "怎么做", "最后卦训", "默认 900-1300 字", "不要写成长篇教材", "不要编造用户未提供"} {
 		if !strings.Contains(finalAgent.Prompt, want) {
 			t.Fatalf("teach-and-guide prompt missing %q:\n%s", want, finalAgent.Prompt)
 		}
