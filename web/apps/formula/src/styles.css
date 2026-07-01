@@ -348,12 +348,15 @@ button, input, textarea { font: inherit; }
 .final-output-modal .ant-modal-content { overflow: hidden; }
 .final-output-shell, .final-report-modal-layout { display: grid; gap: 16px; min-width: 0; }
 .final-report-modal-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, 440px); align-items: start; }
+.final-report-modal-layout.chat-closed { grid-template-columns: minmax(0, 1fr); }
 .final-report-pane { min-width: 0; min-height: 520px; max-height: min(78vh, 900px); overflow: auto; }
+.final-report-pane-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
 .final-report-chat-pane { min-width: 0; max-height: min(72vh, 720px); overflow: auto; }
 .final-output-kicker, .final-report-chat-role { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .final-report-chat-pane, .final-report-chat-message { padding: 12px; border: 1px solid var(--panel-border); border-radius: 14px; background: var(--soft-bg); }
 .final-report-chat-pane { display: flex; flex-direction: column; gap: 12px; }
 .final-report-chat-header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: start; min-width: 0; }
+.final-report-chat-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .final-report-chat-header-copy { display: grid; gap: 6px; min-width: 0; }
 .final-report-chat-header-copy strong { overflow-wrap: anywhere; word-break: normal; line-height: 1.35; }
 .final-report-chat-session { justify-self: start; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

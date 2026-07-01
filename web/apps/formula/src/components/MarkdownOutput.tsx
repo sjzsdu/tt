@@ -464,13 +464,17 @@ export function FinalReportModal({
   onPromoteLatest: () => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState('');
+  const [chatOpen, setChatOpen] = useState(false);
   const messages = chat?.messages || [];
   const reportAvailable = !!content?.trim();
   const chatStarted = !!chat?.session_id || messages.length > 0;
   const canPromote = messages.some(item => item.role === 'assistant' && item.content?.trim());
 
   useEffect(() => {
-    if (!open) setDraft('');
+    if (!open) {
+      setDraft('');
+      setChatOpen(false);
+    }
   }, [open]);
 
   const submit = async () => {
@@ -482,19 +486,27 @@ export function FinalReportModal({
 
   return (
     <Modal open={open} onCancel={onClose} footer={null} width="92vw" title={title} className={className}>
-      <div className="final-report-modal-layout">
+      <div className={`final-report-modal-layout ${chatOpen ? 'chat-open' : 'chat-closed'}`}>
         <section className="final-report-pane">
-          <div className="final-output-kicker">Final report</div>
+          <div className="final-report-pane-header">
+            <div className="final-output-kicker">Final report</div>
+            <Button size="small" onClick={() => setChatOpen(true)} disabled={!reportAvailable} aria-label="Open chat with coder">
+              💬 Chat with coder{chatStarted ? ` (${messages.length})` : ''}
+            </Button>
+          </div>
           <OutputSurface content={content} />
         </section>
-        <aside className="final-report-chat-pane">
+        {chatOpen ? <aside className="final-report-chat-pane">
           <div className="final-report-chat-header">
             <div className="final-report-chat-header-copy">
               <div className="final-output-kicker">Chat with coder</div>
               <strong>Ask coder to revise, extend, or validate this final report.</strong>
               <p>Type a request below. The first message starts a separate coder session with this report as context.</p>
             </div>
-            {chat?.session_id ? <Tag className="final-report-chat-session">{chat.session_id}</Tag> : <Tag className="final-report-chat-session">Not started</Tag>}
+            <div className="final-report-chat-header-actions">
+              {chat?.session_id ? <Tag className="final-report-chat-session">{chat.session_id}</Tag> : <Tag className="final-report-chat-session">Not started</Tag>}
+              <Button size="small" onClick={() => setChatOpen(false)} aria-label="Close chat with coder">Hide</Button>
+            </div>
           </div>
           {canPromote ? (
             <div className="final-report-chat-promote">
@@ -526,7 +538,7 @@ export function FinalReportModal({
               <Button type="primary" onClick={submit} loading={chatBusy} disabled={!draft.trim() || !reportAvailable}>{chatStarted ? 'Send' : 'Start chat'}</Button>
             </div>
           </div>
-        </aside>
+        </aside> : null}
       </div>
     </Modal>
   );
