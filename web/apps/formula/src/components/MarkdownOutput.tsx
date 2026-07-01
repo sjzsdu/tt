@@ -490,8 +490,8 @@ export function FinalReportModal({
         <section className="final-report-pane">
           <div className="final-report-pane-header">
             <div className="final-output-kicker">Final report</div>
-            <Button size="small" onClick={() => setChatOpen(true)} disabled={!reportAvailable} aria-label="Open chat with coder">
-              💬 Chat with coder{chatStarted ? ` (${messages.length})` : ''}
+            <Button size="small" onClick={() => setChatOpen(open => !open)} disabled={!reportAvailable} aria-label={chatOpen ? 'Close chat with coder' : 'Open chat with coder'}>
+              💬 {chatOpen ? 'Hide coder chat' : 'Chat with coder'}{chatStarted ? ` (${messages.length})` : ''}
             </Button>
           </div>
           <OutputSurface content={content} />
