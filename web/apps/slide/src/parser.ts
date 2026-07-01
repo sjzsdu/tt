@@ -31,8 +31,45 @@ type SlideDirective = {
   hasDirective: boolean;
 };
 
+type FenceState = {
+  marker: '`' | '~';
+  length: number;
+} | null;
+
 const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|grid|cards|flex|hero|media-left|media-right|cover|closing|end|final)\s*$/i;
 const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
+
+function updateFenceState(line: string, fence: FenceState): FenceState {
+  const match = line.match(/^\s*(`{3,}|~{3,})/);
+  if (!match) return fence;
+
+  const marker = match[1][0] as '`' | '~';
+  const length = match[1].length;
+  if (!fence) return { marker, length };
+  if (fence.marker === marker && length >= fence.length) return null;
+  return fence;
+}
+
+function splitSlideBodies(markdown: string): string[] {
+  const slides: string[] = [];
+  const buffer: string[] = [];
+  let fence: FenceState = null;
+
+  for (const line of markdown.split('\n')) {
+    const nextFence = updateFenceState(line, fence);
+    const isDelimiter = !fence && !nextFence && line.trim() === '---';
+    if (isDelimiter) {
+      slides.push(buffer.join('\n'));
+      buffer.length = 0;
+      continue;
+    }
+    buffer.push(line);
+    fence = nextFence;
+  }
+
+  slides.push(buffer.join('\n'));
+  return slides;
+}
 
 function isExternalOrSpecialUrl(value: string) {
   return /^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(value);
@@ -281,7 +318,7 @@ export function parseSlides(markdown: string, options: ParseOptions = {}): { sli
   }
 
   const body = lines.slice(bodyStart).join('\n');
-  const rawSlides = body.split(/\n---\n/);
+  const rawSlides = splitSlideBodies(body);
 
   const slides: SlideData[] = [];
   let idx = 0;
