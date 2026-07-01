@@ -59,15 +59,27 @@ export function collectStepInputValues(step: FormulaDashboardStep, snapshot: For
     keys.push({ key: clean, source });
   };
   step.input_ctx?.forEach(key => add(key, 'input_context'));
+  step.var_refs?.forEach(key => add(key, 'var'));
   step.depends_on?.forEach(key => add(key, 'dependency'));
   if (step.loop?.for_each) add(step.loop.for_each, 'for_each');
 
   return keys.map(({ key, source }) => {
+    if (source === 'var') {
+      const value = resolveVarInputValue(key, snapshot.vars);
+      return value ? { key, source, value } : null;
+    }
     const root = key.split('.')[0];
     const sourceStep = byID.get(root);
     const value = resolveStepInputValue(key, sourceStep?.output);
     return value ? { key, source, value } : null;
   }).filter((item): item is { key: string; source: string; value: string } => !!item);
+}
+
+function resolveVarInputValue(key: string, vars?: Record<string, unknown>) {
+  if (!vars || !(key in vars)) return '';
+  const value = vars[key];
+  if (value === undefined || value === null) return '';
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
 export function resolveLoopIterationInput(step: FormulaDashboardStep, snapshot: FormulaDashboardSnapshot | null, iteration: string) {

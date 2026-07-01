@@ -109,3 +109,24 @@ func TestBuildWorkflowGraphTemplateVarRefsUseDeclaredVars(t *testing.T) {
 		t.Fatalf("loop body VarRefs = %#v, want only [repo] and no local doc", got)
 	}
 }
+
+func TestBuildWorkflowGraphExposesVarRefsForStepInputs(t *testing.T) {
+	workflow := &ir.Workflow{
+		ID:    "var-inputs",
+		Name:  "var-inputs",
+		Vars:  map[string]ir.VarSchema{"question": {Required: true}, "unused": {}},
+		Graph: ir.NewGraph(),
+	}
+	workflow.Graph.AddNode(&ir.Node{ID: "answer", Step: steps.AgentStep{
+		Base:   steps.Base{Metadata: steps.Metadata{ID: "answer", Kind: steps.KindAgent, Title: "Answer"}},
+		Prompt: "Answer {{question}} and ignore {{unknown}}",
+	}})
+
+	uiSteps, _ := BuildWorkflowGraph(workflow)
+	if len(uiSteps) != 1 {
+		t.Fatalf("ui steps = %#v, want one step", uiSteps)
+	}
+	if got := uiSteps[0].VarRefs; len(got) != 1 || got[0] != "question" {
+		t.Fatalf("answer VarRefs = %#v, want [question]", got)
+	}
+}
