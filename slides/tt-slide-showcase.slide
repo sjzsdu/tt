@@ -49,8 +49,6 @@ cover、center、hero、two-column、grid、cards、flex、media 和 end。
 
 ---
 
-.hero
-
 # `.slide` 只描述内容和结构
 
 模板负责视觉，文档负责语义。不要把品牌、颜色、CSS class 或模板资产写进 `.slide`。
@@ -459,8 +457,8 @@ mindmap
       xychart
       sankey
     组织信息
-      mindmap
-      timeline
+      "mindmap"
+      "timeline"
       quadrant
       kanban
 ```
