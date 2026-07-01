@@ -1,0 +1,1151 @@
+---
+title: tt slide 全能力示例集
+transition: fade
+---
+
+.cover
+
+# tt slide 全能力示例集
+
+用一份 `.slide` 文档展示当前工具支持的页面规则、布局语义、Markdown、Mermaid 和 D2 图表
+
+`Semantic Deck` · `Reveal.js` · `Mermaid 11.15` · `D2` · `Template Runtime`
+
+---
+
+.grid
+
+# 这份 deck 覆盖六类能力
+
+:::item
+## 文档规则
+front matter、分页、语义指令、块角色、资产路径和固定画布。
+:::
+
+:::item
+## 页面布局
+cover、center、hero、two-column、grid、cards、flex、media 和 end。
+:::
+
+:::item
+## Markdown 内容
+标题、段落、列表、引用、链接、图片、表格和代码块。
+:::
+
+:::item
+## Mermaid 图表
+流程、时序、状态、类、ER、Gantt、mindmap、timeline、C4 等。
+:::
+
+:::item
+## D2 图表
+结构图、容器、形状、时序、数据表、类图和样式语义。
+:::
+
+:::item
+## 演示体验
+模板切换、图表缩放、overview、live reload 和本地资产服务。
+:::
+
+---
+
+.hero
+
+# `.slide` 只描述内容和结构
+
+模板负责视觉，文档负责语义。不要把品牌、颜色、CSS class 或模板资产写进 `.slide`。
+
+- 文档是可迁移的 Markdown 源文件
+- 模板在运行时决定视觉风格
+- 图表用 fenced code block 表达
+
+---
+
+# 最小 `.slide` 文档骨架
+
+```markdown
+---
+title: Demo Deck
+transition: fade
+---
+
+.cover
+
+# 第一页
+
+封面副标题
+
+---
+
+# 第二页
+
+- 观点 A
+- 观点 B
+
+---
+
+.end
+```
+
+---
+
+.cards
+
+# 当前 `.slide` 规则
+
+:::card
+## 文件
+使用 `.slide` 扩展名；`tt slide` 扫描和打开 `.slide` deck。
+:::
+
+:::card
+## 分页
+只用单独一行 `---` 分隔页面；不要把它当作页面内横线。
+:::
+
+:::card
+## Front Matter
+可写 `title`、`transition`、少量通用 `layout`；不要写 `template`。
+:::
+
+:::card
+## 固定画布
+内容按 `1600 x 900` 设计；拥挤时拆页，不缩字体补偿。
+:::
+
+:::card
+## 资产
+业务图片用相对路径；模板背景和 logo 放在 template assets。
+:::
+
+:::card
+## 图表
+Mermaid / D2 用 fenced code block；一页一个主图更稳定。
+:::
+
+---
+
+.grid
+
+# 支持的页面指令
+
+:::item
+## `.cover`
+封面页：标题、副标题、演示上下文。
+:::
+
+:::item
+## `.center`
+居中页：一句关键判断或转场。
+:::
+
+:::item
+## `.hero`
+主张页：大结论 + 少量证据。
+:::
+
+:::item
+## `.two-column`
+双栏页：左右对比或并列解释。
+:::
+
+:::item
+## `.grid`
+网格页：3 到 6 个同级对象。
+:::
+
+:::item
+## `.cards`
+卡片页：功能、风险、选项或模块。
+:::
+
+---
+
+.grid
+
+# 也支持这些页面指令
+
+:::item
+## `.flex`
+短块混排，适合标签、短概念和松散分组。
+:::
+
+:::item
+## `.media-left`
+媒体在左，解释文本在右。
+:::
+
+:::item
+## `.media-right`
+解释文本在左，媒体在右。
+:::
+
+:::item
+## `.brand` / `.logo`
+品牌语义页，视觉由当前模板决定。
+:::
+
+:::item
+## `.end`
+结束页，推荐用这个短指令。
+:::
+
+:::item
+## `.closing` / `.final`
+结束页别名，语义等价。
+:::
+
+---
+
+.cards
+
+# 支持的语义块
+
+:::card
+## `:::columns`
+双栏内容块；`.two-column` 页面里每个块是一列。
+:::
+
+:::card
+## `:::card`
+卡片内容块；`.cards` 页面里每个块是一张卡片。
+:::
+
+:::card
+## `:::item`
+网格内容块；`.grid` 或 `.flex` 页面里每个块是一个项目。
+:::
+
+:::card
+## `:::main`
+图文页主内容；通常放标题、段落和要点。
+:::
+
+:::card
+## `:::media`
+图文页媒体内容；放图片、SVG、截图或图表。
+:::
+
+:::card
+## `:::aside`
+辅助说明块；用于补充证据、注释和边栏内容。
+:::
+
+---
+
+.center
+
+# `.center` 适合一句话页面
+
+如果一页只有一个结论，就让它成为视觉中心。
+
+---
+
+.hero
+
+# `.hero` 强调一个主张
+
+Hero 页不是大号普通列表；它应该有一个清晰判断和少量支撑信息。
+
+- 适合总论、转场、阶段结论
+- 不适合塞满 8 条 bullet
+- 内容多就拆成 cards 或 grid
+
+---
+
+.two-column
+
+# `.two-column` 用来做对比
+
+:::columns
+## 文档层
+
+- Markdown 内容
+- 语义页面指令
+- 语义块角色
+- Mermaid / D2 源码
+:::
+
+:::columns
+## 模板层
+
+- 字体与颜色
+- 背景和间距
+- 卡片和网格外观
+- 封面和封底视觉
+:::
+
+---
+
+.cards
+
+# `.cards` 用来承载功能组
+
+:::card
+## 本地服务
+Go 启动 localhost，提供 deck、模板和资产。
+:::
+
+:::card
+## Reveal 播放
+前端使用 Reveal.js 处理翻页、overview 和缩放。
+:::
+
+:::card
+## Live Reload
+编辑 `.slide` 后，本地页面可自动刷新内容。
+:::
+
+:::card
+## 图表渲染
+Mermaid 在浏览器渲染，D2 通过 D2 runtime 渲染。
+:::
+
+---
+
+.grid
+
+# `.grid` 适合能力总览
+
+:::item
+## Markdown
+文本、列表、引用、链接、图片、表格、代码。
+:::
+
+:::item
+## Mermaid
+适合流程、状态、时序、需求、计划和统计图。
+:::
+
+:::item
+## D2
+适合系统边界、拓扑、容器、架构草图。
+:::
+
+:::item
+## Template
+同一份语义文档可换不同视觉模板。
+:::
+
+---
+
+.flex
+
+# `.flex` 适合短块混排
+
+:::item
+## fixed canvas
+1600 x 900
+:::
+
+:::item
+## relative assets
+相对路径
+:::
+
+:::item
+## no template field
+运行时选模板
+:::
+
+:::item
+## one diagram
+一页一个主图
+:::
+
+:::item
+## flat blocks
+块不要嵌套
+:::
+
+---
+
+.media-right
+
+:::main
+# `.media-right` 展示图文并排
+
+- 左侧解释上下文
+- 右侧放图片或 SVG
+- 图片路径相对当前 `.slide` 文件解析
+- 适合架构地图、界面截图、产物预览
+:::
+
+:::media
+![tt runtime map](./assets/tt-runtime-map.svg)
+:::
+
+---
+
+.media-left
+
+:::main
+# `.media-left` 把媒体放在左侧
+
+- 适合先看图，再看解释
+- 文档仍保持模板无关
+- 具体比例和视觉由模板决定
+:::
+
+:::media
+![tt runtime map](./assets/tt-runtime-map.svg)
+:::
+
+---
+
+# Markdown：基础内容
+
+## 二级标题
+
+普通段落可以承载简短说明，**加粗**只用于关键词，不整句加粗。
+
+- 无序列表用于并列要点
+- `inline code` 用于命令、路径、字段名
+- [相对链接示例](../README.md)
+
+> 引用适合放一句判断、约束或外部反馈。
+
+---
+
+# Markdown：表格
+
+| 能力 | 写法 | 推荐用法 |
+| --- | --- | --- |
+| 分页 | `---` | 每页一个视觉任务 |
+| 指令 | `.cards` | 表达页面角色 |
+| 块 | `:::card` | 表达局部语义 |
+| 图表 | fenced code | Mermaid / D2 |
+| 资产 | `./assets/x.svg` | 业务图片相对路径 |
+
+---
+
+# Markdown：代码块
+
+```go
+func main() {
+    if err := cmd.Execute(); err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+代码页适合展示短片段。超过一屏的代码应该拆成多个关注点，而不是压缩字号。
+
+---
+
+# Mermaid 支持面概览
+
+```mermaid
+mindmap
+  root((Mermaid 11.15))
+    结构图
+      flowchart
+      block
+      architecture
+      C4
+    交互流程
+      sequence
+      journey
+      state
+      gitGraph
+    数据模型
+      class
+      er
+      requirement
+      packet
+    计划与统计
+      gantt
+      pie
+      xychart
+      sankey
+    组织信息
+      mindmap
+      timeline
+      quadrant
+      kanban
+```
+
+---
+
+# Mermaid：Flowchart / Graph
+
+```mermaid
+flowchart TD
+    User[用户] --> CLI[tt slide]
+    CLI --> Server[本地 HTTP 服务]
+    Server --> Parser[解析 .slide]
+    Parser --> Renderer[Reveal 页面]
+    Renderer --> Browser[浏览器演示]
+```
+
+---
+
+# Mermaid：Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Speaker as 演示者
+    participant CLI as tt slide
+    participant UI as Slide UI
+    participant FS as 工作区文件
+
+    Speaker->>CLI: tt slide slides/tt-slide-showcase.slide
+    CLI->>UI: 提供前端和 deck API
+    UI->>FS: 请求 slide / assets
+    FS-->>UI: 返回内容
+    UI-->>Speaker: 播放演示
+```
+
+---
+
+# Mermaid：Class Diagram
+
+```mermaid
+classDiagram
+    class SlideData {
+      +int index
+      +SlidePart[] parts
+      +SlideLayout layout
+      +string class
+    }
+    class SlidePart {
+      +markdown
+      +mermaid
+      +d2
+    }
+    class TemplateConfig {
+      +string name
+      +string revealTheme
+      +defaults
+    }
+    SlideData --> SlidePart
+    SlideData --> TemplateConfig
+```
+
+---
+
+# Mermaid：State Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> Editing
+    Editing --> Saved: write .slide
+    Saved --> Serving: tt slide
+    Serving --> Presenting: open browser
+    Presenting --> Editing: live reload
+    Presenting --> [*]: end
+```
+
+---
+
+# Mermaid：Entity Relationship
+
+```mermaid
+erDiagram
+    DECK ||--o{ SLIDE : contains
+    SLIDE ||--o{ PART : contains
+    TEMPLATE ||--o{ RENDERED_SLIDE : styles
+    SLIDE ||--o{ RENDERED_SLIDE : becomes
+
+    DECK {
+      string title
+      string transition
+    }
+    SLIDE {
+      int index
+      string layout
+    }
+    PART {
+      string type
+      string role
+    }
+```
+
+---
+
+# Mermaid：Gantt
+
+```mermaid
+gantt
+    title Slide showcase preparation
+    dateFormat  YYYY-MM-DD
+    section Plan
+    Scope deck       :done, p1, 2026-07-01, 1d
+    section Write
+    Layout examples  :active, w1, 2026-07-02, 1d
+    Diagram examples :w2, after w1, 1d
+    section Review
+    Static checks    :r1, after w2, 1d
+```
+
+---
+
+# Mermaid：User Journey
+
+```mermaid
+journey
+    title 准备一次本地演示
+    section 写内容
+      拆分页面: 4: 作者
+      添加图表: 5: 作者
+    section 演示
+      启动 tt slide: 5: 作者
+      切换模板: 4: 作者
+      进入 overview: 3: 观众
+```
+
+---
+
+# Mermaid：Pie
+
+```mermaid
+pie title 示例 deck 内容比例
+    "布局规则" : 20
+    "Markdown" : 15
+    "Mermaid" : 40
+    "D2" : 20
+    "运行体验" : 5
+```
+
+---
+
+# Mermaid：Git Graph
+
+```mermaid
+gitGraph
+    commit id: "init"
+    branch feature
+    checkout feature
+    commit id: "write deck"
+    commit id: "add diagrams"
+    checkout main
+    merge feature
+    commit id: "publish"
+```
+
+---
+
+# Mermaid：Mindmap
+
+```mermaid
+mindmap
+  root((tt slide))
+    文档
+      Markdown
+      语义指令
+      语义块
+    渲染
+      Reveal
+      Mermaid
+      D2
+    体验
+      overview
+      fullscreen
+      live reload
+```
+
+---
+
+# Mermaid：Timeline
+
+```mermaid
+timeline
+    title tt slide render path
+    Load deck : read .slide file
+    Parse : split slides and semantic parts
+    Render : Markdown / Mermaid / D2
+    Present : Reveal.js controls
+    Reload : update after file changes
+```
+
+---
+
+# Mermaid：Quadrant Chart
+
+```mermaid
+quadrantChart
+    title Slide content choice
+    x-axis Low structure --> High structure
+    y-axis Low visual weight --> High visual weight
+    quadrant-1 Diagram slide
+    quadrant-2 Hero message
+    quadrant-3 Plain notes
+    quadrant-4 Table / cards
+    Mermaid: [0.85, 0.82]
+    Center message: [0.24, 0.78]
+    Dense notes: [0.18, 0.20]
+    Cards: [0.70, 0.52]
+```
+
+---
+
+# Mermaid：Requirement Diagram
+
+```mermaid
+requirementDiagram
+    requirement semantic_deck {
+        id: REQ-001
+        text: .slide must stay template agnostic
+        risk: medium
+        verifymethod: inspection
+    }
+
+    element template_runtime {
+        type: system
+    }
+
+    template_runtime - satisfies -> semantic_deck
+```
+
+---
+
+# Mermaid：C4 Context
+
+```mermaid
+C4Context
+    title tt slide context
+    Person(author, "Author", "Writes .slide files")
+    System(ttslide, "tt slide", "Local presentation service")
+    System(browser, "Browser", "Reveal.js presentation")
+    Rel(author, ttslide, "starts")
+    Rel(ttslide, browser, "serves deck and assets")
+```
+
+---
+
+# Mermaid：XY Chart
+
+```mermaid
+xychart-beta
+    title "Deck complexity by section"
+    x-axis ["Rules", "Layouts", "Markdown", "Mermaid", "D2"]
+    y-axis "Slides" 0 --> 16
+    bar [6, 8, 3, 15, 7]
+    line [4, 6, 3, 14, 6]
+```
+
+---
+
+# Mermaid：Sankey
+
+```mermaid
+sankey-beta
+    Markdown,Parser,35
+    Parser,Reveal,30
+    Mermaid,Reveal,20
+    D2,Reveal,15
+    Reveal,Audience,65
+```
+
+---
+
+# Mermaid：Block Diagram
+
+```mermaid
+block-beta
+    columns 3
+    source[".slide"] parser["parser"] parts["Slide parts"]
+    markdown["Markdown"] mermaid["Mermaid"] d2["D2"]
+    reveal["Reveal"] template["Template"] screen["Screen"]
+    source --> parser
+    parser --> parts
+    parts --> markdown
+    parts --> mermaid
+    parts --> d2
+    markdown --> reveal
+    mermaid --> reveal
+    d2 --> reveal
+    reveal --> screen
+    template --> reveal
+```
+
+---
+
+# Mermaid：Packet
+
+```mermaid
+packet-beta
+0-15: "Slide index"
+16-31: "Layout hint"
+32-63: "Part count"
+64-95: "Render flags"
+96-127: "Asset path"
+```
+
+---
+
+# Mermaid：Architecture
+
+```mermaid
+architecture-beta
+    group local(cloud)[Local Machine]
+    service cli(server)[tt slide] in local
+    service ui(internet)[Browser UI] in local
+    service file(disk)[.slide files] in local
+    service template(disk)[templates] in local
+
+    cli:R -- L:ui
+    cli:B -- T:file
+    cli:B -- T:template
+```
+
+---
+
+# Mermaid：Kanban
+
+```mermaid
+kanban
+  Backlog
+    [Collect diagram examples]
+  Writing
+    [Expand showcase deck]
+  Review
+    [Check fences and rules]
+  Done
+    [Commit slide cleanup]
+```
+
+---
+
+.cards
+
+# Mermaid 类型速查
+
+:::card
+## 稳定常用
+`flowchart`、`sequenceDiagram`、`classDiagram`、`stateDiagram-v2`、`erDiagram`、`gantt`、`pie`
+:::
+
+:::card
+## 信息组织
+`mindmap`、`timeline`、`journey`、`quadrantChart`、`kanban`
+:::
+
+:::card
+## 工程表达
+`gitGraph`、`requirementDiagram`、`C4Context`、`architecture-beta`
+:::
+
+:::card
+## 数据与实验图
+`xychart-beta`、`sankey-beta`、`block-beta`、`packet-beta`
+:::
+
+---
+
+# D2 支持面概览
+
+```mermaid
+mindmap
+  root((D2))
+    结构图
+      node
+      edge
+      container
+      direction
+    形状
+      rectangle
+      circle
+      diamond
+      cylinder
+      cloud
+    专用图
+      sequence_diagram
+      sql_table
+      class
+    表达能力
+      label
+      annotation
+      style
+      nested namespace
+```
+
+---
+
+# D2：基础结构图
+
+```d2
+direction: right
+
+author: Author
+cli: tt slide
+browser: Browser
+
+author -> cli: starts
+cli -> browser: serves deck
+browser -> author: presents
+```
+
+---
+
+# D2：容器和系统边界
+
+```d2
+workspace: {
+  label: Workspace
+  deck: .slide files
+  assets: assets/
+}
+
+runtime: {
+  label: tt slide runtime
+  server: local HTTP
+  parser: slide parser
+  renderer: Reveal UI
+}
+
+workspace.deck -> runtime.parser
+workspace.assets -> runtime.server
+runtime.parser -> runtime.renderer
+```
+
+---
+
+# D2：形状示例
+
+```d2
+direction: right
+
+command: {
+  shape: rectangle
+}
+
+decision: {
+  shape: diamond
+}
+
+store: {
+  shape: cylinder
+}
+
+cloud: {
+  shape: cloud
+}
+
+command -> decision -> store
+decision -> cloud
+```
+
+---
+
+# D2：Sequence Diagram
+
+```d2
+shape: sequence_diagram
+
+Author -> CLI: tt slide deck.slide
+CLI -> Server: start localhost
+Server -> Browser: serve app
+Browser -> Server: request deck
+Server -> Browser: return rendered data
+Browser -> Author: present slides
+```
+
+---
+
+# D2：SQL Table
+
+```d2
+decks: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  title: varchar
+  transition: varchar
+}
+
+slides: {
+  shape: sql_table
+  id: int {constraint: primary_key}
+  deck_id: int {constraint: foreign_key}
+  layout: varchar
+}
+
+decks.id -> slides.deck_id
+```
+
+---
+
+# D2：Class Shape
+
+```d2
+SlideData: {
+  shape: class
+  +index: int
+  +layout: SlideLayout
+  +parts: SlidePart[]
+}
+
+SlidePart: {
+  shape: class
+  +type: markdown | mermaid | d2
+  +role: string
+}
+
+SlideData -> SlidePart: contains
+```
+
+---
+
+# D2：样式和注释
+
+```d2
+direction: right
+
+deck: {
+  label: ".slide deck"
+  style.fill: "#eef7f1"
+}
+
+template: {
+  label: "runtime template"
+  style.fill: "#f5f5f5"
+}
+
+screen: {
+  label: "presentation"
+  style.stroke-dash: 4
+}
+
+deck -> template: semantic input
+template -> screen: visual output
+```
+
+---
+
+.two-column
+
+# Mermaid 和 D2 怎么选
+
+:::columns
+## Mermaid 更适合
+
+- 流程和时序
+- 状态机和类图
+- Gantt、pie、xy chart
+- mindmap、timeline、journey
+- Git、需求、C4 语义
+:::
+
+:::columns
+## D2 更适合
+
+- 架构边界和拓扑
+- 容器和嵌套命名空间
+- 自由形状组合
+- SQL table / class shape
+- 更像白板图的系统草图
+:::
+
+---
+
+.cards
+
+# 图表页写法规则
+
+:::card
+## 一页一个主图
+避免把多个图塞到同一页，尤其是大流程图和时序图。
+:::
+
+:::card
+## 标题要短
+图表页只保留一个结论标题，最多一行补充说明。
+:::
+
+:::card
+## 不写模板样式
+不要在 `.slide` 里写模板 class 或布局 CSS。
+:::
+
+:::card
+## 可缩放可平移
+图表会尽量 fit 到页面内，演示时可以缩放和拖拽。
+:::
+
+---
+
+.cards
+
+# `tt slide` 运行时能力
+
+:::card
+## 文件列表
+打开目录时列出可演示的 `.slide` 文档。
+:::
+
+:::card
+## 模板选择
+模板由命令行或 URL runtime 配置决定，不写进 deck。
+:::
+
+:::card
+## 本地资产
+相对图片路径会通过 `/raw/...` 服务读取。
+:::
+
+:::card
+## Live Reload
+文件变更后刷新当前 deck 内容。
+:::
+
+:::card
+## Overview
+Esc 进入缩略图总览，用于快速跳页。
+:::
+
+:::card
+## 图表工具
+Mermaid / D2 图表支持 fit、zoom、pan、reset。
+:::
+
+---
+
+# 命令示例
+
+```bash
+tt slide slides/tt-slide-showcase.slide
+tt slide slides/
+tt slide --list-templates
+tt slide slides/tt-slide-showcase.slide --template light
+tt slide slides/tt-slide-showcase.slide --port 9597
+```
+
+模板是运行时选择；`.slide` 文档不写 `template:`。
+
+---
+
+.two-column
+
+# 推荐和避免
+
+:::columns
+## 推荐
+
+- 先决定页面角色
+- 用语义块表达结构
+- 图表页减少文字
+- 表格保持 3 到 5 列
+- 资产用相对路径
+:::
+
+:::columns
+## 避免
+
+- 在 `.slide` 写模板名
+- 用 HTML / CSS 做布局
+- 块角色互相嵌套
+- 一页塞多个复杂图
+- 用长段落代替讲稿
+:::
+
+---
+
+.center
+
+# 一份好的 `.slide` 是模板无关的演示源码
+
+它可以被默认模板、项目模板和未来模板重复渲染，而不用重写内容。
+
+---
+
+.end
