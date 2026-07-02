@@ -11,8 +11,9 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 26px;
-  padding: 52px 60px 46px;
+  gap: 20px;
+  padding: 36px 44px 34px;
+  font-size: 1.18em;
   border-radius: 34px;
   background:
     radial-gradient(circle at 25% 20%, rgba(251, 191, 36, .20), transparent 30%),
@@ -26,7 +27,7 @@
 .bianyao-stage::before {
   content: "";
   position: absolute;
-  inset: 28px;
+  inset: 22px;
   border: 1px solid rgba(251, 191, 36, .16);
   border-radius: 26px;
   pointer-events: none;
@@ -37,7 +38,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, .82fr);
   align-items: end;
-  gap: 36px;
+  gap: 28px;
 }
 .bianyao-kicker {
   display: inline-flex;
@@ -83,7 +84,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(330px, .42fr) minmax(0, 1fr);
-  gap: 32px;
+  gap: 24px;
   align-items: stretch;
 }
 .bianyao-origin {
@@ -93,7 +94,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 28px 24px;
+  padding: 22px 20px;
   border-radius: 28px;
   background: rgba(2, 6, 23, .42);
   border: 1px solid rgba(255,255,255,.12);
@@ -112,11 +113,11 @@
   font-weight: 900;
 }
 .bianyao-origin-lines {
-  width: min(285px, 82%);
+  width: min(270px, 82%);
   display: flex;
   flex-direction: column-reverse;
-  gap: 18px;
-  margin: 34px 0 28px;
+  gap: 15px;
+  margin: 24px 0 20px;
 }
 .bianyao-line {
   height: 18px;
@@ -147,7 +148,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 .bianyao-change {
   --delay: calc(var(--i, 0) * .16s);
@@ -155,9 +156,9 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(74px, .27fr) minmax(0, 1fr);
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  padding: 14px;
+  padding: 12px;
   border-radius: 20px;
   background: rgba(255,255,255,.075);
   border: 1px solid rgba(255,255,255,.13);

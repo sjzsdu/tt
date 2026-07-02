@@ -43,7 +43,7 @@ type FenceState = {
 
 const slideDirectivePattern = /^\.([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\s*$/i;
 const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
-const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final', 'full']);
+const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final']);
 
 function updateFenceState(line: string, fence: FenceState): FenceState {
   const match = line.match(/^\s*(`{3,}|~{3,})/);
@@ -205,8 +205,6 @@ function extractSlideDirectives(markdown: string): SlideDirective {
         layoutHint = 'media-left';
       } else if (directive === 'media-right') {
         layoutHint = 'media-right';
-      } else if (directive === 'full') {
-        layoutHint = 'center';
       }
       classNames.push(`slide-${directive}`);
     }
