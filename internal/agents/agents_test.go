@@ -135,6 +135,9 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	if !containsString(agentBrowser.Tools, "skills") {
 		t.Fatalf("AgentBrowser tools = %v, want skills", agentBrowser.Tools)
 	}
+	if !containsString(agentBrowser.Tools, "exec") {
+		t.Fatalf("AgentBrowser tools = %v, want exec", agentBrowser.Tools)
+	}
 	if !containsString(agentBrowser.Skills, "agent-browser") {
 		t.Fatalf("AgentBrowser skills = %v, want agent-browser", agentBrowser.Skills)
 	}

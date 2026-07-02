@@ -319,6 +319,12 @@ input_context = ["normalize-scope", "load-project-context.stdout", "init-test-st
 description = """
 你是 agent-browser agent。请只执行 select-next-case.stdout.case 这个测试用例，不要探索无关页面。
 
+必须使用真实浏览器自动化：
+- 先通过 exec 调用 `agent-browser skills get core --full` 或至少确认 `agent-browser --help` 可用；
+- 执行页面操作时必须调用 `agent-browser open <url>`、`agent-browser snapshot`、`agent-browser click ...`、`agent-browser get url/title/text`、`agent-browser screenshot <path>` 等 CLI 命令；
+- 不允许在未调用 agent-browser CLI 的情况下声称“缺少浏览器自动化能力”或凭想象判断页面状态；
+- 如果 `agent-browser` 命令不存在、连接失败、页面无法打开、登录/权限/验证码阻塞，才输出 unknown/blocked，并把实际命令错误、URL、截图路径或日志路径写入 evidence/artifacts。
+
 执行要求：
 1. 按 case.start_url 和 case.operation_path 执行；
 2. 可以使用 load-project-context.stdout.content 中的登录方式和账号信息，但输出中不要泄露密码、token、cookie；

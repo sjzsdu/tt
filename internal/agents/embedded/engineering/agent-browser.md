@@ -6,6 +6,7 @@ aliases:
   - ab
 tools:
   - skills
+  - exec
 skills:
   - agent-browser
 soul: |
