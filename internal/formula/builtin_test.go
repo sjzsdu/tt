@@ -1005,6 +1005,88 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 	}
 }
 
+func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "web-feature-test", nil, map[string]string{
+		"url":    "https://example.com",
+		"prompt": "测试登录后创建项目和编辑项目名称",
+	})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(web-feature-test) error = %v", err)
+	}
+	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "test-loop", "load-final-state", "final-report"} {
+		if workflow.Graph.Nodes[nodeID] == nil {
+			t.Fatalf("missing web-feature-test node %s", nodeID)
+		}
+	}
+	loadCtx := workflow.Graph.Nodes[ir.NodeID("load-project-context")]
+	loadScript, ok := loadCtx.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("load-project-context step = %T, want ScriptStep", loadCtx.Step)
+	}
+	if !strings.Contains(loadScript.Command[2], "CONTEXT_DOC") || !strings.Contains(loadScript.Command[2], "web-feature-test.md") {
+		t.Fatalf("load-project-context should load the configured .tt context doc")
+	}
+	initState := workflow.Graph.Nodes[ir.NodeID("init-test-state")]
+	initScript, ok := initState.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("init-test-state step = %T, want ScriptStep", initState.Step)
+	}
+	for _, want := range []string{"artifacts_dir", "screenshots_dir", "test-state.json", "cases.jsonl", "runs.jsonl"} {
+		if !strings.Contains(initScript.Command[2], want) {
+			t.Fatalf("init-test-state script missing %q", want)
+		}
+	}
+	testLoopNode := workflow.Graph.Nodes[ir.NodeID("test-loop")]
+	testLoop, ok := testLoopNode.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("test-loop step = %T, want LoopStep", testLoopNode.Step)
+	}
+	if testLoop.Until != "persist-case-result.stdout.continue_run == false" {
+		t.Fatalf("test-loop until = %q", testLoop.Until)
+	}
+	var sawExecuteAgent, sawPersist bool
+	for _, child := range testLoop.Body {
+		switch child.Meta().ID {
+		case "execute-case":
+			agentStep, ok := child.(steps.AgentStep)
+			if !ok {
+				t.Fatalf("execute-case step = %T, want AgentStep", child)
+			}
+			if agentStep.Agent != "agent-browser" {
+				t.Fatalf("execute-case agent = %q, want agent-browser", agentStep.Agent)
+			}
+			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "只执行"} {
+				if !strings.Contains(agentStep.Prompt, want) {
+					t.Fatalf("execute-case prompt missing %q", want)
+				}
+			}
+			sawExecuteAgent = true
+		case "persist-case-result":
+			scriptStep, ok := child.(steps.ScriptStep)
+			if !ok {
+				t.Fatalf("persist-case-result step = %T, want ScriptStep", child)
+			}
+			if !strings.Contains(scriptStep.Command[2], "only_failed") || !strings.Contains(scriptStep.Command[2], "history") {
+				t.Fatalf("persist-case-result should persist case status and only_failed rerun state")
+			}
+			sawPersist = true
+		}
+	}
+	if !sawExecuteAgent || !sawPersist {
+		t.Fatalf("test-loop missing execute-case=%v or persist-case-result=%v", sawExecuteAgent, sawPersist)
+	}
+	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
+	finalAgent, ok := final.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
+	}
+	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true"} {
+		if !strings.Contains(finalAgent.Prompt, want) {
+			t.Fatalf("final-report prompt missing %q", want)
+		}
+	}
+}
+
 func TestBuiltinFormulaAliasesAreCataloged(t *testing.T) {
 	entries, err := BuiltinFormulas()
 	if err != nil {
@@ -1015,6 +1097,7 @@ func TestBuiltinFormulaAliasesAreCataloged(t *testing.T) {
 		"bead-coding":          "bead-coding",
 		"requirement-grooming": "requirement-grooming",
 		"web-bug-hunt":         "web-bug-hunt",
+		"web-feature-test":     "web-feature-test",
 	}
 	for _, entry := range entries {
 		alias, ok := want[entry.Name]
@@ -1041,6 +1124,8 @@ func builtinCompileSmokeVars(name string) map[string]string {
 		return map[string]string{"feature_request": "smoke feature"}
 	case "web-bug-hunt":
 		return map[string]string{"url": "https://example.com"}
+	case "web-feature-test":
+		return map[string]string{"url": "https://example.com", "prompt": "smoke feature test"}
 	case "github-pr-review", "github-pr-fix-comments", "github-pr-rebase-main":
 		return map[string]string{"pr_ref": "1"}
 	case "code-docs":

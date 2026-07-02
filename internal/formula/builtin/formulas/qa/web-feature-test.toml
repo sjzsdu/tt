@@ -1,0 +1,495 @@
+formula = "web-feature-test"
+aliases = ["web-feature-test", "web-targeted-test"]
+title = "Web 功能定点测试"
+description = "根据提示只测试指定 Web 功能点，自动加载 .tt 项目文档，持久化用例路径、状态和截图等产物，支持后续只重跑失败/阻塞用例。"
+version = 1
+type = "workflow"
+category = "qa"
+tags = ["web", "browser", "qa", "feature-test", "stateful", "resume", "artifacts"]
+
+[vars]
+url = { description = "要测试的网站入口 URL 或功能入口 URL", required = true }
+prompt = { description = "本次要定点测试的功能点/验收点提示。只会围绕这些点生成和执行测试用例", required = true }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+context_doc = { description = "自动加载的项目测试文档，建议写账号、登录方式、环境说明、约束等", default = ".tt/web-feature-test.md" }
+state_dir = { description = "保存定点测试状态和产物的根目录", default = ".tt/web-feature-test" }
+suite = { description = "可选测试套件名；为空时按 URL+prompt 生成稳定套件目录", default = "" }
+resume = { description = "是否复用已有用例和状态：true/false", default = "true" }
+reset = { description = "是否清空该套件历史状态重新开始：true/false", default = "false" }
+only_failed = { description = "是否只运行历史失败/阻塞/未知/未完成用例：true/false", default = "false" }
+max_cases = { description = "本次最多执行多少个测试用例", default = "20", pattern = "^[1-9][0-9]*$" }
+screenshot_mode = { description = "截图策略：all/failures/none", default = "failures" }
+
+[[steps]]
+id = "load-project-context"
+title = "加载 .tt 项目测试文档"
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib
+path = pathlib.Path(os.environ.get('CONTEXT_DOC') or '.tt/web-feature-test.md')
+content = ''
+exists = path.exists()
+if exists:
+    content = path.read_text(encoding='utf-8', errors='replace')
+print(json.dumps({'context_doc': str(path), 'exists': exists, 'content': content}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.script.env]
+CONTEXT_DOC = "{{context_doc}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "normalize-scope"
+title = "规范化定点测试范围和安全边界"
+depends_on = ["load-project-context"]
+input_context = ["load-project-context.stdout"]
+description = """
+基于 URL='{{url}}'、测试提示='{{prompt}}'、以及 load-project-context.stdout.content，整理本次定点测试范围。
+
+默认安全策略：
+- 可以打开页面、浏览、登录、搜索、填写低风险表单；
+- 未经项目文档或提示明确授权，不执行付款、删除真实数据、发送真实邮件、公开发布、修改生产配置等不可逆动作；
+- 如果必须验证提交类动作，优先使用测试环境、测试账号、草稿、取消、dry-run 或到提交前停止；
+- 不要在输出中泄露密码、token、cookie。
+
+输出 ONLY compact JSON：
+{
+  "target_url":"...",
+  "prompt_summary":"...",
+  "context_doc":"...",
+  "context_loaded":true,
+  "has_credentials":true,
+  "login_strategy":"...",
+  "test_objectives":["..."],
+  "allowed_actions":["..."],
+  "forbidden_actions":["payment","delete","send-email","publish","destructive-admin-change"],
+  "safety_notes":["..."],
+  "screenshot_mode":"all|failures|none",
+  "only_failed":false
+}
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["target_url", "prompt_summary", "context_doc", "context_loaded", "test_objectives", "allowed_actions", "forbidden_actions", "safety_notes", "screenshot_mode", "only_failed"]
+
+[[steps]]
+id = "init-test-state"
+title = "初始化或恢复测试套件状态"
+depends_on = ["normalize-scope"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import hashlib, json, os, pathlib, re, shutil, time, urllib.parse
+url = os.environ['URL'].strip()
+prompt = os.environ['PROMPT']
+state_root = pathlib.Path(os.environ.get('STATE_DIR') or '.tt/web-feature-test')
+resume = os.environ.get('RESUME','true').lower() == 'true'
+reset = os.environ.get('RESET','false').lower() == 'true'
+only_failed = os.environ.get('ONLY_FAILED','false').lower() == 'true'
+max_cases = int(os.environ.get('MAX_CASES') or '20')
+suite = (os.environ.get('SUITE') or '').strip()
+parsed = urllib.parse.urlparse(url)
+if not suite:
+    host = parsed.netloc or 'site'
+    path = parsed.path.strip('/').replace('/', '_') or 'root'
+    slug = re.sub(r'[^a-zA-Z0-9_.-]+', '-', f'{host}_{path}').strip('-')[:60]
+    digest = hashlib.sha1((url + '\n' + prompt).encode('utf-8')).hexdigest()[:10]
+    suite = f'{slug}-{digest}'
+else:
+    suite = re.sub(r'[^a-zA-Z0-9_.-]+', '-', suite).strip('-')[:80]
+suite_dir = state_root / suite
+state_path = suite_dir / 'test-state.json'
+cases_path = suite_dir / 'cases.jsonl'
+runs_path = suite_dir / 'runs.jsonl'
+artifacts_dir = suite_dir / 'artifacts'
+screenshots_dir = artifacts_dir / 'screenshots'
+if reset and suite_dir.exists():
+    shutil.rmtree(suite_dir)
+screenshots_dir.mkdir(parents=True, exist_ok=True)
+now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+state = None
+if resume and state_path.exists():
+    try:
+        state = json.loads(state_path.read_text(encoding='utf-8'))
+    except Exception:
+        state = None
+if not state:
+    state = {
+      'schema_version': 1,
+      'suite': suite,
+      'root_url': url,
+      'prompt': prompt,
+      'prompt_fingerprint': hashlib.sha1(prompt.encode('utf-8')).hexdigest()[:12],
+      'created_at': now,
+      'updated_at': now,
+      'cases': [],
+      'runs': []
+    }
+state['updated_at'] = now
+state['current_run_id'] = time.strftime('%Y%m%d%H%M%S', time.gmtime())
+state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures')}
+state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
+state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+URL = "{{url}}"
+PROMPT = "{{prompt}}"
+STATE_DIR = "{{state_dir}}"
+SUITE = "{{suite}}"
+RESUME = "{{resume}}"
+RESET = "{{reset}}"
+ONLY_FAILED = "{{only_failed}}"
+MAX_CASES = "{{max_cases}}"
+SCREENSHOT_MODE = "{{screenshot_mode}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "plan-test-cases"
+title = "根据提示生成或更新定点测试用例"
+depends_on = ["normalize-scope", "init-test-state"]
+input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout"]
+description = """
+你是 QA 测试计划 agent。请根据用户提示只生成需要测试的功能点，不要扩展成全站扫描。
+
+请结合 .tt 项目文档中的登录方式、账号、环境说明和安全边界，生成稳定可复用的测试用例。已有状态路径为 init-test-state.stdout.state_path。
+
+输出 ONLY compact JSON：
+{
+  "suite_title":"...",
+  "assumptions":["..."],
+  "cases":[
+    {
+      "id":"TC-001",
+      "title":"...",
+      "objective":"...",
+      "start_url":"...",
+      "preconditions":["..."],
+      "operation_path":[{"action":"open|click|type|select|assert|screenshot|note","target":"...","value":"...","expected":"..."}],
+      "expected_result":"...",
+      "risk":"low|medium|high",
+      "safe_to_execute":true
+    }
+  ]
+}
+
+要求：
+- cases 只覆盖 '{{prompt}}' 明确或隐含要求的测试点；
+- 每个 case 必须有 start_url、operation_path 和 expected_result；
+- 危险操作 safe_to_execute=false，并在 operation_path 中停在危险动作前；
+- id 应稳定，按功能点排序 TC-001、TC-002；
+- 不要泄露密码、token、cookie。
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["suite_title", "cases"]
+
+[[steps]]
+id = "persist-test-plan"
+title = "持久化测试计划和待运行状态"
+depends_on = ["plan-test-cases"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import hashlib, json, os, pathlib, time
+state_path = pathlib.Path(os.environ['STATE_PATH'])
+cases_path = pathlib.Path(os.environ['CASES_PATH'])
+state = json.loads(state_path.read_text(encoding='utf-8'))
+raw = os.environ.get('PLAN_JSON','').strip()
+try:
+    plan = json.loads(raw)
+except Exception:
+    plan = {'suite_title': '', 'cases': []}
+now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+existing = {c.get('id'): c for c in state.get('cases', []) if c.get('id')}
+merged = []
+for case in plan.get('cases') or []:
+    cid = case.get('id') or ('TC-' + hashlib.sha1(json.dumps(case, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()[:8])
+    case['id'] = cid
+    old = existing.get(cid, {})
+    keep = {k: old.get(k) for k in ['status','last_run_at','last_result','history'] if k in old}
+    merged_case = {**old, **case, **keep}
+    merged_case.setdefault('status', 'pending')
+    merged_case.setdefault('history', [])
+    merged.append(merged_case)
+state['suite_title'] = plan.get('suite_title') or state.get('suite_title') or state.get('suite')
+state['assumptions'] = plan.get('assumptions') or []
+state['cases'] = merged
+state['updated_at'] = now
+state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+cases_path.write_text(''.join(json.dumps(c, ensure_ascii=False) + '\n' for c in merged), encoding='utf-8')
+runnable = [c for c in merged if (not state.get('run_options',{}).get('only_failed') or c.get('status') in ('failed','blocked','unknown','pending'))]
+print(json.dumps({'state_path': str(state_path), 'cases_path': str(cases_path), 'total_cases': len(merged), 'runnable_cases': len(runnable), 'only_failed': state.get('run_options',{}).get('only_failed')}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+STATE_PATH = "{{init-test-state.stdout.state_path}}"
+CASES_PATH = "{{init-test-state.stdout.cases_path}}"
+PLAN_JSON = "{{plan-test-cases}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "test-loop"
+title = "逐个执行定点测试用例"
+depends_on = ["persist-test-plan"]
+
+[steps.loop]
+max = "{{max_cases}}"
+until = "persist-case-result.stdout.continue_run == false"
+
+[[steps.loop.body]]
+id = "select-next-case"
+title = "选择下一个需执行的测试用例"
+execution = "script"
+idempotent = true
+
+[steps.loop.body.script]
+command = ["python3", "-c", """
+import json, os, pathlib
+state_path = pathlib.Path(os.environ['STATE_PATH'])
+state = json.loads(state_path.read_text(encoding='utf-8'))
+run_id = state.get('current_run_id')
+only_failed = state.get('run_options', {}).get('only_failed', False)
+selected = None
+for case in state.get('cases', []):
+    if case.get('last_selected_run') == run_id:
+        continue
+    if only_failed and case.get('status') not in ('failed','blocked','unknown','pending'):
+        continue
+    selected = case
+    case['last_selected_run'] = run_id
+    break
+state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+remaining = 0
+for case in state.get('cases', []):
+    if case.get('last_selected_run') == run_id:
+        continue
+    if only_failed and case.get('status') not in ('failed','blocked','unknown','pending'):
+        continue
+    remaining += 1
+print(json.dumps({'selected': selected is not None, 'case': selected, 'remaining': remaining, 'run_id': run_id, 'only_failed': only_failed}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.loop.body.script.env]
+STATE_PATH = "{{init-test-state.stdout.state_path}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps.loop.body]]
+id = "execute-case"
+title = "执行一个定点测试用例并保存产物"
+depends_on = ["select-next-case"]
+condition = "select-next-case.stdout.selected == true"
+input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "select-next-case.stdout"]
+description = """
+你是 agent-browser agent。请只执行 select-next-case.stdout.case 这个测试用例，不要探索无关页面。
+
+执行要求：
+1. 按 case.start_url 和 case.operation_path 执行；
+2. 可以使用 load-project-context.stdout.content 中的登录方式和账号信息，但输出中不要泄露密码、token、cookie；
+3. 完整记录 URL + 操作路径 + 观察到的状态；
+4. 遇到 forbidden_actions 或 safe_to_execute=false 的危险动作，停在动作前，标记 blocked，并说明原因；
+5. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
+6. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。路径要写入 artifacts。
+
+输出 ONLY compact JSON：
+{
+  "case_id":"TC-001",
+  "status":"passed|failed|blocked|unknown",
+  "start_url":"...",
+  "final_url":"...",
+  "operation_path":[{"step":1,"action":"...","target":"...","value":"<redacted>","url_before":"...","url_after":"...","result":"passed|failed|blocked|unknown","observation":"..."}],
+  "expected_result":"...",
+  "actual_result":"...",
+  "evidence":["..."],
+  "artifacts":[{"type":"screenshot|html|log|trace|note","path":".tt/web-feature-test/...","description":"..."}],
+  "failure_reason":"",
+  "safe_to_rerun":true,
+  "notes":"..."
+}
+"""
+agent.name = "agent-browser"
+agent.cwd = "{{workspace_path}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["case_id", "status", "start_url", "final_url", "operation_path", "expected_result", "actual_result", "evidence", "artifacts", "failure_reason", "safe_to_rerun", "notes"]
+
+[[steps.loop.body]]
+id = "persist-case-result"
+title = "持久化测试用例执行状态"
+depends_on = ["select-next-case", "execute-case"]
+execution = "script"
+idempotent = true
+
+[steps.loop.body.script]
+command = ["python3", "-c", """
+import json, os, pathlib, time
+state_path = pathlib.Path(os.environ['STATE_PATH'])
+runs_path = pathlib.Path(os.environ['RUNS_PATH'])
+selected = os.environ.get('SELECTED','').lower() == 'true'
+state = json.loads(state_path.read_text(encoding='utf-8'))
+now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+if not selected:
+    state.pop('current_run_id', None)
+    state['updated_at'] = now
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(json.dumps({'continue_run': False, 'reason': 'no-runnable-case', 'state_path': str(state_path)}, ensure_ascii=False))
+    raise SystemExit(0)
+try:
+    result = json.loads(os.environ.get('RESULT_JSON','') or '{}')
+except Exception:
+    result = {'case_id': '', 'status': 'unknown', 'failure_reason': 'execute-case output was not parseable'}
+case_id = result.get('case_id') or (json.loads(os.environ.get('CASE_JSON') or '{}').get('id'))
+record = {'run_id': state.get('current_run_id'), 'ran_at': now, **result}
+for case in state.get('cases', []):
+    if case.get('id') == case_id:
+        case['status'] = result.get('status','unknown')
+        case['last_run_at'] = now
+        case['last_result'] = result
+        case.setdefault('history', []).append(record)
+        break
+state.setdefault('runs', []).append(record)
+state['updated_at'] = now
+runs_path.parent.mkdir(parents=True, exist_ok=True)
+with runs_path.open('a', encoding='utf-8') as f:
+    f.write(json.dumps(record, ensure_ascii=False) + '\n')
+run_id = state.get('current_run_id')
+only_failed = state.get('run_options', {}).get('only_failed', False)
+remaining = 0
+for case in state.get('cases', []):
+    if case.get('last_selected_run') == run_id:
+        continue
+    if only_failed and case.get('status') not in ('failed','blocked','unknown','pending'):
+        continue
+    remaining += 1
+if remaining == 0:
+    state.pop('current_run_id', None)
+state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+counts = {s: sum(1 for c in state.get('cases', []) if c.get('status') == s) for s in ['passed','failed','blocked','unknown','pending']}
+print(json.dumps({'continue_run': remaining > 0, 'remaining': remaining, 'case_id': case_id, 'status': result.get('status'), 'counts': counts, 'state_path': str(state_path), 'runs_path': str(runs_path)}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "20s"
+
+[steps.loop.body.script.env]
+STATE_PATH = "{{init-test-state.stdout.state_path}}"
+RUNS_PATH = "{{init-test-state.stdout.runs_path}}"
+SELECTED = "{{select-next-case.stdout.selected}}"
+CASE_JSON = "{{select-next-case.stdout.case}}"
+RESULT_JSON = "{{execute-case}}"
+
+[steps.loop.body.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "load-final-state"
+title = "读取最终测试状态"
+depends_on = ["test-loop"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib
+state_path = pathlib.Path(os.environ['STATE_PATH'])
+state = json.loads(state_path.read_text(encoding='utf-8'))
+cases = state.get('cases', [])
+summary = {
+  'suite': state.get('suite'),
+  'suite_title': state.get('suite_title'),
+  'root_url': state.get('root_url'),
+  'prompt': state.get('prompt'),
+  'state_path': str(state_path),
+  'paths': state.get('paths', {}),
+  'total_cases': len(cases),
+  'passed': sum(1 for c in cases if c.get('status') == 'passed'),
+  'failed': sum(1 for c in cases if c.get('status') == 'failed'),
+  'blocked': sum(1 for c in cases if c.get('status') == 'blocked'),
+  'unknown': sum(1 for c in cases if c.get('status') == 'unknown'),
+  'pending': sum(1 for c in cases if c.get('status') == 'pending'),
+  'cases': cases
+}
+print(json.dumps(summary, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.script.env]
+STATE_PATH = "{{init-test-state.stdout.state_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "final-report"
+title = "输出定点测试报告"
+depends_on = ["load-final-state"]
+input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "persist-test-plan.stdout", "test-loop", "load-final-state.stdout"]
+description = """
+基于全部上下文，输出中文 Markdown 报告。不要输出 JSON，不要用代码块包裹全文。
+
+固定结构：
+
+# Web 功能定点测试报告
+
+## 结论
+说明本次只测试了提示中的哪些功能点，以及 passed/failed/blocked/unknown/pending 数量。
+
+## 状态与产物位置
+必须列出：state_path、suite_dir、artifacts_dir、screenshots_dir、runs_path。说明再次运行同一 suite 且 only_failed=true 会只重跑失败/阻塞/未知/待执行用例。
+
+## 测试范围与安全边界
+列 URL、测试提示摘要、是否加载 context_doc、登录策略摘要、禁止动作。不要泄露密码。
+
+## 用例执行明细
+逐条列出 case id、标题、状态、start_url/final_url、关键操作路径摘要、实际/预期结果、失败原因、截图或其他产物路径。
+
+## 未完成或需人工确认
+列 blocked/unknown/pending 的原因和建议。
+
+## 下次运行建议
+说明如何只重跑失败例子，以及是否需要 reset 或更新 .tt 文档。
+
+要求：
+- 不要泄露 .tt 文档中的密码、token、cookie；
+- 不要把 blocked/unknown 说成 passed；
+- 路径和状态必须足够让用户查看产物并复跑。
+"""
+agent.name = "reporter"
+agent.cwd = "{{workspace_path}}"
