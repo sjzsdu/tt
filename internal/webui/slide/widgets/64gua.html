@@ -7,12 +7,12 @@
   <div class="gua64-lines" aria-label="{{ name }} {{ lines }}">
     {{#each linesChars}}
       <div class="gua64-line-row" aria-label="{{ yaoLabel }} {{ yaoText }}">
+        <div class="gua64-line {{#if isYang}}yang{{/if}}{{#if isYin}}yin{{/if}}">
+          <span></span><span></span>
+        </div>
         <div class="gua64-yao">
           <span class="gua64-yao-label">{{ yaoLabel }}</span>
           <span class="gua64-yao-text">{{ yaoText }}</span>
-        </div>
-        <div class="gua64-line {{#if isYang}}yang{{/if}}{{#if isYin}}yin{{/if}}">
-          <span></span><span></span>
         </div>
       </div>
     {{/each}}

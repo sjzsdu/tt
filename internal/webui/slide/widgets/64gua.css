@@ -10,9 +10,9 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
+  grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
-  gap: 14px;
+  gap: 10px;
   padding: 12px 14px;
   border-radius: 18px;
   background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.035));
@@ -29,7 +29,7 @@
   overflow: hidden;
 }
 .gua64-name {
-  font-size: .72em;
+  font-size: .76em;
   line-height: 1.05;
   font-weight: 850;
   letter-spacing: .03em;
@@ -37,7 +37,7 @@
   margin-bottom: 4px;
 }
 .gua64-subtitle {
-  font-size: .28em;
+  font-size: .32em;
   line-height: 1.22;
   opacity: .74;
   margin-bottom: 6px;
@@ -46,9 +46,9 @@
   text-overflow: ellipsis;
 }
 .gua64-note {
-  font-size: .23em;
-  line-height: 1.22;
-  opacity: .86;
+  font-size: .32em;
+  line-height: 1.34;
+  opacity: .92;
   text-align: left;
   display: -webkit-box;
   -webkit-line-clamp: 4;
@@ -57,36 +57,37 @@
 }
 .gua64-lines {
   align-self: stretch;
-  justify-self: stretch;
+  justify-self: center;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(6px, 6.2%, 11px);
+  gap: clamp(7px, 5.2%, 12px);
 }
 .gua64-line-row {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(60px, 34%);
+  grid-template-columns: clamp(58px, 34%, 112px) minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: clamp(8px, .72em, 14px);
 }
 .gua64-yao {
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: .5em;
-  font-size: .25em;
-  line-height: 1.16;
+  gap: .42em;
+  font-size: .34em;
+  line-height: 1.18;
   color: var(--slide-fg, currentColor);
-  opacity: .86;
+  opacity: .9;
   white-space: nowrap;
 }
 .gua64-yao-label {
   flex: 0 0 auto;
-  min-width: 2.4em;
+  min-width: 2.35em;
   font-weight: 820;
   color: var(--slide-accent-strong, currentColor);
 }
@@ -96,7 +97,7 @@
   text-overflow: ellipsis;
 }
 .gua64-line {
-  height: clamp(6px, .28em, 12px);
+  height: clamp(8px, .34em, 15px);
   display: flex;
   justify-content: space-between;
   gap: 16%;
