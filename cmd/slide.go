@@ -20,10 +20,14 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/sjzsdu/tt/internal/agents"
+	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/sjzsdu/tt/internal/webui"
 	"github.com/spf13/cobra"
 	"nhooyr.io/websocket"
 )
+
+const slideWriterAgentID = agents.SlideWriterID
 
 var (
 	slidePort          = 9596
@@ -272,6 +276,8 @@ func runSlideServer() error {
 	mux.HandleFunc("/raw-content", handleSlideRawContent)
 	mux.HandleFunc("/raw/", handleSlideRawFile)
 	mux.HandleFunc("/api/list", handleSlideList)
+	mux.HandleFunc("/api/slide/content", handleSlideSaveContent)
+	mux.HandleFunc("/api/slide/rewrite", handleSlideRewrite)
 	mux.HandleFunc("/api/template/", handleSlideTemplate)
 	mux.HandleFunc("/template-assets/", handleSlideTemplateAsset)
 	mux.HandleFunc("/api/d2", handleD2Render)
@@ -424,6 +430,259 @@ func handleSlideList(w http.ResponseWriter, r *http.Request) {
 		"files": files,
 		"total": len(files),
 	})
+}
+
+type slideSaveContentRequest struct {
+	File    string `json:"file"`
+	Content string `json:"content"`
+}
+
+type slideRewriteRequest struct {
+	File          string `json:"file"`
+	SlideIndex    int    `json:"slideIndex"`
+	SlideSource   string `json:"slideSource"`
+	Instruction   string `json:"instruction"`
+	PreviousSlide string `json:"previousSlide,omitempty"`
+	NextSlide     string `json:"nextSlide,omitempty"`
+}
+
+type slideRewriteResponse struct {
+	UpdatedSlideSource string `json:"updatedSlideSource,omitempty"`
+	Summary            string `json:"summary,omitempty"`
+	Error              string `json:"error,omitempty"`
+}
+
+func handleSlideSaveContent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.Header().Set("Allow", http.MethodPut)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if slideContent != "" {
+		http.Error(w, "content mode cannot be edited", http.StatusBadRequest)
+		return
+	}
+
+	var req slideSaveContentRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20))
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.File) == "" {
+		http.Error(w, "file is required", http.StatusBadRequest)
+		return
+	}
+
+	absPath, err := safeJoin(slideRoot, req.File)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !isSlideFile(absPath) {
+		http.Error(w, "only .slide files can be edited", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("file not found: %v", err), http.StatusNotFound)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "directories cannot be edited", http.StatusBadRequest)
+		return
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(absPath), "."+filepath.Base(absPath)+".*.tmp")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("create temp file failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.WriteString(req.Content); err != nil {
+		_ = tmp.Close()
+		http.Error(w, fmt.Sprintf("write temp file failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		_ = tmp.Close()
+		http.Error(w, fmt.Sprintf("chmod temp file failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		http.Error(w, fmt.Sprintf("close temp file failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(tmpName, absPath); err != nil {
+		http.Error(w, fmt.Sprintf("replace slide file failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	cleanup = false
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":   true,
+		"file": slideRelPath(absPath),
+	})
+}
+
+func handleSlideRewrite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if slideContent != "" {
+		writeSlideRewriteJSON(w, http.StatusBadRequest, slideRewriteResponse{Error: "content mode cannot be edited"})
+		return
+	}
+
+	var req slideRewriteRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
+	if err := decoder.Decode(&req); err != nil {
+		writeSlideRewriteJSON(w, http.StatusBadRequest, slideRewriteResponse{Error: fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	req.Instruction = strings.TrimSpace(req.Instruction)
+	if req.Instruction == "" {
+		writeSlideRewriteJSON(w, http.StatusBadRequest, slideRewriteResponse{Error: "instruction is required"})
+		return
+	}
+	if strings.TrimSpace(req.SlideSource) == "" {
+		writeSlideRewriteJSON(w, http.StatusBadRequest, slideRewriteResponse{Error: "slideSource is required"})
+		return
+	}
+	if strings.TrimSpace(req.File) != "" {
+		absPath, err := safeJoin(slideRoot, req.File)
+		if err != nil {
+			writeSlideRewriteJSON(w, http.StatusBadRequest, slideRewriteResponse{Error: err.Error()})
+			return
+		}
+		if !isSlideFile(absPath) {
+			writeSlideRewriteJSON(w, http.StatusBadRequest, slideRewriteResponse{Error: "only .slide files can be edited"})
+			return
+		}
+	}
+
+	updated, err := runSlideWriterAgent(r.Context(), req)
+	if err != nil {
+		writeSlideRewriteJSON(w, http.StatusInternalServerError, slideRewriteResponse{Error: err.Error()})
+		return
+	}
+	updated = cleanSlideWriterOutput(updated)
+	if strings.TrimSpace(updated) == "" {
+		writeSlideRewriteJSON(w, http.StatusInternalServerError, slideRewriteResponse{Error: "slide-writer returned empty content"})
+		return
+	}
+	if normalizeSlideBlock(updated) == normalizeSlideBlock(req.SlideSource) {
+		writeSlideRewriteJSON(w, http.StatusBadGateway, slideRewriteResponse{Error: "slide-writer returned the original slide without meaningful changes; try a more specific instruction"})
+		return
+	}
+	writeSlideRewriteJSON(w, http.StatusOK, slideRewriteResponse{
+		UpdatedSlideSource: updated,
+		Summary:            "slide-writer generated an updated current slide draft",
+	})
+}
+
+func runSlideWriterAgent(ctx context.Context, req slideRewriteRequest) (string, error) {
+	loaded := mustLoadTTConfig()
+	cfg := loaded.Merged
+	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(cfg.Picoclaw.Home, cfg.Picoclaw.Config)
+	if err != nil {
+		return "", err
+	}
+	defer restoreStorage()
+	cfg.Picoclaw.Home = resolvedHome
+	cfg.Picoclaw.Config = resolvedConfig
+	if err := ensurePicoclawConfigAvailable(cfg.Picoclaw.Home, cfg.Picoclaw.Config); err != nil {
+		return "", err
+	}
+
+	rt, err := pcwrap.Load(pcwrap.Options{Home: cfg.Picoclaw.Home, Config: cfg.Picoclaw.Config, TTConfig: cfg, TTSources: loaded.Sources})
+	if err != nil {
+		return "", picoclawUnavailableError(err, cfg.Picoclaw.Home, cfg.Picoclaw.Config)
+	}
+	embeddedAgents, err := agents.All()
+	if err != nil {
+		return "", fmt.Errorf("load embedded agents failed: %w", err)
+	}
+	runner, err := rt.NewDirectRunner(pcwrap.RunOptions{Agent: slideWriterAgentID, Model: cfg.Agent.Model, Workspace: workspace, Quiet: true, EmbeddedAgents: embeddedAgents})
+	if err != nil {
+		return "", picoclawUnavailableError(err, cfg.Picoclaw.Home, cfg.Picoclaw.Config)
+	}
+	defer runner.Close()
+
+	message := buildSlideWriterPrompt(req)
+	return runner.ProcessDirectContext(ctx, pcwrap.RunOptions{
+		Message:        message,
+		Agent:          slideWriterAgentID,
+		Session:        fmt.Sprintf("slide-writer:%s:%d", filepath.Base(req.File), req.SlideIndex+1),
+		Model:          cfg.Agent.Model,
+		Workspace:      workspace,
+		Quiet:          true,
+		EmbeddedAgents: embeddedAgents,
+	})
+}
+
+func buildSlideWriterPrompt(req slideRewriteRequest) string {
+	var b strings.Builder
+	b.WriteString("请根据用户意见修改当前 slide。必须让修改后的 slide 明显体现用户意见，不能原样返回当前页，除非用户明确要求保持不变。只输出修改后的当前 slide block 原文，不要输出解释、Markdown 代码围栏或完整文件。\n\n")
+	b.WriteString("修改要求:\n")
+	b.WriteString("- 如果用户说文字太多，就要明显删减或重组文字。\n")
+	b.WriteString("- 如果用户要求图文结构，就要保留或改成 .media-right/.media-left 与 :::main/:::media。\n")
+	b.WriteString("- 如果用户要求图更清楚，就要实质改写 Mermaid/D2 或替换为更清晰的图示。\n")
+	b.WriteString("- 如果用户意见很笼统，也要做一版合理改进，而不是原样返回。\n\n")
+	b.WriteString(fmt.Sprintf("文件: %s\n", req.File))
+	b.WriteString(fmt.Sprintf("当前页: %d\n\n", req.SlideIndex+1))
+	if strings.TrimSpace(req.PreviousSlide) != "" {
+		b.WriteString("上一页参考:\n<<<PREVIOUS_SLIDE\n")
+		b.WriteString(req.PreviousSlide)
+		b.WriteString("\nPREVIOUS_SLIDE\n\n")
+	}
+	b.WriteString("当前页源码:\n<<<CURRENT_SLIDE\n")
+	b.WriteString(req.SlideSource)
+	b.WriteString("\nCURRENT_SLIDE\n\n")
+	if strings.TrimSpace(req.NextSlide) != "" {
+		b.WriteString("下一页参考:\n<<<NEXT_SLIDE\n")
+		b.WriteString(req.NextSlide)
+		b.WriteString("\nNEXT_SLIDE\n\n")
+	}
+	b.WriteString("用户修改意见:\n")
+	b.WriteString(req.Instruction)
+	b.WriteString("\n")
+	return b.String()
+}
+
+func cleanSlideWriterOutput(output string) string {
+	text := strings.TrimSpace(output)
+	if strings.HasPrefix(text, "```") {
+		lines := strings.Split(text, "\n")
+		if len(lines) >= 2 {
+			lines = lines[1:]
+			if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+				lines = lines[:len(lines)-1]
+			}
+			text = strings.TrimSpace(strings.Join(lines, "\n"))
+		}
+	}
+	return text
+}
+
+func normalizeSlideBlock(text string) string {
+	return strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
+}
+
+func writeSlideRewriteJSON(w http.ResponseWriter, status int, value slideRewriteResponse) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }
 
 type slideTemplateDefaults struct {

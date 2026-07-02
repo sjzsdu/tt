@@ -24,6 +24,11 @@ type ParseOptions = {
   assetBasePath?: string;
 };
 
+export type EditableSlideDocument = {
+  frontmatter: string;
+  slides: string[];
+};
+
 type SlideDirective = {
   markdown: string;
   layoutHint?: SlideLayout;
@@ -69,6 +74,36 @@ function splitSlideBodies(markdown: string): string[] {
 
   slides.push(buffer.join('\n'));
   return slides;
+}
+
+function findFrontmatterEnd(lines: string[]): number {
+  if (lines[0]?.trim() !== '---') return -1;
+  let fence: FenceState = null;
+  for (let i = 1; i < lines.length; i++) {
+    const nextFence = updateFenceState(lines[i], fence);
+    const isDelimiter = !fence && !nextFence && lines[i].trim() === '---';
+    if (isDelimiter) return i;
+    fence = nextFence;
+  }
+  return -1;
+}
+
+export function parseEditableSlideDocument(markdown: string): EditableSlideDocument {
+  const lines = markdown.split('\n');
+  const frontmatterEnd = findFrontmatterEnd(lines);
+  const frontmatter = frontmatterEnd > 0 ? lines.slice(0, frontmatterEnd + 1).join('\n') : '';
+  const body = frontmatterEnd > 0 ? lines.slice(frontmatterEnd + 1).join('\n') : markdown;
+  const slides = splitSlideBodies(body)
+    .map(slide => slide.trim())
+    .filter(Boolean);
+  return { frontmatter, slides };
+}
+
+export function serializeEditableSlideDocument(doc: EditableSlideDocument): string {
+  const slides = doc.slides.map(slide => slide.trim()).filter(Boolean);
+  const body = slides.join('\n\n---\n\n');
+  if (!doc.frontmatter.trim()) return body;
+  return `${doc.frontmatter.trim()}\n\n${body}\n`;
 }
 
 function isExternalOrSpecialUrl(value: string) {
@@ -166,7 +201,7 @@ function splitMarkedParts(markdown: string, role?: MarkdownRole, options: ParseO
       : '';
     if (token.type === 'code' && (codeLang === 'mermaid' || codeLang === 'd2')) {
       flush();
-      parts.push({ type: codeLang, code: String((token as Token & { text?: string }).text || '') });
+      parts.push({ type: codeLang, code: String((token as Token & { text?: string }).text || ''), role });
     } else {
       buffer.push(token);
     }
@@ -272,13 +307,16 @@ function plainTextLength(html: string): number {
 }
 
 function classesForSlideDensity(parts: SlidePart[], layout: SlideLayout, index: number): string[] {
-  const diagramCount = parts.filter(part => part.type === 'mermaid' || part.type === 'd2').length;
-  const markdownParts = parts.filter((part): part is Extract<SlidePart, { type: 'markdown' }> => part.type === 'markdown');
-  const textLength = markdownParts.reduce((total, part) => total + plainTextLength(part.html), 0);
-  const classes: string[] = [];
-  if (diagramCount > 0) {
-    classes.push('slide-diagram-heavy');
-  }
+	const diagramCount = parts.filter(part => part.type === 'mermaid' || part.type === 'd2').length;
+	const markdownParts = parts.filter((part): part is Extract<SlidePart, { type: 'markdown' }> => part.type === 'markdown');
+	const textLength = markdownParts.reduce((total, part) => total + plainTextLength(part.html), 0);
+	const classes: string[] = [];
+	if (layout === 'media-left' || layout === 'media-right' || layout === 'two-column' || layout === 'split') {
+		return classes;
+	}
+	if (diagramCount > 0) {
+		classes.push('slide-diagram-heavy');
+	}
   if (diagramCount > 0 && textLength <= 80) {
     classes.push('slide-diagram-only');
   }

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Reveal from 'reveal.js';
-import { parseSlides } from '../parser';
+import { parseEditableSlideDocument, parseSlides, serializeEditableSlideDocument } from '../parser';
 import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
 import type { SlideMeta, SlideRuntimeConfig, TemplateConfig } from '../types';
-import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, createWS, type SlideFile } from '../api';
+import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, createWS, saveSlideContent, rewriteSlide, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
 const DESIGN_WIDTH = 1600;
@@ -44,6 +44,19 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [isListLoaded, setIsListLoaded] = useState(contentMode);
   const [deckVersion, setDeckVersion] = useState(0);
   const [stageScale, setStageScale] = useState(1);
+  const [rawMarkdown, setRawMarkdown] = useState('');
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [editorText, setEditorText] = useState('');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorError, setEditorError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [aiInstruction, setAIInstruction] = useState('');
+  const [aiError, setAIError] = useState('');
+  const [isAIWorking, setIsAIWorking] = useState(false);
+  const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
   const [template, setTemplate] = useState<TemplateConfig>(() => getTemplate(templateOverride || DEFAULT_TEMPLATE));
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +74,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         return;
       }
 
+      setRawMarkdown(md);
       const { slides: parsed, meta: parsedMeta } = parseSlides(md, { assetBasePath: contentMode ? '' : dirname(file || '') });
       if (parsed.length === 0) {
         setError('No slides found. Use --- to separate slides.');
@@ -255,6 +269,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setSlides([]);
     setMeta(null);
     setError('');
+    setRawMarkdown('');
+    setCurrentSlideIndex(0);
     setShowFileList(false);
     setShowOverview(false);
     const url = new URL(location.href);
@@ -268,6 +284,153 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       setShowOverview(false);
     }
   }, [showOverview]);
+
+  const getActiveSlideIndex = useCallback(() => {
+    const indices = deckRef.current?.getIndices();
+    return Math.max(0, Math.min(indices?.h ?? currentSlideIndex, Math.max(slides.length - 1, 0)));
+  }, [currentSlideIndex, slides.length]);
+
+  const openCurrentSlideEditor = useCallback(() => {
+    if (contentMode || !currentFile || !rawMarkdown) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const index = getActiveSlideIndex();
+    const raw = doc.slides[index];
+    if (raw == null) {
+      setEditorError(`Cannot find source for slide ${index + 1}`);
+      return;
+    }
+    setCurrentSlideIndex(index);
+    setEditorText(raw);
+    setEditorError('');
+    setIsEditorOpen(true);
+  }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
+
+  const openAIRewrite = useCallback(() => {
+    if (contentMode || !currentFile || !rawMarkdown) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const index = getActiveSlideIndex();
+    if (doc.slides[index] == null) {
+      setAIError(`Cannot find source for slide ${index + 1}`);
+      return;
+    }
+    setCurrentSlideIndex(index);
+    setAIInstruction('');
+    setAIError('');
+    setIsAIModalOpen(true);
+  }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
+
+  const submitAIRewrite = useCallback(async () => {
+    if (contentMode || !currentFile) return;
+    const instruction = aiInstruction.trim();
+    if (!instruction) {
+      setAIError('请输入修改意见。');
+      return;
+    }
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const index = currentSlideIndex;
+    const slideSource = doc.slides[index];
+    if (slideSource == null) {
+      setAIError(`Cannot find source for slide ${index + 1}`);
+      return;
+    }
+    setIsAIWorking(true);
+    setAIError('');
+    try {
+      const response = await rewriteSlide({
+        file: currentFile,
+        slideIndex: index,
+        slideSource,
+        instruction,
+        previousSlide: doc.slides[index - 1],
+        nextSlide: doc.slides[index + 1],
+      });
+      const updated = response.updatedSlideSource?.trim();
+      if (!updated) throw new Error(response.error || 'slide-writer returned empty content');
+      setEditorText(updated);
+      setEditorError(response.summary || 'AI 已生成修改稿，请确认后保存。');
+      setIsAIModalOpen(false);
+      setIsEditorOpen(true);
+    } catch (e: any) {
+      setAIError(String(e?.message || e));
+    } finally {
+      setIsAIWorking(false);
+    }
+  }, [aiInstruction, contentMode, currentFile, currentSlideIndex, rawMarkdown]);
+
+  const saveCurrentSlide = useCallback(async () => {
+    if (contentMode || !currentFile) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const index = currentSlideIndex;
+    if (index < 0 || index >= doc.slides.length) {
+      setEditorError(`Cannot find source for slide ${index + 1}`);
+      return;
+    }
+    const nextText = editorText.trim();
+    if (!nextText) {
+      setEditorError('Slide content cannot be empty. Use Delete to remove a slide.');
+      return;
+    }
+    doc.slides[index] = nextText;
+    const nextMarkdown = serializeEditableSlideDocument(doc);
+    setIsSaving(true);
+    setEditorError('');
+    try {
+      await saveSlideContent(currentFile, nextMarkdown);
+      localStorage.setItem(slidePositionKey(currentFile), JSON.stringify({ h: index, v: 0, f: 0 }));
+      setRawMarkdown(nextMarkdown);
+      const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(currentFile) });
+      setSlides(parsed);
+      setMeta(parsedMeta);
+      setIsEditorOpen(false);
+    } catch (e: any) {
+      setEditorError(String(e?.message || e));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [contentMode, currentFile, currentSlideIndex, editorText, rawMarkdown]);
+
+  const requestDeleteCurrentSlide = useCallback(() => {
+    if (contentMode || !currentFile || !rawMarkdown) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const index = getActiveSlideIndex();
+    if (doc.slides.length <= 1) {
+      setDeleteError('当前文档只有 1 页，不能删除最后一页。');
+      setDeleteConfirmIndex(index);
+      return;
+    }
+    setDeleteError('');
+    setDeleteConfirmIndex(index);
+  }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
+
+  const confirmDeleteCurrentSlide = useCallback(async () => {
+    if (contentMode || !currentFile || !rawMarkdown || deleteConfirmIndex == null) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const index = Math.max(0, Math.min(deleteConfirmIndex, doc.slides.length - 1));
+    if (doc.slides.length <= 1) {
+      setDeleteError('当前文档只有 1 页，不能删除最后一页。');
+      return;
+    }
+    doc.slides.splice(index, 1);
+    const nextIndex = Math.max(0, Math.min(index, doc.slides.length - 1));
+    const nextMarkdown = serializeEditableSlideDocument(doc);
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      await saveSlideContent(currentFile, nextMarkdown);
+      localStorage.setItem(slidePositionKey(currentFile), JSON.stringify({ h: nextIndex, v: 0, f: 0 }));
+      setRawMarkdown(nextMarkdown);
+      const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(currentFile) });
+      setSlides(parsed);
+      setMeta(parsedMeta);
+      setCurrentSlideIndex(nextIndex);
+      setDeleteConfirmIndex(null);
+      setTimeout(() => deckRef.current?.slide(nextIndex, 0, 0), 0);
+    } catch (e: any) {
+      setDeleteError(`删除失败：${String(e?.message || e)}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [contentMode, currentFile, deleteConfirmIndex, rawMarkdown]);
 
   useEffect(() => {
     const deck = deckRef.current;
@@ -288,13 +451,15 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       }
     };
 
-    const savePosition = () => {
-      const indices = deck.getIndices();
-      localStorage.setItem(slidePositionKey(currentFile), JSON.stringify(indices));
-    };
+	const savePosition = () => {
+	  const indices = deck.getIndices();
+	  setCurrentSlideIndex(indices.h ?? 0);
+	  localStorage.setItem(slidePositionKey(currentFile), JSON.stringify(indices));
+	};
 
-    restorePosition();
-    deck.on('slidechanged', savePosition);
+	restorePosition();
+	setCurrentSlideIndex(deck.getIndices().h ?? 0);
+	deck.on('slidechanged', savePosition);
     deck.on('fragmentshown', savePosition);
     deck.on('fragmenthidden', savePosition);
 
@@ -446,25 +611,103 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         {isFullscreen ? '⊡' : '⛶'}
       </button>
 
-      {!contentMode && currentFile && (
-        <button
-          className="slide-back-btn"
-          onClick={backToList}
-          title="Back to slide list"
-        >
-          ← 列表
-        </button>
+      {!contentMode && currentFile && !isFullscreen && (
+        <div className="slide-toolbar-hotspot" aria-label="Slide actions">
+          <div className="slide-toolbar">
+            <button className="slide-toolbar-btn" onClick={backToList} title="Back to slide list">
+              ← 列表
+            </button>
+            {files.length > 0 && (
+              <button className="slide-toolbar-btn" onClick={() => setShowFileList(v => !v)} title="File list (L)">
+                ☰ 文档
+              </button>
+            )}
+            <button className="slide-toolbar-btn" onClick={openCurrentSlideEditor} title="Edit current slide">
+              ✎ 编辑
+            </button>
+            <button className="slide-toolbar-btn" onClick={openAIRewrite} title="Ask slide-writer to revise current slide">
+              💬 AI 修改
+            </button>
+            <button className="slide-toolbar-btn danger" onClick={requestDeleteCurrentSlide} title="Delete current slide">
+              🗑 删除
+            </button>
+          </div>
+        </div>
       )}
 
-      {files.length > 0 && (
-        <div className="slide-list-control">
-          <button
-            className="slide-list-btn"
-            onClick={() => setShowFileList(v => !v)}
-            title="File list (L)"
-          >
-            ☰
-          </button>
+      {isEditorOpen && (
+        <div className="slide-edit-modal" role="dialog" aria-modal="true" aria-label="Edit current slide">
+          <div className="slide-edit-dialog">
+            <div className="slide-edit-header">
+              <div>
+                <div className="slide-edit-title">编辑第 {currentSlideIndex + 1} 页</div>
+                <div className="slide-edit-subtitle">{currentFile}</div>
+              </div>
+              <button className="slide-edit-close" onClick={() => setIsEditorOpen(false)} title="Close">×</button>
+            </div>
+            <textarea
+              className="slide-edit-textarea"
+              value={editorText}
+              onChange={(event) => setEditorText(event.target.value)}
+              spellCheck={false}
+              autoFocus
+            />
+            {editorError && <div className="slide-edit-error">{editorError}</div>}
+            <div className="slide-edit-actions">
+              <button className="slide-edit-secondary" onClick={() => setIsEditorOpen(false)} disabled={isSaving}>取消</button>
+              <button className="slide-edit-primary" onClick={saveCurrentSlide} disabled={isSaving}>
+                {isSaving ? '保存中…' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirmIndex != null && (
+        <div className="slide-edit-modal" role="dialog" aria-modal="true" aria-label="Delete current slide">
+          <div className="slide-delete-dialog">
+            <div className="slide-delete-icon">🗑</div>
+            <div className="slide-delete-title">删除第 {deleteConfirmIndex + 1} 页？</div>
+            <div className="slide-delete-message">
+              这会从源文件 <code>{currentFile}</code> 中移除当前页内容。删除后会自动保存并刷新预览。
+            </div>
+            {deleteError && <div className="slide-edit-error">{deleteError}</div>}
+            <div className="slide-edit-actions slide-delete-actions">
+              <button className="slide-edit-secondary" onClick={() => setDeleteConfirmIndex(null)} disabled={isDeleting}>取消</button>
+              <button className="slide-edit-danger" onClick={confirmDeleteCurrentSlide} disabled={isDeleting || !!deleteError && slides.length <= 1}>
+                {isDeleting ? '删除中…' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAIModalOpen && (
+        <div className="slide-edit-modal" role="dialog" aria-modal="true" aria-label="AI revise current slide">
+          <div className="slide-ai-dialog">
+            <div className="slide-edit-header">
+              <div>
+                <div className="slide-edit-title">AI 修改第 {currentSlideIndex + 1} 页</div>
+                <div className="slide-edit-subtitle">输入修改意见，slide-writer 会生成当前页修改稿</div>
+              </div>
+              <button className="slide-edit-close" onClick={() => setIsAIModalOpen(false)} title="Close">×</button>
+            </div>
+            <textarea
+              className="slide-ai-textarea"
+              value={aiInstruction}
+              onChange={(event) => setAIInstruction(event.target.value)}
+              placeholder="例如：这页文字太多，请明显删减左侧文字，保留左右图文结构，把右侧 Mermaid 改成更像成长曲线。"
+              disabled={isAIWorking}
+              autoFocus
+            />
+            {aiError && <div className="slide-edit-error">{aiError}</div>}
+            <div className="slide-edit-actions">
+              <button className="slide-edit-secondary" onClick={() => setIsAIModalOpen(false)} disabled={isAIWorking}>取消</button>
+              <button className="slide-edit-primary" onClick={submitAIRewrite} disabled={isAIWorking}>
+                {isAIWorking ? '生成中…' : '生成修改稿'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -45,6 +45,44 @@ export function fetchRawContent(): Promise<string> {
   });
 }
 
+export function saveSlideContent(filePath: string, content: string): Promise<{ ok: boolean; file: string }> {
+  return fetch('/api/slide/content', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: filePath, content }),
+  }).then(async r => {
+    if (!r.ok) throw new Error(await r.text() || `${r.status} ${r.statusText}`);
+    return r.json();
+  });
+}
+
+export type RewriteSlideRequest = {
+  file: string;
+  slideIndex: number;
+  slideSource: string;
+  instruction: string;
+  previousSlide?: string;
+  nextSlide?: string;
+};
+
+export type RewriteSlideResponse = {
+  updatedSlideSource?: string;
+  summary?: string;
+  error?: string;
+};
+
+export function rewriteSlide(request: RewriteSlideRequest): Promise<RewriteSlideResponse> {
+  return fetch('/api/slide/rewrite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+    return data;
+  });
+}
+
 export function fetchTemplate(name: string): Promise<ExternalTemplate> {
   return apiFetch(`/api/template/${encodeURIComponent(name)}`);
 }

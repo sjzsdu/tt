@@ -41,5 +41,5 @@ export type SlideData = {
 
 export type SlidePart =
   | { type: 'markdown'; html: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' }
-  | { type: 'mermaid'; code: string }
-  | { type: 'd2'; code: string };
+  | { type: 'mermaid'; code: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' }
+  | { type: 'd2'; code: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' };

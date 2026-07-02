@@ -34,6 +34,7 @@ const (
 	CodeContextManagerID    = "code-context"
 	AgentBrowserID          = "agent-browser"
 	FormulaWriterID         = "formula-writer"
+	SlideWriterID           = "slide-writer"
 	DocsAnalystID           = "docs-analyst"
 	BeadManagerID           = "bead-manager"
 	YiJingID                = "yi-jing"

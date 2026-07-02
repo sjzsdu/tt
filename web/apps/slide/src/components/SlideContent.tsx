@@ -16,10 +16,12 @@ export function SlideContent({ slide, theme = 'dark' }: { slide: SlideData; them
           );
         }
         if (part.type === 'mermaid') {
-          return <MermaidBlock key={i} code={part.code} index={slide.index * 100 + i} theme={theme} />;
+          const block = <MermaidBlock code={part.code} index={slide.index * 100 + i} theme={theme} />;
+          return part.role ? <div key={i} className={`slide-part-${part.role}`}>{block}</div> : <div key={i}>{block}</div>;
         }
         if (part.type === 'd2') {
-          return <D2Block key={i} code={part.code} index={slide.index * 100 + i} theme={theme} />;
+          const block = <D2Block code={part.code} index={slide.index * 100 + i} theme={theme} />;
+          return part.role ? <div key={i} className={`slide-part-${part.role}`}>{block}</div> : <div key={i}>{block}</div>;
         }
         return null;
       })}
