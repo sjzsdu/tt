@@ -298,7 +298,7 @@ func TestHandleSlideWidgetsLoadsBuiltInWidgets(t *testing.T) {
 		t.Fatalf("handleSlideWidgets built-in status = %d, body = %s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	for _, want := range []string{`"64gua"`, `"bagua"`, `"gua"`, `"source":"built-in"`, `gua64-card`} {
+	for _, want := range []string{`"64gua"`, `"bagua"`, `"gua"`, `"source":"built-in"`, `gua64-card`, `noteSummary`, `gua64-yao-label`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("built-in widgets response missing %q:\n%s", want, body)
 		}
