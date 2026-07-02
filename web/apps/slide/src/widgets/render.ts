@@ -71,6 +71,50 @@ function noteWithoutYao(note: unknown): string {
   return segments.filter(segment => !/^爻\s*[:：]/.test(segment)).join('｜');
 }
 
+function flipLine(lines: string, index: number): string {
+  if (index < 0 || index >= lines.length) return lines;
+  const next = lines[index] === '1' ? '0' : '1';
+  return `${lines.slice(0, index)}${next}${lines.slice(index + 1)}`;
+}
+
+function renderLineHtml(char: string, className: string): string {
+  const polarity = char === '1' ? 'yang' : 'yin';
+  return `<div class="${className} ${polarity}"><span></span><span></span></div>`;
+}
+
+function renderMiniLinesHtml(lines: string, movingIndex: number): string {
+  return lines.split('').map((char, index) => {
+    const movingClass = index === movingIndex ? ' is-moving' : '';
+    return renderLineHtml(char, `bianyao-mini-line${movingClass}`);
+  }).join('');
+}
+
+function buildBianyaoChangesHtml(data: Record<string, unknown>): string {
+  const lines = String(data.lines || '').trim();
+  if (!/^[01]{6}$/.test(lines)) return '';
+  const changes: string[] = [];
+  for (let index = 1; index <= 6; index += 1) {
+    const value = data[`change${index}`];
+    if (typeof value === 'string' && value.trim()) changes.push(value.trim());
+  }
+
+  return changes.map((change, index) => {
+    const [label = yaoLabelForLine(lines[index] || '', index), yao = '', target = '', targetSubtitle = '', insight = ''] = change.split('||').map(part => part.trim());
+    const targetLines = flipLine(lines, index);
+    return `<article class="bianyao-change" style="--i:${index}">
+      <div class="bianyao-mini-lines" aria-label="${escapeHTML(target)} ${escapeHTML(targetLines)}">${renderMiniLinesHtml(targetLines, index)}</div>
+      <div class="bianyao-change-copy">
+        <div class="bianyao-change-top">
+          <span class="bianyao-change-label">${escapeHTML(label)}</span>
+          <span class="bianyao-change-target">${escapeHTML(target)}</span>
+        </div>
+        <div class="bianyao-change-yao">${escapeHTML(yao)}</div>
+        <div class="bianyao-change-insight">${escapeHTML(targetSubtitle ? `${targetSubtitle}。${insight}` : insight)}</div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
 function enrichData(data: Record<string, unknown>): WidgetContext {
   const context: WidgetContext = { ...data };
   const yaoTexts = extractYaoTexts(data.note);
@@ -90,6 +134,9 @@ function enrichData(data: Record<string, unknown>): WidgetContext {
         } : {}),
       }));
     }
+  }
+  if (data.type === 'bianyao') {
+    context.changesHtml = buildBianyaoChangesHtml(data);
   }
   return context;
 }

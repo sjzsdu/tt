@@ -1,0 +1,32 @@
+<div class="bianyao-stage" data-lines="{{ lines }}">
+  <div class="bianyao-header">
+    <div>
+      <div class="bianyao-kicker">一卦六变</div>
+      <div class="bianyao-title">{{ name }} · 变爻研读</div>
+      {{#if subtitle}}<div class="bianyao-subtitle">{{ subtitle }}</div>{{/if}}
+    </div>
+    <div class="bianyao-summary">
+      {{#if guaci}}<div><strong>卦辞</strong>{{ guaci }}</div>{{/if}}
+      {{#if xiang}}<div><strong>象意</strong>{{ xiang }}</div>{{/if}}
+    </div>
+  </div>
+
+  <div class="bianyao-body">
+    <div class="bianyao-origin">
+      <div class="bianyao-origin-label">本卦</div>
+      <div class="bianyao-origin-name">{{ name }}</div>
+      <div class="bianyao-origin-lines" aria-label="{{ name }} {{ lines }}">
+        {{#each linesChars}}
+          <div class="bianyao-line {{#if isYang}}yang{{/if}}{{#if isYin}}yin{{/if}}">
+            <span></span><span></span>
+          </div>
+        {{/each}}
+      </div>
+      <div class="bianyao-flow-hint">六爻依次变化，形成六个新的处境</div>
+    </div>
+
+    <div class="bianyao-changes">
+      {{{ changesHtml }}}
+    </div>
+  </div>
+</div>
