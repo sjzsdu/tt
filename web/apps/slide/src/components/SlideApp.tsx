@@ -13,21 +13,21 @@ const DESIGN_HEIGHT = 900;
 const CORE_LAYOUT_CSS = `
 .reveal .slides section.slide-grid .slide-content,
 .reveal .slides section.slide-cards .slide-content {
-  display: grid !important;
+  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 24px;
   align-content: start;
   height: 100%;
 }
-.reveal .slides section.slide-grid.slide-cols-2 .slide-content { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-.reveal .slides section.slide-grid.slide-cols-3 .slide-content { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-.reveal .slides section.slide-grid.slide-cols-4 .slide-content { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
-.reveal .slides section.slide-grid.slide-cols-5 .slide-content { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
-.reveal .slides section.slide-grid.slide-cols-6 .slide-content { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
-.reveal .slides section.slide-grid.slide-rows-2 .slide-content { grid-template-rows: auto repeat(2, minmax(0, 1fr)) !important; align-content: stretch !important; align-items: stretch !important; }
-.reveal .slides section.slide-grid.slide-rows-3 .slide-content { grid-template-rows: auto repeat(3, minmax(0, 1fr)) !important; align-content: stretch !important; align-items: stretch !important; }
-.reveal .slides section.slide-grid.slide-compact .slide-content { gap: 14px !important; }
-.reveal .slides section.slide-grid.slide-dense .slide-content { gap: 10px !important; }
+.reveal .slides section.slide-grid.slide-cols-2 .slide-content { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.reveal .slides section.slide-grid.slide-cols-3 .slide-content { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.reveal .slides section.slide-grid.slide-cols-4 .slide-content { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.reveal .slides section.slide-grid.slide-cols-5 .slide-content { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.reveal .slides section.slide-grid.slide-cols-6 .slide-content { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.reveal .slides section.slide-grid.slide-rows-2 .slide-content { grid-template-rows: auto repeat(2, minmax(0, 1fr)); align-content: stretch; align-items: stretch; }
+.reveal .slides section.slide-grid.slide-rows-3 .slide-content { grid-template-rows: auto repeat(3, minmax(0, 1fr)); align-content: stretch; align-items: stretch; }
+.reveal .slides section.slide-grid.slide-compact .slide-content { gap: 14px; }
+.reveal .slides section.slide-grid.slide-dense .slide-content { gap: 10px; }
 .reveal .slides section.slide-grid .slide-markdown:not(.slide-part-item):not(.slide-part-card),
 .reveal .slides section.slide-cards .slide-markdown:not(.slide-part-item):not(.slide-part-card) { grid-column: 1 / -1; }
 .reveal .slides section.slide-grid.slide-compact .slide-markdown:not(.slide-part-item):not(.slide-part-card) h1,
@@ -669,8 +669,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
   return (
     <div className="slide-wrapper" ref={wrapperRef}>
-      <style>{tpl.css}</style>
       <style>{CORE_LAYOUT_CSS}</style>
+      <style>{tpl.css}</style>
       <div
         className="slide-stage"
         style={{ transform: `scale(${stageScale})` }}

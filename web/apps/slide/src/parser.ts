@@ -221,9 +221,22 @@ function splitMarkedParts(markdown: string, role?: MarkdownRole, options: ParseO
   const parts: SlidePart[] = [];
   let buffer: Token[] = [];
 
+  const hasRenderableHtml = (html: string) => {
+    const text = html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#160;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.length > 0 || /<(img|video|audio|svg|canvas|iframe|table)\b/i.test(html);
+  };
+
   const flush = () => {
     if (buffer.length) {
-      parts.push({ type: 'markdown', html: rewriteRelativeUrls(marked.parser(buffer), options.assetBasePath), role });
+      const html = rewriteRelativeUrls(marked.parser(buffer), options.assetBasePath);
+      if (hasRenderableHtml(html)) {
+        parts.push({ type: 'markdown', html, role });
+      }
       buffer = [];
     }
   };
