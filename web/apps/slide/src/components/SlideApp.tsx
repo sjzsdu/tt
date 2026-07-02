@@ -173,6 +173,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
     const deck = new Reveal(containerRef.current, {
       hash: true,
+      hideInactiveCursor: false,
       slideNumber: runtimeConfig.slideNumber ?? true,
       controls: runtimeConfig.controls ?? true,
       progress: runtimeConfig.progress ?? true,
@@ -454,6 +455,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (!slideSource) {
       setAIError(`Cannot find source for slide ${index + 1}`);
       return;
+    }
+    if (useEditorDraft && index >= 0 && index < doc.slides.length) {
+      doc.slides[index] = slideSource;
     }
     setIsAIWorking(true);
     setAIError('');
