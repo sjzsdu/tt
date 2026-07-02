@@ -53,6 +53,7 @@ type formulaOptions struct {
 	RunsStatus            string
 	RunShowStep           string
 	RunRmYes              bool
+	File                  string
 	InputFields           []string
 	ListBuiltin           bool
 	ListUser              bool
@@ -97,6 +98,7 @@ var (
 	formulaRunsStatus            string
 	formulaRunShowStep           string
 	formulaRunRmYes              bool
+	formulaFile                  string
 	formulaInputFields           []string
 	formulaListBuiltin           bool
 	formulaListUser              bool
@@ -142,6 +144,7 @@ func (a *App) installOptions() {
 	formulaRunsStatus = a.opts.RunsStatus
 	formulaRunShowStep = a.opts.RunShowStep
 	formulaRunRmYes = a.opts.RunRmYes
+	formulaFile = a.opts.File
 	formulaInputFields = a.opts.InputFields
 	formulaListBuiltin = a.opts.ListBuiltin
 	formulaListUser = a.opts.ListUser

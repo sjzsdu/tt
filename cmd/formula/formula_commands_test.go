@@ -1,6 +1,9 @@
 package formulacmd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNewBuildsIndependentFormulaCommandTrees(t *testing.T) {
 	first := New(Dependencies{})
@@ -25,5 +28,31 @@ func TestNewBuildsIndependentFormulaCommandTrees(t *testing.T) {
 	}
 	if secondDir != "" {
 		t.Fatalf("second --dir = %q, want independent default", secondDir)
+	}
+}
+
+func TestFormulaRunCommandAcceptsFileWithoutName(t *testing.T) {
+	cmd := New(Dependencies{})
+	runCmd, _, err := cmd.Find([]string{"run", "--file", "run.toml", "--dry-run"})
+	if err != nil {
+		t.Fatalf("Find(run) error = %v", err)
+	}
+	if err := runCmd.Flags().Set("file", "run.toml"); err != nil {
+		t.Fatalf("set --file: %v", err)
+	}
+	if err := runCmd.Args(runCmd, nil); err != nil {
+		t.Fatalf("run Args with --file and no name error = %v", err)
+	}
+}
+
+func TestFormulaRunCommandRequiresNameOrFile(t *testing.T) {
+	cmd := New(Dependencies{})
+	runCmd, _, err := cmd.Find([]string{"run"})
+	if err != nil {
+		t.Fatalf("Find(run) error = %v", err)
+	}
+	err = runCmd.Args(runCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "requires a formula name or --file") {
+		t.Fatalf("run Args error = %v, want name/file requirement", err)
 	}
 }

@@ -1,6 +1,9 @@
 package formulacmd
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
@@ -238,7 +241,7 @@ default, and validates the result locally. Use --stdout to preview only.`,
 
 func (a *App) newFormulaRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run <name> [required-var-value]",
+		Use:   "run [name] [required-var-value]",
 		Short: "Execute a formula with picoclaw agents",
 		Long: `Execute a formula by running each step through the configured agent.
 Steps are executed in dependency order, with parallel steps running concurrently.
@@ -248,9 +251,15 @@ Runtime control notes:
   - condition expressions are evaluated at runtime against saved step-id output data.
   - loop.until expressions are evaluated after each loop iteration.
   - start/end boundary steps are real recipe steps; generated boundaries are noop.`,
-		Args: cobra.MinimumNArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 && strings.TrimSpace(a.opts.File) == "" {
+				return fmt.Errorf("requires a formula name or --file")
+			}
+			return nil
+		},
 		RunE: runFormulaRun,
 	}
+	cmd.Flags().StringVar(&a.opts.File, "file", "", "TOML file containing formula and [vars] for this run")
 	cmd.Flags().StringVar(&a.opts.Agent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
 	cmd.Flags().StringVar(&a.opts.Model, "model", "", "default model override")
 	cmd.Flags().StringVar(&a.opts.ExternalDriver, "ext-driver", "", "default external_agent driver (jcode|codex|opencode|forge|bl); empty falls back to jcode")

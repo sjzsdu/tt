@@ -17,15 +17,28 @@ import (
 )
 
 func runFormulaRun(cmd *cobra.Command, args []string) error {
-	name := args[0]
-	vars := parseVars()
+	cliVars := parseVars()
+	fileName, fileVars, err := loadFormulaFile(formulaFile)
+	if err != nil {
+		return err
+	}
+	name := fileName
+	positionalArgs := args
+	if len(args) > 0 {
+		name = args[0]
+		positionalArgs = args[1:]
+	}
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("formula name is required; pass <name> or set formula in --file")
+	}
+	vars := mergeFormulaVars(fileVars, cliVars)
 
 	p := formula.NewParser(getSearchPaths()...)
 	f, err := p.LoadByName(name)
 	if err != nil {
 		return err
 	}
-	if err := applyFormulaRunPositionalVars(f, args[1:], vars); err != nil {
+	if err := applyFormulaRunPositionalVars(f, positionalArgs, vars); err != nil {
 		return err
 	}
 
