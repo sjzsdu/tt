@@ -241,7 +241,7 @@ state['assumptions'] = plan.get('assumptions') or []
 state['cases'] = merged
 state['updated_at'] = now
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
-cases_path.write_text(''.join(json.dumps(c, ensure_ascii=False) + '\n' for c in merged), encoding='utf-8')
+cases_path.write_text(''.join(json.dumps(c, ensure_ascii=False) + chr(10) for c in merged), encoding='utf-8')
 runnable = [c for c in merged if (not state.get('run_options',{}).get('only_failed') or c.get('status') in ('failed','blocked','unknown','pending'))]
 print(json.dumps({'state_path': str(state_path), 'cases_path': str(cases_path), 'total_cases': len(merged), 'runnable_cases': len(runnable), 'only_failed': state.get('run_options',{}).get('only_failed')}, ensure_ascii=False))
 """]
@@ -261,6 +261,8 @@ required = ["stdout"]
 id = "test-loop"
 title = "逐个执行定点测试用例"
 depends_on = ["persist-test-plan"]
+
+idempotent = true
 
 [steps.loop]
 max = "{{max_cases}}"
@@ -386,7 +388,7 @@ state.setdefault('runs', []).append(record)
 state['updated_at'] = now
 runs_path.parent.mkdir(parents=True, exist_ok=True)
 with runs_path.open('a', encoding='utf-8') as f:
-    f.write(json.dumps(record, ensure_ascii=False) + '\n')
+    f.write(json.dumps(record, ensure_ascii=False) + chr(10))
 run_id = state.get('current_run_id')
 only_failed = state.get('run_options', {}).get('only_failed', False)
 remaining = 0

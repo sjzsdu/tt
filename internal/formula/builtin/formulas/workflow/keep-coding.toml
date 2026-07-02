@@ -167,7 +167,7 @@ entry = {
   "next_action": os.environ.get('NEXT_ACTION', '').strip(),
 }
 with path.open('a', encoding='utf-8') as f:
-    f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + '\n')
+    f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + chr(10))
 print(json.dumps({"cycle_log_file": str(path), "entry": entry}, ensure_ascii=False))
 """]
 	format = "json"

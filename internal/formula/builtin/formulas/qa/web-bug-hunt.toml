@@ -282,7 +282,7 @@ if url:
     state.setdefault('visited_pages', {})[url] = {**page, 'visited_at': now}
     pages_path.parent.mkdir(parents=True, exist_ok=True)
     with pages_path.open('a', encoding='utf-8') as f:
-        f.write(json.dumps({'visited_at': now, **page}, ensure_ascii=False) + '\n')
+        f.write(json.dumps({'visited_at': now, **page}, ensure_ascii=False) + chr(10))
 root_host = urllib.parse.urlparse(state.get('root_url','')).netloc
 pending = state.setdefault('pending_pages', [])
 visited = state.setdefault('visited_pages', {})
@@ -321,7 +321,7 @@ for bug in result.get('confirmed_bugs') or []:
         new_bugs.append(bug)
         bugs_path.parent.mkdir(parents=True, exist_ok=True)
         with bugs_path.open('a', encoding='utf-8') as f:
-            f.write(json.dumps(bug, ensure_ascii=False) + '\n')
+            f.write(json.dumps(bug, ensure_ascii=False) + chr(10))
 state.setdefault('observations', []).extend(result.get('observations') or [])
 state.setdefault('not_tested', []).extend(result.get('not_tested') or [])
 state['pending_pages'] = pending

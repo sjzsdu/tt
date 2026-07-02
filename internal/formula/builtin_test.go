@@ -1034,6 +1034,9 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !initScript.Meta().Idempotent {
 		t.Fatalf("init-test-state idempotent = false, want true")
 	}
+	if strings.Contains(initScript.Command[2], "+ '\\n'") || !strings.Contains(initScript.Command[2], "chr(10)") {
+		t.Fatalf("init-test-state should avoid TOML-sensitive Python newline literals")
+	}
 	for _, want := range []string{"artifacts_dir", "screenshots_dir", "test-state.json", "cases.jsonl", "runs.jsonl"} {
 		if !strings.Contains(initScript.Command[2], want) {
 			t.Fatalf("init-test-state script missing %q", want)
@@ -1043,6 +1046,9 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	testLoop, ok := testLoopNode.Step.(steps.LoopStep)
 	if !ok {
 		t.Fatalf("test-loop step = %T, want LoopStep", testLoopNode.Step)
+	}
+	if !testLoop.Meta().Idempotent {
+		t.Fatalf("test-loop idempotent = false, want true")
 	}
 	if testLoop.Until != "persist-case-result.stdout.continue_run == false" {
 		t.Fatalf("test-loop until = %q", testLoop.Until)
@@ -1068,6 +1074,12 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			scriptStep, ok := child.(steps.ScriptStep)
 			if !ok {
 				t.Fatalf("persist-case-result step = %T, want ScriptStep", child)
+			}
+			if !scriptStep.Meta().Idempotent {
+				t.Fatalf("persist-case-result idempotent = false, want true")
+			}
+			if !strings.Contains(scriptStep.Command[2], "chr(10)") || strings.Contains(scriptStep.Command[2], "+ '\\n'") {
+				t.Fatalf("persist-case-result should avoid TOML-sensitive Python newline literals")
 			}
 			if !strings.Contains(scriptStep.Command[2], "only_failed") || !strings.Contains(scriptStep.Command[2], "history") {
 				t.Fatalf("persist-case-result should persist case status and only_failed rerun state")
