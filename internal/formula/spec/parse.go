@@ -131,6 +131,7 @@ type stepTOMLAlias struct {
 	Embed           string               `json:"embed,omitempty"`
 	EmbedVars       map[string]string    `json:"embed_vars,omitempty"`
 	Condition       string               `json:"condition,omitempty"`
+	Idempotent      bool                 `json:"idempotent,omitempty"`
 	Children        []*stepTOMLAlias     `json:"children,omitempty"`
 	Gate            *Gate                `json:"gate,omitempty"`
 	Loop            *loopTOMLAlias       `json:"loop,omitempty"`
@@ -275,6 +276,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		Embed:           a.Embed,
 		EmbedVars:       a.EmbedVars,
 		Condition:       a.Condition,
+		Idempotent:      a.Idempotent,
 		Children:        children,
 		Gate:            a.Gate,
 		Loop:            loop,

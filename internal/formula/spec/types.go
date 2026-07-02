@@ -75,6 +75,7 @@ type Step struct {
 	Embed           string               `json:"embed,omitempty" toml:"embed,omitempty"`
 	EmbedVars       map[string]string    `json:"embed_vars,omitempty" toml:"embed_vars,omitempty"`
 	Condition       string               `json:"condition,omitempty" toml:"condition,omitempty"`
+	Idempotent      bool                 `json:"idempotent,omitempty" toml:"idempotent,omitempty"`
 	Children        []*Step              `json:"children,omitempty" toml:"children,omitempty"`
 	Gate            *Gate                `json:"gate,omitempty" toml:"gate,omitempty"`
 	Loop            *LoopSpec            `json:"loop,omitempty" toml:"loop,omitempty"`

@@ -1031,6 +1031,9 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !ok {
 		t.Fatalf("init-test-state step = %T, want ScriptStep", initState.Step)
 	}
+	if !initScript.Meta().Idempotent {
+		t.Fatalf("init-test-state idempotent = false, want true")
+	}
 	for _, want := range []string{"artifacts_dir", "screenshots_dir", "test-state.json", "cases.jsonl", "runs.jsonl"} {
 		if !strings.Contains(initScript.Command[2], want) {
 			t.Fatalf("init-test-state script missing %q", want)

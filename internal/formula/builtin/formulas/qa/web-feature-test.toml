@@ -9,7 +9,7 @@ tags = ["web", "browser", "qa", "feature-test", "stateful", "resume", "artifacts
 
 [vars]
 url = { description = "要测试的网站入口 URL 或功能入口 URL", required = true }
-prompt = { description = "本次要定点测试的功能点/验收点提示。只会围绕这些点生成和执行测试用例", required = true }
+prompt = { description = "本次要定点测试的功能点/验收点提示。只会围绕这些点生成和执行测试用例" }
 workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
 context_doc = { description = "自动加载的项目测试文档，建议写账号、登录方式、环境说明、约束等", default = ".tt/web-feature-test.md" }
 state_dir = { description = "保存定点测试状态和产物的根目录", default = ".tt/web-feature-test" }
@@ -106,7 +106,7 @@ if not suite:
     host = parsed.netloc or 'site'
     path = parsed.path.strip('/').replace('/', '_') or 'root'
     slug = re.sub(r'[^a-zA-Z0-9_.-]+', '-', f'{host}_{path}').strip('-')[:60]
-    digest = hashlib.sha1((url + '\n' + prompt).encode('utf-8')).hexdigest()[:10]
+    digest = hashlib.sha1((url + chr(10) + prompt).encode('utf-8')).hexdigest()[:10]
     suite = f'{slug}-{digest}'
 else:
     suite = re.sub(r'[^a-zA-Z0-9_.-]+', '-', suite).strip('-')[:80]

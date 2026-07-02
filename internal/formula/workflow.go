@@ -132,7 +132,7 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 			dependsOn = append(dependsOn, steps.ID(dep))
 		}
 	}
-	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, DependsOn: dependsOn, Labels: append([]string(nil), step.Labels...), Condition: step.Condition}
+	meta := steps.Metadata{ID: steps.ID(step.ID), Title: step.Title, DependsOn: dependsOn, Labels: append([]string(nil), step.Labels...), Condition: step.Condition, Idempotent: step.Idempotent}
 	if step.Loop != nil {
 		meta.Kind = steps.KindLoop
 		body := make([]steps.Step, 0, len(step.Loop.Body))
