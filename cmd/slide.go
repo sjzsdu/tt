@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -212,7 +213,7 @@ func listAvailableSlideTemplates() []slideTemplateListItem {
 	}
 
 	for _, root := range slideTemplateSearchRootsWithSource() {
-		entries, err := os.ReadDir(root.Path)
+		entries, err := slideRootReadDir(root)
 		if err != nil {
 			continue
 		}
@@ -220,10 +221,10 @@ func listAvailableSlideTemplates() []slideTemplateListItem {
 			if !entry.IsDir() || !isSafeSlideTemplateName(entry.Name()) {
 				continue
 			}
-			templateDir := filepath.Join(root.Path, entry.Name())
-			if info, err := os.Stat(filepath.Join(templateDir, "template.json")); err != nil || info.IsDir() {
+			if info, err := slideRootStat(root, entry.Name(), "template.json"); err != nil || info.IsDir() {
 				continue
 			}
+			templateDir := slideRootDisplayPath(root, entry.Name())
 			item := slideTemplateListItem{Name: entry.Name(), Source: root.Source, Path: templateDir}
 			if idx, ok := seen[item.Name]; ok {
 				items[idx] = item
@@ -726,9 +727,56 @@ type slideWidgetResponse struct {
 type slideTemplateSearchRoot struct {
 	Source string
 	Path   string
+	FS     fs.FS
+}
+
+type slideTemplateLocation struct {
+	Root slideTemplateSearchRoot
+	Name string
+	Dir  string
 }
 
 var slideTemplateAssetURLPattern = regexp.MustCompile(`url\(\s*(['"]?)([^'")]+)['"]?\s*\)`)
+
+func slideRootJoin(root slideTemplateSearchRoot, elems ...string) string {
+	parts := append([]string{root.Path}, elems...)
+	if root.FS != nil {
+		return path.Join(parts...)
+	}
+	return filepath.Join(parts...)
+}
+
+func slideRootReadDir(root slideTemplateSearchRoot, elems ...string) ([]fs.DirEntry, error) {
+	target := slideRootJoin(root, elems...)
+	if root.FS != nil {
+		return fs.ReadDir(root.FS, target)
+	}
+	return os.ReadDir(target)
+}
+
+func slideRootReadFile(root slideTemplateSearchRoot, elems ...string) ([]byte, error) {
+	target := slideRootJoin(root, elems...)
+	if root.FS != nil {
+		return fs.ReadFile(root.FS, target)
+	}
+	return os.ReadFile(target)
+}
+
+func slideRootStat(root slideTemplateSearchRoot, elems ...string) (fs.FileInfo, error) {
+	target := slideRootJoin(root, elems...)
+	if root.FS != nil {
+		return fs.Stat(root.FS, target)
+	}
+	return os.Stat(target)
+}
+
+func slideRootDisplayPath(root slideTemplateSearchRoot, elems ...string) string {
+	target := slideRootJoin(root, elems...)
+	if root.FS != nil {
+		return "built-in:" + target
+	}
+	return target
+}
 
 func handleSlideWidgets(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -739,7 +787,7 @@ func handleSlideWidgets(w http.ResponseWriter, r *http.Request) {
 
 	widgets := map[string]slideWidgetTemplate{}
 	for _, root := range slideWidgetSearchRootsWithSource() {
-		entries, err := os.ReadDir(root.Path)
+		entries, err := slideRootReadDir(root)
 		if err != nil {
 			continue
 		}
@@ -754,11 +802,11 @@ func handleSlideWidgets(w http.ResponseWriter, r *http.Request) {
 			if _, exists := widgets[name]; exists {
 				continue
 			}
-			htmlBytes, err := os.ReadFile(filepath.Join(root.Path, entry.Name()))
+			htmlBytes, err := slideRootReadFile(root, entry.Name())
 			if err != nil {
 				continue
 			}
-			cssBytes, _ := os.ReadFile(filepath.Join(root.Path, name+".css"))
+			cssBytes, _ := slideRootReadFile(root, name+".css")
 			widgets[name] = slideWidgetTemplate{
 				Type:   name,
 				HTML:   string(htmlBytes),
@@ -779,13 +827,13 @@ func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	templateDir, err := findSlideTemplateDir(name)
+	template, err := findSlideTemplateLocation(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	manifestBytes, err := os.ReadFile(filepath.Join(templateDir, "template.json"))
+	manifestBytes, err := slideRootReadFile(template.Root, template.Name, "template.json")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("read template manifest failed: %v", err), http.StatusNotFound)
 		return
@@ -816,8 +864,7 @@ func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cssPath := filepath.Join(templateDir, filepath.FromSlash(manifest.CSS))
-	cssBytes, err := os.ReadFile(cssPath)
+	cssBytes, err := slideRootReadFile(template.Root, template.Name, filepath.ToSlash(filepath.FromSlash(manifest.CSS)))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("read template css failed: %v", err), http.StatusNotFound)
 		return
@@ -892,22 +939,18 @@ func handleSlideTemplateAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	templateDir, err := findSlideTemplateDir(templateName)
+	template, err := findSlideTemplateLocation(templateName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	absPath, err := safeJoin(templateDir, assetPath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	content, err := os.ReadFile(absPath)
+	assetRel := strings.TrimPrefix(filepath.ToSlash(assetPath), "/")
+	content, err := slideRootReadFile(template.Root, template.Name, assetRel)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("read template asset failed: %v", err), http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", mimeType(absPath))
+	w.Header().Set("Content-Type", mimeType(assetRel))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 	_, _ = w.Write(content)
 }
@@ -925,21 +968,20 @@ func isSafeSlideTemplateName(name string) bool {
 	return true
 }
 
-func findSlideTemplateDir(name string) (string, error) {
-	for _, base := range slideTemplateSearchRoots() {
-		candidate := filepath.Join(base, name)
-		info, err := os.Stat(filepath.Join(candidate, "template.json"))
+func findSlideTemplateLocation(name string) (slideTemplateLocation, error) {
+	for _, root := range slideTemplateSearchRootsWithSource() {
+		info, err := slideRootStat(root, name, "template.json")
 		if err == nil && !info.IsDir() {
-			return candidate, nil
+			return slideTemplateLocation{Root: root, Name: name, Dir: slideRootDisplayPath(root, name)}, nil
 		}
 	}
-	return "", fmt.Errorf("template %s not found", name)
+	return slideTemplateLocation{}, fmt.Errorf("template %s not found", name)
 }
 
 func slideTemplateSearchRoots() []string {
 	var roots []string
 	for _, root := range slideTemplateSearchRootsWithSource() {
-		roots = append(roots, root.Path)
+		roots = append(roots, slideRootDisplayPath(root))
 	}
 	return roots
 }
@@ -952,17 +994,19 @@ func slideTemplateSearchRootsWithSource() []slideTemplateSearchRoot {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		roots = append(roots, slideTemplateSearchRoot{Source: "global", Path: filepath.Join(home, ".tt", "slide", "templates")})
 	}
+	roots = append(roots, slideTemplateSearchRoot{Source: "built-in", Path: "slide/templates", FS: webui.SlideResources()})
 	return roots
 }
 
 func slideWidgetSearchRootsWithSource() []slideTemplateSearchRoot {
 	var roots []slideTemplateSearchRoot
 	if projectRoot := findNearestTTDir(slideRoot); projectRoot != "" {
-		roots = append(roots, slideTemplateSearchRoot{Source: "project", Path: filepath.Join(projectRoot, "slides", "widgets")})
+		roots = append(roots, slideTemplateSearchRoot{Source: "project", Path: filepath.Join(projectRoot, "slide", "widgets")})
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, slideTemplateSearchRoot{Source: "global", Path: filepath.Join(home, ".tt", "slides", "widgets")})
+		roots = append(roots, slideTemplateSearchRoot{Source: "global", Path: filepath.Join(home, ".tt", "slide", "widgets")})
 	}
+	roots = append(roots, slideTemplateSearchRoot{Source: "built-in", Path: "slide/widgets", FS: webui.SlideResources()})
 	return roots
 }
 

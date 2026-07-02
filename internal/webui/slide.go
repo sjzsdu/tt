@@ -9,6 +9,13 @@ import (
 //go:embed slide/dist
 var slideDist embed.FS
 
+//go:embed slide/templates slide/widgets
+var slideResources embed.FS
+
+func SlideResources() fs.FS {
+	return slideResources
+}
+
 func SlideIndex() []byte {
 	b, err := slideDist.ReadFile("slide/dist/index.html")
 	if err != nil {

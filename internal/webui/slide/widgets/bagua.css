@@ -1,0 +1,98 @@
+.slide-widget-bagua {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+.bagua-widget {
+  position: relative;
+  width: min(720px, 76vh, 100%);
+  min-width: min(520px, 100%);
+  aspect-ratio: 1;
+  color: currentColor;
+}
+.bagua-center {
+  position: absolute;
+  inset: 35%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255,255,255,.16), rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 18px 60px rgba(0,0,0,.24);
+  text-align: center;
+}
+.bagua-taiji {
+  font-size: 2.4em;
+  line-height: 1;
+  margin-bottom: .1em;
+}
+.bagua-center-title {
+  font-size: .78em;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+.bagua-center-subtitle {
+  margin-top: .35em;
+  font-size: .42em;
+  opacity: .68;
+}
+.bagua-item {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: clamp(86px, 18%, 116px);
+  min-height: clamp(96px, 21%, 130px);
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 10px 8px;
+  border-radius: 20px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14);
+  backdrop-filter: blur(6px);
+}
+.bagua-qian { --x: 50%; --y: 7%; }
+.bagua-dui { --x: 80%; --y: 20%; }
+.bagua-li { --x: 93%; --y: 50%; }
+.bagua-zhen { --x: 80%; --y: 80%; }
+.bagua-kun { --x: 50%; --y: 93%; }
+.bagua-gen { --x: 20%; --y: 80%; }
+.bagua-kan { --x: 7%; --y: 50%; }
+.bagua-xun { --x: 20%; --y: 20%; }
+.bagua-name {
+  font-size: .72em;
+  font-weight: 800;
+}
+.bagua-symbol {
+  font-size: .48em;
+  opacity: .72;
+}
+.bagua-lines {
+  width: 78px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 7px;
+}
+.bagua-lines i {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  position: relative;
+}
+.bagua-lines[data-lines="000"] i,
+.bagua-lines[data-lines="010"] i:nth-child(1),
+.bagua-lines[data-lines="010"] i:nth-child(3),
+.bagua-lines[data-lines="011"] i:nth-child(1),
+.bagua-lines[data-lines="001"] i:nth-child(1),
+.bagua-lines[data-lines="001"] i:nth-child(2),
+.bagua-lines[data-lines="100"] i:nth-child(2),
+.bagua-lines[data-lines="100"] i:nth-child(3),
+.bagua-lines[data-lines="110"] i:nth-child(3),
+.bagua-lines[data-lines="101"] i:nth-child(2) {
+  background: linear-gradient(to right, currentColor 0 39%, transparent 39% 61%, currentColor 61% 100%);
+}

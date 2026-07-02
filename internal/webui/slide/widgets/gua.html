@@ -1,0 +1,12 @@
+<div class="gua-card" data-lines="{{ lines }}">
+  <div class="gua-title">{{ name }}</div>
+  {{#if subtitle}}<div class="gua-subtitle">{{ subtitle }}</div>{{/if}}
+  <div class="gua-lines" aria-label="{{ name }} {{ lines }}">
+    {{#each linesChars}}
+      <div class="gua-line {{#if isYang}}yang{{/if}}{{#if isYin}}yin{{/if}}">
+        <span></span><span></span>
+      </div>
+    {{/each}}
+  </div>
+  {{#if note}}<div class="gua-note">{{ note }}</div>{{/if}}
+</div>

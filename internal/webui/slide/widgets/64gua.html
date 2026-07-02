@@ -1,0 +1,14 @@
+<div class="gua64-card" data-lines="{{ lines }}">
+  <div class="gua64-copy">
+    <div class="gua64-name">{{ name }}</div>
+    {{#if subtitle}}<div class="gua64-subtitle">{{ subtitle }}</div>{{/if}}
+    {{#if note}}<div class="gua64-note">{{ note }}</div>{{/if}}
+  </div>
+  <div class="gua64-lines" aria-label="{{ name }} {{ lines }}">
+    {{#each linesChars}}
+      <div class="gua64-line {{#if isYang}}yang{{/if}}{{#if isYin}}yin{{/if}}">
+        <span></span><span></span>
+      </div>
+    {{/each}}
+  </div>
+</div>

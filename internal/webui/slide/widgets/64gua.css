@@ -1,0 +1,90 @@
+.slide-widget-64gua {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.gua64-card {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 34%);
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.035));
+  border: 1px solid rgba(255,255,255,.16);
+  box-shadow: 0 18px 46px rgba(0,0,0,.22);
+  overflow: hidden;
+}
+.gua64-copy {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+.gua64-name {
+  font-size: .72em;
+  line-height: 1.05;
+  font-weight: 850;
+  letter-spacing: .03em;
+  color: var(--slide-title, currentColor);
+  margin-bottom: 4px;
+}
+.gua64-subtitle {
+  font-size: .28em;
+  line-height: 1.22;
+  opacity: .74;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gua64-note {
+  font-size: .23em;
+  line-height: 1.22;
+  opacity: .86;
+  text-align: left;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gua64-lines {
+  align-self: stretch;
+  justify-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: center;
+  gap: clamp(5px, 5.2%, 9px);
+  color: var(--slide-accent-strong, currentColor);
+}
+.gua64-line {
+  height: clamp(6px, 8.5%, 12px);
+  display: flex;
+  justify-content: space-between;
+  gap: 16%;
+}
+.gua64-line span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 2px 8px rgba(0,0,0,.16);
+}
+.gua64-line.yang span:first-child {
+  width: 100%;
+}
+.gua64-line.yang span:last-child {
+  display: none;
+}
+.gua64-line.yin span {
+  width: 42%;
+}

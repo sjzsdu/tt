@@ -1,0 +1,17 @@
+{
+  "name": "magicloud",
+  "revealTheme": "white",
+  "css": "template.css",
+  "defaults": {
+    "theme": "light",
+    "transition": "fade",
+    "center": false,
+    "margin": 0
+  },
+  "vars": {
+    "slide-padding": "146px 112px 70px",
+    "cover-padding": "0 96px 60px",
+    "cover-background": "url(\"./assets/cover-mesh.png\") center / cover no-repeat, linear-gradient(135deg, #000000 0%, #00130D 20%, #00643C 58%, #008D55 100%)",
+    "brand-background": "url(\"./assets/white-mesh.jpeg\") center center / 100% 100% no-repeat, #ffffff"
+  }
+}

@@ -1,0 +1,96 @@
+.slide-widget-gua {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.gua-card {
+  width: min(520px, 100%);
+  padding: 34px 42px;
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 26px 70px rgba(0,0,0,.28);
+  text-align: center;
+}
+.gua-title {
+  font-size: 1.45em;
+  font-weight: 800;
+  letter-spacing: .08em;
+  margin-bottom: 6px;
+}
+.gua-subtitle,
+.gua-note {
+  opacity: .72;
+  font-size: .55em;
+  line-height: 1.5;
+}
+.gua-lines {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 16px;
+  margin: 30px auto;
+  width: 260px;
+}
+.gua-line {
+  height: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 42px;
+}
+.gua-line span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 3px 10px rgba(0,0,0,.18);
+}
+.gua-line.yang span:first-child {
+  width: 100%;
+}
+.gua-line.yang span:last-child {
+  display: none;
+}
+.gua-line.yin span {
+  width: calc((100% - 42px) / 2);
+}
+
+/* Compact mode when many gua widgets are placed on a grid slide. */
+.slide-grid .slide-widget-gua {
+  align-self: stretch;
+  min-width: 0;
+}
+.slide-grid .gua-card {
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.slide-grid .gua-title {
+  font-size: .86em;
+  margin-bottom: 2px;
+}
+.slide-grid .gua-subtitle {
+  font-size: .36em;
+  min-height: 2.6em;
+}
+.slide-grid .gua-lines {
+  width: 96px;
+  gap: 7px;
+  margin: 10px auto 12px;
+}
+.slide-grid .gua-line {
+  height: 8px;
+  gap: 16px;
+}
+.slide-grid .gua-line.yin span {
+  width: calc((100% - 16px) / 2);
+}
+.slide-grid .gua-note {
+  font-size: .30em;
+  line-height: 1.35;
+  text-align: left;
+  opacity: .82;
+}

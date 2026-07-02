@@ -2,27 +2,35 @@ APP := tt
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build web-install web-build install install-system clean run fmt tidy help
+.PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide install install-system clean run fmt tidy help
 
 build: web-build
 	go build -o $(APP) .
 
 web-install:
-	cd web && npm install
+	bash scripts/web-install-if-needed.sh
 
-web-build:
-	cd web && npm install && npm run build:markdown
+web-build: web-install web-build-markdown web-build-formula web-build-agent web-build-slide
+
+web-build-markdown:
+	bash scripts/web-build-if-needed.sh markdown build:markdown
+
+web-build-formula:
+	bash scripts/web-build-if-needed.sh formula build:formula
+
+web-build-agent:
+	bash scripts/web-build-if-needed.sh agent build:agent
+
+web-build-slide:
+	bash scripts/web-build-if-needed.sh slide build:slide
+
+web-build-force: web-install
+	cd web && npm run build:markdown
 	cd web && npm run build:formula
 	cd web && npm run build:agent
 	cd web && npm run build:slide
-	rm -rf internal/webui/markdown/dist
-	rm -rf internal/webui/formula/dist
-	rm -rf internal/webui/agent/dist
-	rm -rf internal/webui/slide/dist
-	mkdir -p internal/webui/markdown
-	mkdir -p internal/webui/formula
-	mkdir -p internal/webui/agent
-	mkdir -p internal/webui/slide
+	rm -rf internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist internal/webui/slide/dist
+	mkdir -p internal/webui/markdown internal/webui/formula internal/webui/agent internal/webui/slide
 	cp -R web/apps/markdown/dist internal/webui/markdown/dist
 	cp -R web/apps/formula/dist internal/webui/formula/dist
 	cp -R web/apps/agent/dist internal/webui/agent/dist
@@ -39,7 +47,7 @@ install-system: build
 
 clean:
 	rm -f $(APP)
-	rm -rf web/node_modules web/apps/markdown/dist web/apps/formula/dist web/apps/agent/dist internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist
+	rm -rf web/node_modules web/apps/markdown/dist web/apps/formula/dist web/apps/agent/dist web/apps/slide/dist internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist internal/webui/slide/dist
 
 run:
 	go run .
@@ -53,7 +61,8 @@ tidy:
 help:
 	@printf "Targets:\n"
 	@printf "  make build           Build web UI and ./$(APP)\n"
-	@printf "  make web-build       Build React web UI into internal/webui\n"
+	@printf "  make web-build       Incrementally build React web UIs into internal/webui\n"
+	@printf "  make web-build-force Force rebuild all React web UIs into internal/webui\n"
 	@printf "  make install         Install to $(BINDIR)/$(APP)\n"
 	@printf "  make install-system  Install to /usr/local/bin/$(APP)\n"
 	@printf "  make clean           Remove local binary\n"

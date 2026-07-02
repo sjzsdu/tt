@@ -207,7 +207,7 @@ func TestHandleSlideTemplateAssetServesTemplateAsset(t *testing.T) {
 
 func TestHandleSlideWidgetsLoadsProjectWidgets(t *testing.T) {
 	tmp := t.TempDir()
-	widgetDir := filepath.Join(tmp, ".tt", "slides", "widgets")
+	widgetDir := filepath.Join(tmp, ".tt", "slide", "widgets")
 	if err := os.MkdirAll(widgetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +239,72 @@ func TestHandleSlideWidgetsLoadsProjectWidgets(t *testing.T) {
 	}
 }
 
+func TestHandleSlideTemplateLoadsBuiltInMagicloud(t *testing.T) {
+	tmp := t.TempDir()
+	oldRoot := slideRoot
+	slideRoot = filepath.Join(tmp, "slides")
+	if err := os.MkdirAll(slideRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { slideRoot = oldRoot }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/template/magicloud", nil)
+	rr := httptest.NewRecorder()
+	handleSlideTemplate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideTemplate built-in magicloud status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`"name":"magicloud"`, `/template-assets/magicloud/assets/logo-dark.png`, `--cover-background`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("built-in magicloud response missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestHandleSlideTemplateAssetServesBuiltInMagicloudAsset(t *testing.T) {
+	tmp := t.TempDir()
+	oldRoot := slideRoot
+	slideRoot = filepath.Join(tmp, "slides")
+	if err := os.MkdirAll(slideRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { slideRoot = oldRoot }()
+
+	req := httptest.NewRequest(http.MethodGet, "/template-assets/magicloud/assets/logo-dark.png", nil)
+	rr := httptest.NewRecorder()
+	handleSlideTemplateAsset(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideTemplateAsset built-in magicloud status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.Len() == 0 {
+		t.Fatal("built-in magicloud asset body is empty")
+	}
+}
+
+func TestHandleSlideWidgetsLoadsBuiltInWidgets(t *testing.T) {
+	tmp := t.TempDir()
+	oldRoot := slideRoot
+	slideRoot = filepath.Join(tmp, "slides")
+	if err := os.MkdirAll(slideRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { slideRoot = oldRoot }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/widgets", nil)
+	rr := httptest.NewRecorder()
+	handleSlideWidgets(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideWidgets built-in status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`"64gua"`, `"bagua"`, `"gua"`, `"source":"built-in"`, `gua64-card`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("built-in widgets response missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestPrintSlideTemplatesListsBuiltInAndProjectTemplates(t *testing.T) {
 	tmp := t.TempDir()
 	templateDir := writeSlideTemplateFixture(t, tmp, "brand")
@@ -251,7 +317,7 @@ func TestPrintSlideTemplatesListsBuiltInAndProjectTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	for _, want := range []string{"Available slide templates:", "brand", "project", templateDir, "dark", "built-in", "white"} {
+	for _, want := range []string{"Available slide templates:", "brand", "project", templateDir, "dark", "built-in", "white", "magicloud"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("template list missing %q:\n%s", want, got)
 		}
