@@ -85,8 +85,8 @@ function enrichData(data: Record<string, unknown>): WidgetContext {
         isYang: char === '1',
         isYin: char === '0',
         ...(key === 'lines' ? {
-          yaoLabel: yaoLabelForLine(char, value.length - 1 - index),
-          yaoText: yaoTexts[value.length - 1 - index] || '',
+          yaoLabel: yaoLabelForLine(char, index),
+          yaoText: yaoTexts[index] || '',
         } : {}),
       }));
     }
