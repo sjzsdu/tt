@@ -3,10 +3,9 @@ id: slide-writer
 name: "Slide Writer"
 description: "Rewrite a single .slide page block from user feedback while preserving deck syntax and style."
 aliases:
-  - slide writer
-  - slide-editor
-  - slide editor
-no_history: true
+  - slide-writer
+skills:
+  - slide-writer
 soul: |
   # Slide Writer Soul
 

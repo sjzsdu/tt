@@ -10,6 +10,32 @@ import { SlideContent } from './SlideContent';
 const DESIGN_WIDTH = 1600;
 const DESIGN_HEIGHT = 900;
 
+const CORE_LAYOUT_CSS = `
+.reveal .slides section.slide-grid .slide-content,
+.reveal .slides section.slide-cards .slide-content {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  align-content: start;
+  height: 100%;
+}
+.reveal .slides section.slide-grid.slide-cols-2 .slide-content { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.reveal .slides section.slide-grid.slide-cols-3 .slide-content { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+.reveal .slides section.slide-grid.slide-cols-4 .slide-content { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+.reveal .slides section.slide-grid.slide-cols-5 .slide-content { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+.reveal .slides section.slide-grid.slide-cols-6 .slide-content { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
+.reveal .slides section.slide-grid.slide-rows-2 .slide-content { grid-template-rows: auto repeat(2, minmax(0, 1fr)) !important; align-content: stretch !important; align-items: stretch !important; }
+.reveal .slides section.slide-grid.slide-rows-3 .slide-content { grid-template-rows: auto repeat(3, minmax(0, 1fr)) !important; align-content: stretch !important; align-items: stretch !important; }
+.reveal .slides section.slide-grid.slide-compact .slide-content { gap: 14px !important; }
+.reveal .slides section.slide-grid.slide-dense .slide-content { gap: 10px !important; }
+.reveal .slides section.slide-grid .slide-markdown:not(.slide-part-item):not(.slide-part-card),
+.reveal .slides section.slide-cards .slide-markdown:not(.slide-part-item):not(.slide-part-card) { grid-column: 1 / -1; }
+.reveal .slides section.slide-grid.slide-compact .slide-markdown:not(.slide-part-item):not(.slide-part-card) h1,
+.reveal .slides section.slide-grid.slide-dense .slide-markdown:not(.slide-part-item):not(.slide-part-card) h1 { margin-bottom: 0; font-size: 1.28em; }
+.reveal .slides section.slide-grid.slide-compact .slide-widget,
+.reveal .slides section.slide-grid.slide-dense .slide-widget { min-width: 0; min-height: 0; height: 100%; }
+`;
+
 function calculateStageScale() {
   const viewport = window.visualViewport;
   const viewportWidth = viewport?.width || window.innerWidth || DESIGN_WIDTH;
@@ -47,6 +73,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [stageScale, setStageScale] = useState(1);
   const [rawMarkdown, setRawMarkdown] = useState('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [editorSlideIndex, setEditorSlideIndex] = useState<number | null>(null);
+  const [editorFilePath, setEditorFilePath] = useState('');
+  const [editorBaseMarkdown, setEditorBaseMarkdown] = useState('');
   const [editorText, setEditorText] = useState('');
   const [editorMode, setEditorMode] = useState<'edit' | 'insert'>('edit');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -67,6 +96,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const currentFileRef = useRef(currentFile);
+  currentFileRef.current = currentFile;
 
   const loadSlides = useCallback(async (file?: string) => {
     try {
@@ -75,6 +106,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         md = await fetchRawContent();
       } else if (file) {
         md = await fetchSlideContent(file);
+        if (file !== currentFileRef.current) return;
       } else {
         setError('No slide file specified');
         return;
@@ -167,9 +199,10 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
   useEffect(() => {
     if (contentMode) return;
+    const fileForSocket = currentFile;
     const ws = createWS((data) => {
       if (data.type === 'reload') {
-        loadSlides(currentFile);
+        loadSlides(fileForSocket);
       }
     });
     return () => ws.close();
@@ -278,6 +311,11 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setCurrentFile(path);
     setSlides([]);
     setError('');
+    setIsEditorOpen(false);
+    setIsAIModalOpen(false);
+    setEditorSlideIndex(null);
+    setEditorFilePath('');
+    setEditorBaseMarkdown('');
     setShowFileList(false);
     setShowOverview(false);
     const url = new URL(location.href);
@@ -294,6 +332,11 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setError('');
     setRawMarkdown('');
     setCurrentSlideIndex(0);
+    setEditorSlideIndex(null);
+    setEditorFilePath('');
+    setEditorBaseMarkdown('');
+    setIsEditorOpen(false);
+    setIsAIModalOpen(false);
     setShowFileList(false);
     setShowOverview(false);
     const url = new URL(location.href);
@@ -313,14 +356,17 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     return Math.max(0, Math.min(indices?.h ?? currentSlideIndex, Math.max(slides.length - 1, 0)));
   }, [currentSlideIndex, slides.length]);
 
-  const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number) => {
-    if (!currentFile) throw new Error('No slide file specified');
+  const editorDisplayIndex = editorSlideIndex ?? currentSlideIndex;
+
+  const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number, targetFile = currentFile) => {
+    if (!targetFile) throw new Error('No slide file specified');
     const nextMarkdown = serializeEditableSlideDocument(doc);
     const safeIndex = Math.max(0, Math.min(nextIndex, Math.max(doc.slides.length - 1, 0)));
-    await saveSlideContent(currentFile, nextMarkdown);
-    localStorage.setItem(slidePositionKey(currentFile), JSON.stringify({ h: safeIndex, v: 0, f: 0 }));
+    await saveSlideContent(targetFile, nextMarkdown);
+    localStorage.setItem(slidePositionKey(targetFile), JSON.stringify({ h: safeIndex, v: 0, f: 0 }));
+    if (targetFile !== currentFileRef.current) return;
     setRawMarkdown(nextMarkdown);
-    const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(currentFile) });
+    const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(targetFile) });
     setSlides(parsed);
     setMeta(parsedMeta);
     setCurrentSlideIndex(safeIndex);
@@ -337,6 +383,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       return;
     }
     setCurrentSlideIndex(index);
+    setEditorSlideIndex(index);
+    setEditorFilePath(currentFile);
+    setEditorBaseMarkdown(rawMarkdown);
     setEditorText(raw);
     setEditorMode('edit');
     setEditorError('');
@@ -349,6 +398,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     const activeIndex = getActiveSlideIndex();
     const insertIndex = Math.max(0, Math.min(activeIndex + 1, doc.slides.length));
     setCurrentSlideIndex(insertIndex);
+    setEditorSlideIndex(insertIndex);
+    setEditorFilePath(currentFile);
+    setEditorBaseMarkdown(rawMarkdown);
     setEditorMode('insert');
     setEditorText('# 新页面\n\n- 在这里输入这一页的要点\n- 可以使用 Markdown、Mermaid、D2 或 widget');
     setEditorError('将在当前页后插入新 slide。');
@@ -364,22 +416,42 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       return;
     }
     setCurrentSlideIndex(index);
+    setEditorSlideIndex(index);
+    setEditorFilePath(currentFile);
+    setEditorBaseMarkdown(rawMarkdown);
     setAIInstruction('');
     setAIError('');
     setIsAIModalOpen(true);
   }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
 
+  const openAIRewriteFromEditor = useCallback(() => {
+    if (contentMode || !currentFile || !rawMarkdown) return;
+    if (!editorFilePath) setEditorFilePath(currentFile);
+    if (!editorBaseMarkdown) setEditorBaseMarkdown(rawMarkdown);
+    const draft = editorText.trim();
+    if (!draft) {
+      setEditorError('当前编辑内容为空，无法进行 AI 修改。');
+      return;
+    }
+    setAIInstruction('');
+    setAIError('');
+    setIsAIModalOpen(true);
+  }, [contentMode, currentFile, editorBaseMarkdown, editorFilePath, editorText, rawMarkdown]);
+
   const submitAIRewrite = useCallback(async () => {
-    if (contentMode || !currentFile) return;
+    const targetFile = editorFilePath || currentFile;
+    if (contentMode || !targetFile) return;
     const instruction = aiInstruction.trim();
     if (!instruction) {
       setAIError('请输入修改意见。');
       return;
     }
-    const doc = parseEditableSlideDocument(rawMarkdown);
-    const index = currentSlideIndex;
-    const slideSource = doc.slides[index];
-    if (slideSource == null) {
+    const sourceMarkdown = editorBaseMarkdown || rawMarkdown;
+    const doc = parseEditableSlideDocument(sourceMarkdown);
+    const index = editorSlideIndex ?? currentSlideIndex;
+    const useEditorDraft = isEditorOpen && editorText.trim() !== '';
+    const slideSource = useEditorDraft ? editorText.trim() : doc.slides[index];
+    if (!slideSource) {
       setAIError(`Cannot find source for slide ${index + 1}`);
       return;
     }
@@ -387,12 +459,12 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setAIError('');
     try {
       const response = await rewriteSlide({
-        file: currentFile,
+        file: targetFile,
         slideIndex: index,
         slideSource,
         instruction,
         previousSlide: doc.slides[index - 1],
-        nextSlide: doc.slides[index + 1],
+        nextSlide: editorMode === 'insert' ? doc.slides[index] : doc.slides[index + 1],
       });
       const updated = response.updatedSlideSource?.trim();
       if (!updated) throw new Error(response.error || 'slide-writer returned empty content');
@@ -405,12 +477,14 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     } finally {
       setIsAIWorking(false);
     }
-  }, [aiInstruction, contentMode, currentFile, currentSlideIndex, rawMarkdown]);
+  }, [aiInstruction, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, isEditorOpen, rawMarkdown]);
 
   const saveCurrentSlide = useCallback(async () => {
-    if (contentMode || !currentFile) return;
-    const doc = parseEditableSlideDocument(rawMarkdown);
-    const index = currentSlideIndex;
+    const targetFile = editorFilePath || currentFile;
+    if (contentMode || !targetFile) return;
+    const sourceMarkdown = editorBaseMarkdown || rawMarkdown;
+    const doc = parseEditableSlideDocument(sourceMarkdown);
+    const index = editorSlideIndex ?? currentSlideIndex;
     if (editorMode === 'edit' && (index < 0 || index >= doc.slides.length)) {
       setEditorError(`Cannot find source for slide ${index + 1}`);
       return;
@@ -429,14 +503,17 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setIsSaving(true);
     setEditorError('');
     try {
-      await saveEditableDocument(doc, index);
+      await saveEditableDocument(doc, index, targetFile);
       setIsEditorOpen(false);
+      setEditorSlideIndex(null);
+      setEditorFilePath('');
+      setEditorBaseMarkdown('');
     } catch (e: any) {
       setEditorError(String(e?.message || e));
     } finally {
       setIsSaving(false);
     }
-  }, [contentMode, currentFile, currentSlideIndex, editorMode, editorText, rawMarkdown, saveEditableDocument]);
+  }, [contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, rawMarkdown, saveEditableDocument]);
 
   const requestDeleteCurrentSlide = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
@@ -593,6 +670,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   return (
     <div className="slide-wrapper" ref={wrapperRef}>
       <style>{tpl.css}</style>
+      <style>{CORE_LAYOUT_CSS}</style>
       <div
         className="slide-stage"
         style={{ transform: `scale(${stageScale})` }}
@@ -735,10 +813,10 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
           <div className="slide-edit-dialog">
             <div className="slide-edit-header">
               <div>
-                <div className="slide-edit-title">{editorMode === 'insert' ? `插入第 ${currentSlideIndex + 1} 页` : `编辑第 ${currentSlideIndex + 1} 页`}</div>
-                <div className="slide-edit-subtitle">{editorMode === 'insert' ? `${currentFile} · 新页面将插入到当前位置` : currentFile}</div>
+                <div className="slide-edit-title">{editorMode === 'insert' ? `插入第 ${editorDisplayIndex + 1} 页` : `编辑第 ${editorDisplayIndex + 1} 页`}</div>
+                <div className="slide-edit-subtitle">{editorMode === 'insert' ? `${editorFilePath || currentFile} · 新页面将插入到当前位置` : (editorFilePath || currentFile)}</div>
               </div>
-              <button className="slide-edit-close" onClick={() => setIsEditorOpen(false)} title="Close">×</button>
+              <button className="slide-edit-close" onClick={() => { setIsEditorOpen(false); setEditorSlideIndex(null); setEditorFilePath(''); setEditorBaseMarkdown(''); }} title="Close">×</button>
             </div>
             <textarea
               className="slide-edit-textarea"
@@ -749,7 +827,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
             />
             {editorError && <div className="slide-edit-error">{editorError}</div>}
             <div className="slide-edit-actions">
-              <button className="slide-edit-secondary" onClick={() => setIsEditorOpen(false)} disabled={isSaving}>取消</button>
+              <button className="slide-edit-secondary" onClick={openAIRewriteFromEditor} disabled={isSaving || isAIWorking}>💬 AI 修改</button>
+              <button className="slide-edit-secondary" onClick={() => { setIsEditorOpen(false); setEditorSlideIndex(null); setEditorFilePath(''); setEditorBaseMarkdown(''); }} disabled={isSaving}>取消</button>
               <button className="slide-edit-primary" onClick={saveCurrentSlide} disabled={isSaving}>
                 {isSaving ? '保存中…' : editorMode === 'insert' ? '插入并保存' : '保存'}
               </button>
@@ -782,7 +861,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
           <div className="slide-ai-dialog">
             <div className="slide-edit-header">
               <div>
-                <div className="slide-edit-title">AI 修改第 {currentSlideIndex + 1} 页</div>
+                <div className="slide-edit-title">AI 修改第 {editorDisplayIndex + 1} 页</div>
                 <div className="slide-edit-subtitle">输入修改意见，slide-writer 会生成当前页修改稿</div>
               </div>
               <button className="slide-edit-close" onClick={() => setIsAIModalOpen(false)} title="Close">×</button>

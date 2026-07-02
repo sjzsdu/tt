@@ -102,14 +102,37 @@ export function fetchWidgets(): Promise<WidgetResponse> {
   return apiFetch('/api/widgets');
 }
 
-export function createWS(onMessage: (data: any) => void): WebSocket {
+export type SlideWebSocket = {
+  close: () => void;
+};
+
+export function createWS(onMessage: (data: any) => void): SlideWebSocket {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}/ws`);
-  ws.onmessage = (e) => {
-    try { onMessage(JSON.parse(e.data)); } catch (_) {}
+  let closedByClient = false;
+  let ws: WebSocket | null = null;
+  let reconnectTimer: number | undefined;
+
+  const connect = () => {
+    if (closedByClient) return;
+    ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = (e) => {
+      if (closedByClient) return;
+      try { onMessage(JSON.parse(e.data)); } catch (_) {}
+    };
+    ws.onclose = () => {
+      if (closedByClient) return;
+      reconnectTimer = window.setTimeout(connect, 2000);
+    };
   };
-  ws.onclose = () => {
-    setTimeout(() => createWS(onMessage), 2000);
+
+  connect();
+
+  return {
+    close: () => {
+      closedByClient = true;
+      if (reconnectTimer != null) window.clearTimeout(reconnectTimer);
+      ws?.close();
+      ws = null;
+    },
   };
-  return ws;
 }
