@@ -86,6 +86,43 @@ func TestHandleSlideSaveContentRejectsNonSlideFile(t *testing.T) {
 	}
 }
 
+func TestHandleSlideRawFileDisablesCache(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "deck.slide"), []byte("# deck\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldRoot := slideRoot
+	slideRoot = tmp
+	defer func() { slideRoot = oldRoot }()
+
+	req := httptest.NewRequest(http.MethodGet, "/raw/deck.slide", nil)
+	rr := httptest.NewRecorder()
+	handleSlideRawFile(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideRawFile status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+}
+
+func TestHandleSlideRawContentDisablesCache(t *testing.T) {
+	oldContent := slideContent
+	slideContent = "# inline\n"
+	defer func() { slideContent = oldContent }()
+
+	req := httptest.NewRequest(http.MethodGet, "/raw-content", nil)
+	rr := httptest.NewRecorder()
+	handleSlideRawContent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideRawContent status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+}
+
 func TestCleanSlideWriterOutputRemovesCodeFence(t *testing.T) {
 	got := cleanSlideWriterOutput("```slide\n.media-right\n\n# Title\n```")
 	want := ".media-right\n\n# Title"
@@ -165,6 +202,40 @@ func TestHandleSlideTemplateAssetServesTemplateAsset(t *testing.T) {
 	}
 	if rr.Body.String() != "png" {
 		t.Fatalf("asset body = %q, want png", rr.Body.String())
+	}
+}
+
+func TestHandleSlideWidgetsLoadsProjectWidgets(t *testing.T) {
+	tmp := t.TempDir()
+	widgetDir := filepath.Join(tmp, ".tt", "slides", "widgets")
+	if err := os.MkdirAll(widgetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(widgetDir, "gua.html"), []byte(`<div>{{ name }}</div>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(widgetDir, "gua.css"), []byte(`.gua{color:red}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldRoot := slideRoot
+	slideRoot = filepath.Join(tmp, "slides")
+	if err := os.MkdirAll(slideRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { slideRoot = oldRoot }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/widgets", nil)
+	rr := httptest.NewRecorder()
+	handleSlideWidgets(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideWidgets status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`"gua"`, `\u003cdiv\u003e{{ name }}\u003c/div\u003e`, `.gua{color:red}`, `"source":"project"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("widgets response missing %q:\n%s", want, body)
+		}
 	}
 }
 

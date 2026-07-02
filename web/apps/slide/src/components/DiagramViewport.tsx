@@ -9,6 +9,7 @@ type DiagramViewportProps = {
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 4;
 const SCALE_STEP = 0.18;
+const VIEWBOX_PADDING = 24;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -19,6 +20,32 @@ function numericSvgLength(value: string | null) {
   if (value.includes('%')) return 0;
   const match = value.match(/([0-9]*\.?[0-9]+)/);
   return match ? Number(match[1]) : 0;
+}
+
+function normalizeSvgViewBox(svgElement: SVGSVGElement) {
+  let bbox: DOMRect | SVGRect | null = null;
+  try {
+    bbox = svgElement.getBBox();
+  } catch (_) {
+    bbox = null;
+  }
+
+  if (bbox && bbox.width > 0 && bbox.height > 0) {
+    const x = bbox.x - VIEWBOX_PADDING;
+    const y = bbox.y - VIEWBOX_PADDING;
+    const width = bbox.width + VIEWBOX_PADDING * 2;
+    const height = bbox.height + VIEWBOX_PADDING * 2;
+    svgElement.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+    return;
+  }
+
+  if (!svgElement.getAttribute('viewBox')) {
+    const width = numericSvgLength(svgElement.getAttribute('width'));
+    const height = numericSvgLength(svgElement.getAttribute('height'));
+    if (width > 0 && height > 0) {
+      svgElement.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    }
+  }
 }
 
 export function DiagramViewport({ svg, label }: DiagramViewportProps) {
@@ -40,13 +67,7 @@ export function DiagramViewport({ svg, label }: DiagramViewportProps) {
     const svgElement = svgRef.current?.querySelector('svg') as SVGSVGElement | null;
     if (!svgElement) return;
 
-    if (!svgElement.getAttribute('viewBox')) {
-      const width = numericSvgLength(svgElement.getAttribute('width'));
-      const height = numericSvgLength(svgElement.getAttribute('height'));
-      if (width > 0 && height > 0) {
-        svgElement.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      }
-    }
+    normalizeSvgViewBox(svgElement);
 
     svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svgElement.removeAttribute('width');
@@ -96,26 +117,28 @@ export function DiagramViewport({ svg, label }: DiagramViewportProps) {
   }, []);
 
   return (
-    <div className="diagram-viewport" aria-label={label} onWheel={onWheel} onDoubleClick={reset}>
-      <div className="diagram-toolbar" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
-        <button type="button" onClick={() => zoomBy(-SCALE_STEP)} title="Zoom out">−</button>
-        <span>{Math.round(scale * 100)}%</span>
-        <button type="button" onClick={() => zoomBy(SCALE_STEP)} title="Zoom in">＋</button>
-        <button type="button" onClick={reset} title="Reset pan and zoom">Reset</button>
-      </div>
-      <div
-        className={`diagram-panzoom ${dragRef.current ? 'dragging' : ''}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      >
+    <div className="slide-diagram">
+      <div className="diagram-viewport" aria-label={label} onWheel={onWheel} onDoubleClick={reset}>
+        <div className="diagram-toolbar" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+          <button type="button" onClick={() => zoomBy(-SCALE_STEP)} title="Zoom out">−</button>
+          <span>{Math.round(scale * 100)}%</span>
+          <button type="button" onClick={() => zoomBy(SCALE_STEP)} title="Zoom in">＋</button>
+          <button type="button" onClick={reset} title="Reset pan and zoom">Reset</button>
+        </div>
         <div
-          ref={svgRef}
-          className="diagram-svg"
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
+          className={`diagram-panzoom ${dragRef.current ? 'dragging' : ''}`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
+          <div
+            ref={svgRef}
+            className="diagram-svg"
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
       </div>
     </div>
   );

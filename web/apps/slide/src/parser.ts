@@ -41,8 +41,9 @@ type FenceState = {
   length: number;
 } | null;
 
-const slideDirectivePattern = /^\.(center|logo|brand|split|two-column|columns|grid|cards|flex|hero|media-left|media-right|cover|closing|end|final)\s*$/i;
+const slideDirectivePattern = /^\.([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\s*$/i;
 const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
+const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final']);
 
 function updateFenceState(line: string, fence: FenceState): FenceState {
   const match = line.match(/^\s*(`{3,}|~{3,})/);
@@ -136,6 +137,31 @@ function rewriteRelativeUrls(html: string, assetBasePath = '') {
   });
 }
 
+function parseScalar(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  if (/^(true|false)$/i.test(trimmed)) return trimmed.toLowerCase() === 'true';
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    return trimmed.slice(1, -1).split(',').map(item => String(parseScalar(item)).trim()).filter(Boolean);
+  }
+  return trimmed;
+}
+
+function parseWidgetData(source: string): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  for (const line of source.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = trimmed.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    if (!match) continue;
+    data[match[1]] = parseScalar(match[2]);
+  }
+  return data;
+}
+
 function extractSlideDirectives(markdown: string): SlideDirective {
   const classNames: string[] = [];
   let layoutHint: SlideLayout | undefined;
@@ -149,32 +175,39 @@ function extractSlideDirectives(markdown: string): SlideDirective {
       continue;
     }
 
-    hasDirective = true;
-    const directive = match[1].toLowerCase();
-    if (directive === 'center') {
-      layoutHint = 'center';
-    } else if (directive === 'logo' || directive === 'brand') {
-      layoutHint = 'logo';
-    } else if (directive === 'closing' || directive === 'end' || directive === 'final') {
-      layoutHint = 'closing';
-    } else if (directive === 'split') {
-      layoutHint = 'split';
-    } else if (directive === 'two-column' || directive === 'columns') {
-      layoutHint = 'two-column';
-    } else if (directive === 'grid') {
-      layoutHint = 'grid';
-    } else if (directive === 'cards') {
-      layoutHint = 'cards';
-    } else if (directive === 'flex') {
-      layoutHint = 'flex';
-    } else if (directive === 'hero') {
-      layoutHint = 'hero';
-    } else if (directive === 'media-left') {
-      layoutHint = 'media-left';
-    } else if (directive === 'media-right') {
-      layoutHint = 'media-right';
+    const directives = match[1].toLowerCase().split('.').filter(Boolean);
+    if (!directives.some(directive => slideLayoutDirectives.has(directive) || /^cols-\d+$/.test(directive) || /^rows-\d+$/.test(directive) || directive === 'compact' || directive === 'dense')) {
+      lines.push(line);
+      continue;
     }
-    classNames.push(`slide-${directive}`);
+
+    hasDirective = true;
+    for (const directive of directives) {
+      if (directive === 'center') {
+        layoutHint = 'center';
+      } else if (directive === 'logo' || directive === 'brand') {
+        layoutHint = 'logo';
+      } else if (directive === 'closing' || directive === 'end' || directive === 'final') {
+        layoutHint = 'closing';
+      } else if (directive === 'split') {
+        layoutHint = 'split';
+      } else if (directive === 'two-column' || directive === 'columns') {
+        layoutHint = 'two-column';
+      } else if (directive === 'grid') {
+        layoutHint = 'grid';
+      } else if (directive === 'cards') {
+        layoutHint = 'cards';
+      } else if (directive === 'flex') {
+        layoutHint = 'flex';
+      } else if (directive === 'hero') {
+        layoutHint = 'hero';
+      } else if (directive === 'media-left') {
+        layoutHint = 'media-left';
+      } else if (directive === 'media-right') {
+        layoutHint = 'media-right';
+      }
+      classNames.push(`slide-${directive}`);
+    }
   }
 
   return { markdown: lines.join('\n').trim(), layoutHint, classNames, hasDirective };
@@ -202,6 +235,12 @@ function splitMarkedParts(markdown: string, role?: MarkdownRole, options: ParseO
     if (token.type === 'code' && (codeLang === 'mermaid' || codeLang === 'd2')) {
       flush();
       parts.push({ type: codeLang, code: String((token as Token & { text?: string }).text || ''), role });
+    } else if (token.type === 'code' && codeLang === 'widget') {
+      flush();
+      const raw = String((token as Token & { text?: string }).text || '');
+      const data = parseWidgetData(raw);
+      const widgetType = String(data.type || '').trim();
+      parts.push({ type: 'widget', widgetType, data, raw, role });
     } else {
       buffer.push(token);
     }

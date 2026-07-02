@@ -42,4 +42,14 @@ export type SlideData = {
 export type SlidePart =
   | { type: 'markdown'; html: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' }
   | { type: 'mermaid'; code: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' }
-  | { type: 'd2'; code: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' };
+  | { type: 'd2'; code: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' }
+  | { type: 'widget'; widgetType: string; data: Record<string, unknown>; raw: string; role?: 'column' | 'card' | 'item' | 'media' | 'main' | 'aside' };
+
+export type SlideWidgetTemplate = {
+  type: string;
+  html: string;
+  css?: string;
+  source?: 'project' | 'global';
+};
+
+export type SlideWidgetRegistry = Record<string, SlideWidgetTemplate>;

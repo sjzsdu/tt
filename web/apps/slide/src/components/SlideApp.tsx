@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import type { DragEvent } from 'react';
 import Reveal from 'reveal.js';
 import { parseEditableSlideDocument, parseSlides, serializeEditableSlideDocument } from '../parser';
 import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
-import type { SlideMeta, SlideRuntimeConfig, TemplateConfig } from '../types';
-import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, createWS, saveSlideContent, rewriteSlide, type SlideFile } from '../api';
+import type { SlideMeta, SlideRuntimeConfig, TemplateConfig, SlideWidgetRegistry } from '../types';
+import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, fetchWidgets, createWS, saveSlideContent, rewriteSlide, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
 const DESIGN_WIDTH = 1600;
@@ -47,6 +48,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [rawMarkdown, setRawMarkdown] = useState('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [editorText, setEditorText] = useState('');
+  const [editorMode, setEditorMode] = useState<'edit' | 'insert'>('edit');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorError, setEditorError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -57,7 +59,11 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [draggedSlideIndex, setDraggedSlideIndex] = useState<number | null>(null);
+  const [overviewError, setOverviewError] = useState('');
+  const [isReordering, setIsReordering] = useState(false);
   const [template, setTemplate] = useState<TemplateConfig>(() => getTemplate(templateOverride || DEFAULT_TEMPLATE));
+  const [widgets, setWidgets] = useState<SlideWidgetRegistry>({});
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -96,6 +102,12 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         setIsListLoaded(true);
       })
       .catch(() => setIsListLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    fetchWidgets()
+      .then(res => setWidgets(res.widgets || {}))
+      .catch(() => setWidgets({}));
   }, []);
 
   useEffect(() => {
@@ -166,6 +178,17 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   useEffect(() => {
     document.title = meta?.title || 'tt slide';
   }, [meta]);
+
+  useEffect(() => {
+    const id = 'tt-slide-widget-css';
+    let style = document.getElementById(id) as HTMLStyleElement | null;
+    if (!style) {
+      style = document.createElement('style');
+      style.id = id;
+      document.head.appendChild(style);
+    }
+    style.textContent = Object.values(widgets).map(widget => widget.css || '').filter(Boolean).join('\n\n');
+  }, [widgets]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -290,6 +313,20 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     return Math.max(0, Math.min(indices?.h ?? currentSlideIndex, Math.max(slides.length - 1, 0)));
   }, [currentSlideIndex, slides.length]);
 
+  const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number) => {
+    if (!currentFile) throw new Error('No slide file specified');
+    const nextMarkdown = serializeEditableSlideDocument(doc);
+    const safeIndex = Math.max(0, Math.min(nextIndex, Math.max(doc.slides.length - 1, 0)));
+    await saveSlideContent(currentFile, nextMarkdown);
+    localStorage.setItem(slidePositionKey(currentFile), JSON.stringify({ h: safeIndex, v: 0, f: 0 }));
+    setRawMarkdown(nextMarkdown);
+    const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(currentFile) });
+    setSlides(parsed);
+    setMeta(parsedMeta);
+    setCurrentSlideIndex(safeIndex);
+    setTimeout(() => deckRef.current?.slide(safeIndex, 0, 0), 0);
+  }, [currentFile]);
+
   const openCurrentSlideEditor = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
     const doc = parseEditableSlideDocument(rawMarkdown);
@@ -301,7 +338,20 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     }
     setCurrentSlideIndex(index);
     setEditorText(raw);
+    setEditorMode('edit');
     setEditorError('');
+    setIsEditorOpen(true);
+  }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
+
+  const openInsertSlideEditor = useCallback(() => {
+    if (contentMode || !currentFile || !rawMarkdown) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    const activeIndex = getActiveSlideIndex();
+    const insertIndex = Math.max(0, Math.min(activeIndex + 1, doc.slides.length));
+    setCurrentSlideIndex(insertIndex);
+    setEditorMode('insert');
+    setEditorText('# 新页面\n\n- 在这里输入这一页的要点\n- 可以使用 Markdown、Mermaid、D2 或 widget');
+    setEditorError('将在当前页后插入新 slide。');
     setIsEditorOpen(true);
   }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
 
@@ -361,7 +411,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (contentMode || !currentFile) return;
     const doc = parseEditableSlideDocument(rawMarkdown);
     const index = currentSlideIndex;
-    if (index < 0 || index >= doc.slides.length) {
+    if (editorMode === 'edit' && (index < 0 || index >= doc.slides.length)) {
       setEditorError(`Cannot find source for slide ${index + 1}`);
       return;
     }
@@ -370,24 +420,23 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       setEditorError('Slide content cannot be empty. Use Delete to remove a slide.');
       return;
     }
-    doc.slides[index] = nextText;
-    const nextMarkdown = serializeEditableSlideDocument(doc);
+    if (editorMode === 'insert') {
+      const insertIndex = Math.max(0, Math.min(index, doc.slides.length));
+      doc.slides.splice(insertIndex, 0, nextText);
+    } else {
+      doc.slides[index] = nextText;
+    }
     setIsSaving(true);
     setEditorError('');
     try {
-      await saveSlideContent(currentFile, nextMarkdown);
-      localStorage.setItem(slidePositionKey(currentFile), JSON.stringify({ h: index, v: 0, f: 0 }));
-      setRawMarkdown(nextMarkdown);
-      const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(currentFile) });
-      setSlides(parsed);
-      setMeta(parsedMeta);
+      await saveEditableDocument(doc, index);
       setIsEditorOpen(false);
     } catch (e: any) {
       setEditorError(String(e?.message || e));
     } finally {
       setIsSaving(false);
     }
-  }, [contentMode, currentFile, currentSlideIndex, editorText, rawMarkdown]);
+  }, [contentMode, currentFile, currentSlideIndex, editorMode, editorText, rawMarkdown, saveEditableDocument]);
 
   const requestDeleteCurrentSlide = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
@@ -412,25 +461,52 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     }
     doc.slides.splice(index, 1);
     const nextIndex = Math.max(0, Math.min(index, doc.slides.length - 1));
-    const nextMarkdown = serializeEditableSlideDocument(doc);
     setIsDeleting(true);
     setDeleteError('');
     try {
-      await saveSlideContent(currentFile, nextMarkdown);
-      localStorage.setItem(slidePositionKey(currentFile), JSON.stringify({ h: nextIndex, v: 0, f: 0 }));
-      setRawMarkdown(nextMarkdown);
-      const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(currentFile) });
-      setSlides(parsed);
-      setMeta(parsedMeta);
-      setCurrentSlideIndex(nextIndex);
+      await saveEditableDocument(doc, nextIndex);
       setDeleteConfirmIndex(null);
-      setTimeout(() => deckRef.current?.slide(nextIndex, 0, 0), 0);
     } catch (e: any) {
       setDeleteError(`删除失败：${String(e?.message || e)}`);
     } finally {
       setIsDeleting(false);
     }
-  }, [contentMode, currentFile, deleteConfirmIndex, rawMarkdown]);
+  }, [contentMode, currentFile, deleteConfirmIndex, rawMarkdown, saveEditableDocument]);
+
+  const reorderSlides = useCallback(async (fromIndex: number, toIndex: number) => {
+    if (contentMode || !currentFile || !rawMarkdown || fromIndex === toIndex) return;
+    const doc = parseEditableSlideDocument(rawMarkdown);
+    if (fromIndex < 0 || fromIndex >= doc.slides.length || toIndex < 0 || toIndex >= doc.slides.length) return;
+    const [moved] = doc.slides.splice(fromIndex, 1);
+    doc.slides.splice(toIndex, 0, moved);
+    setIsReordering(true);
+    setOverviewError('');
+    try {
+      await saveEditableDocument(doc, toIndex);
+    } catch (e: any) {
+      setOverviewError(`排序保存失败：${String(e?.message || e)}`);
+    } finally {
+      setIsReordering(false);
+      setDraggedSlideIndex(null);
+    }
+  }, [contentMode, currentFile, rawMarkdown, saveEditableDocument]);
+
+  const handleOverviewDragStart = useCallback((event: DragEvent<HTMLDivElement>, index: number) => {
+    setDraggedSlideIndex(index);
+    setOverviewError('');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+  }, []);
+
+  const handleOverviewDrop = useCallback((event: DragEvent<HTMLDivElement>, index: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rawIndex = event.dataTransfer.getData('text/plain');
+    const fromIndex = rawIndex ? Number(rawIndex) : draggedSlideIndex;
+    if (Number.isInteger(fromIndex)) {
+      void reorderSlides(fromIndex as number, index);
+    }
+  }, [draggedSlideIndex, reorderSlides]);
 
   useEffect(() => {
     const deck = deckRef.current;
@@ -526,7 +602,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
           <div className="slides">
             {slides.map((slide) => (
               <section key={slide.index} className={slide.class || ''}>
-                <SlideContent slide={slide} theme={tpl.defaults.theme} />
+                <SlideContent slide={slide} theme={tpl.defaults.theme} widgets={widgets} />
               </section>
             ))}
           </div>
@@ -556,19 +632,35 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       {showOverview && (
         <div className="slide-overview-modal" role="dialog" aria-label="Slide overview">
           <div className="slide-overview-header">
-            <span>Slides</span>
+            <div>
+              <span>Slides</span>
+              {!contentMode && currentFile && <small>拖拽缩略图可排序</small>}
+            </div>
             <button className="slide-overview-close" onClick={() => setShowOverview(false)} title="Close overview">×</button>
           </div>
+          {overviewError && <div className="slide-overview-error">{overviewError}</div>}
+          {isReordering && <div className="slide-overview-saving">正在保存排序…</div>}
           <div className="slide-overview-list">
             {slides.map((slide) => {
               const isActive = deckRef.current?.getIndices().h === slide.index;
+              const isDragging = draggedSlideIndex === slide.index;
               return (
                 <div
                   key={slide.index}
                   role="button"
                   tabIndex={0}
-                  className={`slide-overview-item ${isActive ? 'active' : ''}`}
+                  draggable={!contentMode && !!currentFile && !isReordering}
+                  className={`slide-overview-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${draggedSlideIndex != null && !isDragging ? 'drop-ready' : ''}`}
+                  onDragStart={(event) => handleOverviewDragStart(event, slide.index)}
+                  onDragOver={(event) => {
+                    if (draggedSlideIndex == null || draggedSlideIndex === slide.index) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(event) => handleOverviewDrop(event, slide.index)}
+                  onDragEnd={() => setDraggedSlideIndex(null)}
                   onClick={() => {
+                    if (draggedSlideIndex != null) return;
                     deckRef.current?.slide(slide.index, 0, 0);
                     setShowOverview(false);
                   }}
@@ -591,7 +683,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                           />
                         ))}
                         <section className={`${slide.class || ''} present`.trim()}>
-                          <SlideContent slide={slide} theme={tpl.defaults.theme} />
+                          <SlideContent slide={slide} theme={tpl.defaults.theme} widgets={widgets} />
                         </section>
                       </div>
                     </div>
@@ -622,6 +714,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                 ☰ 文档
               </button>
             )}
+            <button className="slide-toolbar-btn" onClick={openInsertSlideEditor} title="Insert a new slide after current slide">
+              ＋ 插入
+            </button>
             <button className="slide-toolbar-btn" onClick={openCurrentSlideEditor} title="Edit current slide">
               ✎ 编辑
             </button>
@@ -640,8 +735,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
           <div className="slide-edit-dialog">
             <div className="slide-edit-header">
               <div>
-                <div className="slide-edit-title">编辑第 {currentSlideIndex + 1} 页</div>
-                <div className="slide-edit-subtitle">{currentFile}</div>
+                <div className="slide-edit-title">{editorMode === 'insert' ? `插入第 ${currentSlideIndex + 1} 页` : `编辑第 ${currentSlideIndex + 1} 页`}</div>
+                <div className="slide-edit-subtitle">{editorMode === 'insert' ? `${currentFile} · 新页面将插入到当前位置` : currentFile}</div>
               </div>
               <button className="slide-edit-close" onClick={() => setIsEditorOpen(false)} title="Close">×</button>
             </div>
@@ -656,7 +751,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
             <div className="slide-edit-actions">
               <button className="slide-edit-secondary" onClick={() => setIsEditorOpen(false)} disabled={isSaving}>取消</button>
               <button className="slide-edit-primary" onClick={saveCurrentSlide} disabled={isSaving}>
-                {isSaving ? '保存中…' : '保存'}
+                {isSaving ? '保存中…' : editorMode === 'insert' ? '插入并保存' : '保存'}
               </button>
             </div>
           </div>

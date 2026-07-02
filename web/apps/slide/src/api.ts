@@ -20,6 +20,17 @@ export type ExternalTemplate = {
   };
 };
 
+export type ExternalWidgetTemplate = {
+  type: string;
+  html: string;
+  css?: string;
+  source?: 'project' | 'global';
+};
+
+export type WidgetResponse = {
+  widgets: Record<string, ExternalWidgetTemplate>;
+};
+
 export function apiFetch<T>(path: string): Promise<T> {
   return fetch(path).then(r => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -32,14 +43,14 @@ export function fetchSlideList(): Promise<ListResponse> {
 }
 
 export function fetchSlideContent(filePath: string): Promise<string> {
-  return fetch(`/raw${filePath}`).then(r => {
+  return fetch(`/raw${filePath}`, { cache: 'no-store' }).then(r => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.text();
   });
 }
 
 export function fetchRawContent(): Promise<string> {
-  return fetch('/raw-content').then(r => {
+  return fetch('/raw-content', { cache: 'no-store' }).then(r => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.text();
   });
@@ -85,6 +96,10 @@ export function rewriteSlide(request: RewriteSlideRequest): Promise<RewriteSlide
 
 export function fetchTemplate(name: string): Promise<ExternalTemplate> {
   return apiFetch(`/api/template/${encodeURIComponent(name)}`);
+}
+
+export function fetchWidgets(): Promise<WidgetResponse> {
+  return apiFetch('/api/widgets');
 }
 
 export function createWS(onMessage: (data: any) => void): WebSocket {

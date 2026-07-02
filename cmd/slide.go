@@ -278,6 +278,7 @@ func runSlideServer() error {
 	mux.HandleFunc("/api/list", handleSlideList)
 	mux.HandleFunc("/api/slide/content", handleSlideSaveContent)
 	mux.HandleFunc("/api/slide/rewrite", handleSlideRewrite)
+	mux.HandleFunc("/api/widgets", handleSlideWidgets)
 	mux.HandleFunc("/api/template/", handleSlideTemplate)
 	mux.HandleFunc("/template-assets/", handleSlideTemplateAsset)
 	mux.HandleFunc("/api/d2", handleD2Render)
@@ -379,6 +380,7 @@ func handleSlideApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSlideRawContent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if slideContent == "" {
 		http.Error(w, "no content mode", http.StatusBadRequest)
 		return
@@ -388,6 +390,7 @@ func handleSlideRawContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSlideRawFile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	relPath := strings.TrimPrefix(r.URL.Path, "/raw")
 	if relPath == "" || relPath == "/" {
 		http.Error(w, "file path is required", http.StatusBadRequest)
@@ -709,12 +712,65 @@ type slideTemplateResponse struct {
 	Defaults    slideTemplateDefaults `json:"defaults"`
 }
 
+type slideWidgetTemplate struct {
+	Type   string `json:"type"`
+	HTML   string `json:"html"`
+	CSS    string `json:"css,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+type slideWidgetResponse struct {
+	Widgets map[string]slideWidgetTemplate `json:"widgets"`
+}
+
 type slideTemplateSearchRoot struct {
 	Source string
 	Path   string
 }
 
 var slideTemplateAssetURLPattern = regexp.MustCompile(`url\(\s*(['"]?)([^'")]+)['"]?\s*\)`)
+
+func handleSlideWidgets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	widgets := map[string]slideWidgetTemplate{}
+	for _, root := range slideWidgetSearchRootsWithSource() {
+		entries, err := os.ReadDir(root.Path)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".html" {
+				continue
+			}
+			name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+			if !isSafeSlideTemplateName(name) {
+				continue
+			}
+			if _, exists := widgets[name]; exists {
+				continue
+			}
+			htmlBytes, err := os.ReadFile(filepath.Join(root.Path, entry.Name()))
+			if err != nil {
+				continue
+			}
+			cssBytes, _ := os.ReadFile(filepath.Join(root.Path, name+".css"))
+			widgets[name] = slideWidgetTemplate{
+				Type:   name,
+				HTML:   string(htmlBytes),
+				CSS:    string(cssBytes),
+				Source: root.Source,
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(slideWidgetResponse{Widgets: widgets})
+}
 
 func handleSlideTemplate(w http.ResponseWriter, r *http.Request) {
 	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/template/"), "/")
@@ -895,6 +951,17 @@ func slideTemplateSearchRootsWithSource() []slideTemplateSearchRoot {
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		roots = append(roots, slideTemplateSearchRoot{Source: "global", Path: filepath.Join(home, ".tt", "slide", "templates")})
+	}
+	return roots
+}
+
+func slideWidgetSearchRootsWithSource() []slideTemplateSearchRoot {
+	var roots []slideTemplateSearchRoot
+	if projectRoot := findNearestTTDir(slideRoot); projectRoot != "" {
+		roots = append(roots, slideTemplateSearchRoot{Source: "project", Path: filepath.Join(projectRoot, "slides", "widgets")})
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		roots = append(roots, slideTemplateSearchRoot{Source: "global", Path: filepath.Join(home, ".tt", "slides", "widgets")})
 	}
 	return roots
 }
