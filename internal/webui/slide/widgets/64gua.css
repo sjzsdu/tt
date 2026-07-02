@@ -46,8 +46,8 @@
   text-overflow: ellipsis;
 }
 .gua64-note {
-  font-size: .32em;
-  line-height: 1.34;
+  font-size: .38em;
+  line-height: 1.32;
   opacity: .92;
   text-align: left;
   display: -webkit-box;
@@ -79,8 +79,8 @@
   display: flex;
   align-items: baseline;
   gap: .42em;
-  font-size: .34em;
-  line-height: 1.18;
+  font-size: .40em;
+  line-height: 1.16;
   color: var(--slide-fg, currentColor);
   opacity: .9;
   white-space: nowrap;
@@ -97,7 +97,7 @@
   text-overflow: ellipsis;
 }
 .gua64-line {
-  height: clamp(8px, .34em, 15px);
+  height: clamp(8px, .36em, 16px);
   display: flex;
   justify-content: space-between;
   gap: 16%;
