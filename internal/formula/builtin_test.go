@@ -1075,7 +1075,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			if agentStep.Agent != "agent-browser" {
 				t.Fatalf("execute-case agent = %q, want agent-browser", agentStep.Agent)
 			}
-			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI"} {
+			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "web-feature-test-{{case.id}}"} {
 				if !strings.Contains(agentStep.Prompt, want) {
 					t.Fatalf("execute-case prompt missing %q", want)
 				}
