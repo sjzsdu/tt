@@ -85,9 +85,15 @@ fetch-data -> aggregate-manifest -> write-files -> report
 
 Rules:
 
-- `depends_on` controls order.
-- `input_context` injects prior outputs into agent prompts.
-- Prefer whole step ids in `input_context`, not field paths.
+- `depends_on` controls order only. Add a dependency only when the step cannot safely start until that upstream step is complete.
+- `input_context` controls what an agent sees. It is not a logging mechanism and is not a substitute for dependencies.
+- Agent dependencies and `input_context` are not "more is better". They must be minimal, intentional, and reviewable.
+- For every `depends_on` edge, be able to answer: "what race or missing side effect would happen without this edge?" If there is no concrete answer, remove it.
+- For every `input_context` item, be able to answer: "what decision, output field, or user-facing statement requires this exact data?" If there is no concrete answer, remove it.
+- Prefer precise field paths in `input_context` when an agent only needs a few fields, such as `fetch-pr.stdout.title` or `summary.stdout.changed_files`, rather than an entire raw step output.
+- Prefer whole step ids only when the step output is intentionally small and curated for that downstream agent.
+- Do not pass credentials, raw logs, full diffs, large stdout, broad scan results, or complete previous agent outputs to another agent unless that exact content is necessary.
+- Before a final report, strongly prefer a deterministic `summarize-*` script/aggregate step that builds a small report payload. The reporter should consume that payload, not the whole workflow transcript.
 - Do not feed huge content to an agent if a deterministic step can shrink or materialize it first.
 - Treat each step output as a delta contract: include only information unique to that step. Do not repeat upstream fields unless a downstream `condition`, `loop.until`, `aggregate`, or report explicitly needs them.
 - For final reports, pass curated summaries or manifests, not full raw stdout/stderr/diffs/logs. A reporter must synthesize conclusions instead of pasting upstream JSON or child reports.

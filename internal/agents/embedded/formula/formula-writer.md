@@ -93,9 +93,12 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 fetch-data -> aggregate-manifest -> write-files -> report
 ```
 
-- `depends_on` 表达顺序。
-- `input_context` 表达 agent 需要看的数据。
-- 不要把巨大正文传给最终报告 agent；先用 `tool write_files` 落盘，再用 `aggregate` 给 manifest。
+- `depends_on` 只表达启动顺序。只有当没有这个边就会产生竞态、缺少副作用、或读不到必要产物时，才添加依赖。
+- `input_context` 只表达 agent 需要看的数据，不是日志收集器，也不是“越多越好”。
+- 每个 agent step 的依赖和输入都必须最小化、可解释、可审查。写下每个输入前先问：这个 agent 的哪个判断、输出字段或用户报告结论需要这份数据？答不上来就不要传。
+- 优先传精确字段路径，例如 `fetch-pr.stdout.title`、`summary.stdout.changed_files`。只有上游输出已经是小而专门的摘要时，才传整个 step id。
+- 不要把 credentials、完整日志、完整 diff、大 stdout、宽泛扫描结果、完整上游 agent 输出传给下游 agent，除非该内容是完成任务的必要证据。
+- 不要把巨大正文传给最终报告 agent；先用 `tool write_files` 落盘，再用 `aggregate` 或 `summarize-*` script 给 manifest/report payload。
 - 每个 step 的输出都应视为“增量数据契约”：只输出该 step 独有的信息。除非下游 `condition`、`loop.until`、`aggregate` 或报告明确需要，否则不要重复上游字段。
 - 最终报告只接收精简摘要或 manifest，不要接收完整 stdout/stderr/diff/log；reporter 必须综合结论，不能粘贴上游 JSON 或子流程完整报告。
 

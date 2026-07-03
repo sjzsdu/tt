@@ -487,7 +487,7 @@ required = ["stdout"]
 id = "final-report"
 title = "输出定点测试报告"
 depends_on = ["load-final-state"]
-input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "persist-test-plan.stdout", "prepare-runnable-cases.stdout", "test-loop", "merge-case-results.stdout", "load-final-state.stdout"]
+input_context = ["merge-case-results.stdout", "load-final-state.stdout"]
 description = """
 基于全部上下文，输出中文 Markdown 报告。不要输出 JSON，不要用代码块包裹全文。
 

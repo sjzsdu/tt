@@ -557,7 +557,7 @@ required = ["mode", "created_beads", "updated_beads", "skipped_bugs", "notes"]
 id = "final-report"
 title = "输出 Web Bug Hunt 报告"
 depends_on = ["load-final-state", "create-bug-beads"]
-input_context = ["normalize-scope", "init-scan-state.stdout", "hunt-loop", "verify-fixed-loop", "load-final-state.stdout", "create-bug-beads"]
+input_context = ["load-final-state.stdout", "create-bug-beads"]
 description = """
 基于全部上下文，输出中文 Markdown 报告。不要输出 JSON，不要用代码块包裹全文。
 

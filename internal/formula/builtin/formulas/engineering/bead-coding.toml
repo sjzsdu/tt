@@ -323,7 +323,7 @@ required = ["selected", "bead_id", "status", "implemented", "blocked", "committe
 id = "final-report"
 title = "输出 bead-coding 最终报告"
 depends_on = ["cycle-summary"]
-input_context = ["cycle-summary", "select-bead.stdout", "implement-bead", "final-check", "commit-changes.stdout", "close-bead.stdout"]
+input_context = ["cycle-summary"]
 description = """
 输出中文 Markdown 报告，不要输出 JSON。
 

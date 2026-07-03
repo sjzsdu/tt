@@ -949,9 +949,14 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 	if !ok {
 		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
 	}
-	for _, want := range []string{"init-scan-state.stdout", "load-final-state.stdout", "create-bug-beads"} {
+	for _, want := range []string{"load-final-state.stdout", "create-bug-beads"} {
 		if !slices.Contains(finalAgent.InputCtx, want) {
 			t.Fatalf("final-report context = %v, want %s", finalAgent.InputCtx, want)
+		}
+	}
+	for _, unwanted := range []string{"init-scan-state.stdout", "hunt-loop", "verify-fixed-loop"} {
+		if slices.Contains(finalAgent.InputCtx, unwanted) {
+			t.Fatalf("final-report context = %v, should not include broad upstream context %s", finalAgent.InputCtx, unwanted)
 		}
 	}
 
