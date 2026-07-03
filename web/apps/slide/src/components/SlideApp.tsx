@@ -10,6 +10,11 @@ import { SlideContent } from './SlideContent';
 const DESIGN_WIDTH = 1600;
 const DESIGN_HEIGHT = 900;
 
+type AIRewriteTurn = {
+  instruction: string;
+  summary: string;
+};
+
 const CORE_LAYOUT_CSS = `
 .reveal .slides section.slide-grid .slide-content,
 .reveal .slides section.slide-cards .slide-content {
@@ -85,6 +90,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [aiInstruction, setAIInstruction] = useState('');
   const [aiError, setAIError] = useState('');
   const [isAIWorking, setIsAIWorking] = useState(false);
+  const [aiRewriteTurns, setAIRewriteTurns] = useState<AIRewriteTurn[]>([]);
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -317,6 +323,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorSlideIndex(null);
     setEditorFilePath('');
     setEditorBaseMarkdown('');
+    setAIInstruction('');
+    setAIError('');
+    setAIRewriteTurns([]);
     setShowFileList(false);
     setShowOverview(false);
     const url = new URL(location.href);
@@ -338,6 +347,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorBaseMarkdown('');
     setIsEditorOpen(false);
     setIsAIModalOpen(false);
+    setAIInstruction('');
+    setAIError('');
+    setAIRewriteTurns([]);
     setShowFileList(false);
     setShowOverview(false);
     const url = new URL(location.href);
@@ -358,6 +370,17 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   }, [currentSlideIndex, slides.length]);
 
   const editorDisplayIndex = editorSlideIndex ?? currentSlideIndex;
+
+  const closeEditor = useCallback(() => {
+    setIsEditorOpen(false);
+    setIsAIModalOpen(false);
+    setEditorSlideIndex(null);
+    setEditorFilePath('');
+    setEditorBaseMarkdown('');
+    setAIInstruction('');
+    setAIError('');
+    setAIRewriteTurns([]);
+  }, []);
 
   const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number, targetFile = currentFile) => {
     if (!targetFile) throw new Error('No slide file specified');
@@ -390,6 +413,10 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorText(raw);
     setEditorMode('edit');
     setEditorError('');
+    setAIInstruction('');
+    setAIError('');
+    setAIRewriteTurns([]);
+    setIsAIModalOpen(false);
     setIsEditorOpen(true);
   }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
 
@@ -405,6 +432,10 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorMode('insert');
     setEditorText('# 新页面\n\n- 在这里输入这一页的要点\n- 可以使用 Markdown、Mermaid、D2 或 widget');
     setEditorError('将在当前页后插入新 slide。');
+    setAIInstruction('');
+    setAIError('');
+    setAIRewriteTurns([]);
+    setIsAIModalOpen(false);
     setIsEditorOpen(true);
   }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
 
@@ -412,7 +443,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (contentMode || !currentFile || !rawMarkdown) return;
     const doc = parseEditableSlideDocument(rawMarkdown);
     const index = getActiveSlideIndex();
-    if (doc.slides[index] == null) {
+    const raw = doc.slides[index];
+    if (raw == null) {
       setAIError(`Cannot find source for slide ${index + 1}`);
       return;
     }
@@ -420,8 +452,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorSlideIndex(index);
     setEditorFilePath(currentFile);
     setEditorBaseMarkdown(rawMarkdown);
+    setEditorText(raw);
+    setEditorMode('edit');
+    setEditorError('');
     setAIInstruction('');
     setAIError('');
+    setAIRewriteTurns([]);
+    setIsEditorOpen(true);
     setIsAIModalOpen(true);
   }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
 
@@ -436,6 +473,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     }
     setAIInstruction('');
     setAIError('');
+    setIsEditorOpen(true);
     setIsAIModalOpen(true);
   }, [contentMode, currentFile, editorBaseMarkdown, editorFilePath, editorText, rawMarkdown]);
 
@@ -462,26 +500,31 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setIsAIWorking(true);
     setAIError('');
     try {
+      const sessionInstruction = aiRewriteTurns.length > 0
+        ? `这是一个多轮改稿会话。请以“当前页源码”为最新草稿继续修改，不要恢复旧稿。\n\n历史修改意见与结果摘要：\n${aiRewriteTurns.map((turn, turnIndex) => `${turnIndex + 1}. 用户：${turn.instruction}\n   结果：${turn.summary}`).join('\n')}\n\n本轮用户意见：\n${instruction}`
+        : instruction;
       const response = await rewriteSlide({
         file: targetFile,
         slideIndex: index,
         slideSource,
-        instruction,
+        instruction: sessionInstruction,
         previousSlide: doc.slides[index - 1],
         nextSlide: editorMode === 'insert' ? doc.slides[index] : doc.slides[index + 1],
       });
       const updated = response.updatedSlideSource?.trim();
       if (!updated) throw new Error(response.error || 'slide-writer returned empty content');
+      const summary = response.summary || 'AI 已生成一版修改稿。';
       setEditorText(updated);
-      setEditorError(response.summary || 'AI 已生成修改稿，请确认后保存。');
-      setIsAIModalOpen(false);
+      setEditorError(`${summary} 可以继续输入意见迭代，满意后再保存。`);
+      setAIRewriteTurns(turns => [...turns, { instruction, summary }]);
+      setAIInstruction('');
       setIsEditorOpen(true);
     } catch (e: any) {
       setAIError(String(e?.message || e));
     } finally {
       setIsAIWorking(false);
     }
-  }, [aiInstruction, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, isEditorOpen, rawMarkdown]);
+  }, [aiInstruction, aiRewriteTurns, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, isEditorOpen, rawMarkdown]);
 
   const saveCurrentSlide = useCallback(async () => {
     const targetFile = editorFilePath || currentFile;
@@ -508,16 +551,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorError('');
     try {
       await saveEditableDocument(doc, index, targetFile);
-      setIsEditorOpen(false);
-      setEditorSlideIndex(null);
-      setEditorFilePath('');
-      setEditorBaseMarkdown('');
+      closeEditor();
     } catch (e: any) {
       setEditorError(String(e?.message || e));
     } finally {
       setIsSaving(false);
     }
-  }, [contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, rawMarkdown, saveEditableDocument]);
+  }, [closeEditor, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, rawMarkdown, saveEditableDocument]);
 
   const requestDeleteCurrentSlide = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
@@ -814,25 +854,76 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
       {isEditorOpen && (
         <div className="slide-edit-modal" role="dialog" aria-modal="true" aria-label="Edit current slide">
-          <div className="slide-edit-dialog">
+          <div className={`slide-edit-dialog ${isAIModalOpen ? 'with-ai' : ''}`}>
             <div className="slide-edit-header">
               <div>
                 <div className="slide-edit-title">{editorMode === 'insert' ? `插入第 ${editorDisplayIndex + 1} 页` : `编辑第 ${editorDisplayIndex + 1} 页`}</div>
                 <div className="slide-edit-subtitle">{editorMode === 'insert' ? `${editorFilePath || currentFile} · 新页面将插入到当前位置` : (editorFilePath || currentFile)}</div>
               </div>
-              <button className="slide-edit-close" onClick={() => { setIsEditorOpen(false); setEditorSlideIndex(null); setEditorFilePath(''); setEditorBaseMarkdown(''); }} title="Close">×</button>
+              <button className="slide-edit-close" onClick={closeEditor} title="Close">×</button>
             </div>
-            <textarea
-              className="slide-edit-textarea"
-              value={editorText}
-              onChange={(event) => setEditorText(event.target.value)}
-              spellCheck={false}
-              autoFocus
-            />
+            <div className="slide-edit-workspace">
+              <textarea
+                className="slide-edit-textarea"
+                value={editorText}
+                onChange={(event) => setEditorText(event.target.value)}
+                spellCheck={false}
+                autoFocus
+              />
+              {isAIModalOpen && (
+                <aside className="slide-ai-panel" aria-label="AI iterative rewrite panel">
+                  <div className="slide-ai-panel-header">
+                    <div>
+                      <div className="slide-ai-panel-title">AI 改稿会话</div>
+                      <div className="slide-ai-panel-subtitle">每一轮都基于左侧最新草稿，满意后再保存。</div>
+                    </div>
+                    <button className="slide-ai-panel-close" onClick={() => setIsAIModalOpen(false)} title="收起 AI 改稿">×</button>
+                  </div>
+                  <div className="slide-ai-history">
+                    {aiRewriteTurns.length === 0 ? (
+                      <div className="slide-ai-empty">
+                        输入本轮修改意见。AI 会改写左侧草稿，但不会自动保存到文件。
+                      </div>
+                    ) : aiRewriteTurns.map((turn, index) => (
+                      <div className="slide-ai-turn" key={`${index}-${turn.instruction}`}>
+                        <div className="slide-ai-turn-user"><strong>你：</strong>{turn.instruction}</div>
+                        <div className="slide-ai-turn-assistant"><strong>AI：</strong>{turn.summary}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="slide-ai-quick-actions">
+                    {['再短一点', '更图像化', '结构不对，重新组织', '语气更自然', '变化还不够明显'].map(text => (
+                      <button
+                        key={text}
+                        type="button"
+                        onClick={() => setAIInstruction(prev => prev ? `${prev}\n${text}` : text)}
+                        disabled={isAIWorking}
+                      >
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    className="slide-ai-textarea"
+                    value={aiInstruction}
+                    onChange={(event) => setAIInstruction(event.target.value)}
+                    placeholder="例如：保留现在的布局，但把文字减少 30%，右侧图再强化一点。"
+                    disabled={isAIWorking}
+                  />
+                  {aiError && <div className="slide-edit-error slide-ai-error">{aiError}</div>}
+                  <div className="slide-ai-actions">
+                    <button className="slide-edit-secondary" onClick={() => setAIInstruction('')} disabled={isAIWorking || !aiInstruction.trim()}>清空意见</button>
+                    <button className="slide-edit-primary" onClick={submitAIRewrite} disabled={isAIWorking || !aiInstruction.trim()}>
+                      {isAIWorking ? '改稿中…' : aiRewriteTurns.length > 0 ? '继续修改' : '生成修改稿'}
+                    </button>
+                  </div>
+                </aside>
+              )}
+            </div>
             {editorError && <div className="slide-edit-error">{editorError}</div>}
             <div className="slide-edit-actions">
-              <button className="slide-edit-secondary" onClick={openAIRewriteFromEditor} disabled={isSaving || isAIWorking}>💬 AI 修改</button>
-              <button className="slide-edit-secondary" onClick={() => { setIsEditorOpen(false); setEditorSlideIndex(null); setEditorFilePath(''); setEditorBaseMarkdown(''); }} disabled={isSaving}>取消</button>
+              <button className="slide-edit-secondary" onClick={openAIRewriteFromEditor} disabled={isSaving || isAIWorking}>{isAIModalOpen ? '💬 AI 面板已打开' : '💬 AI 修改'}</button>
+              <button className="slide-edit-secondary" onClick={closeEditor} disabled={isSaving}>取消</button>
               <button className="slide-edit-primary" onClick={saveCurrentSlide} disabled={isSaving}>
                 {isSaving ? '保存中…' : editorMode === 'insert' ? '插入并保存' : '保存'}
               </button>
@@ -854,35 +945,6 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
               <button className="slide-edit-secondary" onClick={() => setDeleteConfirmIndex(null)} disabled={isDeleting}>取消</button>
               <button className="slide-edit-danger" onClick={confirmDeleteCurrentSlide} disabled={isDeleting || !!deleteError && slides.length <= 1}>
                 {isDeleting ? '删除中…' : '确认删除'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isAIModalOpen && (
-        <div className="slide-edit-modal" role="dialog" aria-modal="true" aria-label="AI revise current slide">
-          <div className="slide-ai-dialog">
-            <div className="slide-edit-header">
-              <div>
-                <div className="slide-edit-title">AI 修改第 {editorDisplayIndex + 1} 页</div>
-                <div className="slide-edit-subtitle">输入修改意见，slide-writer 会生成当前页修改稿</div>
-              </div>
-              <button className="slide-edit-close" onClick={() => setIsAIModalOpen(false)} title="Close">×</button>
-            </div>
-            <textarea
-              className="slide-ai-textarea"
-              value={aiInstruction}
-              onChange={(event) => setAIInstruction(event.target.value)}
-              placeholder="例如：这页文字太多，请明显删减左侧文字，保留左右图文结构，把右侧 Mermaid 改成更像成长曲线。"
-              disabled={isAIWorking}
-              autoFocus
-            />
-            {aiError && <div className="slide-edit-error">{aiError}</div>}
-            <div className="slide-edit-actions">
-              <button className="slide-edit-secondary" onClick={() => setIsAIModalOpen(false)} disabled={isAIWorking}>取消</button>
-              <button className="slide-edit-primary" onClick={submitAIRewrite} disabled={isAIWorking}>
-                {isAIWorking ? '生成中…' : '生成修改稿'}
               </button>
             </div>
           </div>
