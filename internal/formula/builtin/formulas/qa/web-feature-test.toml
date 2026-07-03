@@ -20,6 +20,7 @@ only_failed = { description = "是否只运行历史失败/阻塞/未知/未完�
 max_cases = { description = "本次最多执行多少个测试用例", default = "20", pattern = "^[1-9][0-9]*$" }
 screenshot_mode = { description = "截图策略：all/failures/none", default = "failures" }
 max_concurrency = { description = "并发执行测试用例的最大并发数；当前内置并发 loop 使用 3，后续会支持动态值", default = "3", pattern = "^[1-9][0-9]*$" }
+browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
 browser_headed = { description = "是否以 headed Chrome 运行 agent-browser，Three.js/WebGL 测试建议 true", default = "true" }
 browser_executable_path = { description = "agent-browser 使用的 Chrome 可执行文件路径；为空则使用默认浏览器", default = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
 webgl_browser_args = { description = "agent-browser WebGL/GPU 启动参数，逗号分隔", default = "--ignore-gpu-blocklist,--enable-gpu-rasterization,--enable-webgl,--enable-webgl2,--use-angle=metal" }
@@ -337,8 +338,8 @@ description = """
 5. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
 6. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。并发执行时必须用 case.id 命名文件，避免互相覆盖；
 7. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用独立 session 和 WebGL 友好的浏览器环境，推荐命令前缀如下：
-   `AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SCREENSHOT_DIR="<init-test-state.stdout.screenshots_dir>" agent-browser --session "web-feature-test-{{case.id}}" ...`
-   如果打开页面后出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/headless session 下结论。
+   `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SCREENSHOT_DIR="<init-test-state.stdout.screenshots_dir>" agent-browser --session "web-feature-test-{{case.id}}" ...`
+   如果 agent-browser 报 Lightpanda/headless 不支持 headed，说明没有使用 `AGENT_BROWSER_ENGINE=chrome`，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/headless/lightpanda session 下结论。
 8. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
 9. 必须逐项输出 case.coverage_ids 对应检查点的覆盖结果。
 
