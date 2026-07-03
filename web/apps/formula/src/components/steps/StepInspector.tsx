@@ -62,6 +62,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         {activity.output && !sameOutput(activity.output, step.output) && (
           <Collapse
             className="step-activity-output-collapse"
+            defaultActiveKey={[]}
             items={[{
               key: 'activity-output',
               label: sectionLabel('📄', 'Activity output', activityOutputSummary),
@@ -99,6 +100,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           {iterationInput && (
             <Collapse
               className="step-iteration-input-collapse"
+              defaultActiveKey={[]}
               items={[{
                 key: 'iteration-input',
                 label: sectionLabel('📥', `Iteration ${iterationInput.iteration} input`, `${iterationInput.key} · ${iterationInput.source}`),
@@ -194,7 +196,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         )}
 
         {step.output && (
-          <Collapse className="step-modal-collapse" items={[{ key: 'output', label: sectionLabel('📄', 'Output', outputSummary), children: <OutputSurface content={step.output} className="step-output-shell" /> }]} />
+          <Collapse className="step-modal-collapse" defaultActiveKey={[]} items={[{ key: 'output', label: sectionLabel('📄', 'Output', outputSummary), children: <OutputSurface content={step.output} className="step-output-shell" /> }]} />
         )}
 
         {step.script_path && step.script_content && (
@@ -234,7 +236,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
             key: 'input',
             label: sectionLabel('📥', 'Input', inputValues.length ? `${inputValues.length} item${inputValues.length === 1 ? '' : 's'}` : 'empty'),
               children: inputValues.length > 0 ? (
-                <Collapse className="step-input-collapse" items={inputValues.map(input => ({
+                <Collapse className="step-input-collapse" defaultActiveKey={[]} items={inputValues.map(input => ({
                   key: input.key,
                   label: <div className="step-input-head input-collapse-label"><strong>{input.key}</strong><Tag>{input.source}</Tag><span className="collapsible-section-extra">{summarizeContent(input.value)}</span></div>,
                   children: <OutputSurface content={input.value} className="step-input-output" />,
