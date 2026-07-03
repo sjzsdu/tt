@@ -333,7 +333,8 @@ description = """
 4. 遇到 forbidden_actions 或 safe_to_execute=false 的危险动作，停在动作前，标记 blocked，并说明原因；
 5. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
 6. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。并发执行时必须用 case.id 命名文件，避免互相覆盖；
-7. 必须逐项输出 case.coverage_ids 对应检查点的覆盖结果。
+7. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
+8. 必须逐项输出 case.coverage_ids 对应检查点的覆盖结果。
 
 输出 ONLY compact JSON：
 {
@@ -368,7 +369,7 @@ idempotent = true
 
 [steps.script]
 command = ["python3", "-c", """
-import json, os, pathlib, time
+import json, os, pathlib, re, shutil, time
 state_path = pathlib.Path(os.environ['STATE_PATH'])
 runs_path = pathlib.Path(os.environ['RUNS_PATH'])
 state = json.loads(state_path.read_text(encoding='utf-8'))
@@ -382,11 +383,60 @@ if isinstance(results, dict):
     results = [results]
 run_id = state.get('current_run_id')
 runs_path.parent.mkdir(parents=True, exist_ok=True)
+artifacts_dir = pathlib.Path(state.get('paths', {}).get('artifacts') or state_path.parent / 'artifacts')
+screenshots_dir = pathlib.Path(state.get('paths', {}).get('screenshots') or artifacts_dir / 'screenshots')
+screenshots_dir.mkdir(parents=True, exist_ok=True)
+shot_re = re.compile(r"(/[^\\s\"']*\\.agent-browser/tmp/screenshots/[^\\s\"']+\\.(?:png|jpg|jpeg|webp))")
+
+def relpath(path):
+    try:
+        return str(pathlib.Path(path).relative_to(pathlib.Path.cwd()))
+    except Exception:
+        return str(path)
+
+def archive_temp_screenshots(result):
+    case_id = result.get('case_id') or 'case'
+    corpus = json.dumps(result, ensure_ascii=False)
+    for artifact in result.get('artifacts') or []:
+        if not isinstance(artifact, dict):
+            continue
+        path_text = artifact.get('path') or ''
+        p = pathlib.Path(path_text)
+        if not p.is_absolute():
+            p = pathlib.Path.cwd() / p
+        if p.exists() and p.is_file() and p.suffix.lower() in ('.txt', '.log', '.md'):
+            try:
+                corpus += chr(10) + p.read_text(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
+    added = []
+    for raw_path in sorted(set(shot_re.findall(corpus))):
+        src = pathlib.Path(raw_path)
+        if not src.exists() or not src.is_file():
+            continue
+        safe_name = re.sub(r'[^A-Za-z0-9_.-]+', '-', f"{case_id}-{src.name}")
+        dest = screenshots_dir / safe_name
+        try:
+            if src.resolve() != dest.resolve():
+                shutil.copy2(src, dest)
+            added.append({'type': 'screenshot', 'path': relpath(dest), 'description': 'Archived agent-browser screenshot from temporary directory'})
+        except Exception as exc:
+            added.append({'type': 'note', 'path': str(src), 'description': f'Failed to archive temporary screenshot: {exc}'})
+    if added:
+        existing = result.setdefault('artifacts', [])
+        existing_paths = {a.get('path') for a in existing if isinstance(a, dict)}
+        for item in added:
+            if item.get('path') not in existing_paths:
+                existing.append(item)
+    return added
+
 by_id = {c.get('id'): c for c in state.get('cases', [])}
+archived_screenshots = []
 for result in results:
     if not isinstance(result, dict):
         continue
     case_id = result.get('case_id')
+    archived_screenshots.extend(archive_temp_screenshots(result))
     record = {'run_id': run_id, 'ran_at': now, **result}
     case = by_id.get(case_id)
     if case is not None:
@@ -427,7 +477,7 @@ state.pop('current_run_id', None)
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
 counts = {s: sum(1 for c in state.get('cases', []) if c.get('status') == s) for s in ['passed','failed','blocked','unknown','pending']}
 coverage_counts = {s: sum(1 for p in state.get('coverage_points', []) if p.get('status') == s) for s in ['passed','failed','blocked','unknown','pending']}
-print(json.dumps({'merged': len(results), 'counts': counts, 'coverage_counts': coverage_counts, 'state_path': str(state_path), 'runs_path': str(runs_path)}, ensure_ascii=False))
+print(json.dumps({'merged': len(results), 'counts': counts, 'coverage_counts': coverage_counts, 'archived_screenshots': archived_screenshots, 'state_path': str(state_path), 'runs_path': str(runs_path), 'screenshots_dir': str(screenshots_dir)}, ensure_ascii=False))
 """]
 format = "json"
 timeout = "30s"

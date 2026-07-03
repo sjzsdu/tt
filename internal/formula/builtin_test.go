@@ -1094,7 +1094,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !mergeStep.Meta().Idempotent {
 		t.Fatalf("merge-case-results idempotent = false, want true")
 	}
-	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)"} {
+	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)", ".agent-browser/tmp/screenshots", "shutil.copy2", "archived_screenshots"} {
 		if !strings.Contains(mergeStep.Command[2], want) {
 			t.Fatalf("merge-case-results script missing %q", want)
 		}
