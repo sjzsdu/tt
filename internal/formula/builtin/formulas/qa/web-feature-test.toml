@@ -23,7 +23,9 @@ max_concurrency = { description = "并发执行测试用例的最大并发数；
 browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
 browser_headed = { description = "是否显示 Chrome 窗口；默认 false 静默测试，调试时可设 true", default = "false" }
 browser_executable_path = { description = "agent-browser 使用的 Chrome 可执行文件路径；为空则使用默认浏览器", default = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
-webgl_browser_args = { description = "agent-browser WebGL/GPU 启动参数，逗号分隔", default = "--ignore-gpu-blocklist,--enable-gpu-rasterization,--enable-webgl,--enable-webgl2,--use-angle=metal" }
+browser_session_name = { description = "agent-browser 自动保存/恢复登录态的 session-name；为空时按 suite 自动生成", default = "" }
+ignore_https_errors = { description = "是否忽略本地/自签名 HTTPS 证书错误", default = "true" }
+webgl_browser_args = { description = "agent-browser WebGL/GPU 启动参数，逗号分隔", default = "--ignore-gpu-blocklist,--ignore-certificate-errors,--allow-insecure-localhost,--enable-gpu-rasterization,--enable-webgl,--enable-webgl2,--use-angle=metal" }
 
 [[steps]]
 id = "load-project-context"
@@ -105,6 +107,8 @@ resume = os.environ.get('RESUME','true').lower() == 'true'
 reset = os.environ.get('RESET','false').lower() == 'true'
 only_failed = os.environ.get('ONLY_FAILED','false').lower() == 'true'
 max_cases = int(os.environ.get('MAX_CASES') or '20')
+browser_session_name_input = (os.environ.get('BROWSER_SESSION_NAME') or '').strip()
+ignore_https_errors = os.environ.get('IGNORE_HTTPS_ERRORS','true').lower() == 'true'
 suite = (os.environ.get('SUITE') or '').strip()
 parsed = urllib.parse.urlparse(url)
 if not suite:
@@ -145,10 +149,11 @@ if not state:
     }
 state['updated_at'] = now
 state['current_run_id'] = time.strftime('%Y%m%d%H%M%S', time.gmtime())
-state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '3')}
+browser_session_name = browser_session_name_input or f'web-feature-test-{suite}'
+state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '3'), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors}
 state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
-print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
+print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
 """]
 format = "json"
 timeout = "30s"
@@ -164,6 +169,8 @@ ONLY_FAILED = "{{only_failed}}"
 MAX_CASES = "{{max_cases}}"
 SCREENSHOT_MODE = "{{screenshot_mode}}"
 MAX_CONCURRENCY = "{{max_concurrency}}"
+BROWSER_SESSION_NAME = "{{browser_session_name}}"
+IGNORE_HTTPS_ERRORS = "{{ignore_https_errors}}"
 
 [steps.validate]
 format = "json"
@@ -337,11 +344,14 @@ description = """
 4. 遇到 forbidden_actions 或 safe_to_execute=false 的危险动作，停在动作前，标记 blocked，并说明原因；
 5. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
 6. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。并发执行时必须用 case.id 命名文件，避免互相覆盖；
-7. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用独立 session 和 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
-   `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SCREENSHOT_DIR="<init-test-state.stdout.screenshots_dir>" agent-browser --session "web-feature-test-{{case.id}}" ...`
-   如果 agent-browser 报 Lightpanda/headed 不兼容，说明没有使用 `AGENT_BROWSER_ENGINE=chrome` 或错误开启了非 Chrome headed session，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/lightpanda session 下结论。
-8. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
-9. 必须逐项输出 case.coverage_ids 对应检查点的覆盖结果。
+7. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
+   `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}-{{case.id}}" ...`
+   默认使用 init-test-state.stdout.browser_session_name 作为 AGENT_BROWSER_SESSION_NAME。不要把每个 case 的登录态隔离到无法复用的纯临时 session。case 可以用独立 `--session`，但必须共享同一个 `AGENT_BROWSER_SESSION_NAME` 以保存/恢复 cookies 和 localStorage。
+8. 若目标页面进入 Sign In/Login，不要直接 blocked；这属于测试准备路径。必须依据 load-project-context.stdout.content 中的登录方式和账号信息完成登录，登录成功后重新 open case.start_url，再继续执行该 case。只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
+9. 如果首次打开报 `net::ERR_CERT_AUTHORITY_INVALID`，必须使用上述 `--ignore-https-errors` 和 `--ignore-certificate-errors` 前缀重试；不要把证书错误作为最终用例结果，除非重试后仍失败。
+10. 如果 agent-browser 报 Lightpanda/headed 不兼容，说明没有使用 `AGENT_BROWSER_ENGINE=chrome` 或错误开启了非 Chrome headed session，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/lightpanda session 下结论。
+11. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
+12. 必须逐项输出 case.coverage_ids 对应检查点的覆盖结果。
 
 输出 ONLY compact JSON：
 {
