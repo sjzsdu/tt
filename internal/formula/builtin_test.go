@@ -1013,7 +1013,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(web-feature-test) error = %v", err)
 	}
-	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "test-loop", "load-final-state", "final-report"} {
+	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "test-loop", "merge-case-results", "load-final-state", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing web-feature-test node %s", nodeID)
 		}
@@ -1050,10 +1050,16 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !testLoop.Meta().Idempotent {
 		t.Fatalf("test-loop idempotent = false, want true")
 	}
-	if testLoop.Until != "persist-case-result.stdout.continue_run == false" {
-		t.Fatalf("test-loop until = %q", testLoop.Until)
+	if testLoop.ForEach != "prepare-runnable-cases.stdout.cases" {
+		t.Fatalf("test-loop for_each = %q", testLoop.ForEach)
 	}
-	var sawExecuteAgent, sawPersist bool
+	if !testLoop.Parallel {
+		t.Fatalf("test-loop parallel = false, want true")
+	}
+	if testLoop.MaxConcurrency != 3 {
+		t.Fatalf("test-loop max concurrency = %d, want 3", testLoop.MaxConcurrency)
+	}
+	var sawExecuteAgent bool
 	for _, child := range testLoop.Body {
 		switch child.Meta().ID {
 		case "execute-case":
@@ -1064,38 +1070,36 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			if agentStep.Agent != "agent-browser" {
 				t.Fatalf("execute-case agent = %q, want agent-browser", agentStep.Agent)
 			}
-			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI"} {
+			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI"} {
 				if !strings.Contains(agentStep.Prompt, want) {
 					t.Fatalf("execute-case prompt missing %q", want)
 				}
 			}
 			sawExecuteAgent = true
-		case "persist-case-result":
-			scriptStep, ok := child.(steps.ScriptStep)
-			if !ok {
-				t.Fatalf("persist-case-result step = %T, want ScriptStep", child)
-			}
-			if !scriptStep.Meta().Idempotent {
-				t.Fatalf("persist-case-result idempotent = false, want true")
-			}
-			if !strings.Contains(scriptStep.Command[2], "chr(10)") || strings.Contains(scriptStep.Command[2], "+ '\\n'") {
-				t.Fatalf("persist-case-result should avoid TOML-sensitive Python newline literals")
-			}
-			if !strings.Contains(scriptStep.Command[2], "only_failed") || !strings.Contains(scriptStep.Command[2], "history") {
-				t.Fatalf("persist-case-result should persist case status and only_failed rerun state")
-			}
-			sawPersist = true
 		}
 	}
-	if !sawExecuteAgent || !sawPersist {
-		t.Fatalf("test-loop missing execute-case=%v or persist-case-result=%v", sawExecuteAgent, sawPersist)
+	if !sawExecuteAgent {
+		t.Fatalf("test-loop missing execute-case")
+	}
+	mergeNode := workflow.Graph.Nodes[ir.NodeID("merge-case-results")]
+	mergeStep, ok := mergeNode.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("merge-case-results step = %T, want ScriptStep", mergeNode.Step)
+	}
+	if !mergeStep.Meta().Idempotent {
+		t.Fatalf("merge-case-results idempotent = false, want true")
+	}
+	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)"} {
+		if !strings.Contains(mergeStep.Command[2], want) {
+			t.Fatalf("merge-case-results script missing %q", want)
+		}
 	}
 	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
 	finalAgent, ok := final.Step.(steps.AgentStep)
 	if !ok {
 		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
 	}
-	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true"} {
+	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵"} {
 		if !strings.Contains(finalAgent.Prompt, want) {
 			t.Fatalf("final-report prompt missing %q", want)
 		}
