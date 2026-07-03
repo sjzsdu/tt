@@ -382,6 +382,8 @@ runs_path = pathlib.Path(os.environ['RUNS_PATH'])
 state = json.loads(state_path.read_text(encoding='utf-8'))
 now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 raw = os.environ.get('RESULTS_JSON','') or '[]'
+if raw.lstrip().startswith('{{') and raw.rstrip().endswith('}}'):
+    raw = '[]'
 try:
     results = json.loads(raw)
 except Exception:
@@ -393,7 +395,7 @@ runs_path.parent.mkdir(parents=True, exist_ok=True)
 artifacts_dir = pathlib.Path(state.get('paths', {}).get('artifacts') or state_path.parent / 'artifacts')
 screenshots_dir = pathlib.Path(state.get('paths', {}).get('screenshots') or artifacts_dir / 'screenshots')
 screenshots_dir.mkdir(parents=True, exist_ok=True)
-shot_re = re.compile(r"(/[^\\s\"']*\\.agent-browser/tmp/screenshots/[^\\s\"']+\\.(?:png|jpg|jpeg|webp))")
+shot_re = re.compile(r'''(/[^\\s\"']*\\.agent-browser/tmp/screenshots/[^\\s\"']+\\.(?:png|jpg|jpeg|webp))''')
 
 def relpath(path):
     try:
