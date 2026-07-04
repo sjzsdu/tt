@@ -1018,7 +1018,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(web-feature-test) error = %v", err)
 	}
-	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "test-loop", "merge-case-results", "load-final-state", "final-report"} {
+	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "test-loop", "merge-case-results", "load-final-state", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing web-feature-test node %s", nodeID)
 		}
@@ -1047,6 +1047,19 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			t.Fatalf("init-test-state script missing %q", want)
 		}
 	}
+	prepareBrowserNode := workflow.Graph.Nodes[ir.NodeID("prepare-browser-session")]
+	prepareBrowser, ok := prepareBrowserNode.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("prepare-browser-session step = %T, want AgentStep", prepareBrowserNode.Step)
+	}
+	if prepareBrowser.Agent != "agent-browser" {
+		t.Fatalf("prepare-browser-session agent = %q, want agent-browser", prepareBrowser.Agent)
+	}
+	for _, want := range []string{"串行准备唯一共享 Chrome/session", "完成登录", "cookies/localStorage/session", "WebGL 探测", "preflight", "safe_to_run_cases", "--session \"{{init-test-state.stdout.browser_session_name}}\""} {
+		if !strings.Contains(prepareBrowser.Prompt, want) {
+			t.Fatalf("prepare-browser-session prompt missing %q", want)
+		}
+	}
 	testLoopNode := workflow.Graph.Nodes[ir.NodeID("test-loop")]
 	testLoop, ok := testLoopNode.Step.(steps.LoopStep)
 	if !ok {
@@ -1064,6 +1077,9 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if testLoop.MaxConcurrency != 3 {
 		t.Fatalf("test-loop max concurrency = %d, want 3", testLoop.MaxConcurrency)
 	}
+	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("prepare-browser-session")) {
+		t.Fatalf("test-loop dependencies = %v, want prepare-browser-session", testLoop.Meta().DependsOn)
+	}
 	var sawExecuteAgent bool
 	for _, child := range testLoop.Body {
 		switch child.Meta().ID {
@@ -1075,7 +1091,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			if agentStep.Agent != "agent-browser" {
 				t.Fatalf("execute-case agent = %q, want agent-browser", agentStep.Agent)
 			}
-			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "--session \"{{init-test-state.stdout.browser_session_name}}\"", "唯一共享浏览器 session", "独立 tab/page"} {
+			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "--session \"{{init-test-state.stdout.browser_session_name}}\"", "唯一共享浏览器 session", "独立 tab/page", "prepare-browser-session", "不要每个 case 主动重复登录"} {
 				if !strings.Contains(agentStep.Prompt, want) {
 					t.Fatalf("execute-case prompt missing %q", want)
 				}

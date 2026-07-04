@@ -313,9 +313,52 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "prepare-browser-session"
+title = "准备共享浏览器会话和登录态"
+depends_on = ["prepare-runnable-cases"]
+input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "prepare-runnable-cases.stdout"]
+description = """
+你是 agent-browser agent。请在并发执行测试用例之前，串行准备唯一共享 Chrome/session。
+
+目标：
+1. 使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session；
+2. 打开 normalize-scope.target_url 或 init-test-state.stdout 中的 root_url，确认页面可访问；
+3. 如果页面进入 Sign In/Login，依据 load-project-context.stdout.content 中的登录方式和账号信息完成登录；
+4. 登录成功后重新打开目标 URL，确认 cookies/localStorage/session 已保存在共享 session 中；
+5. 必要时做一次 WebGL 探测，记录 vendor/renderer 或阻塞原因；
+6. 截图和日志保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir，文件名前缀使用 preflight；
+7. 不要泄露密码、token、cookie。
+
+必须使用真实浏览器自动化。推荐命令前缀如下：
+`AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
+
+如果缺少凭据、验证码、权限失败、页面无法访问或 WebGL 不可用，请输出 blocked/unknown，并给出后续 case 是否仍可执行。
+
+输出 ONLY compact JSON：
+{
+  "status":"ready|blocked|unknown",
+  "browser_session_name":"{{init-test-state.stdout.browser_session_name}}",
+  "target_url":"...",
+  "final_url":"...",
+  "login_state":"authenticated|already-authenticated|not-required|blocked|unknown",
+  "webgl_state":"available|unavailable|not-checked|unknown",
+  "evidence":["..."],
+  "artifacts":[{"type":"screenshot|html|log|trace|note","path":".tt/web-feature-test/...","description":"..."}],
+  "safe_to_run_cases":true,
+  "notes":"..."
+}
+"""
+agent.name = "agent-browser"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["status", "browser_session_name", "target_url", "final_url", "login_state", "webgl_state", "evidence", "artifacts", "safe_to_run_cases", "notes"]
+
+[[steps]]
 id = "test-loop"
 title = "并发执行定点测试用例"
-depends_on = ["prepare-runnable-cases"]
+depends_on = ["prepare-browser-session"]
 idempotent = true
 
 [steps.loop]
@@ -327,9 +370,11 @@ max_concurrency = 3
 [[steps.loop.body]]
 id = "execute-case"
 title = "执行 {{case.id}} 并保存产物"
-input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "case"]
+input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "prepare-browser-session", "case"]
 description = """
 你是 agent-browser agent。请只执行当前 case 这个测试用例，不要探索无关页面。
+
+前置条件：prepare-browser-session 已经串行准备了唯一共享 Chrome/session，并尽量完成登录、证书重试和 WebGL 探测。当前 case 必须复用 prepare-browser-session.browser_session_name；不要重新创建登录态或使用 case 专属 session。只有当 prepare-browser-session.safe_to_run_cases=false，或当前页面显示 session 已失效/权限变化时，才允许按项目文档重新登录，并必须在 evidence 中说明原因。
 
 必须使用真实浏览器自动化：
 - 先通过 exec 调用 `agent-browser skills get core --full` 或至少确认 `agent-browser --help` 可用；
@@ -347,7 +392,7 @@ description = """
 7. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
    `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
    默认使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session。不要为每个 case 追加 case.id 或创建 case 专属 `--session`，否则 agent-browser 可能为每个循环启动新的 Chrome 进程。并发 case 必须复用同一个 Chrome/session，并用独立 tab/page 或显式 open case.start_url 隔离导航状态；截图、日志和产物仍然必须用 case.id 命名，避免互相覆盖。
-8. 若目标页面进入 Sign In/Login，不要直接 blocked；这属于测试准备路径。必须依据 load-project-context.stdout.content 中的登录方式和账号信息完成登录，登录成功后重新 open case.start_url，再继续执行该 case。只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
+8. 若目标页面进入 Sign In/Login，先判断是否为 prepare-browser-session 未能建立登录态或 session 已失效。不要每个 case 主动重复登录；只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
 9. 如果首次打开报 `net::ERR_CERT_AUTHORITY_INVALID`，必须使用上述 `--ignore-https-errors` 和 `--ignore-certificate-errors` 前缀重试；不要把证书错误作为最终用例结果，除非重试后仍失败。
 10. 如果 agent-browser 报 Lightpanda/headed 不兼容，说明没有使用 `AGENT_BROWSER_ENGINE=chrome` 或错误开启了非 Chrome headed session，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/lightpanda session 下结论。
 11. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
