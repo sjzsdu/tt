@@ -19,7 +19,7 @@ reset = { description = "是否清空该套件历史状态重新开始：true/fa
 only_failed = { description = "是否只运行历史失败/阻塞/未知/未完成用例：true/false", default = "false" }
 max_cases = { description = "本次最多执行多少个测试用例", default = "20", pattern = "^[1-9][0-9]*$" }
 screenshot_mode = { description = "截图策略：all/failures/none", default = "failures" }
-max_concurrency = { description = "并发执行测试用例的最大并发数；当前内置并发 loop 使用 3，后续会支持动态值", default = "3", pattern = "^[1-9][0-9]*$" }
+max_concurrency = { description = "并发执行测试用例的最大并发数；当前内置 loop 固定为 1，以避免共享浏览器会话互相干扰和 LLM provider cooldown", default = "1", pattern = "^[1-9][0-9]*$" }
 browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
 browser_headed = { description = "是否显示 Chrome 窗口；默认 false 静默测试，调试时可设 true", default = "false" }
 browser_executable_path = { description = "agent-browser 使用的 Chrome 可执行文件路径；为空则使用默认浏览器", default = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
@@ -429,7 +429,7 @@ idempotent = true
 for_each = "gate-runnable-cases.stdout.cases"
 var = "case"
 parallel = true
-max_concurrency = 3
+max_concurrency = 1
 
 [[steps.loop.body]]
 id = "execute-case"

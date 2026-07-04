@@ -1087,8 +1087,8 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !testLoop.Parallel {
 		t.Fatalf("test-loop parallel = false, want true")
 	}
-	if testLoop.MaxConcurrency != 3 {
-		t.Fatalf("test-loop max concurrency = %d, want 3", testLoop.MaxConcurrency)
+	if testLoop.MaxConcurrency != 1 {
+		t.Fatalf("test-loop max concurrency = %d, want 1", testLoop.MaxConcurrency)
 	}
 	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
 		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
