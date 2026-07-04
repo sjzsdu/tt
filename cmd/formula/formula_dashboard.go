@@ -55,6 +55,13 @@ func (s *formulaDashboardServer) attachStore(store *run.Store) {
 	s.store = store
 	if store != nil {
 		s.state.RunID = store.Meta.RunID
+		if len(store.Meta.Vars) > 0 {
+			vars := make(map[string]any, len(store.Meta.Vars))
+			for key, value := range store.Meta.Vars {
+				vars[key] = value
+			}
+			s.state.Vars = vars
+		}
 	}
 	_ = s.persistSnapshot()
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
+	"github.com/sjzsdu/tt/internal/formula/run"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formula/ui"
 )
@@ -54,6 +55,24 @@ func TestDashboardWorkspaceReadyUpdatesSnapshot(t *testing.T) {
 	}
 	if len(dashboard.state.Logs) == 0 || !strings.Contains(dashboard.state.Logs[len(dashboard.state.Logs)-1].Text, "Workspace ready") {
 		t.Fatalf("logs = %+v", dashboard.state.Logs)
+	}
+}
+
+func TestDashboardAttachStoreShowsRunVarsInsteadOfWorkflowVarSchema(t *testing.T) {
+	workflow := &ir.Workflow{
+		ID:   "demo",
+		Name: "demo",
+		Vars: map[string]ir.VarSchema{"question": {Required: true}},
+	}
+	dashboard := newFormulaDashboardServer(workflow)
+	if _, ok := dashboard.state.Vars["question"].(ir.VarSchema); !ok {
+		t.Fatalf("initial dashboard var = %#v, want workflow schema before store attach", dashboard.state.Vars["question"])
+	}
+
+	dashboard.attachStore(&run.Store{Meta: run.Metadata{RunID: "demo/run", Vars: map[string]string{"question": "原始问题内容"}}})
+
+	if got := dashboard.state.Vars["question"]; got != "原始问题内容" {
+		t.Fatalf("dashboard question var = %#v, want run var value", got)
 	}
 }
 
