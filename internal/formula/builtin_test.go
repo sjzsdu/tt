@@ -1075,10 +1075,13 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			if agentStep.Agent != "agent-browser" {
 				t.Fatalf("execute-case agent = %q, want agent-browser", agentStep.Agent)
 			}
-			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "{{init-test-state.stdout.browser_session_name}}-{{case.id}}"} {
+			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "--session \"{{init-test-state.stdout.browser_session_name}}\"", "唯一共享浏览器 session", "独立 tab/page"} {
 				if !strings.Contains(agentStep.Prompt, want) {
 					t.Fatalf("execute-case prompt missing %q", want)
 				}
+			}
+			if strings.Contains(agentStep.Prompt, "{{init-test-state.stdout.browser_session_name}}-{{case.id}}") {
+				t.Fatalf("execute-case prompt should not use per-case browser sessions")
 			}
 			sawExecuteAgent = true
 		}
