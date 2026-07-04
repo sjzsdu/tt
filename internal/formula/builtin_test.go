@@ -1042,7 +1042,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if strings.Contains(initScript.Command[2], "+ '\\n'") || !strings.Contains(initScript.Command[2], "chr(10)") {
 		t.Fatalf("init-test-state should avoid TOML-sensitive Python newline literals")
 	}
-	for _, want := range []string{"artifacts_dir", "screenshots_dir", "test-state.json", "cases.jsonl", "runs.jsonl"} {
+	for _, want := range []string{"artifacts_dir", "screenshots_dir", "test-state.json", "cases.jsonl", "runs.jsonl", "sanitize_browser_session_name", "[^a-zA-Z0-9_-]+"} {
 		if !strings.Contains(initScript.Command[2], want) {
 			t.Fatalf("init-test-state script missing %q", want)
 		}

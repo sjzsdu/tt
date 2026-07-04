@@ -149,7 +149,11 @@ if not state:
     }
 state['updated_at'] = now
 state['current_run_id'] = time.strftime('%Y%m%d%H%M%S', time.gmtime())
-browser_session_name = browser_session_name_input or f'web-feature-test-{suite}'
+def sanitize_browser_session_name(value):
+    value = re.sub(r'[^a-zA-Z0-9_-]+', '-', value or '')
+    value = value.strip('-_')[:96]
+    return value or 'web-feature-test-session'
+browser_session_name = sanitize_browser_session_name(browser_session_name_input or f'web-feature-test-{suite}')
 state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '3'), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors}
 state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
