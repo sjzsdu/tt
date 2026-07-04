@@ -19,7 +19,7 @@ reset = { description = "是否清空该套件历史状态重新开始：true/fa
 only_failed = { description = "是否只运行历史失败/阻塞/未知/未完成用例：true/false", default = "false" }
 max_cases = { description = "本次最多执行多少个测试用例", default = "20", pattern = "^[1-9][0-9]*$" }
 screenshot_mode = { description = "截图策略：all/failures/none", default = "failures" }
-max_concurrency = { description = "并发执行测试用例的最大并发数；当前内置 loop 固定为 1，以避免共享浏览器会话互相干扰和 LLM provider cooldown", default = "1", pattern = "^[1-9][0-9]*$" }
+max_concurrency = { description = "兼容旧配置的保留变量；当前执行阶段使用单次 agent 调用顺序跑全部用例，以避免多次 LLM agent 调用触发 provider cooldown", default = "1", pattern = "^[1-9][0-9]*$" }
 browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
 browser_headed = { description = "是否显示 Chrome 窗口；默认 false 静默测试，调试时可设 true", default = "false" }
 browser_executable_path = { description = "agent-browser 使用的 Chrome 可执行文件路径；为空则使用默认浏览器", default = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
@@ -425,22 +425,14 @@ required = ["stdout"]
 
 [[steps]]
 id = "test-loop"
-title = "并发执行定点测试用例"
+title = "顺序执行定点测试用例"
 depends_on = ["gate-runnable-cases"]
 idempotent = true
-
-[steps.loop]
-for_each = "gate-runnable-cases.stdout.cases"
-var = "case"
-parallel = true
-max_concurrency = 1
-
-[[steps.loop.body]]
-id = "execute-case"
-title = "执行 {{case.id}} 并保存产物"
-input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "prepare-browser-session", "case"]
+input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "prepare-browser-session", "gate-runnable-cases.stdout"]
 description = """
-你是 agent-browser agent。请只执行当前 case 这个测试用例，不要探索无关页面。
+你是 agent-browser agent。请按 gate-runnable-cases.stdout.cases 的顺序执行本轮所有可运行测试用例，不要探索无关页面。
+
+重要：本步骤必须在同一次 agent 调用内顺序执行所有 cases，并最终输出一个 JSON array。这样可以避免每个 case 单独启动 LLM agent 导致 provider cooldown。
 
 前置条件：prepare-browser-session 已经串行准备了唯一共享 Chrome/session，并尽量完成登录、证书重试和 WebGL 探测。当前 case 必须复用 prepare-browser-session.browser_session_name；不要重新创建登录态或使用 case 专属 session。只有当 prepare-browser-session.safe_to_run_cases=false，或当前页面显示 session 已失效/权限变化时，才允许按项目文档重新登录，并必须在 evidence 中说明原因。
 
@@ -451,23 +443,25 @@ description = """
 - 如果 `agent-browser` 命令不存在、连接失败、页面无法打开、登录/权限/验证码阻塞，才输出 unknown/blocked，并把实际命令错误、URL、截图路径或日志路径写入 evidence/artifacts。
 
 执行要求：
-1. 按 case.start_url 和 case.operation_path 执行；
-2. 可以使用 load-project-context.stdout.content 中的登录方式和账号信息，但输出中不要泄露密码、token、cookie；
-3. 完整记录 URL + 操作路径 + 观察到的状态；
-4. 遇到 forbidden_actions 或 safe_to_execute=false 的危险动作，停在动作前，标记 blocked，并说明原因；
-5. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
-6. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。并发执行时必须用 case.id 命名文件，避免互相覆盖；
-7. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
+1. 读取 gate-runnable-cases.stdout.cases，按数组顺序逐个执行；
+2. 对每个 case，按 case.start_url 和 case.operation_path 执行；
+3. 可以使用 load-project-context.stdout.content 中的登录方式和账号信息，但输出中不要泄露密码、token、cookie；
+4. 完整记录 URL + 操作路径 + 观察到的状态；
+5. 遇到 forbidden_actions 或 safe_to_execute=false 的危险动作，停在动作前，标记 blocked，并说明原因；
+6. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
+7. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。必须用 case.id 命名文件，避免互相覆盖；
+8. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
    `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SOCKET_DIR="{{init-test-state.stdout.browser_socket_dir}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
-   默认使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session。不要为每个 case 追加 case.id 或创建 case 专属 `--session`，否则 agent-browser 可能为每个循环启动新的 Chrome 进程。并发 case 必须复用同一个 Chrome/session，并用独立 tab/page 或显式 open case.start_url 隔离导航状态；截图、日志和产物仍然必须用 case.id 命名，避免互相覆盖。
-8. 若目标页面进入 Sign In/Login，先判断是否为 prepare-browser-session 未能建立登录态或 session 已失效。不要每个 case 主动重复登录；只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
-9. 如果首次打开报 `net::ERR_CERT_AUTHORITY_INVALID`，必须使用上述 `--ignore-https-errors` 和 `--ignore-certificate-errors` 前缀重试；不要把证书错误作为最终用例结果，除非重试后仍失败。
-10. 如果 agent-browser 报 Lightpanda/headed 不兼容，说明没有使用 `AGENT_BROWSER_ENGINE=chrome` 或错误开启了非 Chrome headed session，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/lightpanda session 下结论。
-11. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
-12. 必须逐项输出 case.coverage_ids 对应检查点的覆盖结果。
+   默认使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session。不要为每个 case 追加 case.id 或创建 case 专属 `--session`，否则 agent-browser 可能为每个循环启动新的 Chrome 进程。所有 case 必须复用同一个 Chrome/session，并用独立 tab/page 或显式 open case.start_url 隔离导航状态；截图、日志和产物仍然必须用 case.id 命名，避免互相覆盖。
+9. 若目标页面进入 Sign In/Login，先判断是否为 prepare-browser-session 未能建立登录态或 session 已失效。不要每个 case 主动重复登录；只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
+10. 如果首次打开报 `net::ERR_CERT_AUTHORITY_INVALID`，必须使用上述 `--ignore-https-errors` 和 `--ignore-certificate-errors` 前缀重试；不要把证书错误作为最终用例结果，除非重试后仍失败。
+11. 如果 agent-browser 报 Lightpanda/headed 不兼容，说明没有使用 `AGENT_BROWSER_ENGINE=chrome` 或错误开启了非 Chrome headed session，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/lightpanda session 下结论。
+12. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
+13. 必须逐项输出每个 case.coverage_ids 对应检查点的覆盖结果。
+14. 单个 case 失败、阻塞或 unknown 时，必须把该 case 记录为 failed/blocked/unknown，然后继续执行后续 case；不要因为一个业务断言失败中断整个步骤。
 
-输出 ONLY compact JSON：
-{
+输出 ONLY compact JSON array。数组每一项形状如下：
+[{ 
   "case_id":"{{case.id}}",
   "status":"passed|failed|blocked|unknown",
   "start_url":"...",
@@ -481,14 +475,14 @@ description = """
   "failure_reason":"",
   "safe_to_rerun":true,
   "notes":"..."
-}
+}]
 """
 agent.name = "agent-browser"
 agent.cwd = "{{workspace_path}}"
 
-[steps.loop.body.validate]
+[steps.validate]
 format = "json"
-required = ["case_id", "status", "start_url", "final_url", "coverage_results", "operation_path", "expected_result", "actual_result", "evidence", "artifacts", "failure_reason", "safe_to_rerun", "notes"]
+item_required = ["case_id", "status", "start_url", "final_url", "coverage_results", "operation_path", "expected_result", "actual_result", "evidence", "artifacts", "failure_reason", "safe_to_rerun", "notes"]
 
 [[steps]]
 id = "merge-case-results"

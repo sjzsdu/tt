@@ -1074,49 +1074,29 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		}
 	}
 	testLoopNode := workflow.Graph.Nodes[ir.NodeID("test-loop")]
-	testLoop, ok := testLoopNode.Step.(steps.LoopStep)
+	testLoop, ok := testLoopNode.Step.(steps.AgentStep)
 	if !ok {
-		t.Fatalf("test-loop step = %T, want LoopStep", testLoopNode.Step)
+		t.Fatalf("test-loop step = %T, want AgentStep", testLoopNode.Step)
 	}
 	if !testLoop.Meta().Idempotent {
 		t.Fatalf("test-loop idempotent = false, want true")
 	}
-	if testLoop.ForEach != "gate-runnable-cases.stdout.cases" {
-		t.Fatalf("test-loop for_each = %q", testLoop.ForEach)
-	}
-	if !testLoop.Parallel {
-		t.Fatalf("test-loop parallel = false, want true")
-	}
-	if testLoop.MaxConcurrency != 1 {
-		t.Fatalf("test-loop max concurrency = %d, want 1", testLoop.MaxConcurrency)
-	}
 	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
 		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
 	}
-	var sawExecuteAgent bool
-	for _, child := range testLoop.Body {
-		switch child.Meta().ID {
-		case "execute-case":
-			agentStep, ok := child.(steps.AgentStep)
-			if !ok {
-				t.Fatalf("execute-case step = %T, want AgentStep", child)
-			}
-			if agentStep.Agent != "agent-browser" {
-				t.Fatalf("execute-case agent = %q, want agent-browser", agentStep.Agent)
-			}
-			for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "只执行", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "--session \"{{init-test-state.stdout.browser_session_name}}\"", "唯一共享浏览器 session", "独立 tab/page", "prepare-browser-session", "不要每个 case 主动重复登录"} {
-				if !strings.Contains(agentStep.Prompt, want) {
-					t.Fatalf("execute-case prompt missing %q", want)
-				}
-			}
-			if strings.Contains(agentStep.Prompt, "{{init-test-state.stdout.browser_session_name}}-{{case.id}}") {
-				t.Fatalf("execute-case prompt should not use per-case browser sessions")
-			}
-			sawExecuteAgent = true
+	if testLoop.Agent != "agent-browser" {
+		t.Fatalf("test-loop agent = %q, want agent-browser", testLoop.Agent)
+	}
+	for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "所有可运行测试用例", "JSON array", "provider cooldown", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "AGENT_BROWSER_SOCKET_DIR", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "--session \"{{init-test-state.stdout.browser_session_name}}\"", "唯一共享浏览器 session", "独立 tab/page", "prepare-browser-session", "不要每个 case 主动重复登录", "继续执行后续 case"} {
+		if !strings.Contains(testLoop.Prompt, want) {
+			t.Fatalf("test-loop prompt missing %q", want)
 		}
 	}
-	if !sawExecuteAgent {
-		t.Fatalf("test-loop missing execute-case")
+	if strings.Contains(testLoop.Prompt, "{{init-test-state.stdout.browser_session_name}}-{{case.id}}") {
+		t.Fatalf("test-loop prompt should not use per-case browser sessions")
+	}
+	if testLoop.Validation == nil || !slices.Contains(testLoop.Validation.ItemRequired, "case_id") {
+		t.Fatalf("test-loop validation = %#v, want item_required case_id", testLoop.Validation)
 	}
 	mergeNode := workflow.Graph.Nodes[ir.NodeID("merge-case-results")]
 	mergeStep, ok := mergeNode.Step.(steps.ScriptStep)
