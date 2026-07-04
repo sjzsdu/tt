@@ -151,13 +151,17 @@ state['updated_at'] = now
 state['current_run_id'] = time.strftime('%Y%m%d%H%M%S', time.gmtime())
 def sanitize_browser_session_name(value):
     value = re.sub(r'[^a-zA-Z0-9_-]+', '-', value or '')
-    value = value.strip('-_')[:96]
+    value = value.strip('-_')[:32]
     return value or 'web-feature-test-session'
-browser_session_name = sanitize_browser_session_name(browser_session_name_input or f'web-feature-test-{suite}')
-state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '3'), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors}
+session_seed = browser_session_name_input or f'web-feature-test-{suite}'
+session_digest = hashlib.sha1(session_seed.encode('utf-8')).hexdigest()[:10]
+session_prefix = sanitize_browser_session_name(browser_session_name_input or 'webft')[:20]
+browser_session_name = f'{session_prefix}-{session_digest}'
+browser_socket_dir = f'/tmp/tt-ab-{session_digest}'
+state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors}
 state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
-print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
+print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
 """]
 format = "json"
 timeout = "30s"
@@ -334,7 +338,7 @@ description = """
 7. 不要泄露密码、token、cookie。
 
 必须使用真实浏览器自动化。推荐命令前缀如下：
-`AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
+`AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SOCKET_DIR="{{init-test-state.stdout.browser_socket_dir}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
 
 如果缺少凭据、验证码、权限失败、页面无法访问或 WebGL 不可用，请输出 blocked/unknown，并给出后续 case 是否仍可执行。
 
@@ -454,7 +458,7 @@ description = """
 5. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
 6. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。并发执行时必须用 case.id 命名文件，避免互相覆盖；
 7. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
-   `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
+   `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SOCKET_DIR="{{init-test-state.stdout.browser_socket_dir}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
    默认使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session。不要为每个 case 追加 case.id 或创建 case 专属 `--session`，否则 agent-browser 可能为每个循环启动新的 Chrome 进程。并发 case 必须复用同一个 Chrome/session，并用独立 tab/page 或显式 open case.start_url 隔离导航状态；截图、日志和产物仍然必须用 case.id 命名，避免互相覆盖。
 8. 若目标页面进入 Sign In/Login，先判断是否为 prepare-browser-session 未能建立登录态或 session 已失效。不要每个 case 主动重复登录；只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
 9. 如果首次打开报 `net::ERR_CERT_AUTHORITY_INVALID`，必须使用上述 `--ignore-https-errors` 和 `--ignore-certificate-errors` 前缀重试；不要把证书错误作为最终用例结果，除非重试后仍失败。
