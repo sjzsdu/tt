@@ -1018,7 +1018,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(web-feature-test) error = %v", err)
 	}
-	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "test-loop", "merge-case-results", "load-final-state", "final-report"} {
+	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "gate-runnable-cases", "test-loop", "merge-case-results", "load-final-state", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing web-feature-test node %s", nodeID)
 		}
@@ -1060,6 +1060,19 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			t.Fatalf("prepare-browser-session prompt missing %q", want)
 		}
 	}
+	gateNode := workflow.Graph.Nodes[ir.NodeID("gate-runnable-cases")]
+	gateStep, ok := gateNode.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("gate-runnable-cases step = %T, want ScriptStep", gateNode.Step)
+	}
+	if !slices.Contains(gateStep.Meta().DependsOn, steps.ID("prepare-browser-session")) {
+		t.Fatalf("gate-runnable-cases dependencies = %v, want prepare-browser-session", gateStep.Meta().DependsOn)
+	}
+	for _, want := range []string{"safe_to_run_cases", "skipped_results", "Browser preflight did not produce a safe shared session", "PREPARE_BROWSER_SESSION", "PREPARE_RUNNABLE_CASES"} {
+		if !strings.Contains(gateStep.Command[2], want) {
+			t.Fatalf("gate-runnable-cases script missing %q", want)
+		}
+	}
 	testLoopNode := workflow.Graph.Nodes[ir.NodeID("test-loop")]
 	testLoop, ok := testLoopNode.Step.(steps.LoopStep)
 	if !ok {
@@ -1068,7 +1081,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !testLoop.Meta().Idempotent {
 		t.Fatalf("test-loop idempotent = false, want true")
 	}
-	if testLoop.ForEach != "prepare-runnable-cases.stdout.cases" {
+	if testLoop.ForEach != "gate-runnable-cases.stdout.cases" {
 		t.Fatalf("test-loop for_each = %q", testLoop.ForEach)
 	}
 	if !testLoop.Parallel {
@@ -1077,8 +1090,8 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if testLoop.MaxConcurrency != 3 {
 		t.Fatalf("test-loop max concurrency = %d, want 3", testLoop.MaxConcurrency)
 	}
-	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("prepare-browser-session")) {
-		t.Fatalf("test-loop dependencies = %v, want prepare-browser-session", testLoop.Meta().DependsOn)
+	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
+		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
 	}
 	var sawExecuteAgent bool
 	for _, child := range testLoop.Body {
@@ -1113,7 +1126,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !mergeStep.Meta().Idempotent {
 		t.Fatalf("merge-case-results idempotent = false, want true")
 	}
-	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)", ".agent-browser/tmp/screenshots", "shutil.copy2", "archived_screenshots"} {
+	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)", ".agent-browser/tmp/screenshots", "shutil.copy2", "archived_screenshots", "SKIPPED_RESULTS_JSON", "skipped_results"} {
 		if !strings.Contains(mergeStep.Command[2], want) {
 			t.Fatalf("merge-case-results script missing %q", want)
 		}

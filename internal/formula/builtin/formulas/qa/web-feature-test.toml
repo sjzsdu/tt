@@ -356,13 +356,73 @@ format = "json"
 required = ["status", "browser_session_name", "target_url", "final_url", "login_state", "webgl_state", "evidence", "artifacts", "safe_to_run_cases", "notes"]
 
 [[steps]]
+id = "gate-runnable-cases"
+title = "根据浏览器准备结果过滤可运行用例"
+depends_on = ["prepare-browser-session"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os
+
+def load_json(value, default):
+    try:
+        if not value or value.lstrip().startswith('{{'):
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
+
+prepared = load_json(os.environ.get('PREPARE_BROWSER_SESSION',''), {})
+prepared_cases = load_json(os.environ.get('PREPARE_RUNNABLE_CASES',''), {})
+cases = prepared_cases.get('cases') or []
+safe = bool(prepared.get('safe_to_run_cases')) and prepared.get('status') == 'ready'
+if safe:
+    print(json.dumps({'cases': cases, 'count': len(cases), 'skipped_results': [], 'preflight_status': prepared.get('status'), 'safe_to_run_cases': True}, ensure_ascii=False))
+else:
+    reason = prepared.get('notes') or 'Browser preflight did not produce a safe shared session.'
+    evidence = prepared.get('evidence') or []
+    artifacts = prepared.get('artifacts') or []
+    skipped = []
+    for case in cases:
+        cid = case.get('id') or 'unknown-case'
+        skipped.append({
+            'case_id': cid,
+            'status': 'blocked',
+            'start_url': case.get('start_url') or prepared.get('target_url') or '',
+            'final_url': prepared.get('final_url') or '',
+            'coverage_results': [{'coverage_id': cov, 'status': 'blocked', 'expected': '', 'actual': reason, 'evidence': evidence} for cov in (case.get('coverage_ids') or [])],
+            'operation_path': [],
+            'expected_result': case.get('expected_result') or '',
+            'actual_result': 'Skipped because shared browser preflight was not ready.',
+            'evidence': evidence,
+            'artifacts': artifacts,
+            'failure_reason': reason,
+            'safe_to_rerun': True,
+            'notes': 'Skipped by gate-runnable-cases after prepare-browser-session.'
+        })
+    print(json.dumps({'cases': [], 'count': 0, 'skipped_results': skipped, 'preflight_status': prepared.get('status','unknown'), 'safe_to_run_cases': False, 'block_reason': reason}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.script.env]
+PREPARE_BROWSER_SESSION = "{{prepare-browser-session}}"
+PREPARE_RUNNABLE_CASES = "{{prepare-runnable-cases.stdout}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "test-loop"
 title = "并发执行定点测试用例"
-depends_on = ["prepare-browser-session"]
+depends_on = ["gate-runnable-cases"]
 idempotent = true
 
 [steps.loop]
-for_each = "prepare-runnable-cases.stdout.cases"
+for_each = "gate-runnable-cases.stdout.cases"
 var = "case"
 parallel = true
 max_concurrency = 3
@@ -425,7 +485,7 @@ required = ["case_id", "status", "start_url", "final_url", "coverage_results", "
 [[steps]]
 id = "merge-case-results"
 title = "串行合并并发测试结果"
-depends_on = ["test-loop"]
+depends_on = ["test-loop", "gate-runnable-cases"]
 execution = "script"
 idempotent = true
 
@@ -439,12 +499,22 @@ now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 raw = os.environ.get('RESULTS_JSON','') or '[]'
 if raw.lstrip().startswith('{{') and raw.rstrip().endswith('}}'):
     raw = '[]'
+skipped_raw = os.environ.get('SKIPPED_RESULTS_JSON','') or '[]'
+if skipped_raw.lstrip().startswith('{{') and skipped_raw.rstrip().endswith('}}'):
+    skipped_raw = '[]'
 try:
     results = json.loads(raw)
 except Exception:
     results = []
 if isinstance(results, dict):
     results = [results]
+try:
+    skipped_results = json.loads(skipped_raw)
+except Exception:
+    skipped_results = []
+if isinstance(skipped_results, dict):
+    skipped_results = [skipped_results]
+results.extend(skipped_results)
 run_id = state.get('current_run_id')
 runs_path.parent.mkdir(parents=True, exist_ok=True)
 artifacts_dir = pathlib.Path(state.get('paths', {}).get('artifacts') or state_path.parent / 'artifacts')
@@ -550,6 +620,7 @@ timeout = "30s"
 STATE_PATH = "{{init-test-state.stdout.state_path}}"
 RUNS_PATH = "{{init-test-state.stdout.runs_path}}"
 RESULTS_JSON = "{{test-loop}}"
+SKIPPED_RESULTS_JSON = "{{gate-runnable-cases.stdout.skipped_results}}"
 
 [steps.validate]
 format = "json"
