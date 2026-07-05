@@ -12,8 +12,8 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 16px;
-  padding: 30px 40px 28px;
+  gap: 14px;
+  padding: 28px 36px 26px;
   border-radius: 8px;
   overflow: hidden;
   position: relative;
@@ -21,7 +21,7 @@
   border: 1px solid rgba(255, 255, 255, .16);
   box-shadow: 0 28px 90px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .08);
   color: #f8fafc;
-  font-size: .98em;
+  font-size: 1.04em;
 }
 
 .reveal .gua64full-stage::before {
@@ -41,7 +41,7 @@
 
 .reveal .gua64full-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 174px minmax(300px, .58fr);
+  grid-template-columns: minmax(0, 1fr) 168px minmax(300px, .58fr);
   align-items: stretch;
   gap: 18px;
 }
@@ -49,7 +49,7 @@
 .reveal .gua64full-kicker {
   min-height: 24px;
   color: #fbbf24;
-  font-size: .34em;
+  font-size: .38em;
   line-height: 1;
   font-weight: 820;
   letter-spacing: .18em;
@@ -63,7 +63,7 @@
 
 .reveal .gua64full-title {
   margin-top: 8px;
-  font-size: 1.62em;
+  font-size: 1.68em;
   line-height: .96;
   font-weight: 920;
   letter-spacing: .02em;
@@ -72,7 +72,7 @@
 
 .reveal .gua64full-subtitle {
   margin-top: 10px;
-  font-size: .46em;
+  font-size: .52em;
   line-height: 1.22;
   color: rgba(226, 232, 240, .72);
 }
@@ -80,7 +80,7 @@
 .reveal .gua64full-lines {
   align-self: center;
   justify-self: center;
-  width: 154px;
+  width: 148px;
   display: flex;
   flex-direction: column-reverse;
   gap: 9px;
@@ -114,7 +114,7 @@
   min-width: 0;
   display: grid;
   grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .reveal .gua64full-summary-card,
@@ -129,10 +129,10 @@
 
 .reveal .gua64full-summary-card {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
   align-items: start;
-  padding: 10px 13px;
+  padding: 9px 12px;
   overflow: hidden;
 }
 
@@ -143,13 +143,13 @@
 }
 
 .reveal .gua64full-summary-card strong {
-  font-size: .34em;
+  font-size: .4em;
   line-height: 1.25;
 }
 
 .reveal .gua64full-summary-card p {
   margin: 0;
-  font-size: .31em;
+  font-size: .39em;
   line-height: 1.26;
   color: #f8fafc;
 }
@@ -162,11 +162,11 @@
   grid-template-areas:
     "jing xiang tuan"
     "jing xiang wings";
-  gap: 12px;
+  gap: 10px;
 }
 
 .reveal .gua64full-panel {
-  padding: 13px 15px 12px;
+  padding: 12px 13px 11px;
   overflow: hidden;
 }
 
@@ -178,7 +178,7 @@
 .reveal .gua64full-panel h2 {
   margin: 0 0 8px;
   color: #fbbf24;
-  font-size: .38em;
+  font-size: .46em;
   line-height: 1;
   font-weight: 880;
   letter-spacing: .12em;
@@ -188,14 +188,14 @@
 .reveal .gua64full-guaci {
   margin: 0;
   color: #f8fafc;
-  font-size: .285em;
-  line-height: 1.34;
+  font-size: .4em;
+  line-height: 1.28;
   text-align: left;
 }
 
 .reveal .gua64full-guaci {
-  margin-bottom: 7px;
-  padding-bottom: 7px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, .12);
 }
 
@@ -211,7 +211,7 @@
 .reveal .gua64full-wings {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .reveal .gua64full-yaos p,
@@ -221,7 +221,7 @@
 }
 
 .reveal .gua64full-daxiang {
-  margin-bottom: 7px !important;
-  padding-bottom: 7px;
+  margin-bottom: 6px !important;
+  padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, .12);
 }
