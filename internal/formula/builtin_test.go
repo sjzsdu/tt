@@ -172,7 +172,7 @@ func TestGitResolveConflictsPrepareConflictContextScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "commit", "-am", "left")
-	runGit(t, repo, "checkout", "-b", "right", "main")
+	runGit(t, repo, "checkout", "-b", "right", "HEAD~1")
 	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("right\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
