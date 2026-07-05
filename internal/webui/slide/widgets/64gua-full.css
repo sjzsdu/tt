@@ -82,13 +82,20 @@
   justify-self: center;
   width: 148px;
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: 9px;
   padding: 14px 18px;
   border-radius: 8px;
   background: rgba(2, 6, 23, .36);
   border: 1px solid rgba(255, 255, 255, .12);
 }
+
+.reveal .gua64full-lines .gua64full-line:nth-child(1) { order: 4; }
+.reveal .gua64full-lines .gua64full-line:nth-child(2) { order: 5; }
+.reveal .gua64full-lines .gua64full-line:nth-child(3) { order: 6; }
+.reveal .gua64full-lines .gua64full-line:nth-child(4) { order: 1; }
+.reveal .gua64full-lines .gua64full-line:nth-child(5) { order: 2; }
+.reveal .gua64full-lines .gua64full-line:nth-child(6) { order: 3; }
 
 .reveal .gua64full-line {
   height: 12px;
