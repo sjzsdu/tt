@@ -28,6 +28,9 @@ jobs:
       - name: Check cmd/version.go value
         id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -44,16 +47,19 @@ jobs:
               | head -n1 || true)"
           fi
 
+          tag="v${current_version}"
+          if [[ "${current_version}" == v* ]]; then
+            tag="${current_version}"
+          fi
+
           changed="false"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             changed="true"
           elif [[ -z "${previous_version}" || "${current_version}" != "${previous_version}" ]]; then
             changed="true"
-          fi
-
-          tag="v${current_version}"
-          if [[ "${current_version}" == v* ]]; then
-            tag="${current_version}"
+          elif ! gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} does not exist; rebuilding current version."
+            changed="true"
           fi
 
           echo "version=${current_version}" >> "${GITHUB_OUTPUT}"
