@@ -1,0 +1,82 @@
+<div class="gua64full-stage" data-lines="{{ lines }}">
+  <header class="gua64full-header">
+    <div class="gua64full-title-block">
+      <div class="gua64full-kicker">{{#if label}}{{ label }}{{/if}}{{#if source}}<span>{{ source }}</span>{{/if}}</div>
+      <div class="gua64full-title">{{ name }}</div>
+      {{#if subtitle}}<div class="gua64full-subtitle">{{ subtitle }}</div>{{/if}}
+    </div>
+    <div class="gua64full-lines" aria-label="{{ name }} {{ lines }}">
+      {{#each linesChars}}
+        <div class="gua64full-line {{#if isYang}}yang{{/if}}{{#if isYin}}yin{{/if}}">
+          <span></span><span></span>
+        </div>
+      {{/each}}
+    </div>
+    <div class="gua64full-summary">
+      {{#if guaci}}
+        <div class="gua64full-summary-card">
+          <strong>卦辞</strong>
+          <p>{{ guaci }}</p>
+        </div>
+      {{/if}}
+      {{#if xiang}}
+        <div class="gua64full-summary-card">
+          <strong>象意</strong>
+          <p>{{ xiang }}</p>
+        </div>
+      {{/if}}
+    </div>
+  </header>
+
+  <main class="gua64full-body">
+    <article class="gua64full-panel gua64full-jing">
+      <h2>经文</h2>
+      <div class="gua64full-guaci">{{#if guaci}}<strong>卦辞</strong>{{ guaci }}{{/if}}</div>
+      <div class="gua64full-yaos">
+        {{#if yao1}}<p><strong>初</strong>{{ yao1 }}</p>{{/if}}
+        {{#if yao2}}<p><strong>二</strong>{{ yao2 }}</p>{{/if}}
+        {{#if yao3}}<p><strong>三</strong>{{ yao3 }}</p>{{/if}}
+        {{#if yao4}}<p><strong>四</strong>{{ yao4 }}</p>{{/if}}
+        {{#if yao5}}<p><strong>五</strong>{{ yao5 }}</p>{{/if}}
+        {{#if yao6}}<p><strong>上</strong>{{ yao6 }}</p>{{/if}}
+      </div>
+    </article>
+
+    <article class="gua64full-panel gua64full-tuan">
+      <h2>彖传</h2>
+      {{#if tuan}}<p>{{ tuan }}</p>{{/if}}
+    </article>
+
+    <article class="gua64full-panel gua64full-xiang">
+      <h2>象传</h2>
+      {{#if daxiang}}<p class="gua64full-daxiang"><strong>大象</strong>{{ daxiang }}</p>{{/if}}
+      <div class="gua64full-xiaoxiang">
+        {{#if xiaoxiang1}}<p><strong>初</strong>{{ xiaoxiang1 }}</p>{{/if}}
+        {{#if xiaoxiang2}}<p><strong>二</strong>{{ xiaoxiang2 }}</p>{{/if}}
+        {{#if xiaoxiang3}}<p><strong>三</strong>{{ xiaoxiang3 }}</p>{{/if}}
+        {{#if xiaoxiang4}}<p><strong>四</strong>{{ xiaoxiang4 }}</p>{{/if}}
+        {{#if xiaoxiang5}}<p><strong>五</strong>{{ xiaoxiang5 }}</p>{{/if}}
+        {{#if xiaoxiang6}}<p><strong>上</strong>{{ xiaoxiang6 }}</p>{{/if}}
+      </div>
+    </article>
+
+    <article class="gua64full-panel gua64full-wings">
+      <h2>十翼补读</h2>
+      {{#if xugua}}
+        <p><strong>序卦</strong>{{ xugua }}</p>
+      {{/if}}
+      {{#if zagua}}
+        <p><strong>杂卦</strong>{{ zagua }}</p>
+      {{/if}}
+      {{#if wenyan}}
+        <p><strong>文言</strong>{{ wenyan }}</p>
+      {{/if}}
+      {{#if shuogua}}
+        <p><strong>说卦</strong>{{ shuogua }}</p>
+      {{/if}}
+      {{#if xici}}
+        <p><strong>系辞</strong>{{ xici }}</p>
+      {{/if}}
+    </article>
+  </main>
+</div>
