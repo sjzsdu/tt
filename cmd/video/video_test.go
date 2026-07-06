@@ -145,6 +145,28 @@ func TestVideoTimelineTransitionDisabledForVeryShortSections(t *testing.T) {
 	}
 }
 
+func TestBrowserTimelineScriptSchedulesSlidesBySectionStart(t *testing.T) {
+	plan := &Plan{Sections: []PlanSection{
+		{Slide: 1, StartMillis: 0},
+		{Slide: 3, StartMillis: 2500},
+	}}
+	script := browserTimelineScript(plan)
+	if !strings.Contains(script, "deck.slide(0, 0, 0), 0") {
+		t.Fatalf("script missing first slide schedule: %s", script)
+	}
+	if !strings.Contains(script, "deck.slide(2, 0, 0), 2500") {
+		t.Fatalf("script missing third slide schedule: %s", script)
+	}
+}
+
+func TestBrowserTimelineScriptClampsNegativeStart(t *testing.T) {
+	plan := &Plan{Sections: []PlanSection{{Slide: 2, StartMillis: -50}}}
+	script := browserTimelineScript(plan)
+	if !strings.Contains(script, "deck.slide(1, 0, 0), 0") {
+		t.Fatalf("script did not clamp negative start: %s", script)
+	}
+}
+
 func TestVideoGenerateCommandWritesPlanAndSRT(t *testing.T) {
 	tmp := t.TempDir()
 	script := filepath.Join(tmp, "talk.md")

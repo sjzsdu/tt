@@ -178,6 +178,7 @@ Default artifacts are config-driven. With the default `ttconfig.video` values, a
     "output_dir": ".tt/video",
     "internal_dir": ".tt/video",
     "tts_mode": "none",
+    "render_mode": "browser",
     "bailian_api_key_env": "DASHSCOPE_API_KEY",
     "bailian_base_url": "",
     "bailian_model": "qwen3-tts-flash",
@@ -193,6 +194,8 @@ Default artifacts are config-driven. With the default `ttconfig.video` values, a
 ```
 
 Script front matter can override visual defaults for a specific video, for example `width`, `height`, and `fps`. It can also set `voice` for a specific video. CLI flags are reserved for one-off overrides such as `--out`, `--tts`, `--audio-dir`, and `--tts-command`.
+
+`render_mode` defaults to `browser`, which records a single continuous Reveal.js playback timeline before muxing narration and SRT subtitles. This keeps slide transitions and in-slide animations closer to the live browser experience. Set it to `segments` if you need the older per-slide stable renderer. Continuous animation can increase final MP4 size compared with static frames because there is more visual motion, but the encoder still controls size through H.264 CRF. Intermediate browser frames live under `.tt/video/<script-name>/work/`.
 
 To synthesize narration with Alibaba Cloud Model Studio/Bailian, set `tts_mode` to `bailian`, configure `bailian_base_url` to your workspace API base such as `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1`, and export the API key env configured by `bailian_api_key_env`:
 
