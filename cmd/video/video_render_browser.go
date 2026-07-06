@@ -70,7 +70,7 @@ func recordBrowserSlideFrames(ctx context.Context, baseURL string, plan *Plan, f
 	defer cancel()
 	browserCtx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(nil))
 	defer cancel()
-	recordCtx, cancel := context.WithTimeout(browserCtx, time.Duration(plan.TotalDuration)*time.Millisecond+10*time.Second)
+	recordCtx, cancel := context.WithTimeout(browserCtx, browserRecordingTimeout(plan))
 	defer cancel()
 
 	url := buildSlideURL(baseURL, plan, plan.Sections[0].Slide)
@@ -86,14 +86,13 @@ func recordBrowserSlideFrames(ctx context.Context, baseURL string, plan *Plan, f
 	}
 
 	frameInterval := time.Second / time.Duration(max(1, plan.Meta.FPS))
-	started := time.Now()
 	totalDuration := time.Duration(plan.TotalDuration) * time.Millisecond
 	targetFrames := max(1, int((totalDuration+frameInterval-1)/frameInterval))
 	frameCount := 0
 	for frameCount < targetFrames {
-		targetTime := started.Add(time.Duration(frameCount) * frameInterval)
-		if sleep := time.Until(targetTime); sleep > 0 {
-			time.Sleep(sleep)
+		frameMillis := time.Duration(frameCount) * frameInterval / time.Millisecond
+		if err := chromedp.Run(recordCtx, chromedp.Evaluate(fmt.Sprintf("window.__ttVideoSeek && window.__ttVideoSeek(%d)", frameMillis), nil)); err != nil {
+			return frameCount, fmt.Errorf("seek browser frame failed: %w", err)
 		}
 		var buf []byte
 		if err := chromedp.Run(recordCtx, chromedp.CaptureScreenshot(&buf)); err != nil {
@@ -109,6 +108,19 @@ func recordBrowserSlideFrames(ctx context.Context, baseURL string, plan *Plan, f
 		}
 	}
 	return frameCount, nil
+}
+
+func browserRecordingTimeout(plan *Plan) time.Duration {
+	fps := max(1, plan.Meta.FPS)
+	totalDuration := time.Duration(plan.TotalDuration) * time.Millisecond
+	frameInterval := time.Second / time.Duration(fps)
+	targetFrames := max(1, int((totalDuration+frameInterval-1)/frameInterval))
+	byDuration := totalDuration*8 + 2*time.Minute
+	byFrames := time.Duration(targetFrames)*500*time.Millisecond + time.Minute
+	if byFrames > byDuration {
+		return byFrames
+	}
+	return byDuration
 }
 
 func browserRepaintDriverScript() string {
@@ -141,15 +153,15 @@ func browserRepaintDriverScript() string {
 
 func browserTimelineScript(plan *Plan) string {
 	var b strings.Builder
-	b.WriteString(`(() => { const deck = window.Reveal; if (!deck) return;`)
+	b.WriteString(`(() => { const deck = window.Reveal; if (!deck) return; const sections = [`)
 	for _, section := range plan.Sections {
 		at := int64(section.StartMillis)
 		if at < 0 {
 			at = 0
 		}
-		fmt.Fprintf(&b, "setTimeout(() => deck.slide(%d, 0, 0), %d);", section.Slide-1, at)
+		fmt.Fprintf(&b, "{at:%d,slide:%d},", at, section.Slide-1)
 	}
-	b.WriteString(`})();`)
+	b.WriteString(`]; window.__ttVideoSeek = (ms) => { let current = sections[0]; for (const section of sections) { if (section.at <= ms) current = section; else break; } if (current) deck.slide(current.slide, 0, 0); }; window.__ttVideoSeek(0); })();`)
 	return b.String()
 }
 

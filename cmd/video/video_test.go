@@ -151,19 +151,30 @@ func TestBrowserTimelineScriptSchedulesSlidesBySectionStart(t *testing.T) {
 		{Slide: 3, StartMillis: 2500},
 	}}
 	script := browserTimelineScript(plan)
-	if !strings.Contains(script, "deck.slide(0, 0, 0), 0") {
+	if !strings.Contains(script, "{at:0,slide:0}") {
 		t.Fatalf("script missing first slide schedule: %s", script)
 	}
-	if !strings.Contains(script, "deck.slide(2, 0, 0), 2500") {
+	if !strings.Contains(script, "{at:2500,slide:2}") {
 		t.Fatalf("script missing third slide schedule: %s", script)
+	}
+	if !strings.Contains(script, "window.__ttVideoSeek") || !strings.Contains(script, "deck.slide(current.slide, 0, 0)") {
+		t.Fatalf("script missing deterministic seek function: %s", script)
 	}
 }
 
 func TestBrowserTimelineScriptClampsNegativeStart(t *testing.T) {
 	plan := &Plan{Sections: []PlanSection{{Slide: 2, StartMillis: -50}}}
 	script := browserTimelineScript(plan)
-	if !strings.Contains(script, "deck.slide(1, 0, 0), 0") {
+	if !strings.Contains(script, "{at:0,slide:1}") {
 		t.Fatalf("script did not clamp negative start: %s", script)
+	}
+}
+
+func TestBrowserRecordingTimeoutAllowsSlowerThanRealtimeCapture(t *testing.T) {
+	plan := &Plan{Meta: ScriptMeta{FPS: 24}, TotalDuration: 90_000}
+	got := browserRecordingTimeout(plan)
+	if got < 18*time.Minute {
+		t.Fatalf("timeout = %s, want enough room for slow frame capture", got)
 	}
 }
 
