@@ -496,7 +496,7 @@ sequenceDiagram
     participant UI as Slide UI
     participant FS as 工作区文件
 
-    Speaker->>CLI: tt slide slides/tt-slide-showcase.slide
+    Speaker->>CLI: tt slide examples/slides/tt-slide-showcase.slide
     CLI->>UI: 提供前端和 deck API
     UI->>FS: 请求 slide / assets
     FS-->>UI: 返回内容
@@ -1110,11 +1110,11 @@ Mermaid / D2 图表支持 fit、zoom、pan、reset。
 # 命令示例
 
 ```bash
-tt slide slides/tt-slide-showcase.slide
-tt slide slides/
+tt slide examples/slides/tt-slide-showcase.slide
+tt slide examples/slides/
 tt slide --list-templates
-tt slide slides/tt-slide-showcase.slide --template light
-tt slide slides/tt-slide-showcase.slide --port 9597
+tt slide examples/slides/tt-slide-showcase.slide --template light
+tt slide examples/slides/tt-slide-showcase.slide --port 9597
 ```
 
 模板是运行时选择；`.slide` 文档不写 `template:`。

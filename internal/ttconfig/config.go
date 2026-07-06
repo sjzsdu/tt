@@ -23,6 +23,7 @@ type Config struct {
 	Markdown     MarkdownConfig     `json:"markdown,omitempty"`
 	Conversation ConversationConfig `json:"conversation,omitempty"`
 	Mirror       MirrorConfig       `json:"mirror,omitempty"`
+	Video        VideoConfig        `json:"video,omitempty"`
 	Paths        PathsConfig        `json:"paths,omitempty"`
 }
 
@@ -68,6 +69,26 @@ type MirrorConfig struct {
 	SourceDir  string `json:"source_dir,omitempty"`
 	TargetDir  string `json:"target_dir,omitempty"`
 	ConfigFile string `json:"config_file,omitempty"`
+}
+
+type VideoConfig struct {
+	OutputDir                   string `json:"output_dir,omitempty"`
+	InternalDir                 string `json:"internal_dir,omitempty"`
+	TTSMode                     string `json:"tts_mode,omitempty"`
+	AudioDir                    string `json:"audio_dir,omitempty"`
+	TTSCommand                  string `json:"tts_command,omitempty"`
+	BailianAPIKeyEnv            string `json:"bailian_api_key_env,omitempty"`
+	BailianBaseURL              string `json:"bailian_base_url,omitempty"`
+	BailianModel                string `json:"bailian_model,omitempty"`
+	BailianVoice                string `json:"bailian_voice,omitempty"`
+	BailianLanguageType         string `json:"bailian_language_type,omitempty"`
+	BailianInstructions         string `json:"bailian_instructions,omitempty"`
+	BailianOptimizeInstructions *bool  `json:"bailian_optimize_instructions,omitempty"`
+	Width                       *int   `json:"width,omitempty"`
+	Height                      *int   `json:"height,omitempty"`
+	FPS                         *int   `json:"fps,omitempty"`
+	WPM                         *int   `json:"wpm,omitempty"`
+	Render                      *bool  `json:"render,omitempty"`
 }
 
 type Sources struct {
@@ -179,6 +200,63 @@ func Merge(base Config, overlay Config) Config {
 	}
 	if v := strings.TrimSpace(overlay.Mirror.ConfigFile); v != "" {
 		out.Mirror.ConfigFile = v
+	}
+	if v := strings.TrimSpace(overlay.Video.OutputDir); v != "" {
+		out.Video.OutputDir = v
+	}
+	if v := strings.TrimSpace(overlay.Video.InternalDir); v != "" {
+		out.Video.InternalDir = v
+	}
+	if v := strings.TrimSpace(overlay.Video.TTSMode); v != "" {
+		out.Video.TTSMode = v
+	}
+	if v := strings.TrimSpace(overlay.Video.AudioDir); v != "" {
+		out.Video.AudioDir = v
+	}
+	if v := strings.TrimSpace(overlay.Video.TTSCommand); v != "" {
+		out.Video.TTSCommand = v
+	}
+	if v := strings.TrimSpace(overlay.Video.BailianAPIKeyEnv); v != "" {
+		out.Video.BailianAPIKeyEnv = v
+	}
+	if v := strings.TrimSpace(overlay.Video.BailianBaseURL); v != "" {
+		out.Video.BailianBaseURL = v
+	}
+	if v := strings.TrimSpace(overlay.Video.BailianModel); v != "" {
+		out.Video.BailianModel = v
+	}
+	if v := strings.TrimSpace(overlay.Video.BailianVoice); v != "" {
+		out.Video.BailianVoice = v
+	}
+	if v := strings.TrimSpace(overlay.Video.BailianLanguageType); v != "" {
+		out.Video.BailianLanguageType = v
+	}
+	if v := strings.TrimSpace(overlay.Video.BailianInstructions); v != "" {
+		out.Video.BailianInstructions = v
+	}
+	if overlay.Video.BailianOptimizeInstructions != nil {
+		v := *overlay.Video.BailianOptimizeInstructions
+		out.Video.BailianOptimizeInstructions = &v
+	}
+	if overlay.Video.Width != nil {
+		v := *overlay.Video.Width
+		out.Video.Width = &v
+	}
+	if overlay.Video.Height != nil {
+		v := *overlay.Video.Height
+		out.Video.Height = &v
+	}
+	if overlay.Video.FPS != nil {
+		v := *overlay.Video.FPS
+		out.Video.FPS = &v
+	}
+	if overlay.Video.WPM != nil {
+		v := *overlay.Video.WPM
+		out.Video.WPM = &v
+	}
+	if overlay.Video.Render != nil {
+		v := *overlay.Video.Render
+		out.Video.Render = &v
 	}
 	if v := strings.TrimSpace(overlay.Paths.FormulaDir); v != "" {
 		out.Paths.FormulaDir = v

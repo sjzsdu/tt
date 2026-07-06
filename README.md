@@ -76,6 +76,7 @@ Available commands:
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
 | `slide` | Present `.slide` decks in a local Reveal.js web UI. |
+| `video` | Generate slide videos from centralized script files, using `ttconfig.video` defaults. |
 | `mirror` | Mirror selected files from a source directory. |
 | `nvwa` | Generate role-specific `Agent.md` and `soul.md` prompts with an embedded LLM prompt designer. |
 | `skill` | Browse and edit skill Markdown files. |
@@ -125,7 +126,7 @@ Start a local web service for presenting `.slide` decks. Slide files use Markdow
 ```bash
 tt slide
 tt slide deck.slide
-tt slide slides/ --port 9596
+tt slide examples/slides/ --port 9596
 tt slide --list-templates
 tt slide deck.slide --template dark --transition fade --slide-number c/t --controls=false --progress=false
 tt slide deck.slide --width 1600 --height 900 --margin 0.02 --auto-slide 8000
@@ -159,6 +160,47 @@ Flags:
 - `--width int`, `--height int`, `--margin float`: override slide canvas size and viewport margin.
 
 These options are also accepted as URL query parameters, for example `?transition=fade&slideNumber=c/t&controls=false`.
+
+### `tt video`
+
+Generate a slide-based video from a centralized script file. The script owns narration and slide mapping, while the referenced `.slide` file remains focused on visuals.
+
+```bash
+tt video doctor --script examples/videos/video-showcase-talk.md
+tt video generate examples/videos/video-showcase-talk.md
+```
+
+Default artifacts are config-driven. With the default `ttconfig.video` values, all generated files go under `.tt/video/<script-name>/`: final `output.mp4`, `plan.json`, `subtitles.srt`, plus intermediate `work/` and `audio/` subdirectories.
+
+```json
+{
+  "video": {
+    "output_dir": ".tt/video",
+    "internal_dir": ".tt/video",
+    "tts_mode": "none",
+    "bailian_api_key_env": "DASHSCOPE_API_KEY",
+    "bailian_base_url": "",
+    "bailian_model": "qwen3-tts-flash",
+    "bailian_voice": "Cherry",
+    "bailian_language_type": "Auto",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "wpm": 150,
+    "render": true
+  }
+}
+```
+
+Script front matter can override visual defaults for a specific video, for example `width`, `height`, and `fps`. It can also set `voice` for a specific video. CLI flags are reserved for one-off overrides such as `--out`, `--tts`, `--audio-dir`, and `--tts-command`.
+
+To synthesize narration with Alibaba Cloud Model Studio/Bailian, set `tts_mode` to `bailian`, configure `bailian_base_url` to your workspace API base such as `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1`, and export the API key env configured by `bailian_api_key_env`:
+
+```bash
+export DASHSCOPE_API_KEY=sk-...
+tt video doctor --script examples/videos/video-showcase-talk.md
+tt video generate examples/videos/video-showcase-talk.md
+```
 
 ### `tt json`
 
