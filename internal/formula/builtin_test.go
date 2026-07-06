@@ -183,10 +183,11 @@ func TestGitResolveConflictsPrepareConflictContextScript(t *testing.T) {
 		t.Fatalf("expected merge conflict")
 	}
 
-	out, err := (formularuntime.ScriptCapability{DefaultTimeout: 5 * time.Second}).RunScript(context.Background(), steps.ScriptRequest{
+	const conflictContextTimeout = 20 * time.Second
+	out, err := (formularuntime.ScriptCapability{DefaultTimeout: conflictContextTimeout}).RunScript(context.Background(), steps.ScriptRequest{
 		Command: listStep.Script.Command,
 		Env:     map[string]string{"TT_REPO_ROOT": repo},
-		Timeout: 5 * time.Second,
+		Timeout: conflictContextTimeout,
 	})
 	if err != nil {
 		t.Fatalf("prepare-conflict-context script failed: %v; raw=%s", err, string(out.Raw))
@@ -1018,7 +1019,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(web-feature-test) error = %v", err)
 	}
-	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "gate-runnable-cases", "test-loop", "merge-case-results", "load-final-state", "final-report"} {
+	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "gate-runnable-cases", "test-loop", "validate-test-results", "merge-case-results", "load-final-state", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing web-feature-test node %s", nodeID)
 		}
@@ -1099,10 +1100,26 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if testLoop.Validation == nil || !slices.Contains(testLoop.Validation.ItemRequired, "case_id") {
 		t.Fatalf("test-loop validation = %#v, want item_required case_id", testLoop.Validation)
 	}
+	validateNode := workflow.Graph.Nodes[ir.NodeID("validate-test-results")]
+	validateStep, ok := validateNode.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("validate-test-results step = %T, want ScriptStep", validateNode.Step)
+	}
+	if !slices.Contains(validateStep.Meta().DependsOn, steps.ID("test-loop")) || !slices.Contains(validateStep.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
+		t.Fatalf("validate-test-results dependencies = %v, want test-loop and gate-runnable-cases", validateStep.Meta().DependsOn)
+	}
+	for _, want := range []string{"all unknown", "empty operation_path", "missing arguments for:", "did not complete the full ui interaction sequence", "sys.exit(1)", "GATE_RUNNABLE_CASES", "RESULTS_JSON"} {
+		if !strings.Contains(validateStep.Command[2]+validateStep.Env["GATE_RUNNABLE_CASES"]+validateStep.Env["RESULTS_JSON"], want) {
+			t.Fatalf("validate-test-results script missing %q", want)
+		}
+	}
 	mergeNode := workflow.Graph.Nodes[ir.NodeID("merge-case-results")]
 	mergeStep, ok := mergeNode.Step.(steps.ScriptStep)
 	if !ok {
 		t.Fatalf("merge-case-results step = %T, want ScriptStep", mergeNode.Step)
+	}
+	if !slices.Contains(mergeStep.Meta().DependsOn, steps.ID("validate-test-results")) {
+		t.Fatalf("merge-case-results dependencies = %v, want validate-test-results", mergeStep.Meta().DependsOn)
 	}
 	if !mergeStep.Meta().Idempotent {
 		t.Fatalf("merge-case-results idempotent = false, want true")

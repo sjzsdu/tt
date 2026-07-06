@@ -586,9 +586,89 @@ format = "json"
 item_required = ["case_id", "status", "start_url", "final_url", "coverage_results", "operation_path", "expected_result", "actual_result", "evidence", "artifacts", "failure_reason", "safe_to_rerun", "notes"]
 
 [[steps]]
+id = "validate-test-results"
+title = "校验用例执行不是空跑"
+depends_on = ["test-loop", "gate-runnable-cases"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, sys
+
+def load_json(value, default):
+    try:
+        if not value or value.lstrip().startswith('{{'):
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
+
+results = load_json(os.environ.get('RESULTS_JSON', ''), [])
+gate = load_json(os.environ.get('GATE_RUNNABLE_CASES', ''), {})
+if isinstance(results, dict):
+    results = [results]
+if not isinstance(results, list):
+    results = []
+
+cases = gate.get('cases') or []
+safe = bool(gate.get('safe_to_run_cases'))
+if not safe or not cases:
+    print(json.dumps({'results': results, 'validated_count': len(results), 'skipped': True, 'notes': 'No runnable cases after browser preflight gate.'}, ensure_ascii=False))
+    sys.exit(0)
+
+errors = []
+if not results:
+    errors.append('test-loop returned no results for runnable cases')
+
+known_case_ids = {c.get('id') for c in cases if c.get('id')}
+result_case_ids = {r.get('case_id') for r in results if isinstance(r, dict)}
+missing = sorted(known_case_ids - result_case_ids)
+if missing:
+    errors.append('test-loop omitted runnable cases: ' + ', '.join(missing))
+
+all_unknown = bool(results) and all((r.get('status') == 'unknown') for r in results if isinstance(r, dict))
+no_operations = bool(results) and all(not (r.get('operation_path') or []) for r in results if isinstance(r, dict))
+corpus = json.dumps(results, ensure_ascii=False).lower()
+command_misuse_markers = [
+    'missing arguments for:',
+    'usage: agent-browser get text <selector>',
+    'did not complete the full ui interaction sequence',
+    '未完成提示中要求的细粒度 ui 交互',
+    'no actual ui validation',
+]
+if all_unknown and no_operations:
+    errors.append('test-loop returned all unknown results with empty operation_path, which indicates a no-op execution')
+if any(marker in corpus for marker in command_misuse_markers):
+    errors.append('test-loop evidence contains agent-browser command misuse or explicit no-op language')
+
+if errors:
+    print(json.dumps({
+        'status': 'failed',
+        'errors': errors,
+        'result_count': len(results),
+        'case_count': len(cases),
+        'advice': 'Retry test-loop with real agent-browser selector/snapshot/click/screenshot commands, or convert the deterministic selector operations into script steps.'
+    }, ensure_ascii=False))
+    sys.exit(1)
+
+print(json.dumps({'status': 'passed', 'results': results, 'validated_count': len(results), 'case_count': len(cases)}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10s"
+
+[steps.script.env]
+RESULTS_JSON = "{{test-loop}}"
+GATE_RUNNABLE_CASES = "{{gate-runnable-cases.stdout}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "merge-case-results"
 title = "串行合并并发测试结果"
-depends_on = ["test-loop", "gate-runnable-cases"]
+depends_on = ["validate-test-results", "gate-runnable-cases"]
 execution = "script"
 idempotent = true
 
