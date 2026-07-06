@@ -31,6 +31,15 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("formula name is required; pass <name> or set formula in --file")
 	}
+	if strings.TrimSpace(formulaFile) == "" {
+		_, defaultFileVars, _, found, err := loadDefaultFormulaVarsFile(name)
+		if err != nil {
+			return err
+		}
+		if found {
+			fileVars = mergeFormulaVars(defaultFileVars, fileVars)
+		}
+	}
 	vars := mergeFormulaVars(fileVars, cliVars)
 
 	p := formula.NewParser(getSearchPaths()...)
