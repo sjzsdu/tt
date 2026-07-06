@@ -339,7 +339,8 @@ func splitVideoSubtitleText(text string) []string {
 			parts = append(parts, part)
 		}
 	}
-	for _, r := range text {
+	runes := []rune(text)
+	for i, r := range runes {
 		if r == '\r' {
 			continue
 		}
@@ -348,7 +349,14 @@ func splitVideoSubtitleText(text string) []string {
 			continue
 		}
 		b.WriteRune(r)
-		if isVideoSubtitleSentenceEnd(r) {
+		var prev, next rune
+		if i > 0 {
+			prev = runes[i-1]
+		}
+		if i+1 < len(runes) {
+			next = runes[i+1]
+		}
+		if isVideoSubtitleSentenceEnd(prev, r, next) {
 			flush()
 		}
 	}
@@ -356,13 +364,19 @@ func splitVideoSubtitleText(text string) []string {
 	return parts
 }
 
-func isVideoSubtitleSentenceEnd(r rune) bool {
+func isVideoSubtitleSentenceEnd(prev, r, next rune) bool {
 	switch r {
-	case '.', '!', '?', ';', ':', '。', '！', '？', '；', '：':
+	case '。', '！', '？', '；', '：':
 		return true
+	case '.', '!', '?', ';', ':':
+		return !isVideoSubtitleWordRune(prev) && !isVideoSubtitleWordRune(next) || next == 0 || next == ' ' || next == '\t'
 	default:
 		return false
 	}
+}
+
+func isVideoSubtitleWordRune(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-'
 }
 
 func formatSRTTimestamp(ms DurationMillis) string {

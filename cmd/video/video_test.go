@@ -93,6 +93,16 @@ func TestRenderVideoSRTSplitsSectionIntoTimedSentenceCues(t *testing.T) {
 	}
 }
 
+func TestSplitVideoSubtitleTextKeepsDottedWordsTogether(t *testing.T) {
+	parts := splitVideoSubtitleText(".slide 文件只描述内容和结构。模板负责最终视觉呈现。")
+	if len(parts) != 2 {
+		t.Fatalf("parts = %#v, want 2 cues", parts)
+	}
+	if !strings.Contains(parts[0], ".slide 文件") {
+		t.Fatalf("dotted word was split incorrectly: %#v", parts)
+	}
+}
+
 func TestVideoScalePadFilterPreservesFullSlideCanvas(t *testing.T) {
 	got := videoScalePadFilter(1280, 720)
 	want := "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2"
@@ -106,6 +116,32 @@ func TestVideoScalePadFilterNormalizesInvalidDimensions(t *testing.T) {
 	want := "scale=1278:1080:force_original_aspect_ratio=decrease,pad=1278:1080:(ow-iw)/2:(oh-ih)/2"
 	if got != want {
 		t.Fatalf("filter = %q, want %q", got, want)
+	}
+}
+
+func TestVideoTimelineFilterUsesCrossFades(t *testing.T) {
+	plan := &Plan{Meta: ScriptMeta{FPS: 30}, Sections: []PlanSection{
+		{Index: 1, DurationMillis: 2000},
+		{Index: 2, DurationMillis: 3000},
+		{Index: 3, DurationMillis: 4000},
+	}}
+	transition := videoTimelineTransitionSeconds(plan)
+	if transition <= 0 {
+		t.Fatalf("transition = %f, want positive", transition)
+	}
+	filter := videoTimelineFilter(plan, transition)
+	if !strings.Contains(filter, "xfade=transition=fade") || !strings.Contains(filter, "acrossfade") {
+		t.Fatalf("filter does not use cross fades: %s", filter)
+	}
+	if !strings.Contains(filter, "[v2]") || !strings.Contains(filter, "[a2]") {
+		t.Fatalf("filter missing final labels: %s", filter)
+	}
+}
+
+func TestVideoTimelineTransitionDisabledForVeryShortSections(t *testing.T) {
+	plan := &Plan{Sections: []PlanSection{{DurationMillis: 250}, {DurationMillis: 250}}}
+	if got := videoTimelineTransitionSeconds(plan); got != 0 {
+		t.Fatalf("transition = %f, want 0", got)
 	}
 }
 
