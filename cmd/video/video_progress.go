@@ -47,7 +47,7 @@ func (p *videoProgress) Step(format string, args ...interface{}) {
 	p.message = message
 	elapsed := time.Since(p.start).Round(time.Second)
 	if p.terminal {
-		fmt.Fprintf(p.out, "\r%s... 已执行 %s", message, elapsed)
+		fmt.Fprintf(p.out, "\r\033[K%s... 已执行 %s", message, elapsed)
 		return
 	}
 	fmt.Fprintf(p.out, "video: %s... 已执行 %s\n", message, elapsed)
