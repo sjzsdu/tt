@@ -1121,6 +1121,44 @@ tt slide examples/slides/tt-slide-showcase.slide --port 9597
 
 ---
 
+<section data-transition="fade">
+
+# 页内节奏：fragment 逐步讲解
+
+<ul>
+  <li class="fragment fade-in" data-fragment-index="1">先呈现当前状态，让观众建立上下文。</li>
+  <li class="fragment fade-in" data-fragment-index="2">再揭示瓶颈或关键变化，控制叙事节奏。</li>
+  <li class="fragment highlight-blue" data-fragment-index="3">最后强调结论，便于视频录制验证同步效果。</li>
+</ul>
+
+</section>
+
+---
+
+<section data-auto-animate>
+
+# 连续动画：当前视频生成流程
+
+<div data-id="video-pipeline">讲稿 → 每页截图 → 分段音频 → 片段合成</div>
+
+这个状态用于测试浏览器连续播放时的跨页动画。
+
+</section>
+
+---
+
+<section data-auto-animate>
+
+# 连续动画：目标视频生成流程
+
+<div data-id="video-pipeline">讲稿时间轴 → 浏览器连续播放 → 统一音轨 → 字幕轨 → MP4</div>
+
+同一个 `data-id` 会让 Reveal 在相邻页面之间做连续过渡。
+
+</section>
+
+---
+
 .two-column
 
 # 推荐和避免

@@ -13,6 +13,20 @@ transition: fade
 
 ---
 
+<section data-transition="fade">
+
+# 本讲的推导节奏
+
+<ul>
+  <li class="fragment fade-in" data-fragment-index="1">先把《易经》理解成观察变化的框架。</li>
+  <li class="fragment fade-in" data-fragment-index="2">再用阴阳、八卦、六十四卦建立分析语言。</li>
+  <li class="fragment highlight-blue" data-fragment-index="3">最后落到算卦实战：看处境，定行动。</li>
+</ul>
+
+</section>
+
+---
+
 .media-right
 
 :::main
