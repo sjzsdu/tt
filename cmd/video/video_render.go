@@ -91,14 +91,10 @@ func renderVideoPlan(ctx context.Context, plan *Plan, opts videoRenderOptions) e
 	if err != nil {
 		return err
 	}
-	concatPath := filepath.Join(workDir, "concat.txt")
-	if err := writeVideoConcatFile(concatPath, segments); err != nil {
-		return err
-	}
 	mergedPath := filepath.Join(workDir, "merged.mp4")
-	opts.Progress.Step("正在合并 %d 个视频片段", len(segments))
-	if err := runCommand(ctx, "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", mergedPath); err != nil {
-		return fmt.Errorf("concat video segments failed: %w", err)
+	opts.Progress.Step("正在按连续时间轴合成 %d 个视频片段", len(segments))
+	if err := mergeVideoSegmentsTimeline(ctx, plan, segments, mergedPath); err != nil {
+		return fmt.Errorf("merge video timeline failed: %w", err)
 	}
 	if opts.SRTPath != "" {
 		opts.Progress.Step("正在生成并嵌入字幕")
@@ -174,6 +170,81 @@ func renderVideoSegments(ctx context.Context, plan *Plan, workDir string, progre
 		segments = append(segments, segmentPath)
 	}
 	return segments, nil
+}
+
+func mergeVideoSegmentsTimeline(ctx context.Context, plan *Plan, segments []string, output string) error {
+	if len(segments) == 0 {
+		return fmt.Errorf("no video segments to merge")
+	}
+	if len(segments) == 1 {
+		return runCommand(ctx, "ffmpeg", "-y", "-i", segments[0], "-c", "copy", output)
+	}
+	transition := videoTimelineTransitionSeconds(plan)
+	if transition <= 0 {
+		concatPath := filepath.Join(filepath.Dir(output), "concat.txt")
+		if err := writeVideoConcatFile(concatPath, segments); err != nil {
+			return err
+		}
+		return runCommand(ctx, "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", output)
+	}
+	args := []string{"-y"}
+	for _, segment := range segments {
+		args = append(args, "-i", segment)
+	}
+	filter := videoTimelineFilter(plan, transition)
+	last := len(segments) - 1
+	args = append(args,
+		"-filter_complex", filter,
+		"-map", fmt.Sprintf("[v%d]", last),
+		"-map", fmt.Sprintf("[a%d]", last),
+		"-r", strconv.Itoa(plan.Meta.FPS),
+		"-pix_fmt", "yuv420p",
+		"-c:v", "libx264",
+		"-c:a", "aac",
+		"-movflags", "+faststart",
+		output,
+	)
+	return runCommand(ctx, "ffmpeg", args...)
+}
+
+func videoTimelineTransitionSeconds(plan *Plan) float64 {
+	if len(plan.Sections) < 2 {
+		return 0
+	}
+	transition := 0.65
+	for _, section := range plan.Sections {
+		seconds := float64(section.DurationMillis) / 1000
+		if seconds <= 0 {
+			continue
+		}
+		maxForSection := seconds/3 - 0.05
+		if maxForSection < transition {
+			transition = maxForSection
+		}
+	}
+	if transition < 0.15 {
+		return 0
+	}
+	return transition
+}
+
+func videoTimelineFilter(plan *Plan, transition float64) string {
+	var b strings.Builder
+	cumulative := float64(plan.Sections[0].DurationMillis) / 1000
+	fmt.Fprintf(&b, "[0:v]settb=AVTB[v0];")
+	fmt.Fprintf(&b, "[0:a]asetpts=PTS-STARTPTS[a0];")
+	for i := 1; i < len(plan.Sections); i++ {
+		offset := cumulative - transition
+		if offset < 0 {
+			offset = 0
+		}
+		fmt.Fprintf(&b, "[%d:v]settb=AVTB[vbase%d];", i, i)
+		fmt.Fprintf(&b, "[%d:a]asetpts=PTS-STARTPTS[abase%d];", i, i)
+		fmt.Fprintf(&b, "[v%d][vbase%d]xfade=transition=fade:duration=%.3f:offset=%.3f[v%d];", i-1, i, transition, offset, i)
+		fmt.Fprintf(&b, "[a%d][abase%d]acrossfade=d=%.3f:c1=tri:c2=tri[a%d];", i-1, i, transition, i)
+		cumulative += float64(plan.Sections[i].DurationMillis)/1000 - transition
+	}
+	return b.String()
 }
 
 func videoScalePadFilter(width, height int) string {
