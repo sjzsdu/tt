@@ -1076,9 +1076,9 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		}
 	}
 	testLoopNode := workflow.Graph.Nodes[ir.NodeID("test-loop")]
-	testLoop, ok := testLoopNode.Step.(steps.AgentStep)
+	testLoop, ok := testLoopNode.Step.(steps.ScriptStep)
 	if !ok {
-		t.Fatalf("test-loop step = %T, want AgentStep", testLoopNode.Step)
+		t.Fatalf("test-loop step = %T, want ScriptStep", testLoopNode.Step)
 	}
 	if !testLoop.Meta().Idempotent {
 		t.Fatalf("test-loop idempotent = false, want true")
@@ -1086,19 +1086,17 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
 		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
 	}
-	if testLoop.Agent != "agent-browser" {
-		t.Fatalf("test-loop agent = %q, want agent-browser", testLoop.Agent)
-	}
-	for _, want := range []string{"artifacts_dir", "screenshots_dir", "operation_path", "coverage_results", "所有可运行测试用例", "JSON array", "provider cooldown", "agent-browser open", "agent-browser snapshot", "不允许在未调用 agent-browser CLI", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_HEADED", "AGENT_BROWSER_ARGS", "webgl_browser_args", "AGENT_BROWSER_SESSION_NAME", "AGENT_BROWSER_SOCKET_DIR", "init-test-state.stdout.browser_session_name", "--ignore-https-errors", "Sign In/Login", "--session \"{{init-test-state.stdout.browser_session_name}}\"", "唯一共享浏览器 session", "独立 tab/page", "prepare-browser-session", "不要每个 case 主动重复登录", "继续执行后续 case"} {
-		if !strings.Contains(testLoop.Prompt, want) {
-			t.Fatalf("test-loop prompt missing %q", want)
+	testLoopSource := testLoop.Command[2] + testLoop.Env["GATE_RUNNABLE_CASES"] + testLoop.Env["PREPARE_BROWSER_SESSION"]
+	for _, want := range []string{"agent-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_SESSION_NAME", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
+		if !strings.Contains(testLoopSource, want) {
+			t.Fatalf("test-loop script missing %q", want)
 		}
 	}
-	if strings.Contains(testLoop.Prompt, "{{init-test-state.stdout.browser_session_name}}-{{case.id}}") {
+	if strings.Contains(testLoop.Command[2], "{{init-test-state.stdout.browser_session_name}}-{{case.id}}") {
 		t.Fatalf("test-loop prompt should not use per-case browser sessions")
 	}
-	if testLoop.Validation == nil || !slices.Contains(testLoop.Validation.ItemRequired, "case_id") {
-		t.Fatalf("test-loop validation = %#v, want item_required case_id", testLoop.Validation)
+	if testLoop.Validation == nil || !slices.Contains(testLoop.Validation.Required, "stdout") {
+		t.Fatalf("test-loop validation = %#v, want required stdout", testLoop.Validation)
 	}
 	validateNode := workflow.Graph.Nodes[ir.NodeID("validate-test-results")]
 	validateStep, ok := validateNode.Step.(steps.ScriptStep)
@@ -1108,7 +1106,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !slices.Contains(validateStep.Meta().DependsOn, steps.ID("test-loop")) || !slices.Contains(validateStep.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
 		t.Fatalf("validate-test-results dependencies = %v, want test-loop and gate-runnable-cases", validateStep.Meta().DependsOn)
 	}
-	for _, want := range []string{"all unknown", "empty operation_path", "missing arguments for:", "did not complete the full ui interaction sequence", "sys.exit(1)", "GATE_RUNNABLE_CASES", "RESULTS_JSON"} {
+	for _, want := range []string{"all unknown", "empty operation_path", "missing arguments for:", "did not complete the full ui interaction sequence", "sys.exit(1)", "GATE_RUNNABLE_CASES", "RESULTS_JSON", "test-loop.stdout"} {
 		if !strings.Contains(validateStep.Command[2]+validateStep.Env["GATE_RUNNABLE_CASES"]+validateStep.Env["RESULTS_JSON"], want) {
 			t.Fatalf("validate-test-results script missing %q", want)
 		}
