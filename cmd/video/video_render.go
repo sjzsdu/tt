@@ -92,9 +92,13 @@ func renderVideoPlan(ctx context.Context, plan *Plan, opts videoRenderOptions) e
 		return err
 	}
 	mergedPath := filepath.Join(workDir, "merged.mp4")
-	opts.Progress.Step("正在按连续时间轴合成 %d 个视频片段", len(segments))
-	if err := mergeVideoSegmentsTimeline(ctx, plan, segments, mergedPath); err != nil {
-		return fmt.Errorf("merge video timeline failed: %w", err)
+	concatPath := filepath.Join(workDir, "concat.txt")
+	if err := writeVideoConcatFile(concatPath, segments); err != nil {
+		return err
+	}
+	opts.Progress.Step("正在稳定合并 %d 个视频片段", len(segments))
+	if err := runCommand(ctx, "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", mergedPath); err != nil {
+		return fmt.Errorf("concat video segments failed: %w", err)
 	}
 	if opts.SRTPath != "" {
 		opts.Progress.Step("正在生成并嵌入字幕")
