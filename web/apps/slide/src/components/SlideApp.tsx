@@ -723,7 +723,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef} onClick={closeOverviewFromStage}>
           <div className="slides">
             {slides.map((slide) => (
-              <section key={slide.index} className={slide.class || ''}>
+              <section key={slide.index} {...(slide.revealAttrs || {})} className={slide.class || ''}>
                 <SlideContent slide={slide} theme={tpl.defaults.theme} widgets={widgets} />
               </section>
             ))}
@@ -804,7 +804,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                             aria-hidden="true"
                           />
                         ))}
-                        <section className={`${slide.class || ''} present`.trim()}>
+                        <section {...(slide.revealAttrs || {})} className={`${slide.class || ''} present`.trim()}>
                           <SlideContent slide={slide} theme={tpl.defaults.theme} widgets={widgets} />
                         </section>
                       </div>
