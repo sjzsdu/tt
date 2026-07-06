@@ -324,6 +324,20 @@ func TestVideoProgressWritesReadableNonTerminalSteps(t *testing.T) {
 	}
 }
 
+func TestVideoProgressClearsTerminalLineOnEachStep(t *testing.T) {
+	var buf bytes.Buffer
+	progress := &videoProgress{out: &buf, start: time.Now(), terminal: true}
+	progress.Step("这是一个非常长的进度提示")
+	progress.Step("短提示")
+	got := buf.String()
+	if strings.Count(got, "\033[K") != 2 {
+		t.Fatalf("terminal progress should clear each step, got %q", got)
+	}
+	if !strings.Contains(got, "\r\033[K短提示") {
+		t.Fatalf("short terminal step did not clear line first: %q", got)
+	}
+}
+
 func serverURL(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
