@@ -26,6 +26,7 @@ type videoCommandConfig struct {
 	FPS                         int
 	WPM                         int
 	Render                      bool
+	RenderMode                  string
 }
 
 func resolveVideoCommandConfig(cmd *cobra.Command) (videoCommandConfig, error) {
@@ -50,6 +51,7 @@ func resolveVideoCommandConfig(cmd *cobra.Command) (videoCommandConfig, error) {
 		Height:                      1080,
 		FPS:                         30,
 		WPM:                         150,
+		RenderMode:                  firstNonEmpty(loaded.Merged.Video.RenderMode, "browser"),
 	}
 	if loaded.Merged.Video.Width != nil {
 		cfg.Width = *loaded.Merged.Video.Width

@@ -7,6 +7,7 @@ func TestMergeVideoConfig(t *testing.T) {
 		OutputDir:    "videos",
 		InternalDir:  ".tt/video",
 		TTSMode:      "none",
+		RenderMode:   "segments",
 		BailianModel: "qwen-tts",
 		BailianVoice: "Cherry",
 		Width:        IntPtr(1280),
@@ -17,6 +18,7 @@ func TestMergeVideoConfig(t *testing.T) {
 	}}
 	overlay := Config{Video: VideoConfig{
 		TTSMode:             "command",
+		RenderMode:          "browser",
 		TTSCommand:          "say {{.Text}} -o {{.Output}}",
 		BailianAPIKeyEnv:    "DASHSCOPE_API_KEY",
 		BailianBaseURL:      "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
@@ -30,6 +32,9 @@ func TestMergeVideoConfig(t *testing.T) {
 	}
 	if merged.Video.TTSMode != "command" || merged.Video.TTSCommand == "" {
 		t.Fatalf("video tts overlay not applied: %+v", merged.Video)
+	}
+	if merged.Video.RenderMode != "browser" {
+		t.Fatalf("video render mode overlay not applied: %+v", merged.Video)
 	}
 	if merged.Video.BailianModel != "qwen-tts" || merged.Video.BailianBaseURL == "" || merged.Video.BailianLanguageType != "Chinese" {
 		t.Fatalf("video bailian merge wrong: %+v", merged.Video)

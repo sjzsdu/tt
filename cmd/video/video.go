@@ -113,7 +113,7 @@ consume the plan in a follow-up step.`,
 			videoSRTPath = filepath.Join(artifactDir, "subtitles.srt")
 		}
 		if cfg.Render || strings.EqualFold(filepath.Ext(plan.Output), ".mp4") {
-			if err := renderVideoPlan(cmd.Context(), &plan, videoRenderOptions{WorkDir: filepath.Join(internalDir, "work"), SRTPath: videoSRTPath, Progress: progress}); err != nil {
+			if err := renderVideoPlan(cmd.Context(), &plan, videoRenderOptions{WorkDir: filepath.Join(internalDir, "work"), SRTPath: videoSRTPath, Progress: progress, Mode: cfg.RenderMode}); err != nil {
 				progress.Clear()
 				return err
 			}

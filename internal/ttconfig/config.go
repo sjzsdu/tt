@@ -89,6 +89,7 @@ type VideoConfig struct {
 	FPS                         *int   `json:"fps,omitempty"`
 	WPM                         *int   `json:"wpm,omitempty"`
 	Render                      *bool  `json:"render,omitempty"`
+	RenderMode                  string `json:"render_mode,omitempty"`
 }
 
 type Sources struct {
@@ -257,6 +258,9 @@ func Merge(base Config, overlay Config) Config {
 	if overlay.Video.Render != nil {
 		v := *overlay.Video.Render
 		out.Video.Render = &v
+	}
+	if v := strings.TrimSpace(overlay.Video.RenderMode); v != "" {
+		out.Video.RenderMode = v
 	}
 	if v := strings.TrimSpace(overlay.Paths.FormulaDir); v != "" {
 		out.Paths.FormulaDir = v

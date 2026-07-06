@@ -17,6 +17,7 @@ type videoRenderOptions struct {
 	WorkDir  string
 	SRTPath  string
 	Progress *videoProgress
+	Mode     string
 }
 
 func defaultVideoArtifactDir(scriptPath, root string) string {
@@ -82,6 +83,15 @@ func renderVideoPlan(ctx context.Context, plan *Plan, opts videoRenderOptions) e
 		return err
 	}
 	defer stop()
+
+	if strings.EqualFold(strings.TrimSpace(opts.Mode), "browser") {
+		opts.Progress.Step("正在尝试浏览器连续播放录制")
+		if err := renderVideoPlanBrowserContinuous(ctx, baseURL, plan, workDir, opts); err == nil {
+			return nil
+		} else {
+			opts.Progress.Step("浏览器连续录制失败，回退稳定合成: %v", err)
+		}
+	}
 
 	opts.Progress.Step("正在启动 slide 捕获服务")
 	if err := captureVideoSlides(ctx, baseURL, plan, workDir, opts.Progress); err != nil {
