@@ -397,7 +397,11 @@ try:
         final_url = compact(url_result.get('stdout')) if url_result['ok'] else ''
         if final_url.startswith('{'):
             parsed_url = load_json(final_url, {})
-            final_url = parsed_url.get('url') or parsed_url.get('value') or final_url
+            data = parsed_url.get('data') if isinstance(parsed_url, dict) else None
+            if isinstance(data, dict):
+                final_url = data.get('url') or data.get('value') or final_url
+            else:
+                final_url = parsed_url.get('url') or parsed_url.get('value') or final_url
         title_result = run_ab(['get', 'title', '--json'], timeout=20)
         title_text = compact(title_result.get('stdout')) if title_result['ok'] else ''
         login_markers = ['login', 'sign in', 'signin', 'auth', '登录']
@@ -528,62 +532,325 @@ required = ["stdout"]
 id = "test-loop"
 title = "顺序执行定点测试用例"
 depends_on = ["gate-runnable-cases"]
+execution = "script"
 idempotent = true
-input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "prepare-browser-session", "gate-runnable-cases.stdout"]
-description = """
-你是 agent-browser agent。请按 gate-runnable-cases.stdout.cases 的顺序执行本轮所有可运行测试用例，不要探索无关页面。
 
-重要：本步骤必须在同一次 agent 调用内顺序执行所有 cases，并最终输出一个 JSON array。这样可以避免每个 case 单独启动 LLM agent 导致 provider cooldown。
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib, re, subprocess, time
 
-前置条件：prepare-browser-session 已经串行准备了唯一共享 Chrome/session，并尽量完成登录、证书重试和 WebGL 探测。当前 case 必须复用 prepare-browser-session.browser_session_name；不要重新创建登录态或使用 case 专属 session。只有当 prepare-browser-session.safe_to_run_cases=false，或当前页面显示 session 已失效/权限变化时，才允许按项目文档重新登录，并必须在 evidence 中说明原因。
 
-必须使用真实浏览器自动化：
-- 先通过 exec 调用 `agent-browser skills get core --full` 或至少确认 `agent-browser --help` 可用；
-- 执行页面操作时必须调用 `agent-browser open <url>`、`agent-browser snapshot`、`agent-browser click ...`、`agent-browser get url/title/text`、`agent-browser screenshot <path>` 等 CLI 命令；
-- 不允许在未调用 agent-browser CLI 的情况下声称“缺少浏览器自动化能力”或凭想象判断页面状态；
-- 如果 `agent-browser` 命令不存在、连接失败、页面无法打开、登录/权限/验证码阻塞，才输出 unknown/blocked，并把实际命令错误、URL、截图路径或日志路径写入 evidence/artifacts。
+def load_json(value, default):
+    try:
+        if not value or value.lstrip().startswith('{{'):
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
 
-执行要求：
-1. 读取 gate-runnable-cases.stdout.cases，按数组顺序逐个执行；
-2. 对每个 case，按 case.start_url 和 case.operation_path 执行；
-3. 可以使用 load-project-context.stdout.content 中的登录方式和账号信息，但输出中不要泄露密码、token、cookie；
-4. 完整记录 URL + 操作路径 + 观察到的状态；
-5. 遇到 forbidden_actions 或 safe_to_execute=false 的危险动作，停在动作前，标记 blocked，并说明原因；
-6. 根据 screenshot_mode='{{screenshot_mode}}' 截图：all=每个用例关键状态截图，failures=失败/阻塞/未知截图，none=不截图；
-7. 所有截图和产物都保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir。必须用 case.id 命名文件，避免互相覆盖；
-8. 本公式用于 Three.js/WebGL 页面。执行所有 `agent-browser` 命令时必须使用 WebGL 友好的 Chrome 环境；默认 headless 静默运行，避免弹窗污染桌面。推荐命令前缀如下：
-   `AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SOCKET_DIR="{{init-test-state.stdout.browser_socket_dir}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
-   默认使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session。不要为每个 case 追加 case.id 或创建 case 专属 `--session`，否则 agent-browser 可能为每个循环启动新的 Chrome 进程。所有 case 必须复用同一个 Chrome/session，并用独立 tab/page 或显式 open case.start_url 隔离导航状态；截图、日志和产物仍然必须用 case.id 命名，避免互相覆盖。
-9. 若目标页面进入 Sign In/Login，先判断是否为 prepare-browser-session 未能建立登录态或 session 已失效。不要每个 case 主动重复登录；只有缺少凭据、验证码、权限失败或登录后仍无法进入目标页面时，才标记 blocked/unknown。
-10. 如果首次打开报 `net::ERR_CERT_AUTHORITY_INVALID`，必须使用上述 `--ignore-https-errors` 和 `--ignore-certificate-errors` 前缀重试；不要把证书错误作为最终用例结果，除非重试后仍失败。
-11. 如果 agent-browser 报 Lightpanda/headed 不兼容，说明没有使用 `AGENT_BROWSER_ENGINE=chrome` 或错误开启了非 Chrome headed session，必须改用上述 Chrome engine 前缀重试；如果打开页面后仍出现 WebGL unavailable，先用 `agent-browser eval` 运行 WebGL 探测并记录 renderer/vendor，再标记 blocked；不要直接沿用默认/lightpanda session 下结论。
-12. 如果 `agent-browser screenshot` 输出类似 `Screenshot saved to /Users/.../.agent-browser/tmp/screenshots/*.png`，必须立刻用 shell `cp -f` 复制到 init-test-state.stdout.screenshots_dir 下，并把 `.tt/.../artifacts/screenshots/...` 路径写入 artifacts；
-13. 必须逐项输出每个 case.coverage_ids 对应检查点的覆盖结果。
-14. 单个 case 失败、阻塞或 unknown 时，必须把该 case 记录为 failed/blocked/unknown，然后继续执行后续 case；不要因为一个业务断言失败中断整个步骤。
 
-输出 ONLY compact JSON array。数组每一项形状如下：
-[{ 
-  "case_id":"{{case.id}}",
-  "status":"passed|failed|blocked|unknown",
-  "start_url":"...",
-  "final_url":"...",
-  "coverage_results":[{"coverage_id":"P01","status":"passed|failed|blocked|unknown","expected":"...","actual":"...","evidence":["..."]}],
-  "operation_path":[{"step":1,"action":"...","target":"...","value":"<redacted>","url_before":"...","url_after":"...","result":"passed|failed|blocked|unknown","observation":"..."}],
-  "expected_result":"...",
-  "actual_result":"...",
-  "evidence":["..."],
-  "artifacts":[{"type":"screenshot|html|log|trace|note","path":".tt/web-feature-test/...","description":"..."}],
-  "failure_reason":"",
-  "safe_to_rerun":true,
-  "notes":"..."
-}]
-"""
-agent.name = "agent-browser"
-agent.cwd = "{{workspace_path}}"
+def compact(value, limit=800):
+    text = str(value or '').strip()
+    return text if len(text) <= limit else text[:limit] + '...'
+
+
+def parse_json_stdout(result):
+    text = result.get('stdout') or ''
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict) and obj.get('success') and isinstance(obj.get('data'), dict):
+            return obj['data']
+        return obj
+    except Exception:
+        return text
+
+
+def extract_selectors(text):
+    text = str(text or '')
+    selectors = []
+    patterns = [
+        r'\\[[^\\]]*(?:data-testid|data-sentry-event|aria-label|role|name|title|type|id|class)[^\\]]*\\]',
+        r'(?:button|input|textarea|select|canvas|div|span|a)\\[[^\\]]+\\]',
+        r'#[A-Za-z0-9_-]+',
+        r'\\.[A-Za-z][A-Za-z0-9_-]+',
+    ]
+    for pat in patterns:
+        for match in re.findall(pat, text):
+            if match not in selectors:
+                selectors.append(match)
+    return selectors
+
+
+def status_from_block(case, reason, evidence, artifacts=None, final_url=''):
+    covs = case.get('coverage_ids') or []
+    return {
+        'case_id': case.get('id') or 'unknown-case',
+        'status': 'blocked',
+        'start_url': case.get('start_url') or target_url,
+        'final_url': final_url,
+        'coverage_results': [{'coverage_id': c, 'status': 'blocked', 'expected': '', 'actual': reason, 'evidence': evidence} for c in covs],
+        'operation_path': [],
+        'expected_result': case.get('expected_result') or '',
+        'actual_result': reason,
+        'evidence': evidence,
+        'artifacts': artifacts or [],
+        'failure_reason': reason,
+        'safe_to_rerun': True,
+        'notes': 'Blocked by deterministic action runner.'
+    }
+
+
+def run_ab(args, timeout=45):
+    proc = subprocess.run(['agent-browser'] + args + common, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=timeout)
+    return {'ok': proc.returncode == 0, 'code': proc.returncode, 'stdout': proc.stdout.strip(), 'stderr': proc.stderr.strip(), 'cmd': ' '.join(['agent-browser'] + args + common)}
+
+
+def get_current_url():
+    r = run_ab(['get', 'url', '--json'], timeout=15)
+    data = parse_json_stdout(r)
+    if isinstance(data, dict):
+        return data.get('url') or data.get('value') or compact(r.get('stdout'))
+    return compact(data)
+
+
+def page_is_signin():
+    url = get_current_url().lower()
+    title = compact(parse_json_stdout(run_ab(['get', 'title', '--json'], timeout=15))).lower()
+    snap = run_ab(['snapshot'], timeout=20)
+    body = (url + ' ' + title + ' ' + snap.get('stdout','')).lower()
+    return ('sign-in' in url or 'login' in body or 'sign in' in body or 'password' in body), url, snap
+
+
+def try_login(context_doc, target):
+    email = ''
+    password = ''
+    m = re.search(r'(?:账号|email|user|username)\\s*[：:]\\s*(\\S+)', context_doc, re.I)
+    if m:
+        email = m.group(1).strip()
+    m = re.search(r'(?:密码|password)\\s*[：:]\\s*(\\S+)', context_doc, re.I)
+    if m:
+        password = m.group(1).strip()
+    evidence = []
+    if not email or not password:
+        return False, ['No deterministic credentials found in context_doc.']
+    email_selectors = ['input[type="email"]', 'input[name="email"]', 'input[autocomplete="username"]', 'input[placeholder*="email" i]', 'input']
+    pass_selectors = ['input[type="password"]', 'input[name="password"]', 'input[autocomplete="current-password"]']
+    ok_email = False
+    for sel in email_selectors:
+        r = run_ab(['fill', sel, email], timeout=15)
+        evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+        if r['ok']:
+            ok_email = True
+            break
+    ok_pass = False
+    for sel in pass_selectors:
+        r = run_ab(['fill', sel, password], timeout=15)
+        evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+        if r['ok']:
+            ok_pass = True
+            break
+    if not (ok_email and ok_pass):
+        return False, evidence
+    for sel in ['button[type="submit"]', 'button:has-text("Sign In")', 'button:has-text("Log in")', 'button']:
+        r = run_ab(['click', sel], timeout=20)
+        evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+        if r['ok']:
+            break
+    run_ab(['wait', '3000'], timeout=8)
+    run_ab(['open', target, '--json'], timeout=60)
+    run_ab(['wait', '3000'], timeout=8)
+    still_signin, _, _ = page_is_signin()
+    return not still_signin, evidence
+
+
+def ensure_target_ready(target, context_doc):
+    evidence = []
+    opened = run_ab(['open', target, '--json'], timeout=90)
+    evidence.append(opened['cmd'] + ' -> ' + ('ok' if opened['ok'] else compact(opened['stderr'] or opened['stdout'])))
+    if not opened['ok']:
+        return False, 'open failed', evidence
+    run_ab(['wait', '3000'], timeout=8)
+    signin, url, snap = page_is_signin()
+    evidence.append('current_url=' + url)
+    if signin:
+        evidence.append('Sign-in page detected; attempting deterministic login from context_doc.')
+        ok, login_evidence = try_login(context_doc, target)
+        evidence.extend(login_evidence)
+        if not ok:
+            return False, 'login required but deterministic login failed', evidence
+    signin, url, _ = page_is_signin()
+    evidence.append('post_login_url=' + url)
+    if signin:
+        return False, 'still on sign-in page after login attempt', evidence
+    return True, '', evidence
+
+
+def execute_action(action, case_id, step_index):
+    kind = str(action.get('action') or action.get('type') or '').lower().strip()
+    target = str(action.get('target') or action.get('selector') or '')
+    value = str(action.get('value') or '')
+    expected = str(action.get('expected') or '')
+    selectors = extract_selectors(target)
+    before = get_current_url()
+    evidence = []
+    result = 'passed'
+    observation = ''
+    artifacts = []
+
+    if kind in ('note', ''):
+        observation = target or expected or 'note'
+    elif kind == 'open':
+        url = value or target or target_url
+        if not re.match(r'^https?://', url, re.I):
+            url = target_url
+        r = run_ab(['open', url, '--json'], timeout=90)
+        evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+        result = 'passed' if r['ok'] else 'blocked'
+        observation = 'opened ' + url if r['ok'] else 'open failed'
+    elif kind in ('click', 'tap'):
+        if not selectors:
+            result = 'blocked'; observation = 'click target has no executable selector'
+        else:
+            r = run_ab(['click', selectors[0]], timeout=30)
+            evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+            result = 'passed' if r['ok'] else 'failed'
+            observation = 'clicked ' + selectors[0] if r['ok'] else 'click failed for ' + selectors[0]
+    elif kind in ('type', 'fill'):
+        if not selectors:
+            result = 'blocked'; observation = 'type/fill target has no executable selector'
+        else:
+            r = run_ab(['fill', selectors[0], value], timeout=30)
+            evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+            result = 'passed' if r['ok'] else 'failed'
+            observation = 'filled ' + selectors[0] if r['ok'] else 'fill failed for ' + selectors[0]
+    elif kind == 'select':
+        if not selectors:
+            result = 'blocked'; observation = 'select target has no executable selector'
+        else:
+            r = run_ab(['select', selectors[0], value], timeout=30)
+            evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+            result = 'passed' if r['ok'] else 'failed'
+            observation = 'selected ' + value + ' in ' + selectors[0] if r['ok'] else 'select failed for ' + selectors[0]
+    elif kind in ('assert', 'expect', 'expect_visible'):
+        if selectors:
+            r = run_ab(['is', 'visible', selectors[0]], timeout=20)
+            evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+            result = 'passed' if r['ok'] else 'failed'
+            observation = selectors[0] + (' visible' if r['ok'] else ' not visible')
+        else:
+            result = 'blocked'; observation = 'assertion requires visual/manual interpretation or lacks selector: ' + compact(expected or target)
+    elif kind == 'screenshot':
+        shot = pathlib.Path(screenshots_dir) / f'{case_id}-{step_index}.png'
+        r = run_ab(['screenshot', str(shot)], timeout=30)
+        evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+        if r['ok'] and shot.exists():
+            artifacts.append({'type': 'screenshot', 'path': str(shot), 'description': f'{case_id} step {step_index} screenshot'})
+        result = 'passed' if r['ok'] else 'blocked'
+        observation = 'screenshot saved' if r['ok'] else 'screenshot failed'
+    else:
+        result = 'blocked'; observation = 'unsupported action kind: ' + kind
+
+    after = get_current_url()
+    return {
+        'step': step_index,
+        'action': kind or 'note',
+        'target': target,
+        'value': '<redacted>' if 'password' in target.lower() else value,
+        'url_before': before,
+        'url_after': after,
+        'result': result,
+        'observation': observation,
+        'evidence': evidence,
+        'artifacts': artifacts,
+    }
+
+
+gate = load_json(os.environ.get('GATE_RUNNABLE_CASES', ''), {})
+prepared = load_json(os.environ.get('PREPARE_BROWSER_SESSION', ''), {})
+init_state = load_json(os.environ.get('INIT_TEST_STATE', ''), {})
+context_doc = load_json(os.environ.get('LOAD_PROJECT_CONTEXT', ''), {}).get('content') or ''
+cases = gate.get('cases') or []
+target_url = prepared.get('target_url') or init_state.get('root_url') or os.environ.get('URL') or ''
+session_name = prepared.get('browser_session_name') or init_state.get('browser_session_name') or 'web-feature-test'
+socket_dir = init_state.get('browser_socket_dir') or ''
+screenshots_dir = pathlib.Path(init_state.get('screenshots_dir') or '.tt/web-feature-test/screenshots')
+screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+env = os.environ.copy()
+env['AGENT_BROWSER_ENGINE'] = os.environ.get('BROWSER_ENGINE') or 'chrome'
+env['AGENT_BROWSER_HEADED'] = os.environ.get('BROWSER_HEADED') or 'false'
+if os.environ.get('BROWSER_EXECUTABLE_PATH'):
+    env['AGENT_BROWSER_EXECUTABLE_PATH'] = os.environ['BROWSER_EXECUTABLE_PATH']
+if os.environ.get('WEBGL_BROWSER_ARGS'):
+    env['AGENT_BROWSER_ARGS'] = os.environ['WEBGL_BROWSER_ARGS']
+env['AGENT_BROWSER_SESSION_NAME'] = session_name
+if socket_dir:
+    env['AGENT_BROWSER_SOCKET_DIR'] = socket_dir
+env['AGENT_BROWSER_SCREENSHOT_DIR'] = str(screenshots_dir)
+common = ['--session', session_name]
+
+results = []
+for case in cases:
+    cid = case.get('id') or 'unknown-case'
+    start_url = case.get('start_url') or target_url
+    ready, block_reason, ready_evidence = ensure_target_ready(start_url, context_doc)
+    if not ready:
+        results.append(status_from_block(case, block_reason, ready_evidence, final_url=get_current_url()))
+        continue
+    op_results = []
+    artifacts = []
+    evidence = list(ready_evidence)
+    overall = 'passed'
+    for idx, action in enumerate(case.get('operation_path') or [], start=1):
+        step = execute_action(action, cid, idx)
+        op_results.append({k: v for k, v in step.items() if k not in ('evidence','artifacts')})
+        evidence.extend(step.get('evidence') or [])
+        artifacts.extend(step.get('artifacts') or [])
+        if step['result'] == 'failed' and overall == 'passed':
+            overall = 'failed'
+        elif step['result'] == 'blocked' and overall == 'passed':
+            overall = 'blocked'
+    if not op_results:
+        overall = 'blocked'
+        evidence.append('case has no executable operation_path')
+    final_url = get_current_url()
+    cov_status = overall
+    coverage_results = [{'coverage_id': cov, 'status': cov_status, 'expected': case.get('expected_result') or '', 'actual': 'deterministic runner status: ' + overall, 'evidence': evidence[-8:]} for cov in (case.get('coverage_ids') or [])]
+    results.append({
+        'case_id': cid,
+        'status': overall,
+        'start_url': start_url,
+        'final_url': final_url,
+        'coverage_results': coverage_results,
+        'operation_path': op_results,
+        'expected_result': case.get('expected_result') or '',
+        'actual_result': 'deterministic action runner completed with status ' + overall,
+        'evidence': evidence,
+        'artifacts': artifacts,
+        'failure_reason': '' if overall == 'passed' else 'one or more deterministic actions failed or were blocked',
+        'safe_to_rerun': True,
+        'notes': 'Executed by script-based action runner. Visual/canvas-only assertions without selectors are blocked for manual or vision review.'
+    })
+
+print(json.dumps(results, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "600s"
+
+[steps.script.env]
+GATE_RUNNABLE_CASES = "{{gate-runnable-cases.stdout}}"
+PREPARE_BROWSER_SESSION = "{{prepare-browser-session.stdout}}"
+INIT_TEST_STATE = "{{init-test-state.stdout}}"
+LOAD_PROJECT_CONTEXT = "{{load-project-context.stdout}}"
+URL = "{{url}}"
+BROWSER_ENGINE = "{{browser_engine}}"
+BROWSER_HEADED = "{{browser_headed}}"
+BROWSER_EXECUTABLE_PATH = "{{browser_executable_path}}"
+WEBGL_BROWSER_ARGS = "{{webgl_browser_args}}"
 
 [steps.validate]
 format = "json"
-item_required = ["case_id", "status", "start_url", "final_url", "coverage_results", "operation_path", "expected_result", "actual_result", "evidence", "artifacts", "failure_reason", "safe_to_rerun", "notes"]
+required = ["stdout"]
 
 [[steps]]
 id = "validate-test-results"
@@ -658,7 +925,7 @@ format = "json"
 timeout = "10s"
 
 [steps.script.env]
-RESULTS_JSON = "{{test-loop}}"
+RESULTS_JSON = "{{test-loop.stdout}}"
 GATE_RUNNABLE_CASES = "{{gate-runnable-cases.stdout}}"
 
 [steps.validate]
@@ -802,7 +1069,7 @@ timeout = "30s"
 [steps.script.env]
 STATE_PATH = "{{init-test-state.stdout.state_path}}"
 RUNS_PATH = "{{init-test-state.stdout.runs_path}}"
-RESULTS_JSON = "{{test-loop}}"
+RESULTS_JSON = "{{test-loop.stdout}}"
 SKIPPED_RESULTS_JSON = "{{gate-runnable-cases.stdout.skipped_results}}"
 
 [steps.validate]
