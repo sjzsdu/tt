@@ -25,7 +25,7 @@ tt slide
 # 或打开指定 .slide 文件
 tt slide path/to/demo.slide
 # 或打开某个目录下的 .slide 文件列表
-tt slide slides/
+tt slide examples/slides/
 ```
 
 `tt slide` 现在只支持 `.slide` 文件，不再把 `.md` / `.markdown` 当作 slide deck 扫描或打开。幻灯片之间用 `---` 分隔：

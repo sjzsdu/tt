@@ -33,6 +33,9 @@ web/apps/markdown/node_modules/
 .code-context
 .opencode/
 
+# Generated video outputs
+/videos/
+
 # Frontend build output
 web/apps/*/dist/
 internal/*/dist/

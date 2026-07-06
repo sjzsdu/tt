@@ -105,6 +105,21 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const currentFileRef = useRef(currentFile);
   currentFileRef.current = currentFile;
 
+  const exposeCaptureAPI = useCallback((deck: Reveal.Api | null) => {
+    (window as any).ttSlideCapture = {
+      ready: Boolean(deck),
+      slideCount: slides.length,
+      goTo: async (index: number) => {
+        if (!deck) throw new Error('slide deck is not ready');
+        const clamped = Math.max(0, Math.min(slides.length - 1, Number(index) || 0));
+        deck.slide(clamped);
+        await new Promise(resolve => window.setTimeout(resolve, 350));
+        return deck.getIndices();
+      },
+      current: () => deck ? deck.getIndices() : null,
+    };
+  }, [slides.length]);
+
   const loadSlides = useCallback(async (file?: string) => {
     try {
       let md: string;
@@ -195,14 +210,16 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
     deck.initialize().then(() => {
       deckRef.current = deck;
+      exposeCaptureAPI(deck);
       setDeckVersion(v => v + 1);
     });
 
     return () => {
+      exposeCaptureAPI(null);
       deck.destroy();
       deckRef.current = null;
     };
-  }, [slides, meta, runtimeConfig, template]);
+  }, [slides, meta, runtimeConfig, template, exposeCaptureAPI]);
 
   useEffect(() => {
     if (contentMode) return;
