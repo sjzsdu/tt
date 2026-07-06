@@ -324,44 +324,145 @@ required = ["stdout"]
 id = "prepare-browser-session"
 title = "准备共享浏览器会话和登录态"
 depends_on = ["prepare-runnable-cases"]
-input_context = ["normalize-scope", "load-project-context.stdout", "init-test-state.stdout", "prepare-runnable-cases.stdout"]
-description = """
-你是 agent-browser agent。请在并发执行测试用例之前，串行准备唯一共享 Chrome/session。
+execution = "script"
+idempotent = true
 
-目标：
-1. 使用 init-test-state.stdout.browser_session_name 作为唯一共享浏览器 session；
-2. 打开 normalize-scope.target_url 或 init-test-state.stdout 中的 root_url，确认页面可访问；
-3. 如果页面进入 Sign In/Login，依据 load-project-context.stdout.content 中的登录方式和账号信息完成登录；
-4. 登录成功后重新打开目标 URL，确认 cookies/localStorage/session 已保存在共享 session 中；
-5. 必要时做一次 WebGL 探测，记录 vendor/renderer 或阻塞原因；
-6. 截图和日志保存到 init-test-state.stdout.artifacts_dir，截图优先保存到 init-test-state.stdout.screenshots_dir，文件名前缀使用 preflight；
-7. 不要泄露密码、token、cookie。
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib, subprocess, time
 
-必须使用真实浏览器自动化。推荐命令前缀如下：
-`AGENT_BROWSER_ENGINE={{browser_engine}} AGENT_BROWSER_HEADED={{browser_headed}} AGENT_BROWSER_EXECUTABLE_PATH="{{browser_executable_path}}" AGENT_BROWSER_ARGS="{{webgl_browser_args}}" AGENT_BROWSER_SESSION_NAME="{{init-test-state.stdout.browser_session_name}}" AGENT_BROWSER_SOCKET_DIR="{{init-test-state.stdout.browser_socket_dir}}" AGENT_BROWSER_SCREENSHOT_DIR="{{init-test-state.stdout.screenshots_dir}}" agent-browser --ignore-https-errors --session "{{init-test-state.stdout.browser_session_name}}" ...`
 
-如果缺少凭据、验证码、权限失败、页面无法访问或 WebGL 不可用，请输出 blocked/unknown，并给出后续 case 是否仍可执行。
+def load_json(value, default):
+    try:
+        if not value or value.lstrip().startswith('{{'):
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
 
-输出 ONLY compact JSON：
-{
-  "status":"ready|blocked|unknown",
-  "browser_session_name":"{{init-test-state.stdout.browser_session_name}}",
-  "target_url":"...",
-  "final_url":"...",
-  "login_state":"authenticated|already-authenticated|not-required|blocked|unknown",
-  "webgl_state":"available|unavailable|not-checked|unknown",
-  "evidence":["..."],
-  "artifacts":[{"type":"screenshot|html|log|trace|note","path":".tt/web-feature-test/...","description":"..."}],
-  "safe_to_run_cases":true,
-  "notes":"..."
-}
-"""
-agent.name = "agent-browser"
-agent.cwd = "{{workspace_path}}"
+
+def compact(value, limit=600):
+    text = str(value or '').strip()
+    return text if len(text) <= limit else text[:limit] + '...'
+
+
+init_state = load_json(os.environ.get('INIT_TEST_STATE', ''), {})
+scope = load_json(os.environ.get('NORMALIZE_SCOPE', ''), {})
+target_url = scope.get('target_url') or init_state.get('root_url') or os.environ.get('URL') or ''
+session_name = init_state.get('browser_session_name') or os.environ.get('BROWSER_SESSION_NAME') or 'web-feature-test'
+socket_dir = init_state.get('browser_socket_dir') or ''
+screenshots_dir = pathlib.Path(init_state.get('screenshots_dir') or '.tt/web-feature-test/screenshots')
+screenshots_dir.mkdir(parents=True, exist_ok=True)
+preflight_png = screenshots_dir / ('preflight-' + str(int(time.time())) + '.png')
+
+env = os.environ.copy()
+env['AGENT_BROWSER_ENGINE'] = os.environ.get('BROWSER_ENGINE') or 'chrome'
+env['AGENT_BROWSER_HEADED'] = os.environ.get('BROWSER_HEADED') or 'false'
+if os.environ.get('BROWSER_EXECUTABLE_PATH'):
+    env['AGENT_BROWSER_EXECUTABLE_PATH'] = os.environ['BROWSER_EXECUTABLE_PATH']
+if os.environ.get('WEBGL_BROWSER_ARGS'):
+    env['AGENT_BROWSER_ARGS'] = os.environ['WEBGL_BROWSER_ARGS']
+env['AGENT_BROWSER_SESSION_NAME'] = session_name
+if socket_dir:
+    env['AGENT_BROWSER_SOCKET_DIR'] = socket_dir
+env['AGENT_BROWSER_SCREENSHOT_DIR'] = str(screenshots_dir)
+
+base = ['agent-browser']
+common = ['--session', session_name]
+evidence = []
+artifacts = []
+status = 'unknown'
+final_url = ''
+login_state = 'unknown'
+webgl_state = 'unknown'
+notes = ''
+
+
+def run_ab(args, timeout=45):
+    proc = subprocess.run(base + args + common, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=timeout)
+    return {'ok': proc.returncode == 0, 'code': proc.returncode, 'stdout': proc.stdout.strip(), 'stderr': proc.stderr.strip(), 'cmd': ' '.join(base + args + common)}
+
+try:
+    if not target_url:
+        raise RuntimeError('target_url is empty')
+
+    opened = run_ab(['open', target_url, '--json'], timeout=90)
+    if not opened['ok']:
+        status = 'blocked'
+        notes = 'agent-browser open failed during deterministic preflight.'
+        evidence.append('open failed: ' + compact(opened.get('stderr') or opened.get('stdout')))
+    else:
+        evidence.append('agent-browser open succeeded for shared session ' + session_name)
+        url_result = run_ab(['get', 'url', '--json'], timeout=20)
+        final_url = compact(url_result.get('stdout')) if url_result['ok'] else ''
+        if final_url.startswith('{'):
+            parsed_url = load_json(final_url, {})
+            final_url = parsed_url.get('url') or parsed_url.get('value') or final_url
+        title_result = run_ab(['get', 'title', '--json'], timeout=20)
+        title_text = compact(title_result.get('stdout')) if title_result['ok'] else ''
+        login_markers = ['login', 'sign in', 'signin', 'auth', '登录']
+        login_probe = (final_url + ' ' + title_text).lower()
+        if any(marker in login_probe for marker in login_markers):
+            status = 'blocked'
+            login_state = 'blocked'
+            notes = 'Browser reached an authentication page. Deterministic preflight does not guess login flows; provide saved session or add a deterministic login script.'
+            evidence.append('authentication marker found in URL/title: ' + compact(final_url + ' ' + title_text))
+        else:
+            login_state = 'already-authenticated'
+            webgl = run_ab(['eval', "(() => { const c = document.createElement('canvas'); const gl = c.getContext('webgl2') || c.getContext('webgl'); if (!gl) return JSON.stringify({available:false}); const dbg = gl.getExtension('WEBGL_debug_renderer_info'); return JSON.stringify({available:true, vendor: dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR), renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)}); })()", '--json'], timeout=20)
+            if webgl['ok']:
+                webgl_state = 'available' if 'true' in webgl.get('stdout', '').lower() else 'unavailable'
+                evidence.append('WebGL probe: ' + compact(webgl.get('stdout')))
+            else:
+                webgl_state = 'unknown'
+                evidence.append('WebGL probe failed: ' + compact(webgl.get('stderr') or webgl.get('stdout')))
+            shot = run_ab(['screenshot', str(preflight_png)], timeout=30)
+            if shot['ok'] and preflight_png.exists():
+                artifacts.append({'type': 'screenshot', 'path': str(preflight_png), 'description': 'Deterministic preflight screenshot'})
+                evidence.append('preflight screenshot saved: ' + str(preflight_png))
+            status = 'ready'
+            notes = 'Deterministic agent-browser preflight opened the target URL in the shared session.'
+except subprocess.TimeoutExpired as exc:
+    status = 'blocked'
+    notes = 'agent-browser command timed out during deterministic preflight.'
+    evidence.append('timeout: ' + compact(exc))
+except Exception as exc:
+    status = 'blocked'
+    notes = 'deterministic preflight raised an exception.'
+    evidence.append(type(exc).__name__ + ': ' + compact(exc))
+
+if not final_url:
+    final_url = target_url if status == 'ready' else 'unknown'
+
+print(json.dumps({
+    'status': status,
+    'browser_session_name': session_name,
+    'target_url': target_url,
+    'final_url': final_url,
+    'login_state': login_state,
+    'webgl_state': webgl_state,
+    'evidence': evidence,
+    'artifacts': artifacts,
+    'safe_to_run_cases': status == 'ready',
+    'notes': notes,
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "150s"
+
+[steps.script.env]
+INIT_TEST_STATE = "{{init-test-state.stdout}}"
+NORMALIZE_SCOPE = "{{normalize-scope}}"
+URL = "{{url}}"
+BROWSER_ENGINE = "{{browser_engine}}"
+BROWSER_HEADED = "{{browser_headed}}"
+BROWSER_EXECUTABLE_PATH = "{{browser_executable_path}}"
+WEBGL_BROWSER_ARGS = "{{webgl_browser_args}}"
+BROWSER_SESSION_NAME = "{{init-test-state.stdout.browser_session_name}}"
 
 [steps.validate]
 format = "json"
-required = ["status", "browser_session_name", "target_url", "final_url", "login_state", "webgl_state", "evidence", "artifacts", "safe_to_run_cases", "notes"]
+required = ["stdout"]
 
 [[steps]]
 id = "gate-runnable-cases"
@@ -416,7 +517,7 @@ format = "json"
 timeout = "10s"
 
 [steps.script.env]
-PREPARE_BROWSER_SESSION = "{{prepare-browser-session}}"
+PREPARE_BROWSER_SESSION = "{{prepare-browser-session.stdout}}"
 PREPARE_RUNNABLE_CASES = "{{prepare-runnable-cases.stdout}}"
 
 [steps.validate]

@@ -1048,16 +1048,17 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		}
 	}
 	prepareBrowserNode := workflow.Graph.Nodes[ir.NodeID("prepare-browser-session")]
-	prepareBrowser, ok := prepareBrowserNode.Step.(steps.AgentStep)
+	prepareBrowser, ok := prepareBrowserNode.Step.(steps.ScriptStep)
 	if !ok {
-		t.Fatalf("prepare-browser-session step = %T, want AgentStep", prepareBrowserNode.Step)
+		t.Fatalf("prepare-browser-session step = %T, want ScriptStep", prepareBrowserNode.Step)
 	}
-	if prepareBrowser.Agent != "agent-browser" {
-		t.Fatalf("prepare-browser-session agent = %q, want agent-browser", prepareBrowser.Agent)
+	if !prepareBrowser.Meta().Idempotent {
+		t.Fatalf("prepare-browser-session idempotent = false, want true")
 	}
-	for _, want := range []string{"串行准备唯一共享 Chrome/session", "完成登录", "cookies/localStorage/session", "WebGL 探测", "preflight", "safe_to_run_cases", "--session \"{{init-test-state.stdout.browser_session_name}}\""} {
-		if !strings.Contains(prepareBrowser.Prompt, want) {
-			t.Fatalf("prepare-browser-session prompt missing %q", want)
+	prepareBrowserSource := prepareBrowser.Command[2] + prepareBrowser.Env["BROWSER_SESSION_NAME"] + prepareBrowser.Env["INIT_TEST_STATE"]
+	for _, want := range []string{"agent-browser", "open", "get", "url", "eval", "WebGL", "screenshot", "safe_to_run_cases", "AGENT_BROWSER_SESSION_NAME", "AGENT_BROWSER_SOCKET_DIR", "{{init-test-state.stdout.browser_session_name}}"} {
+		if !strings.Contains(prepareBrowserSource, want) {
+			t.Fatalf("prepare-browser-session script missing %q", want)
 		}
 	}
 	gateNode := workflow.Graph.Nodes[ir.NodeID("gate-runnable-cases")]
@@ -1068,8 +1069,8 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !slices.Contains(gateStep.Meta().DependsOn, steps.ID("prepare-browser-session")) {
 		t.Fatalf("gate-runnable-cases dependencies = %v, want prepare-browser-session", gateStep.Meta().DependsOn)
 	}
-	for _, want := range []string{"safe_to_run_cases", "skipped_results", "Browser preflight did not produce a safe shared session", "PREPARE_BROWSER_SESSION", "PREPARE_RUNNABLE_CASES"} {
-		if !strings.Contains(gateStep.Command[2], want) {
+	for _, want := range []string{"safe_to_run_cases", "skipped_results", "Browser preflight did not produce a safe shared session", "PREPARE_BROWSER_SESSION", "PREPARE_RUNNABLE_CASES", "prepare-browser-session.stdout"} {
+		if !strings.Contains(gateStep.Command[2]+gateStep.Env["PREPARE_BROWSER_SESSION"], want) {
 			t.Fatalf("gate-runnable-cases script missing %q", want)
 		}
 	}
