@@ -119,6 +119,44 @@ flowchart TD
 
 每个 node 持有一个 `steps.Step` 接口实例，而不是旧的扁平任务结构。
 
+### 运行变量来源与默认 vars 文件
+
+`tt formula run` 的变量合并顺序是：
+
+1. 默认 vars 文件（仅当没有显式传 `--file` 时自动查找）。
+2. 显式 `--file <path>` 中的变量。
+3. CLI `--var key=value` 覆盖。
+4. positional required var 覆盖，例如 `tt formula run web-feature-test <url>` 会按 formula 的 required vars 顺序补值。
+
+默认 vars 文件用于减少高频 formula 的长参数输入。运行：
+
+```bash
+tt formula run web-feature-test "https://example.com/case"
+```
+
+且未传 `--file` 时，CLI 会按顺序查找：
+
+```text
+.tt/formula/web-feature-test.toml
+.tt/formula/web-feature-test.vars.toml
+.tt/web-feature-test.toml
+```
+
+文件格式复用 `--file`，既可以写 `[vars]`，也可以把标量变量写在顶层：
+
+```toml
+prompt = """
+只测试 Probe 相关功能点。
+"""
+max_cases = 10
+only_failed = false
+
+[vars]
+screenshot_mode = "failures"
+```
+
+如果默认 vars 文件包含 `formula = "..."`，它必须与命令行选择的 formula 名一致，否则会报错，避免误读其他 formula 的配置。`.tt/formulas/` 仍保留为自定义 formula 定义目录，不用于默认 vars 文件，避免配置文件与 formula 定义冲突。
+
 ## Step 接口与实现
 
 核心接口：`internal/formula/steps/step.go`。

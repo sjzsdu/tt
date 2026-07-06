@@ -3,6 +3,7 @@ package formulacmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -55,6 +56,50 @@ func loadFormulaFile(path string) (string, map[string]string, error) {
 		vars[key] = value
 	}
 	return formulaName, vars, nil
+}
+
+func loadDefaultFormulaVarsFile(formulaName string) (string, map[string]string, string, bool, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", nil, "", false, fmt.Errorf("resolve current directory failed: %w", err)
+	}
+	return loadDefaultFormulaVarsFileInDir(cwd, formulaName)
+}
+
+func loadDefaultFormulaVarsFileInDir(cwd, formulaName string) (string, map[string]string, string, bool, error) {
+	formulaName = strings.TrimSpace(formulaName)
+	if formulaName == "" || strings.ContainsAny(formulaName, `/\`) {
+		return "", nil, "", false, nil
+	}
+	for _, path := range defaultFormulaVarsFileCandidates(cwd, formulaName) {
+		info, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", nil, "", false, fmt.Errorf("stat default formula vars file %q failed: %w", path, err)
+		}
+		if info.IsDir() {
+			continue
+		}
+		fileFormulaName, vars, err := loadFormulaFile(path)
+		if err != nil {
+			return "", nil, "", false, err
+		}
+		if fileFormulaName != "" && fileFormulaName != formulaName {
+			return "", nil, "", false, fmt.Errorf("default formula vars file %q declares formula %q, but command selected %q", path, fileFormulaName, formulaName)
+		}
+		return path, vars, fileFormulaName, true, nil
+	}
+	return "", nil, "", false, nil
+}
+
+func defaultFormulaVarsFileCandidates(cwd, formulaName string) []string {
+	return []string{
+		filepath.Join(cwd, ".tt", "formula", formulaName+".toml"),
+		filepath.Join(cwd, ".tt", "formula", formulaName+".vars.toml"),
+		filepath.Join(cwd, ".tt", formulaName+".toml"),
+	}
 }
 
 func formulaFileReservedTopLevelKey(key string) bool {
