@@ -235,6 +235,128 @@ tt slide deck.slide --template my-template
 - 每个 `.slide` 文件会用浏览器 `localStorage` 独立记录上次位置。
 - 第一次打开某个文件默认从第一页开始。
 
+## Reveal 进阶节奏与动画
+
+`tt slide` 的播放器基于 Reveal.js，因此可以利用 Reveal 的节奏控制能力。使用时要遵守一个边界：**普通 `.slide` 内容优先保持语义化和模板无关；只有在确实需要演示节奏或动态效果时，才使用 Reveal class / data 属性或少量 raw HTML。**
+
+可以把进阶用法分成三层：
+
+1. **slide 之间的切换动画**：由 Reveal 配置或单页 `data-transition` 控制。
+2. **slide 内元素的分步进出**：由 `.fragment`、`data-fragment-index`、`.current-visible`、`.highlight-*` 等 class 控制。
+3. **高级状态动画**：由 `data-auto-animate`、模板 CSS、或 Reveal 事件监听驱动 SVG、图表、视频等内容。
+
+### 页间切换
+
+全局切换效果优先放在模板 `template.json` 的 `defaults.transition` 中，而不是写进 `.slide`：
+
+```json
+{
+  "defaults": {
+    "transition": "fade",
+    "backgroundTransition": "slide"
+  }
+}
+```
+
+如果某一页确实需要特殊转场，可以用 raw HTML section 属性，但这会让该页更接近 Reveal 原生写法，应该少用：
+
+```html
+<section data-transition="zoom">
+
+# 关键架构变化
+
+这一页需要更强的视觉强调。
+
+</section>
+```
+
+推荐原则：默认用模板控制全局转场；单页 `data-transition` 只用于少数强调页。
+
+### 页内分步显示：fragment
+
+Reveal 的 fragment 适合控制讲述节奏。Markdown 原生列表没有专用语法时，可以用少量 HTML 包裹需要逐步出现的内容：
+
+```html
+<ul>
+  <li class="fragment" data-fragment-index="1">先说明现状</li>
+  <li class="fragment" data-fragment-index="2">再指出瓶颈</li>
+  <li class="fragment highlight-green" data-fragment-index="3">最后给出结论</li>
+</ul>
+```
+
+常用 fragment class：
+
+| class | 作用 |
+| --- | --- |
+| `fragment` | 按步骤出现 |
+| `fade-in` / `fade-out` | 淡入 / 淡出 |
+| `current-visible` | 只在当前 fragment 步骤可见 |
+| `highlight-red` / `highlight-green` / `highlight-blue` | 当前步骤高亮 |
+
+使用规则：
+
+- 只给真正需要讲述节奏的 2 到 5 个元素加 fragment。
+- 不要把整页所有 bullet 都做成 fragment，除非是培训或逐步推导页。
+- `data-fragment-index` 用于明确顺序，避免复杂布局中出现顺序误判。
+- 如果只是希望页面更美观，不要用 fragment，让模板负责视觉布局。
+
+### 跨页连续动画：auto-animate
+
+`data-auto-animate` 适合展示“同一个对象从一个状态变到另一个状态”，例如架构演进、流程扩展、指标变化。Reveal 会根据相邻 slide 中相同元素的结构或 `data-id` 做连续过渡。
+
+```html
+<section data-auto-animate>
+
+# 当前流程
+
+<div data-id="pipeline">用户 → API → Worker</div>
+
+</section>
+
+---
+
+<section data-auto-animate>
+
+# 引入调度层
+
+<div data-id="pipeline">用户 → API → Scheduler → Worker</div>
+
+</section>
+```
+
+推荐用法：
+
+- 相邻两页都加 `data-auto-animate`。
+- 给需要连续变化的核心元素加稳定 `data-id`。
+- 每次只表达一个结构变化，避免多个对象同时飞来飞去。
+- 如果只是普通翻页，不要使用 auto-animate。
+
+### CSS 与 JS 扩展边界
+
+模板 CSS 可以定制 fragment 的可见态和当前态，例如：
+
+```css
+.reveal .fragment.soft-dim {
+  opacity: 0.25;
+}
+
+.reveal .fragment.soft-dim.visible {
+  opacity: 1;
+}
+
+.reveal .current-fragment.callout {
+  outline: 4px solid var(--slide-accent);
+}
+```
+
+更高级的联动可以通过 Reveal 事件完成，例如 `slidechanged`、`fragmentshown`、`fragmenthidden`。这类逻辑应放在播放器或模板扩展中，而不是散落在普通 `.slide` 文档里。适合使用 JS 的场景包括：
+
+- fragment 出现时启动 SVG 路径动画。
+- 切到某页时播放或暂停视频。
+- 根据当前 fragment 更新图表高亮状态。
+
+原则：Reveal 负责演示节奏，CSS 负责动画表现，JS 负责少数高级联动。普通内容页仍应优先使用 `.center`、`.split`、`.two-column`、`.cards` 等语义指令。
+
 ## ESC overview
 
 按 `Esc` 会进入 Reveal overview。当前实现将横向缩略图固定在 viewport 中，并隔离横向滚动，避免 overview 宽度撑破或影响下面的正常页面。

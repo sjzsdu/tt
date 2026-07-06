@@ -238,6 +238,79 @@ Guidelines:
 - For `.media-left` / `.media-right`, put explanatory text in `:::main` and the image/SVG/video/diagram in `:::media`.
 - For `.hero`, use one large takeaway plus one supporting block; avoid turning it into a dense two-column slide.
 
+## Reveal timing and advanced motion
+
+`tt slide` renders through Reveal.js. Use Reveal timing features only when they improve the presentation rhythm. Do not use them as a substitute for clean slide structure.
+
+### Page transitions
+
+- Prefer template-level transition defaults in `template.json`, for example `defaults.transition = "fade"`.
+- Avoid per-slide `data-transition` unless one page needs a special emphasis.
+- If needed, raw HTML `<section data-transition="zoom">...</section>` can express a Reveal-specific page transition, but this makes the slide less template-neutral.
+
+### Fragments inside a slide
+
+Use fragments for step-by-step teaching, staged reveals, and progressive emphasis. Raw HTML is acceptable for small local fragments:
+
+```html
+<ul>
+  <li class="fragment" data-fragment-index="1">Establish the current state</li>
+  <li class="fragment" data-fragment-index="2">Reveal the bottleneck</li>
+  <li class="fragment highlight-green" data-fragment-index="3">Show the resolution</li>
+</ul>
+```
+
+Useful Reveal classes:
+
+- `fragment`: appear at a fragment step.
+- `current-visible`: visible only while current.
+- `highlight-red`, `highlight-green`, `highlight-blue`: highlight during a step.
+- `fade-in`, `fade-out`: explicit entry/exit behavior.
+
+Rules:
+
+- Use fragments sparingly, usually 2 to 5 staged items on a slide.
+- Add `data-fragment-index` when order matters.
+- Do not fragment every bullet in ordinary business slides.
+- If the only goal is visual polish, use semantic layout directives and let the template style the page.
+
+### Auto-animate between slides
+
+Use `data-auto-animate` when adjacent slides show the same object changing state, such as a pipeline gaining one stage or an architecture evolving.
+
+```html
+<section data-auto-animate>
+
+# Current path
+
+<div data-id="pipeline">User → API → Worker</div>
+
+</section>
+
+---
+
+<section data-auto-animate>
+
+# Add scheduling
+
+<div data-id="pipeline">User → API → Scheduler → Worker</div>
+
+</section>
+```
+
+Guidelines:
+
+- Put `data-auto-animate` on both adjacent slides.
+- Give moving conceptual objects stable `data-id` values.
+- Animate one conceptual change at a time.
+- Prefer normal slide transitions for ordinary page changes.
+
+### CSS and JS boundaries
+
+- Template CSS may style `.fragment.visible`, `.current-fragment`, or custom fragment classes.
+- JS event hooks such as `slidechanged`, `fragmentshown`, and `fragmenthidden` belong in the player/template layer, not ordinary `.slide` prose.
+- Use JS only for advanced linked behavior like SVG animation, video control, or chart state changes.
+
 ## Diagrams
 
 Use fenced code blocks for diagrams. The document should describe the diagram semantically, not prescribe template styling.
