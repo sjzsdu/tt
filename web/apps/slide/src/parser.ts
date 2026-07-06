@@ -36,6 +36,11 @@ type SlideDirective = {
   hasDirective: boolean;
 };
 
+type RawRevealSection = {
+  markdown: string;
+  attrs: Record<string, string>;
+};
+
 type FenceState = {
   marker: '`' | '~';
   length: number;
@@ -44,6 +49,7 @@ type FenceState = {
 const slideDirectivePattern = /^\.([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\s*$/i;
 const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
 const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final']);
+const allowedRevealSectionAttrs = /^(?:id|class|data-[\w:-]+|aria-[\w:-]+)$/i;
 
 function updateFenceState(line: string, fence: FenceState): FenceState {
   const match = line.match(/^\s*(`{3,}|~{3,})/);
@@ -135,6 +141,39 @@ function rewriteRelativeUrls(html: string, assetBasePath = '') {
     if (isExternalOrSpecialUrl(value)) return match;
     return `${attr}=${quote}${joinRawAssetPath(assetBasePath, value)}${quote}`;
   });
+}
+
+function decodeHtmlAttr(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function parseHtmlAttrs(source: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const attrPattern = /([^\s=\/<>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  for (const match of source.matchAll(attrPattern)) {
+    const key = match[1].toLowerCase();
+    if (!allowedRevealSectionAttrs.test(key)) continue;
+    attrs[key] = decodeHtmlAttr(match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return attrs;
+}
+
+function extractRawRevealSection(markdown: string): RawRevealSection {
+  const trimmed = markdown.trim();
+  const match = trimmed.match(/^<section\b([^>]*)>([\s\S]*)<\/section>\s*$/i);
+  if (!match) return { markdown, attrs: {} };
+
+  return {
+    markdown: match[2].trim(),
+    attrs: parseHtmlAttrs(match[1] || ''),
+  };
 }
 
 function parseScalar(value: string): unknown {
@@ -416,22 +455,27 @@ export function parseSlides(markdown: string, options: ParseOptions = {}): { sli
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
-    const directives = extractSlideDirectives(trimmed);
+    const rawSection = extractRawRevealSection(trimmed);
+    const directives = extractSlideDirectives(rawSection.markdown);
     const parts = splitParts(directives.markdown, options);
     if (parts.length === 0 && !directives.hasDirective) continue;
 
     const inferredLayout = parseLayoutFromParts(parts);
     const slideLayout = directives.layoutHint || inferredLayout;
-    const slideClass = [idx === 0 ? 'slide-cover' : '', classForLayout(slideLayout), ...directives.classNames, ...classesForSlideDensity(parts, slideLayout, idx)]
+    const rawSectionClass = rawSection.attrs.class || '';
+    const slideClass = [idx === 0 ? 'slide-cover' : '', rawSectionClass, classForLayout(slideLayout), ...directives.classNames, ...classesForSlideDensity(parts, slideLayout, idx)]
       .filter(Boolean)
       .filter((value, index, values) => values.indexOf(value) === index)
       .join(' ');
+    const revealAttrs = { ...rawSection.attrs };
+    delete revealAttrs.class;
 
     slides.push({
       index: idx++,
       parts,
       layout: slideLayout,
       class: slideClass,
+      revealAttrs,
     });
   }
 

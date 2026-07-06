@@ -37,6 +37,7 @@ export type SlideData = {
   parts: SlidePart[];
   layout: SlideLayout;
   class: string;
+  revealAttrs?: Record<string, string>;
 };
 
 export type SlidePart =
