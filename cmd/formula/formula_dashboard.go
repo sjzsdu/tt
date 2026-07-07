@@ -205,7 +205,7 @@ func (s *formulaDashboardServer) broadcast() {
 }
 
 func (s *formulaDashboardServer) persistSnapshot() error {
-	if s == nil || s.store == nil || s.readonly {
+	if s == nil || s.store == nil || s.readonly || strings.TrimSpace(s.store.Dir) == "" {
 		return nil
 	}
 	s.mu.Lock()
