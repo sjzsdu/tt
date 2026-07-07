@@ -179,10 +179,10 @@
 }
 
 .reveal p {
-    max-width: 900px;
+    max-width: 940px;
     color: #535e59;
-    font-size: 0.62em;
-    line-height: 1.5;
+    font-size: 0.7em;
+    line-height: 1.56;
     font-weight: 400;
 }
 
@@ -193,10 +193,10 @@
 
 .reveal ul,
 .reveal ol {
-    margin: 20px 0 0;
+    margin: 22px 0 0;
     color: #535e59;
-    font-size: 0.6em;
-    line-height: 1.5;
+    font-size: 0.68em;
+    line-height: 1.55;
     font-weight: 400;
 }
 
@@ -206,8 +206,13 @@
 
 .reveal li {
     position: relative;
-    margin: 0 0 12px;
-    padding-left: 24px;
+    font-size: 1em;
+    margin: 0 0 14px;
+    padding-left: 26px;
+}
+
+.reveal .slides section li.fragment {
+    font-size: inherit;
 }
 
 .reveal ul li::before {
@@ -247,8 +252,8 @@
 .reveal blockquote p {
     color: #404040;
     max-width: none;
-    font-size: 0.5em;
-    line-height: 1.58;
+    font-size: 0.62em;
+    line-height: 1.6;
 }
 
 .reveal code {
@@ -271,8 +276,8 @@
     margin-top: 22px;
     border: 1px solid var(--slide-table-border);
     border-radius: 0;
-    font-size: 0.56em;
-    line-height: 1.38;
+    font-size: 0.62em;
+    line-height: 1.42;
     table-layout: fixed;
 }
 
@@ -582,8 +587,8 @@
 .slide-two-column .slide-part-column p,
 .slide-two-column .slide-part-column ul,
 .slide-two-column .slide-part-column ol {
-    font-size: 0.58em;
-    line-height: 1.5;
+    font-size: 0.64em;
+    line-height: 1.55;
 }
 
 .slide-two-column .slide-part-column li {
@@ -658,8 +663,8 @@
 .slide-part-card p,
 .slide-part-item li,
 .slide-part-card li {
-    font-size: 0.52em;
-    line-height: 1.45;
+    font-size: 0.6em;
+    line-height: 1.5;
 }
 
 .slide-flex .slide-content {
@@ -695,7 +700,7 @@
 }
 
 .slide-hero .slide-markdown:first-child p {
-    font-size: 0.68em;
+    font-size: 0.76em;
 }
 
 .reveal .slides section.slide-cover:is(.slide-hero, .slide-center) .slide-content {
