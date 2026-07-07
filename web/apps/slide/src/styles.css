@@ -704,6 +704,51 @@ html, body, #root {
 .slide-file-item:hover { background: rgba(255,255,255,0.06); }
 .slide-file-item.active { background: var(--slide-accent); color: #fff; }
 
+.slide-action-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 520;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.45;
+  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px);
+}
+
+.slide-action-toast.success { border-color: rgba(34, 197, 94, 0.5); }
+.slide-action-toast.error { border-color: rgba(248, 113, 113, 0.58); color: #fecaca; }
+.slide-action-toast.info { border-color: rgba(56, 189, 248, 0.5); }
+
+.slide-action-toast span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.slide-action-toast button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  cursor: pointer;
+}
+
+.slide-action-toast button:hover,
+.slide-action-toast button:focus-visible {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .slide-list-control {
   position: fixed;
   bottom: 0;

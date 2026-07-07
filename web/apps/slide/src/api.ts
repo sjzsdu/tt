@@ -94,6 +94,26 @@ export function rewriteSlide(request: RewriteSlideRequest): Promise<RewriteSlide
   });
 }
 
+export type OpenFormulaRunResponse = {
+  ok: boolean;
+  runId: string;
+  pid?: number;
+  command?: string;
+  error?: string;
+};
+
+export function openFormulaRun(runId: string): Promise<OpenFormulaRunResponse> {
+  return fetch('/api/actions/formula-run/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runId }),
+  }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+    return data;
+  });
+}
+
 export function fetchTemplate(name: string): Promise<ExternalTemplate> {
   return apiFetch(`/api/template/${encodeURIComponent(name)}`);
 }

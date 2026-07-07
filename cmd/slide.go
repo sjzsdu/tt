@@ -16,12 +16,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sjzsdu/tt/internal/agents"
+	formularun "github.com/sjzsdu/tt/internal/formula/run"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/sjzsdu/tt/internal/webui"
 	"github.com/spf13/cobra"
@@ -47,15 +49,18 @@ var (
 	slideListTemplates bool
 	slideFiles         []string
 
-	slideServer *http.Server
-	slideMu     sync.Mutex
-	slideRoot   string
+	slideServer        *http.Server
+	slideMu            sync.Mutex
+	slideRoot          string
+	slideInvocationDir string
 
 	slideClients   = make(map[*websocket.Conn]bool)
 	slideClientsMu sync.Mutex
 	slideWatcher   *fsnotify.Watcher
 	slideWatchMu   sync.Mutex
 )
+
+var slideFormulaRunIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$`)
 
 var slideCmd = &cobra.Command{
 	Use:     "slide [files...]",
@@ -67,6 +72,7 @@ var slideCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("resolve slide cwd failed: %w", err)
 		}
+		slideInvocationDir = cwd
 		slideRoot = cwd
 		if slideListTemplates {
 			return printSlideTemplates(cmd.OutOrStdout())
@@ -279,6 +285,7 @@ func runSlideServer() error {
 	mux.HandleFunc("/api/list", handleSlideList)
 	mux.HandleFunc("/api/slide/content", handleSlideSaveContent)
 	mux.HandleFunc("/api/slide/rewrite", handleSlideRewrite)
+	mux.HandleFunc("/api/actions/formula-run/open", handleSlideOpenFormulaRun)
 	mux.HandleFunc("/api/widgets", handleSlideWidgets)
 	mux.HandleFunc("/api/template/", handleSlideTemplate)
 	mux.HandleFunc("/template-assets/", handleSlideTemplateAsset)
@@ -454,6 +461,112 @@ type slideRewriteResponse struct {
 	UpdatedSlideSource string `json:"updatedSlideSource,omitempty"`
 	Summary            string `json:"summary,omitempty"`
 	Error              string `json:"error,omitempty"`
+}
+
+type slideOpenFormulaRunRequest struct {
+	RunID   string `json:"runId"`
+	WebPort int    `json:"webPort,omitempty"`
+}
+
+type slideOpenFormulaRunResponse struct {
+	OK      bool   `json:"ok"`
+	RunID   string `json:"runId"`
+	PID     int    `json:"pid,omitempty"`
+	Command string `json:"command,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func normalizeSlideFormulaRunID(raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	switch {
+	case strings.HasPrefix(id, "tt-formula-run://"):
+		id = strings.TrimPrefix(id, "tt-formula-run://")
+	case strings.HasPrefix(id, "tt-formula-run:"):
+		id = strings.TrimPrefix(id, "tt-formula-run:")
+	}
+	id = strings.TrimSuffix(id, "/")
+	if id == "" {
+		return "", fmt.Errorf("formula run id is required")
+	}
+	if strings.Contains(id, "\\") || strings.Contains(id, "..") || strings.Contains(id, "//") {
+		return "", fmt.Errorf("invalid formula run id %q", raw)
+	}
+	if strings.HasPrefix(id, "-") || strings.HasPrefix(id, "/") {
+		return "", fmt.Errorf("invalid formula run id %q", raw)
+	}
+	if !slideFormulaRunIDPattern.MatchString(id) {
+		return "", fmt.Errorf("invalid formula run id %q", raw)
+	}
+	return filepath.ToSlash(id), nil
+}
+
+func handleSlideOpenFormulaRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	var req slideOpenFormulaRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeSlideOpenFormulaRunJSON(w, http.StatusBadRequest, slideOpenFormulaRunResponse{Error: fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	runID, err := normalizeSlideFormulaRunID(req.RunID)
+	if err != nil {
+		writeSlideOpenFormulaRunJSON(w, http.StatusBadRequest, slideOpenFormulaRunResponse{Error: err.Error()})
+		return
+	}
+
+	workspace := strings.TrimSpace(slideInvocationDir)
+	if workspace == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			workspace = cwd
+		}
+	}
+	record, err := formularun.Resolve(formularun.DefaultRoot(workspace), runID)
+	if err != nil {
+		writeSlideOpenFormulaRunJSON(w, http.StatusNotFound, slideOpenFormulaRunResponse{Error: err.Error()})
+		return
+	}
+
+	webPort := req.WebPort
+	if webPort <= 0 {
+		webPort = 9705
+	}
+	if webPort < 1024 || webPort > 65535 {
+		writeSlideOpenFormulaRunJSON(w, http.StatusBadRequest, slideOpenFormulaRunResponse{Error: "webPort must be between 1024 and 65535"})
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil || strings.TrimSpace(exe) == "" {
+		exe = os.Args[0]
+	}
+	args := []string{"formula", "run", "open", record.ID, "--web-port", strconv.Itoa(webPort)}
+	child := exec.Command(exe, args...)
+	if workspace != "" {
+		child.Dir = workspace
+	}
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
+	if err := child.Start(); err != nil {
+		writeSlideOpenFormulaRunJSON(w, http.StatusInternalServerError, slideOpenFormulaRunResponse{RunID: record.ID, Error: fmt.Sprintf("start formula dashboard failed: %v", err)})
+		return
+	}
+	go func() { _ = child.Wait() }()
+
+	writeSlideOpenFormulaRunJSON(w, http.StatusOK, slideOpenFormulaRunResponse{
+		OK:      true,
+		RunID:   record.ID,
+		PID:     child.Process.Pid,
+		Command: strings.Join(append([]string{filepath.Base(exe)}, args...), " "),
+	})
+}
+
+func writeSlideOpenFormulaRunJSON(w http.ResponseWriter, status int, value slideOpenFormulaRunResponse) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }
 
 func handleSlideSaveContent(w http.ResponseWriter, r *http.Request) {
