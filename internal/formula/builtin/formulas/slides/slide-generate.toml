@@ -132,6 +132,22 @@ depends_on = ["deck-plan"]
 - 页面内容要服务 slide.key_message，不堆砌材料。
 - 充分考虑内容、布局、显示效果、演示节奏。
 - 输出必须可被 tt-slide/reveal 渲染。
+- 严格区分“观众可见文案”和“写作意图/讲者提示”：content 只放会投到屏幕上的文字；解释创作思路、讲法、意图的内容必须放入 speaker_notes，不得放入 content。
+
+观众可见文案规则：
+- content 面向现场观众，不是面向提出需求的用户，也不是面向 agent 自己。
+- content 应使用演示页语言：标题、关键词、短句、结论、概念、图表标签。
+- 禁止在 content 中出现元叙事、写作说明或设计意图，例如：
+  - “不是把……讲成……，而是……”
+  - “本页旨在……”
+  - “这一页要表达……”
+  - “我们需要让观众……”
+  - “可以理解为……”
+  - “适合用于……”
+  - “这里应该……”
+  - “通过这一页……”
+- 如果确实需要表达对比，改成观众可见的短标题或并列表达，例如“从占卜到判断”“预测答案 vs 识别处境”，不要写成创作意图说明。
+- 禁止把“我将如何讲”“这页为什么这样设计”“我要避免什么误解”写进 content；这些只能进入 speaker_notes。
 
 允许使用的表达：
 - Markdown 标题、列表、引用、表格、强调。
@@ -141,12 +157,14 @@ depends_on = ["deck-plan"]
 - 少量 raw Reveal section 属性或 data-auto-animate，但不要把整页写成复杂不可维护 HTML。
 
 输出 ONLY compact JSON object，不要 Markdown 代码块，不要额外解释：
-{"index":{{slide.index}},"title":"{{slide.title}}","summary":"这一页讲什么","content":"完整 .slide 单页 Markdown 片段"}
+{"index":{{slide.index}},"title":"{{slide.title}}","summary":"这一页讲什么","content":"观众可见的完整 .slide 单页 Markdown 片段","speaker_notes":"给讲者看的讲法、节奏、设计意图或补充说明"}
 
 硬性要求：
 - index 必须等于 slide.index。
 - title 必须等于 slide.title，除非原标题明显过长，可压缩但保留含义。
 - content 只包含单页内容，不要包含 `---` 分隔符。
+- content 不得包含写给用户或 agent 的解释性口吻，不得出现“本页旨在/这一页要/不是把/而是把/我们需要让观众/适合用于”等元表达。
+- speaker_notes 可以解释为什么这样设计、讲者如何展开、哪些误解要避免；speaker_notes 不会写入最终 .slide 文件。
 - content 第一行通常是 `# <标题>`，封面页可使用更适合的 cover 写法。
 - 根据 slide.layout_hint 选择合适布局指令。不要所有页面都默认普通列表。
 - 如果使用 fragments，确保 HTML 标签闭合。
@@ -160,7 +178,7 @@ depends_on = ["deck-plan"]
 
   [steps.loop.body.validate]
   format = "json"
-  required = ["index", "title", "summary", "content"]
+  required = ["index", "title", "summary", "content", "speaker_notes"]
 
 [[steps]]
 id = "assemble-deck"
