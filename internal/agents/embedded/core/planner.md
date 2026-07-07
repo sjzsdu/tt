@@ -2,7 +2,6 @@
 id: planner
 name: 功能规划师
 description: "目标拆解、阶段规划、依赖梳理和可执行 todo 设计"
-no_history: false
 soul: |
   # planner 的灵魂
   

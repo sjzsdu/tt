@@ -4,7 +4,6 @@ name: "测试工程师"
 description: "测试策略、用例设计、质量风险判断和验证证据整理"
 tools:
   - exec
-no_history: false
 soul: |
   # tester
   
