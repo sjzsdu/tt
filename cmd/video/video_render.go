@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/chromedp"
@@ -84,46 +85,146 @@ func renderVideoPlan(ctx context.Context, plan *Plan, opts videoRenderOptions) e
 	}
 	defer stop()
 
-	if strings.EqualFold(strings.TrimSpace(opts.Mode), "browser") {
+	mode := strings.ToLower(strings.TrimSpace(opts.Mode))
+	if mode == "" {
+		mode = "auto"
+	}
+	originalMode := mode
+	if mode == "auto" && videoSlidesLikelyAnimated(plan.Meta.Slides) {
+		opts.Progress.Step("auto 检测到 slide 动画，切换为浏览器连续录制以保障质量")
+		mode = "browser"
+	}
+	if mode == "browser" {
 		opts.Progress.Step("正在尝试浏览器连续播放录制")
 		if err := renderVideoPlanBrowserContinuous(ctx, baseURL, plan, workDir, opts); err == nil {
 			return nil
 		} else {
+			if shouldRefuseStaticFallback(originalMode, videoSlidesLikelyAnimated(plan.Meta.Slides)) {
+				return fmt.Errorf("browser continuous rendering failed; refusing static fallback because quality would degrade: %w", err)
+			}
 			opts.Progress.Step("浏览器连续录制失败，回退稳定合成: %v", err)
 		}
 	}
 
-	opts.Progress.Step("正在启动 slide 捕获服务")
-	if err := captureVideoSlides(ctx, baseURL, plan, workDir, opts.Progress); err != nil {
+	if mode == "auto" {
+		opts.Progress.Step("正在使用 auto 模式并发渲染静态视频片段")
+	} else {
+		opts.Progress.Step("正在启动 slide 捕获服务")
+	}
+	if err := captureVideoSlidesConcurrent(ctx, baseURL, plan, workDir, opts.Progress); err != nil {
 		return err
 	}
-	segments, err := renderVideoSegments(ctx, plan, workDir, opts.Progress)
+	segments, err := renderVideoSegmentsConcurrent(ctx, plan, workDir, opts.Progress)
 	if err != nil {
 		return err
 	}
 	mergedPath := filepath.Join(workDir, "merged.mp4")
-	concatPath := filepath.Join(workDir, "concat.txt")
-	if err := writeVideoConcatFile(concatPath, segments); err != nil {
-		return err
+	transition := videoTimelineTransitionSeconds(plan)
+	if transition > 0 {
+		opts.Progress.Step("正在用时间轴淡入淡出合成 %d 个视频片段", len(segments))
+	} else {
+		opts.Progress.Step("正在稳定合并 %d 个视频片段", len(segments))
 	}
-	opts.Progress.Step("正在稳定合并 %d 个视频片段", len(segments))
-	if err := runCommand(ctx, "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concatPath, "-c", "copy", mergedPath); err != nil {
-		return fmt.Errorf("concat video segments failed: %w", err)
+	if err := mergeVideoSegmentsTimeline(ctx, plan, segments, mergedPath); err != nil {
+		return fmt.Errorf("merge video segments failed: %w", err)
 	}
 	if opts.SRTPath != "" {
-		opts.Progress.Step("正在生成并嵌入字幕")
+		opts.Progress.Step("正在写入字幕文件")
 		if err := os.WriteFile(opts.SRTPath, []byte(renderVideoSRT(*plan)), 0o644); err != nil {
 			return fmt.Errorf("write SRT failed: %w", err)
 		}
-		if err := burnVideoSubtitles(ctx, mergedPath, opts.SRTPath, plan.Output); err != nil {
-			return err
-		}
-		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(plan.Output), 0o755); err != nil && filepath.Dir(plan.Output) != "." {
 		return fmt.Errorf("create output directory failed: %w", err)
 	}
 	return os.Rename(mergedPath, plan.Output)
+}
+
+func shouldRefuseStaticFallback(originalMode string, animatedSlides bool) bool {
+	return strings.EqualFold(strings.TrimSpace(originalMode), "browser") || animatedSlides
+}
+
+func captureVideoSlidesConcurrent(ctx context.Context, baseURL string, plan *Plan, workDir string, progress *videoProgress) error {
+	workers := videoRenderWorkerCount(len(plan.Sections))
+	jobs := make(chan PlanSection)
+	errCh := make(chan error, workers)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			chromePath := findVideoChromePath()
+			opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", true), chromedp.Flag("disable-gpu", true), chromedp.Flag("no-sandbox", true), chromedp.WindowSize(plan.Meta.Width, plan.Meta.Height))
+			if chromePath != "" {
+				opts = append(opts, chromedp.ExecPath(chromePath))
+			}
+			allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
+			defer cancelAlloc()
+			browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithLogf(nil))
+			defer cancelBrowser()
+			for section := range jobs {
+				progress.Step("正在并发截图第 %d/%d 页 slide", section.Index, len(plan.Sections))
+				if err := captureVideoSlide(ctx, browserCtx, baseURL, plan, workDir, section); err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, section := range plan.Sections {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- section:
+			}
+		}
+	}()
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func captureVideoSlide(ctx context.Context, browserCtx context.Context, baseURL string, plan *Plan, workDir string, section PlanSection) error {
+	shotPath := filepath.Join(workDir, fmt.Sprintf("slide-%03d.png", section.Index))
+	url := buildSlideURL(baseURL, plan, section.Slide)
+	var buf []byte
+	tabCtx, tabCancel := chromedp.NewContext(browserCtx)
+	defer tabCancel()
+	ctxTimeout, cancel := context.WithTimeout(tabCtx, 45*time.Second)
+	defer cancel()
+	if err := chromedp.Run(ctxTimeout,
+		chromedp.Navigate(url),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.WaitReady(".reveal .slides", chromedp.ByQuery),
+		chromedp.WaitVisible(".reveal .slides section", chromedp.ByQuery),
+		chromedp.Evaluate(fmt.Sprintf(`window.ttSlideCapture && window.ttSlideCapture.goTo(%d)`, section.Slide-1), nil),
+		chromedp.WaitReady(".reveal .slides section.present", chromedp.ByQuery),
+		chromedp.Sleep(700*time.Millisecond),
+		chromedp.CaptureScreenshot(&buf),
+	); err != nil {
+		return fmt.Errorf("capture slide %d failed: %w", section.Slide, err)
+	}
+	if err := os.WriteFile(shotPath, buf, 0o644); err != nil {
+		return fmt.Errorf("write slide screenshot failed: %w", err)
+	}
+	return nil
+}
+
+func videoRenderWorkerCount(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	if n < 4 {
+		return n
+	}
+	return 4
 }
 
 func captureVideoSlides(ctx context.Context, baseURL string, plan *Plan, workDir string, progress *videoProgress) error {
@@ -184,6 +285,66 @@ func renderVideoSegments(ctx context.Context, plan *Plan, workDir string, progre
 		segments = append(segments, segmentPath)
 	}
 	return segments, nil
+}
+
+func renderVideoSegmentsConcurrent(ctx context.Context, plan *Plan, workDir string, progress *videoProgress) ([]string, error) {
+	segments := make([]string, len(plan.Sections))
+	workers := videoRenderWorkerCount(len(plan.Sections))
+	jobs := make(chan PlanSection)
+	errCh := make(chan error, workers)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for section := range jobs {
+				progress.Step("正在并发渲染第 %d/%d 个视频片段", section.Index, len(plan.Sections))
+				segment, err := renderVideoSegment(ctx, plan, workDir, section)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				segments[section.Index-1] = segment
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, section := range plan.Sections {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- section:
+			}
+		}
+	}()
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return segments, nil
+}
+
+func renderVideoSegment(ctx context.Context, plan *Plan, workDir string, section PlanSection) (string, error) {
+	imagePath := filepath.Join(workDir, fmt.Sprintf("slide-%03d.png", section.Index))
+	audioPath := section.Audio
+	if audioPath == "" {
+		audioPath = filepath.Join(workDir, fmt.Sprintf("silent-%03d.wav", section.Index))
+		if err := runCommand(ctx, "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100", "-t", secondsArg(section.DurationMillis), audioPath); err != nil {
+			return "", fmt.Errorf("create silent audio failed: %w", err)
+		}
+	}
+	segmentPath := filepath.Join(workDir, fmt.Sprintf("segment-%03d.mp4", section.Index))
+	if err := runCommand(ctx, "ffmpeg", "-y", "-loop", "1", "-i", imagePath, "-i", audioPath, "-t", secondsArg(section.DurationMillis), "-r", strconv.Itoa(plan.Meta.FPS), "-vf", videoScalePadFilter(plan.Meta.Width, plan.Meta.Height), "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac", "-shortest", segmentPath); err != nil {
+		return "", fmt.Errorf("render segment %d failed: %w", section.Index, err)
+	}
+	return segmentPath, nil
 }
 
 func mergeVideoSegmentsTimeline(ctx context.Context, plan *Plan, segments []string, output string) error {
@@ -253,11 +414,16 @@ func videoTimelineFilter(plan *Plan, transition float64) string {
 			offset = 0
 		}
 		fmt.Fprintf(&b, "[%d:v]settb=AVTB[vbase%d];", i, i)
-		fmt.Fprintf(&b, "[%d:a]asetpts=PTS-STARTPTS[abase%d];", i, i)
 		fmt.Fprintf(&b, "[v%d][vbase%d]xfade=transition=fade:duration=%.3f:offset=%.3f[v%d];", i-1, i, transition, offset, i)
-		fmt.Fprintf(&b, "[a%d][abase%d]acrossfade=d=%.3f:c1=tri:c2=tri[a%d];", i-1, i, transition, i)
-		cumulative += float64(plan.Sections[i].DurationMillis)/1000 - transition
+		cumulative += float64(plan.Sections[i].DurationMillis) / 1000
 	}
+	for i := 1; i < len(plan.Sections); i++ {
+		fmt.Fprintf(&b, "[%d:a]asetpts=PTS-STARTPTS[a%d];", i, i)
+	}
+	for i := 0; i < len(plan.Sections); i++ {
+		fmt.Fprintf(&b, "[a%d]", i)
+	}
+	fmt.Fprintf(&b, "concat=n=%d:v=0:a=1[a%d];", len(plan.Sections), len(plan.Sections)-1)
 	return b.String()
 }
 
@@ -297,10 +463,7 @@ func writeVideoConcatFile(path string, segments []string) error {
 func burnVideoSubtitles(ctx context.Context, input, srt, output string) error {
 	filter := "subtitles=filename='" + strings.ReplaceAll(srt, "'", "\\'") + "'"
 	if err := runCommand(ctx, "ffmpeg", "-y", "-i", input, "-vf", filter, "-c:a", "copy", output); err != nil {
-		if muxErr := runCommand(ctx, "ffmpeg", "-y", "-i", input, "-i", srt, "-c", "copy", "-c:s", "mov_text", output); muxErr == nil {
-			return nil
-		}
-		return fmt.Errorf("burn subtitles failed: %w", err)
+		return fmt.Errorf("burn subtitles failed: ffmpeg subtitles filter is unavailable or failed: %w", err)
 	}
 	return nil
 }

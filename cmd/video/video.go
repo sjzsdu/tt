@@ -59,18 +59,31 @@ consume the plan in a follow-up step.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		progress := startVideoProgress("正在准备视频生成", videoJSON)
+		scriptPath, err := resolveVideoGenerateScriptPath(args[0])
+		if err != nil {
+			progress.Clear()
+			return err
+		}
 		cfg, err := resolveVideoCommandConfig(cmd)
 		if err != nil {
 			progress.Clear()
 			return err
 		}
-		progress.Step("正在解析讲稿 %s", args[0])
-		plan, err := buildVideoPlanFromFile(args[0], cfg.WPM)
+		progress.Step("正在解析讲稿 %s", scriptPath)
+		plan, err := buildVideoPlanFromFile(scriptPath, cfg.WPM)
 		if err != nil {
 			progress.Clear()
 			return err
 		}
 		applyVideoConfigDefaults(&plan, cfg)
+		qualityReport := lintVideoPlan(plan, firstNonEmpty(plan.Meta.RenderMode, cfg.RenderMode))
+		if qualityReport.hasErrors() {
+			progress.Clear()
+			return fmt.Errorf("video quality preflight failed; run `tt video lint %s` for details", scriptPath)
+		}
+		if warnings := qualityReport.warningCount(); warnings > 0 {
+			progress.Step("质量预检发现 %d 个可改进项，继续生成；可运行 tt video lint 查看详情", warnings)
+		}
 		progress.Step("已解析 %d 段讲稿，准备输出目录", len(plan.Sections))
 		if videoOutPath != "" {
 			plan.Output = videoOutPath
@@ -112,8 +125,9 @@ consume the plan in a follow-up step.`,
 		if videoSRTPath == "" {
 			videoSRTPath = filepath.Join(artifactDir, "subtitles.srt")
 		}
+		renderMode := firstNonEmpty(plan.Meta.RenderMode, cfg.RenderMode)
 		if cfg.Render || strings.EqualFold(filepath.Ext(plan.Output), ".mp4") {
-			if err := renderVideoPlan(cmd.Context(), &plan, videoRenderOptions{WorkDir: filepath.Join(internalDir, "work"), SRTPath: videoSRTPath, Progress: progress, Mode: cfg.RenderMode}); err != nil {
+			if err := renderVideoPlan(cmd.Context(), &plan, videoRenderOptions{WorkDir: filepath.Join(internalDir, "work"), SRTPath: videoSRTPath, Progress: progress, Mode: renderMode}); err != nil {
 				progress.Clear()
 				return err
 			}
@@ -189,10 +203,62 @@ var videoDoctorCmd = &cobra.Command{
 	},
 }
 
+var videoLintCmd = &cobra.Command{
+	Use:   "lint <script.md|deck.slide>",
+	Short: "Check video talk script quality without rendering",
+	Long: `Check a video talk script for quality issues that hurt publishability.
+
+The lint command validates script structure, narration specificity, repetition,
+slide pacing, and render-mode risk. It does not call TTS and does not render MP4.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := resolveVideoCommandConfig(cmd)
+		if err != nil {
+			return err
+		}
+		scriptPath, err := resolveVideoGenerateScriptPath(args[0])
+		if err != nil {
+			return err
+		}
+		plan, err := buildVideoPlanFromFile(scriptPath, cfg.WPM)
+		if err != nil {
+			return err
+		}
+		applyVideoConfigDefaults(&plan, cfg)
+		report := lintVideoPlan(plan, firstNonEmpty(plan.Meta.RenderMode, cfg.RenderMode))
+		return writeVideoLintReport(cmd.OutOrStdout(), report)
+	},
+}
+
+func resolveVideoGenerateScriptPath(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", fmt.Errorf("video script path is empty")
+	}
+	if !strings.EqualFold(filepath.Ext(input), ".slide") {
+		return input, nil
+	}
+	base := strings.TrimSuffix(filepath.Base(input), filepath.Ext(input))
+	candidates := []string{
+		filepath.Join(filepath.Dir(input), base+"-talk.md"),
+		filepath.Join(filepath.Dir(input), "..", "videos", base+"-talk.md"),
+		filepath.Join("examples", "videos", base+"-talk.md"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat video script candidate failed: %w", err)
+		}
+	}
+	return "", fmt.Errorf("%s is a slide file; expected a video script with front matter. Tried: %s", input, strings.Join(candidates, ", "))
+}
+
 func New(deps Dependencies) *cobra.Command {
 	configureDependencies(deps)
 	videoCmd.AddCommand(videoGenerateCmd)
 	videoCmd.AddCommand(videoDoctorCmd)
+	videoCmd.AddCommand(videoLintCmd)
 	videoGenerateCmd.Flags().StringVarP(&videoOutPath, "out", "o", "", "target mp4 path; also sets default .plan.json and .srt paths")
 	videoGenerateCmd.Flags().StringVar(&videoPlanPath, "plan", "", "write production plan JSON to this path")
 	videoGenerateCmd.Flags().StringVar(&videoSRTPath, "srt", "", "write subtitles as SRT to this path")
