@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { DragEvent } from 'react';
+import type { DragEvent, MouseEvent } from 'react';
 import Reveal from 'reveal.js';
 import { parseEditableSlideDocument, parseSlides, serializeEditableSlideDocument } from '../parser';
 import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
 import type { SlideMeta, SlideRuntimeConfig, TemplateConfig, SlideWidgetRegistry } from '../types';
-import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, fetchWidgets, createWS, saveSlideContent, rewriteSlide, type SlideFile } from '../api';
+import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, fetchWidgets, createWS, saveSlideContent, rewriteSlide, openFormulaRun, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
 const DESIGN_WIDTH = 1600;
@@ -57,6 +57,20 @@ function dirname(path: string) {
   return normalized.slice(0, index);
 }
 
+function formulaRunIDFromHref(href: string) {
+  const trimmed = href.trim();
+  const scheme = 'tt-formula-run:';
+  if (!trimmed.toLowerCase().startsWith(scheme)) return '';
+  let value = trimmed.slice(scheme.length);
+  if (value.startsWith('//')) value = value.slice(2);
+  value = value.replace(/^\/+/, '');
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 interface SlideAppProps {
   contentMode: boolean;
   filePath?: string;
@@ -99,6 +113,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [isReordering, setIsReordering] = useState(false);
   const [template, setTemplate] = useState<TemplateConfig>(() => getTemplate(templateOverride || DEFAULT_TEMPLATE));
   const [widgets, setWidgets] = useState<SlideWidgetRegistry>({});
+  const [actionNotice, setActionNotice] = useState<{ kind: 'info' | 'success' | 'error'; text: string } | null>(null);
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -391,6 +406,27 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       setShowOverview(false);
     }
   }, [showOverview]);
+
+  const handleStageClick = useCallback(async (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
+    const href = anchor?.getAttribute('href') || '';
+    const runId = formulaRunIDFromHref(href);
+    if (!runId) {
+      closeOverviewFromStage();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setActionNotice({ kind: 'info', text: `正在打开 formula run：${runId}` });
+    try {
+      const result = await openFormulaRun(runId);
+      setActionNotice({ kind: 'success', text: `已打开 formula run：${result.runId}` });
+    } catch (e: any) {
+      setActionNotice({ kind: 'error', text: `打开失败：${String(e?.message || e)}` });
+    }
+  }, [closeOverviewFromStage]);
 
   const getActiveSlideIndex = useCallback(() => {
     const indices = deckRef.current?.getIndices();
@@ -748,7 +784,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
         style={{ transform: `scale(${stageScale})` }}
         aria-label="16:9 presentation stage"
       >
-        <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef} onClick={closeOverviewFromStage}>
+        <div className={`reveal theme-${tpl.revealTheme}`} ref={containerRef} onClick={handleStageClick}>
           <div className="slides">
             {slides.map((slide) => (
               <section key={slide.index} {...(slide.revealAttrs || {})} className={slide.class || ''}>
@@ -843,6 +879,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
               );
             })}
           </div>
+        </div>
+      )}
+
+      {actionNotice && (
+        <div className={`slide-action-toast ${actionNotice.kind}`} role="status">
+          <span>{actionNotice.text}</span>
+          <button onClick={() => setActionNotice(null)} title="Close">×</button>
         </div>
       )}
 

@@ -123,6 +123,52 @@ func TestHandleSlideRawContentDisablesCache(t *testing.T) {
 	}
 }
 
+func TestNormalizeSlideFormulaRunID(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "formula run path", raw: "shan-yi-zhe/20260704-140657-c764fd", want: "shan-yi-zhe/20260704-140657-c764fd"},
+		{name: "custom protocol URL", raw: "tt-formula-run://shan-yi-zhe/20260704-140657-c764fd", want: "shan-yi-zhe/20260704-140657-c764fd"},
+		{name: "custom protocol compact", raw: "tt-formula-run:shan-yi-zhe/20260704-140657-c764fd", want: "shan-yi-zhe/20260704-140657-c764fd"},
+		{name: "latest", raw: "latest", want: "latest"},
+		{name: "leaf id", raw: "20260704-140657-c764fd", want: "20260704-140657-c764fd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeSlideFormulaRunID(tt.raw)
+			if err != nil {
+				t.Fatalf("normalizeSlideFormulaRunID() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeSlideFormulaRunID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeSlideFormulaRunIDRejectsUnsafeValues(t *testing.T) {
+	for _, raw := range []string{"", "../run", "/tmp/run", "--web-port", "formula/run/extra", "formula//run", `formula\run`} {
+		if got, err := normalizeSlideFormulaRunID(raw); err == nil {
+			t.Fatalf("normalizeSlideFormulaRunID(%q) = %q, want error", raw, got)
+		}
+	}
+}
+
+func TestHandleSlideOpenFormulaRunRejectsInvalidID(t *testing.T) {
+	body, _ := json.Marshal(slideOpenFormulaRunRequest{RunID: "../run"})
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/formula-run/open", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handleSlideOpenFormulaRun(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("handleSlideOpenFormulaRun status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "invalid formula run id") {
+		t.Fatalf("handleSlideOpenFormulaRun body = %s", rr.Body.String())
+	}
+}
+
 func TestCleanSlideWriterOutputRemovesCodeFence(t *testing.T) {
 	got := cleanSlideWriterOutput("```slide\n.media-right\n\n# Title\n```")
 	want := ".media-right\n\n# Title"
