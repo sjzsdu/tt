@@ -23,6 +23,7 @@ type ScriptMeta struct {
 	Width      int     `json:"width,omitempty" yaml:"width"`
 	Height     int     `json:"height,omitempty" yaml:"height"`
 	FPS        int     `json:"fps,omitempty" yaml:"fps"`
+	RenderMode string  `json:"renderMode,omitempty" yaml:"render_mode"`
 	Template   string  `json:"template,omitempty" yaml:"template"`
 	Transition string  `json:"transition,omitempty" yaml:"transition"`
 	Margin     float64 `json:"margin,omitempty" yaml:"margin"`

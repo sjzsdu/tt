@@ -51,7 +51,7 @@ func resolveVideoCommandConfig(cmd *cobra.Command) (videoCommandConfig, error) {
 		Height:                      1080,
 		FPS:                         30,
 		WPM:                         150,
-		RenderMode:                  firstNonEmpty(loaded.Merged.Video.RenderMode, "browser"),
+		RenderMode:                  firstNonEmpty(loaded.Merged.Video.RenderMode, "auto"),
 	}
 	if loaded.Merged.Video.Width != nil {
 		cfg.Width = *loaded.Merged.Video.Width

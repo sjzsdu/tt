@@ -19,6 +19,7 @@ func TestParseVideoScriptBuildsPlan(t *testing.T) {
 title: Demo
 slides: ./deck.slide
 voice: zh-CN-XiaoxiaoNeural
+render_mode: browser
 ---
 
 # Opening
@@ -41,6 +42,9 @@ Teams need repeatable product videos.
 	}
 	if plan.Meta.Slides != filepath.Join(filepath.Dir(scriptPath), "deck.slide") {
 		t.Fatalf("slides path = %q", plan.Meta.Slides)
+	}
+	if plan.Meta.RenderMode != "browser" {
+		t.Fatalf("render mode = %q, want browser", plan.Meta.RenderMode)
 	}
 	if len(plan.Sections) != 2 {
 		t.Fatalf("sections = %d, want 2", len(plan.Sections))
@@ -119,6 +123,90 @@ func TestVideoScalePadFilterNormalizesInvalidDimensions(t *testing.T) {
 	}
 }
 
+func TestVideoRenderWorkerCountCapsConcurrency(t *testing.T) {
+	if got := videoRenderWorkerCount(0); got != 1 {
+		t.Fatalf("workers for empty = %d, want 1", got)
+	}
+	if got := videoRenderWorkerCount(3); got != 3 {
+		t.Fatalf("workers for three = %d, want 3", got)
+	}
+	if got := videoRenderWorkerCount(99); got != 4 {
+		t.Fatalf("workers for many = %d, want 4", got)
+	}
+}
+
+func TestVideoSlidesLikelyAnimatedDetectsFragments(t *testing.T) {
+	tmp := t.TempDir()
+	deck := filepath.Join(tmp, "deck.slide")
+	if err := os.WriteFile(deck, []byte("# Demo\n\n- One <!-- .element: class=\"fragment\" -->\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !videoSlidesLikelyAnimated(deck) {
+		t.Fatalf("expected fragment deck to be treated as animated")
+	}
+	staticDeck := filepath.Join(tmp, "static.slide")
+	if err := os.WriteFile(staticDeck, []byte("# Demo\n\nPlain slide.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if videoSlidesLikelyAnimated(staticDeck) {
+		t.Fatalf("expected static deck to remain static")
+	}
+}
+
+func TestShouldRefuseStaticFallbackForQualitySensitiveModes(t *testing.T) {
+	if !shouldRefuseStaticFallback("browser", false) {
+		t.Fatalf("explicit browser mode must not silently fall back")
+	}
+	if !shouldRefuseStaticFallback("auto", true) {
+		t.Fatalf("animated auto mode must not fall back to static rendering")
+	}
+	if shouldRefuseStaticFallback("auto", false) {
+		t.Fatalf("static auto mode may use static renderer")
+	}
+	if shouldRefuseStaticFallback("segments", false) {
+		t.Fatalf("segments mode is already static")
+	}
+}
+
+func TestLintVideoPlanFlagsRepetitiveGenericNarration(t *testing.T) {
+	plan := Plan{Meta: ScriptMeta{Slides: filepath.Join(t.TempDir(), "missing.slide")}, Sections: []PlanSection{
+		{Index: 1, Title: "A", Slide: 1, Narration: "我们可以看到这一页非常重要。核心在于这一页形成一个整体。", DurationMillis: 5000},
+		{Index: 2, Title: "B", Slide: 2, Narration: "我们可以看到这一页非常重要。核心在于这一页形成一个整体。", DurationMillis: 5000},
+	}}
+	report := lintVideoPlan(plan, "auto")
+	var hasGeneric, hasRepetition bool
+	for _, issue := range report.Issues {
+		if issue.Code == "generic-narration" {
+			hasGeneric = true
+		}
+		if issue.Code == "repetitive-narration" {
+			hasRepetition = true
+		}
+	}
+	if !hasGeneric || !hasRepetition {
+		t.Fatalf("issues = %+v, want generic and repetitive warnings", report.Issues)
+	}
+}
+
+func TestLintVideoPlanWarnsAnimatedSegments(t *testing.T) {
+	tmp := t.TempDir()
+	deck := filepath.Join(tmp, "deck.slide")
+	if err := os.WriteFile(deck, []byte("# Demo\n\n<span class=\"fragment\">Step</span>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := Plan{Meta: ScriptMeta{Slides: deck}, Sections: []PlanSection{{Index: 1, Slide: 1, Narration: "这是一段足够长的讲稿，用于说明动画页面不应该被强制使用静态分段模式渲染。", DurationMillis: 8000}}}
+	report := lintVideoPlan(plan, "segments")
+	if !report.AnimatedSlides {
+		t.Fatalf("expected animated slides")
+	}
+	for _, issue := range report.Issues {
+		if issue.Code == "animated-segments" {
+			return
+		}
+	}
+	t.Fatalf("issues = %+v, want animated-segments warning", report.Issues)
+}
+
 func TestVideoTimelineFilterUsesCrossFades(t *testing.T) {
 	plan := &Plan{Meta: ScriptMeta{FPS: 30}, Sections: []PlanSection{
 		{Index: 1, DurationMillis: 2000},
@@ -130,8 +218,14 @@ func TestVideoTimelineFilterUsesCrossFades(t *testing.T) {
 		t.Fatalf("transition = %f, want positive", transition)
 	}
 	filter := videoTimelineFilter(plan, transition)
-	if !strings.Contains(filter, "xfade=transition=fade") || !strings.Contains(filter, "acrossfade") {
-		t.Fatalf("filter does not use cross fades: %s", filter)
+	if !strings.Contains(filter, "xfade=transition=fade") {
+		t.Fatalf("filter does not use video cross fades: %s", filter)
+	}
+	if strings.Contains(filter, "acrossfade") {
+		t.Fatalf("filter must not overlap narration audio: %s", filter)
+	}
+	if !strings.Contains(filter, "concat=n=3:v=0:a=1") {
+		t.Fatalf("filter must preserve audio order with concat: %s", filter)
 	}
 	if !strings.Contains(filter, "[v2]") || !strings.Contains(filter, "[a2]") {
 		t.Fatalf("filter missing final labels: %s", filter)
@@ -157,8 +251,22 @@ func TestBrowserTimelineScriptSchedulesSlidesBySectionStart(t *testing.T) {
 	if !strings.Contains(script, "{at:2500,slide:2}") {
 		t.Fatalf("script missing third slide schedule: %s", script)
 	}
-	if !strings.Contains(script, "window.__ttVideoSeek") || !strings.Contains(script, "deck.slide(current.slide, 0, 0)") {
+	if !strings.Contains(script, "window.__ttVideoSeek") || !strings.Contains(script, "capture.goTo(current.slide)") {
 		t.Fatalf("script missing deterministic seek function: %s", script)
+	}
+	if !strings.Contains(script, "tt-video-subtitle-overlay") || !strings.Contains(script, "const subtitles = ") {
+		t.Fatalf("script missing browser subtitle overlay: %s", script)
+	}
+}
+
+func TestBrowserSubtitleCuesMirrorTimedSentenceCues(t *testing.T) {
+	plan := &Plan{Sections: []PlanSection{{Narration: "第一句。第二句。", StartMillis: 0, EndMillis: 2000}}}
+	cues := browserSubtitleCues(plan)
+	if len(cues) != 2 {
+		t.Fatalf("cues = %+v, want two sentence cues", cues)
+	}
+	if cues[0].Start != 0 || cues[1].End != 2000 || cues[0].Text != "第一句。" || cues[1].Text != "第二句。" {
+		t.Fatalf("unexpected cues: %+v", cues)
 	}
 }
 

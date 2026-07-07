@@ -2,6 +2,7 @@ package videocmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,14 +46,10 @@ func renderVideoPlanBrowserContinuous(ctx context.Context, baseURL string, plan 
 		return fmt.Errorf("merge browser video and audio failed: %w", err)
 	}
 	if opts.SRTPath != "" {
-		opts.Progress.Step("正在生成并嵌入字幕")
+		opts.Progress.Step("正在写入字幕文件")
 		if err := os.WriteFile(opts.SRTPath, []byte(renderVideoSRT(*plan)), 0o644); err != nil {
 			return fmt.Errorf("write SRT failed: %w", err)
 		}
-		if err := burnVideoSubtitles(ctx, merged, opts.SRTPath, plan.Output); err != nil {
-			return err
-		}
-		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(plan.Output), 0o755); err != nil && filepath.Dir(plan.Output) != "." {
 		return fmt.Errorf("create output directory failed: %w", err)
@@ -79,10 +76,22 @@ func recordBrowserSlideFrames(ctx context.Context, baseURL string, plan *Plan, f
 		chromedp.WaitReady("body", chromedp.ByQuery),
 		chromedp.WaitReady(".reveal .slides", chromedp.ByQuery),
 		chromedp.WaitVisible(".reveal .slides section", chromedp.ByQuery),
-		chromedp.Evaluate(browserTimelineScript(plan), nil),
-		chromedp.Evaluate(browserRepaintDriverScript(), nil),
 	); err != nil {
 		return 0, fmt.Errorf("prepare browser continuous recording failed: %w", err)
+	}
+	if err := waitForBrowserCaptureAPI(recordCtx); err != nil {
+		return 0, err
+	}
+	var overlayReady bool
+	if err := chromedp.Run(recordCtx,
+		chromedp.Evaluate(browserTimelineScript(plan), nil),
+		chromedp.Evaluate(browserRepaintDriverScript(), nil),
+		chromedp.Evaluate(`Boolean(document.getElementById('tt-video-subtitle-overlay') && window.__ttVideoSeek)`, &overlayReady),
+	); err != nil {
+		return 0, fmt.Errorf("install browser continuous recording script failed: %w", err)
+	}
+	if !overlayReady {
+		return 0, fmt.Errorf("install browser subtitle overlay failed")
 	}
 
 	frameInterval := time.Second / time.Duration(max(1, plan.Meta.FPS))
@@ -108,6 +117,23 @@ func recordBrowserSlideFrames(ctx context.Context, baseURL string, plan *Plan, f
 		}
 	}
 	return frameCount, nil
+}
+
+func waitForBrowserCaptureAPI(ctx context.Context) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var ready bool
+		if err := chromedp.Run(ctx, chromedp.Evaluate(`Boolean(window.ttSlideCapture && window.ttSlideCapture.ready && typeof window.ttSlideCapture.goTo === 'function')`, &ready)); err != nil {
+			return fmt.Errorf("check slide capture readiness failed: %w", err)
+		}
+		if ready {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("slide capture API did not become ready")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func browserRecordingTimeout(plan *Plan) time.Duration {
@@ -153,7 +179,8 @@ func browserRepaintDriverScript() string {
 
 func browserTimelineScript(plan *Plan) string {
 	var b strings.Builder
-	b.WriteString(`(() => { const deck = window.Reveal; if (!deck) return; const sections = [`)
+	subtitles, _ := json.Marshal(browserSubtitleCues(plan))
+	b.WriteString(`(() => { const capture = window.ttSlideCapture; if (!capture || !capture.ready) throw new Error('slide capture API is not ready'); const sections = [`)
 	for _, section := range plan.Sections {
 		at := int64(section.StartMillis)
 		if at < 0 {
@@ -161,8 +188,26 @@ func browserTimelineScript(plan *Plan) string {
 		}
 		fmt.Fprintf(&b, "{at:%d,slide:%d},", at, section.Slide-1)
 	}
-	b.WriteString(`]; window.__ttVideoSeek = (ms) => { let current = sections[0]; for (const section of sections) { if (section.at <= ms) current = section; else break; } if (current) deck.slide(current.slide, 0, 0); }; window.__ttVideoSeek(0); })();`)
+	b.WriteString(`]; const subtitles = `)
+	b.Write(subtitles)
+	b.WriteString(`; let subtitleEl = document.getElementById('tt-video-subtitle-overlay'); if (!subtitleEl) { subtitleEl = document.createElement('div'); subtitleEl.id = 'tt-video-subtitle-overlay'; Object.assign(subtitleEl.style, { position: 'fixed', left: '50%', bottom: '6.5%', transform: 'translateX(-50%)', maxWidth: '86%', padding: '0.42em 0.75em', borderRadius: '0.45em', background: 'rgba(0, 0, 0, 0.68)', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif', fontSize: 'clamp(12px, 1.6vw, 22px)', fontWeight: '700', lineHeight: '1.32', textAlign: 'center', textShadow: '0 2px 4px rgba(0,0,0,0.9)', zIndex: '2147483647', pointerEvents: 'none', whiteSpace: 'normal', boxSizing: 'border-box' }); document.body.appendChild(subtitleEl); } window.__ttVideoSeek = async (ms) => { let current = sections[0]; for (const section of sections) { if (section.at <= ms) current = section; else break; } if (current) await capture.goTo(current.slide); let cue = null; for (const item of subtitles) { if (item.start <= ms && ms < item.end) { cue = item; break; } } subtitleEl.textContent = cue ? cue.text : ''; subtitleEl.style.display = cue ? 'block' : 'none'; }; window.__ttVideoSeek(0); })();`)
 	return b.String()
+}
+
+type browserSubtitleCue struct {
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
+	Text  string `json:"text"`
+}
+
+func browserSubtitleCues(plan *Plan) []browserSubtitleCue {
+	var cues []browserSubtitleCue
+	for _, section := range plan.Sections {
+		for _, cue := range buildVideoSubtitleCues(section) {
+			cues = append(cues, browserSubtitleCue{Start: int64(cue.Start), End: int64(cue.End), Text: cue.Text})
+		}
+	}
+	return cues
 }
 
 func encodeBrowserFrames(ctx context.Context, framesDir string, frameCount int, plan *Plan, output string) error {

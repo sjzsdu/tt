@@ -167,6 +167,7 @@ Generate a slide-based video from a centralized script file. The script owns nar
 
 ```bash
 tt video doctor --script examples/videos/video-showcase-talk.md
+tt video lint examples/videos/video-showcase-talk.md
 tt video generate examples/videos/video-showcase-talk.md
 ```
 
@@ -178,7 +179,7 @@ Default artifacts are config-driven. With the default `ttconfig.video` values, a
     "output_dir": ".tt/video",
     "internal_dir": ".tt/video",
     "tts_mode": "none",
-    "render_mode": "browser",
+    "render_mode": "auto",
     "bailian_api_key_env": "DASHSCOPE_API_KEY",
     "bailian_base_url": "",
     "bailian_model": "qwen3-tts-flash",
@@ -195,7 +196,11 @@ Default artifacts are config-driven. With the default `ttconfig.video` values, a
 
 Script front matter can override visual defaults for a specific video, for example `width`, `height`, and `fps`. It can also set `voice` for a specific video. CLI flags are reserved for one-off overrides such as `--out`, `--tts`, `--audio-dir`, and `--tts-command`.
 
-`render_mode` defaults to `browser`, which records a single continuous Reveal.js playback timeline before muxing narration and SRT subtitles. This keeps slide transitions and in-slide animations closer to the live browser experience. Set it to `segments` if you need the older per-slide stable renderer. Continuous animation can increase final MP4 size compared with static frames because there is more visual motion, but the encoder still controls size through H.264 CRF. Intermediate browser frames live under `.tt/video/<script-name>/work/`.
+Run `tt video lint` before expensive generation to catch issues that hurt publishability: thin narration, repetitive talk tracks, generic wording, poor pacing, and render-mode risks.
+
+`tt video generate` also runs a quality preflight before expensive work. Structural errors stop the generation. Non-blocking quality warnings are surfaced in progress output so the script can still render while giving the author actionable feedback.
+
+`render_mode` defaults to `auto`, which keeps the final output at the requested `fps` and uses a quality-first strategy. Static decks use the concurrent per-section renderer and then compose sections through a timeline with video fade transitions, while keeping narration audio sequential so adjacent voice clips do not overlap. Decks with animation cues such as fragments or auto-animate switch to browser continuous recording so motion is not lost. Browser rendering failures in quality-sensitive modes are reported instead of silently falling back to a lower-quality static video. `browser` forces the continuous Reveal.js playback timeline. `segments` uses the stable per-section renderer. Continuous animation can increase final MP4 size compared with static frames because there is more visual motion, but the encoder still controls size through H.264 CRF. Intermediate browser frames live under `.tt/video/<script-name>/work/`.
 
 To synthesize narration with Alibaba Cloud Model Studio/Bailian, set `tts_mode` to `bailian`, configure `bailian_base_url` to your workspace API base such as `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1`, and export the API key env configured by `bailian_api_key_env`:
 
