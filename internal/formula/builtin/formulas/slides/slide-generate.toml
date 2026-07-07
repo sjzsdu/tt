@@ -9,7 +9,7 @@ tags = ["slides", "presentation", "deck", "slide-writer", "foreach", "dynamic-fo
 
 [vars]
 topic = { description = "演示文稿主题或大致需求。可以是一句话、一个主题、一次汇报目标或已有材料摘要", required = true }
-output_dir = { description = "输出根目录", default = "slides/generated" }
+output_dir = { description = "输出根目录", default = ".tt/slide-generate" }
 deck_language = { description = "演示文稿语言", default = "简体中文" }
 template = { description = "目标 tt-slide 模板或风格提示。为空时由 planner 判断", default = "" }
 slide_count_hint = { description = "可选页数提示。为空时由 planner 根据主题复杂度判断", default = "" }
@@ -202,7 +202,7 @@ def extract_items(value):
 
 plan = load_json(os.environ.get('DECK_PLAN', ''), {})
 slide_outputs = extract_items(load_json(os.environ.get('WRITE_SLIDES', ''), []))
-output_dir = pathlib.Path(os.environ.get('OUTPUT_DIR') or 'slides/generated')
+output_dir = pathlib.Path(os.environ.get('OUTPUT_DIR') or '.tt/slide-generate')
 deck_name = safe_slug(plan.get('deck_name') or plan.get('deck_title') or 'deck')
 deck_dir = output_dir / deck_name
 deck_dir.mkdir(parents=True, exist_ok=True)
@@ -260,7 +260,8 @@ for page in ordered:
         parts.append(content)
 
 NL = chr(10)
-deck_content = NL.join(frontmatter) + NL + NL + ('---' + NL + NL).join(parts) + NL
+slide_separator = NL + NL + '---' + NL + NL
+deck_content = NL.join(frontmatter).rstrip() + NL + NL + slide_separator.join(parts) + NL
 deck_path.write_text(deck_content, encoding='utf-8')
 
 readme = [
