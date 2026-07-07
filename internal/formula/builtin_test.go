@@ -1206,19 +1206,21 @@ func TestSlideGenerateFormulaPlansLoopsAndAssemblesDeck(t *testing.T) {
 	}
 }
 
-func TestSlideWriterAgentFollowsUserInstructionWithoutDefaultDiagrams(t *testing.T) {
+func TestSlideWriterAgentUsesJudgmentDrivenVisuals(t *testing.T) {
 	agent, err := agents.Get("slide-writer")
 	if err != nil {
 		t.Fatalf("agents.Get(slide-writer) error = %v", err)
 	}
 	prompt := agent.Prompt
-	for _, want := range []string{"用户提示是最高优先级", "默认不新增图表", "不要默认新增 Mermaid", "不要为了“显得丰富”而新增 Mermaid"} {
+	for _, want := range []string{"用户提示是最高优先级", "最小必要改动", "现有 slide 源码为基底", "用户没有要求改的内容默认保留", "先判断是否需要视觉表达", "图表必须服务表达", "流程、层级、因果", "Mermaid/D2", "不要为了“显得丰富”而新增", "不要借机重写整页"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("slide-writer prompt missing %q", want)
 		}
 	}
-	if strings.Contains(prompt, "增强图文关系或简化 Mermaid") {
-		t.Fatalf("slide-writer prompt should not encourage generic requests to add diagrams")
+	for _, banned := range []string{"默认不新增图表", "不要默认新增 Mermaid", "增强图文关系或简化 Mermaid"} {
+		if strings.Contains(prompt, banned) {
+			t.Fatalf("slide-writer prompt should not contain overcorrected diagram rule %q", banned)
+		}
 	}
 }
 
