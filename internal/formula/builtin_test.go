@@ -1087,7 +1087,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
 	}
 	testLoopSource := testLoop.Command[2] + testLoop.Env["GATE_RUNNABLE_CASES"] + testLoop.Env["PREPARE_BROWSER_SESSION"] + testLoop.Env["VISION_VERIFY"] + testLoop.Env["VISION_MODEL"]
-	for _, want := range []string{"agent-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "bl", "vision", "describe", "visual_verification", "vision_verify", "VISION_VERIFY", "VISION_MODEL", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_SESSION_NAME", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
+	for _, want := range []string{"agent-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "bl", "vision", "describe", "visual_verification", "vision_verify", "vision_verify_mode", "should_verify_with_vision", "auto skipped pure DOM passed case", "VISION_VERIFY", "VISION_VERIFY_MODE", "VISION_MODEL", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_SESSION_NAME", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
 		if !strings.Contains(testLoopSource, want) {
 			t.Fatalf("test-loop script missing %q", want)
 		}

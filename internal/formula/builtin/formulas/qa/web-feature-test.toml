@@ -19,7 +19,8 @@ reset = { description = "是否清空该套件历史状态重新开始：true/fa
 only_failed = { description = "是否只运行历史失败/阻塞/未知/未完成用例：true/false", default = "false" }
 max_cases = { description = "本次最多执行多少个测试用例", default = "20", pattern = "^[1-9][0-9]*$" }
 screenshot_mode = { description = "截图策略：all/failures/none", default = "failures" }
-vision_verify = { description = "是否对截图启用百炼视觉模型验收：true/false。适合 canvas/WebGL 场景", default = "false" }
+vision_verify = { description = "是否对截图启用百炼视觉模型验收：true/false。默认开启，适合 canvas/WebGL 场景", default = "true" }
+vision_verify_mode = { description = "视觉验收模式：auto/all/failures/none。auto 只验证截图、canvas/视觉相关或 DOM 受阻用例", default = "auto" }
 vision_model = { description = "百炼视觉模型名称，用于 bl vision describe", default = "qwen3-vl-plus" }
 max_concurrency = { description = "兼容旧配置的保留变量；当前执行阶段使用单次 agent 调用顺序跑全部用例，以避免多次 LLM agent 调用触发 provider cooldown", default = "1", pattern = "^[1-9][0-9]*$" }
 browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
@@ -160,7 +161,7 @@ session_digest = hashlib.sha1(session_seed.encode('utf-8')).hexdigest()[:10]
 session_prefix = sanitize_browser_session_name(browser_session_name_input or 'webft')[:20]
 browser_session_name = f'{session_prefix}-{session_digest}'
 browser_socket_dir = f'/tmp/tt-ab-{session_digest}'
-state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'vision_verify': os.environ.get('VISION_VERIFY','false').lower() == 'true', 'vision_model': os.environ.get('VISION_MODEL','qwen3-vl-plus'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors}
+state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'vision_verify': os.environ.get('VISION_VERIFY','true').lower() == 'true', 'vision_verify_mode': os.environ.get('VISION_VERIFY_MODE','auto'), 'vision_model': os.environ.get('VISION_MODEL','qwen3-vl-plus'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors}
 state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
 print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
@@ -180,6 +181,7 @@ MAX_CASES = "{{max_cases}}"
 SCREENSHOT_MODE = "{{screenshot_mode}}"
 MAX_CONCURRENCY = "{{max_concurrency}}"
 VISION_VERIFY = "{{vision_verify}}"
+VISION_VERIFY_MODE = "{{vision_verify_mode}}"
 VISION_MODEL = "{{vision_model}}"
 BROWSER_SESSION_NAME = "{{browser_session_name}}"
 IGNORE_HTTPS_ERRORS = "{{ignore_https_errors}}"
@@ -817,9 +819,36 @@ def parse_vision_json(text):
     return None
 
 
-def verify_case_with_vision(case, artifacts, evidence, overall):
+def should_verify_with_vision(case, artifacts, op_results, overall):
+    if not vision_verify or vision_verify_mode in ('none', 'off', 'false'):
+        return False, 'vision verification disabled'
+    if vision_verify_mode == 'all':
+        return True, 'mode=all'
+    if vision_verify_mode in ('failures', 'failed'):
+        return overall != 'passed', 'mode=failures and deterministic status=' + overall
+    corpus = json.dumps({'case': case, 'operations': op_results}, ensure_ascii=False).lower()
+    visual_keywords = [
+        'canvas', 'webgl', 'screenshot', 'visual', 'visible', 'image', '3d', 'viewer', 'render', 'color', 'colour',
+        'probe', 'visualization', 'field', 'surface', 'mesh', 'model', 'geometry', '截图', '视觉', '可见', '颜色',
+        '模型', '探针', '云图', '渲染', '画布'
+    ]
+    if artifacts:
+        return True, 'case has screenshot/artifacts'
+    if overall != 'passed':
+        return True, 'deterministic status=' + overall
+    if any(keyword in corpus for keyword in visual_keywords):
+        return True, 'visual keyword matched in case definition'
+    if any((op.get('action') == 'screenshot') for op in (op_results or []) if isinstance(op, dict)):
+        return True, 'case includes screenshot action'
+    return False, 'auto skipped pure DOM passed case'
+
+
+def verify_case_with_vision(case, artifacts, evidence, overall, op_results):
     if not vision_verify:
         return None, overall
+    should_verify, mode_reason = should_verify_with_vision(case, artifacts, op_results, overall)
+    if not should_verify:
+        return {'enabled': True, 'status': 'skipped', 'mode': vision_verify_mode, 'reason': mode_reason}, overall
     cid = case.get('id') or 'unknown-case'
     shot = ensure_final_screenshot(cid, artifacts, evidence)
     if not shot:
@@ -858,7 +887,7 @@ def verify_case_with_vision(case, artifacts, evidence, overall):
             verdict = 'failed'
         else:
             verdict = 'uncertain'
-    visual = {'enabled': True, 'status': verdict, 'screenshot': str(shot), 'model': vision_model, 'exit_code': proc.returncode, 'reason': parsed.get('reason') or parsed.get('raw_output') or '', 'observations': parsed.get('observations') or [], 'raw': parsed}
+    visual = {'enabled': True, 'status': verdict, 'mode': vision_verify_mode, 'mode_reason': mode_reason, 'screenshot': str(shot), 'model': vision_model, 'exit_code': proc.returncode, 'reason': parsed.get('reason') or parsed.get('raw_output') or '', 'observations': parsed.get('observations') or [], 'raw': parsed}
     evidence.append('vision verification -> ' + verdict + ': ' + compact(visual.get('reason')))
     if verdict == 'failed':
         overall = 'failed'
@@ -877,7 +906,8 @@ session_name = prepared.get('browser_session_name') or init_state.get('browser_s
 socket_dir = init_state.get('browser_socket_dir') or ''
 screenshots_dir = pathlib.Path(init_state.get('screenshots_dir') or '.tt/web-feature-test/screenshots')
 screenshots_dir.mkdir(parents=True, exist_ok=True)
-vision_verify = os.environ.get('VISION_VERIFY', 'false').lower() == 'true'
+vision_verify = os.environ.get('VISION_VERIFY', 'true').lower() == 'true'
+vision_verify_mode = (os.environ.get('VISION_VERIFY_MODE') or init_state.get('vision_verify_mode') or 'auto').lower().strip()
 vision_model = os.environ.get('VISION_MODEL') or init_state.get('vision_model') or 'qwen3-vl-plus'
 
 env = os.environ.copy()
@@ -918,7 +948,7 @@ for case in cases:
         overall = 'blocked'
         evidence.append('case has no executable operation_path')
     final_url = get_current_url()
-    visual_verification, overall = verify_case_with_vision(case, artifacts, evidence, overall)
+    visual_verification, overall = verify_case_with_vision(case, artifacts, evidence, overall, op_results)
     cov_status = overall
     coverage_actual = 'deterministic runner status: ' + overall
     if visual_verification:
@@ -938,7 +968,7 @@ for case in cases:
         'artifacts': artifacts,
         'failure_reason': '' if overall == 'passed' else 'one or more deterministic actions failed or were blocked',
         'safe_to_rerun': True,
-        'notes': 'Executed by script-based action runner. Visual/canvas assertions are verified from screenshots when vision_verify=true; otherwise they remain manual/blocked.'
+        'notes': 'Executed by script-based action runner. Visual/canvas assertions are verified from screenshots by default with vision_verify_mode=auto; pure DOM passed cases may skip vision to control cost.'
     })
 
 print(json.dumps(results, ensure_ascii=False))
@@ -957,6 +987,7 @@ BROWSER_HEADED = "{{browser_headed}}"
 BROWSER_EXECUTABLE_PATH = "{{browser_executable_path}}"
 WEBGL_BROWSER_ARGS = "{{webgl_browser_args}}"
 VISION_VERIFY = "{{vision_verify}}"
+VISION_VERIFY_MODE = "{{vision_verify_mode}}"
 VISION_MODEL = "{{vision_model}}"
 
 [steps.validate]
