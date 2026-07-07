@@ -133,6 +133,7 @@ depends_on = ["deck-plan"]
 - 充分考虑内容、布局、显示效果、演示节奏。
 - 输出必须可被 tt-slide/reveal 渲染。
 - 严格区分“观众可见文案”和“写作意图/讲者提示”：content 只放会投到屏幕上的文字；解释创作思路、讲法、意图的内容必须放入 speaker_notes，不得放入 content。
+- 同时为这一页生成 video/speaker talk 的 Markdown 讲稿。talk 是面向视频旁白或讲者逐字稿的内容，可以比 content 更完整，但要自然可口播，不要像论文。
 
 观众可见文案规则：
 - content 面向现场观众，不是面向提出需求的用户，也不是面向 agent 自己。
@@ -157,7 +158,7 @@ depends_on = ["deck-plan"]
 - 少量 raw Reveal section 属性或 data-auto-animate，但不要把整页写成复杂不可维护 HTML。
 
 输出 ONLY compact JSON object，不要 Markdown 代码块，不要额外解释：
-{"index":{{slide.index}},"title":"{{slide.title}}","summary":"这一页讲什么","content":"观众可见的完整 .slide 单页 Markdown 片段","speaker_notes":"给讲者看的讲法、节奏、设计意图或补充说明"}
+{"index":{{slide.index}},"title":"{{slide.title}}","summary":"这一页讲什么","content":"观众可见的完整 .slide 单页 Markdown 片段","speaker_notes":"给讲者看的讲法、节奏、设计意图或补充说明","talk":"这一页对应的视频/讲者口播 Markdown 讲稿"}
 
 硬性要求：
 - index 必须等于 slide.index。
@@ -165,6 +166,8 @@ depends_on = ["deck-plan"]
 - content 只包含单页内容，不要包含 `---` 分隔符。
 - content 不得包含写给用户或 agent 的解释性口吻，不得出现“本页旨在/这一页要/不是把/而是把/我们需要让观众/适合用于”等元表达。
 - speaker_notes 可以解释为什么这样设计、讲者如何展开、哪些误解要避免；speaker_notes 不会写入最终 .slide 文件。
+- talk 必须是可直接用于视频旁白或讲者讲稿的 Markdown 文档片段，建议包含 `## <页标题>`，正文 1-4 段，必要时用短列表列出讲述节奏。
+- talk 可以承载 content 中不适合投屏的大段解释、背景、转场句和口播节奏，但不要包含 agent 自述或“我是 AI”之类内容。
 - content 第一行通常是 `# <标题>`，封面页可使用更适合的 cover 写法。
 - 根据 slide.layout_hint 选择合适布局指令。不要所有页面都默认普通列表。
 - 如果使用 fragments，确保 HTML 标签闭合。
@@ -178,7 +181,7 @@ depends_on = ["deck-plan"]
 
   [steps.loop.body.validate]
   format = "json"
-  required = ["index", "title", "summary", "content", "speaker_notes"]
+  required = ["index", "title", "summary", "content", "speaker_notes", "talk"]
 
 [[steps]]
 id = "assemble-deck"
@@ -225,6 +228,9 @@ deck_dir = output_dir / deck_name
 deck_dir.mkdir(parents=True, exist_ok=True)
 deck_path = deck_dir / f'{deck_name}.slide'
 readme_path = deck_dir / 'README.md'
+talk_dir = deck_dir / 'talk'
+talk_dir.mkdir(parents=True, exist_ok=True)
+talk_path = deck_dir / 'talk.md'
 
 by_index = {}
 for item in slide_outputs:
@@ -281,6 +287,32 @@ slide_separator = NL + NL + '---' + NL + NL
 deck_content = NL.join(frontmatter).rstrip() + NL + NL + slide_separator.join(parts) + NL
 deck_path.write_text(deck_content, encoding='utf-8')
 
+talk_files = []
+merged_talk = [f'# {plan.get("deck_title") or deck_name} 讲稿', '']
+if plan.get('subtitle'):
+    merged_talk.extend([str(plan.get('subtitle')), ''])
+for page in ordered:
+    idx = page.get('index')
+    title = str(page.get('title') or f'Slide {idx}').strip()
+    talk = str(page.get('talk') or '').strip()
+    if not talk:
+        notes = str(page.get('speaker_notes') or '').strip()
+        summary = str(page.get('summary') or '').strip()
+        talk = f'## {title}' + NL + NL + (notes or summary or '待补充讲稿。')
+    if not re.match(r'^##\\s+', talk):
+        talk = f'## {title}' + NL + NL + talk
+    safe_title = safe_slug(title, f'slide-{idx}')
+    try:
+        num = int(idx)
+    except Exception:
+        num = len(talk_files) + 1
+    talk_file = talk_dir / f'{num:02d}-{safe_title}.md'
+    talk_file.write_text(talk.rstrip() + NL, encoding='utf-8')
+    talk_files.append({'index': idx, 'title': title, 'path': str(talk_file)})
+    merged_talk.append(talk.rstrip())
+    merged_talk.append('')
+talk_path.write_text((NL + '---' + NL + NL).join(section for section in merged_talk if section is not None).rstrip() + NL, encoding='utf-8')
+
 readme = [
     f'# {plan.get("deck_title") or deck_name}',
     '',
@@ -289,6 +321,7 @@ if plan.get('subtitle'):
     readme.extend([str(plan.get('subtitle')), ''])
 readme.extend([
     f'- Deck: `{deck_path}`',
+    f'- Talk: `{talk_path}`',
     f'- Slides: {len(ordered)}',
     f'- Audience: {plan.get("audience") or "未指定"}',
     f'- Scenario: {plan.get("scenario") or "未指定"}',
@@ -304,6 +337,9 @@ print(json.dumps({
     'directory': str(deck_dir),
     'deck_path': str(deck_path),
     'readme_path': str(readme_path),
+    'talk_path': str(talk_path),
+    'talk_dir': str(talk_dir),
+    'talk_files': talk_files,
     'slide_count': len(ordered),
     'planned_slide_count': len(plan.get('slides') or []),
     'missing_slide_indexes': [s.get('index') for s in (plan.get('slides') or []) if int(s.get('index', -1)) not in by_index],
@@ -332,10 +368,11 @@ description = """
 
 必须包含：
 - 生成的 deck 标题与目标受众。
-- .slide 文件路径、README 路径和输出目录。
+- .slide 文件路径、合并 talk.md 路径、talk 单页目录、README 路径和输出目录。
 - 实际生成页数和规划页数。
 - 每页标题和职责摘要。
 - 如何预览，例如 `tt slide <deck_path>`。
+- 如何使用讲稿，例如打开 assemble-deck.stdout.talk_path，或查看 assemble-deck.stdout.talk_dir 下的逐页 talk markdown。
 - 如果 assemble-deck.stdout.missing_slide_indexes 非空，明确列出缺失页并建议重跑。
 
 不要输出 JSON，不要泄露无关内部上下文。
