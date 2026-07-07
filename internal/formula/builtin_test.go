@@ -1186,20 +1186,20 @@ func TestSlideGenerateFormulaPlansLoopsAndAssemblesDeck(t *testing.T) {
 	if draft.Agent != "slide-writer" {
 		t.Fatalf("write-slides draft agent = %#v, want slide-writer", draft.Agent)
 	}
-	for _, want := range []string{"Reveal fragments", "layout_hint", "content", "speaker_notes", "观众可见文案", "本页旨在", "不是把", "我们需要让观众", "不要包含 `---`"} {
+	for _, want := range []string{"Reveal fragments", "layout_hint", "content", "speaker_notes", "talk", "视频/讲者口播", "观众可见文案", "本页旨在", "不是把", "我们需要让观众", "不要包含 `---`"} {
 		if !strings.Contains(draft.Prompt, want) {
 			t.Fatalf("write-slides draft prompt missing %q", want)
 		}
 	}
-	if draft.Validation == nil || !slices.Contains(draft.Validation.Required, "speaker_notes") {
-		t.Fatalf("write-slides draft validation = %#v, want required speaker_notes", draft.Validation)
+	if draft.Validation == nil || !slices.Contains(draft.Validation.Required, "speaker_notes") || !slices.Contains(draft.Validation.Required, "talk") {
+		t.Fatalf("write-slides draft validation = %#v, want required speaker_notes and talk", draft.Validation)
 	}
 	assemble := workflow.Graph.Nodes[ir.NodeID("assemble-deck")]
 	assembleScript, ok := assemble.Step.(steps.ScriptStep)
 	if !ok {
 		t.Fatalf("assemble-deck step = %T, want ScriptStep", assemble.Step)
 	}
-	for _, want := range []string{"deck_path", ".slide", "README.md", "chr(10)", "slide_separator", "OUTPUT_DIR", ".tt/slide-generate", "WRITE_SLIDES", "DECK_PLAN"} {
+	for _, want := range []string{"deck_path", ".slide", "README.md", "talk_path", "talk_dir", "talk_files", "chr(10)", "slide_separator", "OUTPUT_DIR", ".tt/slide-generate", "WRITE_SLIDES", "DECK_PLAN"} {
 		if !strings.Contains(assembleScript.Command[2]+assembleScript.Env["WRITE_SLIDES"]+assembleScript.Env["DECK_PLAN"], want) {
 			t.Fatalf("assemble-deck script missing %q", want)
 		}
