@@ -1146,6 +1146,13 @@ func TestSlideGenerateFormulaPlansLoopsAndAssemblesDeck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(slide-generate) error = %v", err)
 	}
+	if got := workflow.Vars["output_dir"].Default; got == nil || *got != ".tt/slide-generate" {
+		value := "<nil>"
+		if got != nil {
+			value = *got
+		}
+		t.Fatalf("slide-generate output_dir default = %q, want .tt/slide-generate", value)
+	}
 	for _, nodeID := range []ir.NodeID{"scope-analysis", "deck-plan", "write-slides", "assemble-deck", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing slide-generate node %s", nodeID)
@@ -1189,7 +1196,7 @@ func TestSlideGenerateFormulaPlansLoopsAndAssemblesDeck(t *testing.T) {
 	if !ok {
 		t.Fatalf("assemble-deck step = %T, want ScriptStep", assemble.Step)
 	}
-	for _, want := range []string{"deck_path", ".slide", "README.md", "chr(10)", "WRITE_SLIDES", "DECK_PLAN"} {
+	for _, want := range []string{"deck_path", ".slide", "README.md", "chr(10)", "slide_separator", "OUTPUT_DIR", ".tt/slide-generate", "WRITE_SLIDES", "DECK_PLAN"} {
 		if !strings.Contains(assembleScript.Command[2]+assembleScript.Env["WRITE_SLIDES"]+assembleScript.Env["DECK_PLAN"], want) {
 			t.Fatalf("assemble-deck script missing %q", want)
 		}
