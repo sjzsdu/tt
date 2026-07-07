@@ -1,0 +1,327 @@
+formula = "slide-generate"
+aliases = ["slide-generate", "slides-generate", "deck-generate"]
+title = "智能生成演示文稿"
+description = "根据用户输入的主题或模糊需求，动态澄清目标，规划 slide deck，然后逐页调用 slide-writer agent 生成内容丰富、布局明确、适合 reveal/tt-slide 渲染的 .slide 文件。"
+version = 1
+type = "workflow"
+category = "slides"
+tags = ["slides", "presentation", "deck", "slide-writer", "foreach", "dynamic-form", "reveal"]
+
+[vars]
+topic = { description = "演示文稿主题或大致需求。可以是一句话、一个主题、一次汇报目标或已有材料摘要", required = true }
+output_dir = { description = "输出根目录", default = "slides/generated" }
+deck_language = { description = "演示文稿语言", default = "简体中文" }
+template = { description = "目标 tt-slide 模板或风格提示。为空时由 planner 判断", default = "" }
+slide_count_hint = { description = "可选页数提示。为空时由 planner 根据主题复杂度判断", default = "" }
+
+[[steps]]
+id = "scope-analysis"
+title = "分析主题并按需澄清演示目标"
+form = true
+description = """
+分析用户给出的演示需求「{{topic}}」，并决定后续 slide deck 的目标、受众、场景、深度、风格和交付形态。
+
+你拥有完全自主权：是否要问、问什么、问多少、输出什么结构，全由你根据主题本身判断。
+不要套用固定字段模板，不要因为 prompt 提示了某些维度就一定要问。
+
+判断要不要追问：
+- 如果主题已经足够具体，能推断受众、场景、页数范围和风格，直接进入规划阶段，不要为了澄清而澄清。
+- 如果主题宽泛、可能用于不同场景，或者页数、听众、正式程度会显著影响结构，再发起动态表单。
+- 字段数量通常 1-4 个，最多 5 个。
+- 只问会影响 deck 结构、内容深度、视觉风格或交付目标的问题，不要问 nice-to-have。
+
+输出要求（二选一，运行时协议决定）：
+- 如果需要用户补充信息：按 dynamic human input 协议，发起 tt-human-input 表单。
+- 如果信息已经足够，或用户已完成澄清：输出 ONLY 一个 compact JSON object。
+  - JSON schema 自由决定，只包含你认为对后续步骤有用的字段。
+  - 不要 Markdown，不要代码块。
+
+注意事项：
+- 这是会驱动整个 deck 的步骤。宁可一次问清，也不要下游返工。
+- 需要考虑演示场景：教学、路演、汇报、方案评审、培训、科普、销售、复盘等。
+- 需要考虑听众知识水平、时间长度、视觉密度、是否需要图表/流程图/对比表/案例。
+- 默认输出语言使用 {{deck_language}}。
+"""
+
+[steps.agent]
+name = "planner"
+
+[steps.validate]
+format = "json"
+required = []
+
+[[steps]]
+id = "deck-plan"
+title = "规划演示文稿结构与逐页蓝图"
+depends_on = ["scope-analysis"]
+input_context = ["scope-analysis"]
+description = """
+基于 scope-analysis 中你自己决定保留的字段，为「{{topic}}」规划一个完整 slide deck。
+
+scope-analysis 的输出结构由上一步自主决定，本步骤只需要遵守其中的范围、受众、场景、深度和风格约束。
+不要假设固定字段名。
+
+输出 ONLY compact JSON object，不要 Markdown，不要代码块：
+{
+  "deck_name":"safe-lower-kebab-case",
+  "deck_title":"...",
+  "subtitle":"...",
+  "audience":"...",
+  "scenario":"...",
+  "language":"{{deck_language}}",
+  "style_direction":"...",
+  "template_hint":"...",
+  "narrative_arc":["..."],
+  "slides":[
+    {
+      "index":1,
+      "filename":"deck-name.slide",
+      "title":"...",
+      "role":"cover|agenda|concept|analysis|evidence|diagram|case|comparison|workflow|summary|closing",
+      "objective":"这一页要完成什么",
+      "key_message":"这一页观众必须带走的一句话",
+      "content_brief":["..."],
+      "layout_hint":"cover|center|two-column|split|grid|cards|hero|media-left|media-right|default",
+      "visual_hint":"建议使用的图、表、Mermaid、Reveal fragment/auto-animate 或视觉元素",
+      "speaker_intent":"讲这一页时要表达的节奏和重点"
+    }
+  ],
+  "global_design_notes":["..."],
+  "open_questions":["..."]
+}
+
+规划要求：
+- slide 数量由需求复杂度决定。普通主题 6-10 页，短分享 4-6 页，系统课程或方案可 10-18 页；如果 {{slide_count_hint}} 非空，尽量遵守。
+- 每页边界清晰，不要多个目标挤在一页。
+- 必须包含封面和收束页；中间结构要形成叙事弧，不是资料堆叠。
+- 每页都要给出 layout_hint 和 visual_hint，方便 slide-writer 生成丰富页面。
+- 鼓励使用 tt-slide 支持的语义布局：.center、.split、.two-column、.grid、.cards、.hero、media-left/media-right。
+- 如适合，可规划 Mermaid、表格、Reveal fragments、data-auto-animate、重点高亮，但不要滥用。
+- deck_name 只允许小写字母、数字、连字符，控制在 48 字符以内。
+- deck_title 中文不超过 24 字，英文不超过 12 个单词。
+"""
+
+[steps.agent]
+name = "planner"
+
+[steps.validate]
+format = "json"
+required = ["deck_name", "deck_title", "slides"]
+
+[[steps]]
+id = "write-slides"
+title = "逐页撰写 slide 内容"
+depends_on = ["deck-plan"]
+
+  [steps.loop]
+  for_each = "deck-plan.slides"
+  var = "slide"
+  parallel = true
+  max_concurrency = 4
+
+  [[steps.loop.body]]
+  id = "draft"
+  title = "撰写第 {{slide.index}} 页：{{slide.title}}"
+  input_context = ["scope-analysis", "deck-plan.deck_title", "deck-plan.subtitle", "deck-plan.audience", "deck-plan.scenario", "deck-plan.style_direction", "deck-plan.template_hint", "deck-plan.narrative_arc", "deck-plan.global_design_notes", "deck-plan.slides", "slide"]
+  description = """
+你是 slide-writer agent。请只撰写当前这一页 slide 的 .slide 片段，不要写整套 deck。
+
+当前页对象可通过上下文 slide 读取。全局 deck 信息来自 deck-plan。
+
+写作目标：
+- 让这一页能独立承担 slide.objective。
+- 页面内容要服务 slide.key_message，不堆砌材料。
+- 充分考虑内容、布局、显示效果、演示节奏。
+- 输出必须可被 tt-slide/reveal 渲染。
+
+允许使用的表达：
+- Markdown 标题、列表、引用、表格、强调。
+- tt-slide 语义布局指令：.center、.split、.two-column、.grid、.cards、.hero、.media-left、.media-right 等。
+- Mermaid 图表，只有确实提升理解时使用。
+- Reveal fragments，例如 `<li class="fragment fade-in">...</li>`。
+- 少量 raw Reveal section 属性或 data-auto-animate，但不要把整页写成复杂不可维护 HTML。
+
+输出 ONLY compact JSON object，不要 Markdown 代码块，不要额外解释：
+{"index":{{slide.index}},"title":"{{slide.title}}","summary":"这一页讲什么","content":"完整 .slide 单页 Markdown 片段"}
+
+硬性要求：
+- index 必须等于 slide.index。
+- title 必须等于 slide.title，除非原标题明显过长，可压缩但保留含义。
+- content 只包含单页内容，不要包含 `---` 分隔符。
+- content 第一行通常是 `# <标题>`，封面页可使用更适合的 cover 写法。
+- 根据 slide.layout_hint 选择合适布局指令。不要所有页面都默认普通列表。
+- 如果使用 fragments，确保 HTML 标签闭合。
+- 如果使用 Mermaid，代码块必须完整闭合。
+- 控制单页密度。页面可讲、可看、可演示，不要写成长文章。
+- 使用 {{deck_language}}。
+"""
+
+  [steps.loop.body.agent]
+  name = "slide-writer"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["index", "title", "summary", "content"]
+
+[[steps]]
+id = "assemble-deck"
+title = "组装 .slide 文件与元数据"
+depends_on = ["deck-plan", "write-slides"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, pathlib, re
+
+
+def load_json(value, default):
+    try:
+        if not value or value.lstrip().startswith('{{'):
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def safe_slug(value, fallback='deck'):
+    value = str(value or '').lower().strip()
+    value = re.sub(r'[^a-z0-9-]+', '-', value)
+    value = re.sub(r'-+', '-', value).strip('-')
+    return (value or fallback)[:48]
+
+
+def extract_items(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        for key in ('items', 'results', 'outputs', 'data'):
+            if isinstance(value.get(key), list):
+                return value[key]
+    return []
+
+plan = load_json(os.environ.get('DECK_PLAN', ''), {})
+slide_outputs = extract_items(load_json(os.environ.get('WRITE_SLIDES', ''), []))
+output_dir = pathlib.Path(os.environ.get('OUTPUT_DIR') or 'slides/generated')
+deck_name = safe_slug(plan.get('deck_name') or plan.get('deck_title') or 'deck')
+deck_dir = output_dir / deck_name
+deck_dir.mkdir(parents=True, exist_ok=True)
+deck_path = deck_dir / f'{deck_name}.slide'
+readme_path = deck_dir / 'README.md'
+
+by_index = {}
+for item in slide_outputs:
+    if not isinstance(item, dict):
+        continue
+    # Loop outputs may wrap the body output under draft/stdout depending on runtime shape.
+    candidates = [item]
+    for key in ('draft', 'stdout', 'output', 'result'):
+        if isinstance(item.get(key), dict):
+            candidates.append(item[key])
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        idx = candidate.get('index')
+        content = candidate.get('content')
+        if idx is not None and content:
+            try:
+                by_index[int(idx)] = candidate
+            except Exception:
+                pass
+
+ordered = []
+for spec in plan.get('slides') or []:
+    try:
+        idx = int(spec.get('index'))
+    except Exception:
+        continue
+    item = by_index.get(idx)
+    if item:
+        ordered.append(item)
+
+# Include any extra generated pages not represented in plan, keeping stable order.
+for idx in sorted(by_index):
+    if not any(int(page.get('index', -1)) == idx for page in ordered):
+        ordered.append(by_index[idx])
+
+frontmatter = [
+    '---',
+    f'title: {plan.get("deck_title") or deck_name}',
+]
+if plan.get('template_hint') or os.environ.get('TEMPLATE'):
+    frontmatter.append(f'template: {os.environ.get("TEMPLATE") or plan.get("template_hint")}')
+frontmatter.extend(['---', ''])
+
+parts = []
+for page in ordered:
+    content = str(page.get('content') or '').strip()
+    content = re.sub(r'^---\\s*$', '', content, flags=re.M).strip()
+    if content:
+        parts.append(content)
+
+NL = chr(10)
+deck_content = NL.join(frontmatter) + NL + NL + ('---' + NL + NL).join(parts) + NL
+deck_path.write_text(deck_content, encoding='utf-8')
+
+readme = [
+    f'# {plan.get("deck_title") or deck_name}',
+    '',
+]
+if plan.get('subtitle'):
+    readme.extend([str(plan.get('subtitle')), ''])
+readme.extend([
+    f'- Deck: `{deck_path}`',
+    f'- Slides: {len(ordered)}',
+    f'- Audience: {plan.get("audience") or "未指定"}',
+    f'- Scenario: {plan.get("scenario") or "未指定"}',
+    '',
+    '## Slide list',
+])
+for page in ordered:
+    readme.append(f'- {page.get("index")}. {page.get("title")}: {page.get("summary") or ""}')
+readme_path.write_text(NL.join(readme) + NL, encoding='utf-8')
+
+print(json.dumps({
+    'deck_name': deck_name,
+    'directory': str(deck_dir),
+    'deck_path': str(deck_path),
+    'readme_path': str(readme_path),
+    'slide_count': len(ordered),
+    'planned_slide_count': len(plan.get('slides') or []),
+    'missing_slide_indexes': [s.get('index') for s in (plan.get('slides') or []) if int(s.get('index', -1)) not in by_index],
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+DECK_PLAN = "{{deck-plan}}"
+WRITE_SLIDES = "{{write-slides}}"
+OUTPUT_DIR = "{{output_dir}}"
+TEMPLATE = "{{template}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "final-report"
+title = "验收并说明生成结果"
+depends_on = ["assemble-deck"]
+input_context = ["scope-analysis", "deck-plan", "assemble-deck.stdout"]
+description = """
+基于 scope-analysis、deck-plan 和 assemble-deck.stdout，输出中文 Markdown 验收报告。
+
+必须包含：
+- 生成的 deck 标题与目标受众。
+- .slide 文件路径、README 路径和输出目录。
+- 实际生成页数和规划页数。
+- 每页标题和职责摘要。
+- 如何预览，例如 `tt slide <deck_path>`。
+- 如果 assemble-deck.stdout.missing_slide_indexes 非空，明确列出缺失页并建议重跑。
+
+不要输出 JSON，不要泄露无关内部上下文。
+"""
+
+[steps.agent]
+name = "slide-writer"

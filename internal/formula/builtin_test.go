@@ -1139,6 +1139,63 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	}
 }
 
+func TestSlideGenerateFormulaPlansLoopsAndAssemblesDeck(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "slide-generate", nil, map[string]string{
+		"topic": "用易经解释创业失败后的破局",
+	})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(slide-generate) error = %v", err)
+	}
+	for _, nodeID := range []ir.NodeID{"scope-analysis", "deck-plan", "write-slides", "assemble-deck", "final-report"} {
+		if workflow.Graph.Nodes[nodeID] == nil {
+			t.Fatalf("missing slide-generate node %s", nodeID)
+		}
+	}
+	deckPlan := workflow.Graph.Nodes[ir.NodeID("deck-plan")]
+	deckAgent, ok := deckPlan.Step.(steps.AgentStep)
+	if !ok {
+		t.Fatalf("deck-plan step = %T, want AgentStep", deckPlan.Step)
+	}
+	for _, want := range []string{"deck_name", "deck_title", "slides", "layout_hint", "visual_hint", "{{slide_count_hint}}"} {
+		if !strings.Contains(deckAgent.Prompt, want) {
+			t.Fatalf("deck-plan prompt missing %q", want)
+		}
+	}
+	writeSlides := workflow.Graph.Nodes[ir.NodeID("write-slides")]
+	loop, ok := writeSlides.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("write-slides step = %T, want LoopStep", writeSlides.Step)
+	}
+	if loop.ForEach != "deck-plan.slides" || loop.Var != "slide" {
+		t.Fatalf("write-slides loop = for_each %q var %q, want deck-plan.slides/slide", loop.ForEach, loop.Var)
+	}
+	if len(loop.Body) != 1 {
+		t.Fatalf("write-slides body len = %d, want 1", len(loop.Body))
+	}
+	draft, ok := loop.Body[0].(steps.AgentStep)
+	if !ok {
+		t.Fatalf("write-slides body[0] = %T, want AgentStep", loop.Body[0])
+	}
+	if draft.Agent != "slide-writer" {
+		t.Fatalf("write-slides draft agent = %#v, want slide-writer", draft.Agent)
+	}
+	for _, want := range []string{"Reveal fragments", "layout_hint", "content", "不要包含 `---`"} {
+		if !strings.Contains(draft.Prompt, want) {
+			t.Fatalf("write-slides draft prompt missing %q", want)
+		}
+	}
+	assemble := workflow.Graph.Nodes[ir.NodeID("assemble-deck")]
+	assembleScript, ok := assemble.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("assemble-deck step = %T, want ScriptStep", assemble.Step)
+	}
+	for _, want := range []string{"deck_path", ".slide", "README.md", "chr(10)", "WRITE_SLIDES", "DECK_PLAN"} {
+		if !strings.Contains(assembleScript.Command[2]+assembleScript.Env["WRITE_SLIDES"]+assembleScript.Env["DECK_PLAN"], want) {
+			t.Fatalf("assemble-deck script missing %q", want)
+		}
+	}
+}
+
 func TestBuiltinFormulaAliasesAreCataloged(t *testing.T) {
 	entries, err := BuiltinFormulas()
 	if err != nil {
@@ -1178,6 +1235,8 @@ func builtinCompileSmokeVars(name string) map[string]string {
 		return map[string]string{"url": "https://example.com"}
 	case "web-feature-test":
 		return map[string]string{"url": "https://example.com", "prompt": "smoke feature test"}
+	case "slide-generate":
+		return map[string]string{"topic": "smoke slide deck"}
 	case "github-pr-review", "github-pr-fix-comments", "github-pr-rebase-main":
 		return map[string]string{"pr_ref": "1"}
 	case "code-docs":
