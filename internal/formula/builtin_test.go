@@ -1086,8 +1086,8 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !slices.Contains(testLoop.Meta().DependsOn, steps.ID("gate-runnable-cases")) {
 		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
 	}
-	testLoopSource := testLoop.Command[2] + testLoop.Env["GATE_RUNNABLE_CASES"] + testLoop.Env["PREPARE_BROWSER_SESSION"]
-	for _, want := range []string{"agent-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_SESSION_NAME", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
+	testLoopSource := testLoop.Command[2] + testLoop.Env["GATE_RUNNABLE_CASES"] + testLoop.Env["PREPARE_BROWSER_SESSION"] + testLoop.Env["VISION_VERIFY"] + testLoop.Env["VISION_MODEL"]
+	for _, want := range []string{"agent-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "bl", "vision", "describe", "visual_verification", "vision_verify", "VISION_VERIFY", "VISION_MODEL", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_SESSION_NAME", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
 		if !strings.Contains(testLoopSource, want) {
 			t.Fatalf("test-loop script missing %q", want)
 		}
@@ -1132,7 +1132,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !ok {
 		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
 	}
-	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵"} {
+	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵", "visual_verification", "视觉模型"} {
 		if !strings.Contains(finalAgent.Prompt, want) {
 			t.Fatalf("final-report prompt missing %q", want)
 		}

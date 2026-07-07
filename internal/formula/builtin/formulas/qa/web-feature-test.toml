@@ -19,6 +19,8 @@ reset = { description = "是否清空该套件历史状态重新开始：true/fa
 only_failed = { description = "是否只运行历史失败/阻塞/未知/未完成用例：true/false", default = "false" }
 max_cases = { description = "本次最多执行多少个测试用例", default = "20", pattern = "^[1-9][0-9]*$" }
 screenshot_mode = { description = "截图策略：all/failures/none", default = "failures" }
+vision_verify = { description = "是否对截图启用百炼视觉模型验收：true/false。适合 canvas/WebGL 场景", default = "false" }
+vision_model = { description = "百炼视觉模型名称，用于 bl vision describe", default = "qwen3-vl-plus" }
 max_concurrency = { description = "兼容旧配置的保留变量；当前执行阶段使用单次 agent 调用顺序跑全部用例，以避免多次 LLM agent 调用触发 provider cooldown", default = "1", pattern = "^[1-9][0-9]*$" }
 browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
 browser_headed = { description = "是否显示 Chrome 窗口；默认 false 静默测试，调试时可设 true", default = "false" }
@@ -158,7 +160,7 @@ session_digest = hashlib.sha1(session_seed.encode('utf-8')).hexdigest()[:10]
 session_prefix = sanitize_browser_session_name(browser_session_name_input or 'webft')[:20]
 browser_session_name = f'{session_prefix}-{session_digest}'
 browser_socket_dir = f'/tmp/tt-ab-{session_digest}'
-state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors}
+state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'vision_verify': os.environ.get('VISION_VERIFY','false').lower() == 'true', 'vision_model': os.environ.get('VISION_MODEL','qwen3-vl-plus'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors}
 state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
 print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
@@ -177,6 +179,8 @@ ONLY_FAILED = "{{only_failed}}"
 MAX_CASES = "{{max_cases}}"
 SCREENSHOT_MODE = "{{screenshot_mode}}"
 MAX_CONCURRENCY = "{{max_concurrency}}"
+VISION_VERIFY = "{{vision_verify}}"
+VISION_MODEL = "{{vision_model}}"
 BROWSER_SESSION_NAME = "{{browser_session_name}}"
 IGNORE_HTTPS_ERRORS = "{{ignore_https_errors}}"
 
@@ -537,7 +541,7 @@ idempotent = true
 
 [steps.script]
 command = ["python3", "-c", """
-import json, os, pathlib, re, subprocess, time
+import json, os, pathlib, re, shutil, subprocess, time
 
 
 def load_json(value, default):
@@ -765,6 +769,104 @@ def execute_action(action, case_id, step_index):
     }
 
 
+def latest_screenshot_artifact(artifacts):
+    for artifact in reversed(artifacts or []):
+        if not isinstance(artifact, dict) or artifact.get('type') != 'screenshot':
+            continue
+        path = pathlib.Path(str(artifact.get('path') or ''))
+        if not path.is_absolute():
+            path = pathlib.Path.cwd() / path
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
+def ensure_final_screenshot(case_id, artifacts, evidence):
+    existing = latest_screenshot_artifact(artifacts)
+    if existing:
+        return existing
+    shot = pathlib.Path(screenshots_dir) / f'{case_id}-vision-final.png'
+    r = run_ab(['screenshot', str(shot)], timeout=30)
+    evidence.append(r['cmd'] + ' -> ' + ('ok' if r['ok'] else compact(r['stderr'] or r['stdout'])))
+    if r['ok'] and shot.exists():
+        artifacts.append({'type': 'screenshot', 'path': str(shot), 'description': f'{case_id} final screenshot for vision verification'})
+        return shot
+    return None
+
+
+def parse_vision_json(text):
+    raw = str(text or '').strip()
+    if not raw:
+        return None
+    for candidate in [raw, raw[raw.find('{'):raw.rfind('}') + 1] if '{' in raw and '}' in raw else '']:
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                if isinstance(parsed.get('data'), dict):
+                    return parsed['data']
+                if isinstance(parsed.get('data'), str):
+                    nested = parse_vision_json(parsed.get('data'))
+                    if isinstance(nested, dict):
+                        return nested
+                    parsed['raw_output'] = parsed.get('data')
+                return parsed
+        except Exception:
+            pass
+    return None
+
+
+def verify_case_with_vision(case, artifacts, evidence, overall):
+    if not vision_verify:
+        return None, overall
+    cid = case.get('id') or 'unknown-case'
+    shot = ensure_final_screenshot(cid, artifacts, evidence)
+    if not shot:
+        return {'enabled': True, 'status': 'unavailable', 'reason': 'no screenshot available for visual verification'}, overall
+    if not shutil.which('bl'):
+        return {'enabled': True, 'status': 'unavailable', 'screenshot': str(shot), 'reason': 'bl CLI not found'}, overall
+    prompt_text = f'''
+你是 WebGL/canvas 页面测试验收员。请只根据截图判断本用例的视觉结果是否满足预期。
+
+测试用例：{case.get('id') or ''} {case.get('title') or ''}
+测试目标：{case.get('objective') or ''}
+预期结果：{case.get('expected_result') or ''}
+覆盖点：{json.dumps(case.get('coverage_ids') or [], ensure_ascii=False)}
+
+请输出 ONLY JSON，不要 Markdown：
+{{"verdict":"passed|failed|uncertain","confidence":0.0,"reason":"简短中文原因","observations":["截图中可见的关键证据"]}}
+
+判断规则：
+- 如果截图清楚显示预期已经满足，verdict=passed。
+- 如果截图清楚显示预期没有满足或出现错误，verdict=failed。
+- 如果截图无法判断、内容被遮挡、还在 loading、需要交互后的动态状态但截图证据不足，verdict=uncertain。
+'''.strip()
+    try:
+        proc = subprocess.run(['bl', 'vision', 'describe', '--image', str(shot), '--prompt', prompt_text, '--model', vision_model, '--output', 'json', '--quiet', '--non-interactive'], cwd=os.getcwd(), env=os.environ.copy(), text=True, capture_output=True, timeout=90)
+    except Exception as exc:
+        return {'enabled': True, 'status': 'unavailable', 'screenshot': str(shot), 'reason': 'vision command failed: ' + compact(exc)}, overall
+    parsed = parse_vision_json(proc.stdout)
+    if parsed is None:
+        parsed = {'raw_output': compact(proc.stdout or proc.stderr, 2000)}
+    verdict = str(parsed.get('verdict') or parsed.get('status') or '').lower().strip()
+    if verdict not in ('passed', 'failed', 'uncertain'):
+        lower = json.dumps(parsed, ensure_ascii=False).lower()
+        if 'passed' in lower or '通过' in lower or '满足' in lower:
+            verdict = 'passed'
+        elif 'failed' in lower or '失败' in lower or '不满足' in lower:
+            verdict = 'failed'
+        else:
+            verdict = 'uncertain'
+    visual = {'enabled': True, 'status': verdict, 'screenshot': str(shot), 'model': vision_model, 'exit_code': proc.returncode, 'reason': parsed.get('reason') or parsed.get('raw_output') or '', 'observations': parsed.get('observations') or [], 'raw': parsed}
+    evidence.append('vision verification -> ' + verdict + ': ' + compact(visual.get('reason')))
+    if verdict == 'failed':
+        overall = 'failed'
+    elif verdict == 'passed' and overall in ('passed', 'blocked'):
+        overall = 'passed'
+    return visual, overall
+
+
 gate = load_json(os.environ.get('GATE_RUNNABLE_CASES', ''), {})
 prepared = load_json(os.environ.get('PREPARE_BROWSER_SESSION', ''), {})
 init_state = load_json(os.environ.get('INIT_TEST_STATE', ''), {})
@@ -775,6 +877,8 @@ session_name = prepared.get('browser_session_name') or init_state.get('browser_s
 socket_dir = init_state.get('browser_socket_dir') or ''
 screenshots_dir = pathlib.Path(init_state.get('screenshots_dir') or '.tt/web-feature-test/screenshots')
 screenshots_dir.mkdir(parents=True, exist_ok=True)
+vision_verify = os.environ.get('VISION_VERIFY', 'false').lower() == 'true'
+vision_model = os.environ.get('VISION_MODEL') or init_state.get('vision_model') or 'qwen3-vl-plus'
 
 env = os.environ.copy()
 env['AGENT_BROWSER_ENGINE'] = os.environ.get('BROWSER_ENGINE') or 'chrome'
@@ -814,8 +918,12 @@ for case in cases:
         overall = 'blocked'
         evidence.append('case has no executable operation_path')
     final_url = get_current_url()
+    visual_verification, overall = verify_case_with_vision(case, artifacts, evidence, overall)
     cov_status = overall
-    coverage_results = [{'coverage_id': cov, 'status': cov_status, 'expected': case.get('expected_result') or '', 'actual': 'deterministic runner status: ' + overall, 'evidence': evidence[-8:]} for cov in (case.get('coverage_ids') or [])]
+    coverage_actual = 'deterministic runner status: ' + overall
+    if visual_verification:
+        coverage_actual += '; visual verification: ' + str(visual_verification.get('status'))
+    coverage_results = [{'coverage_id': cov, 'status': cov_status, 'expected': case.get('expected_result') or '', 'actual': coverage_actual, 'evidence': evidence[-8:], 'visual_verification': visual_verification} for cov in (case.get('coverage_ids') or [])]
     results.append({
         'case_id': cid,
         'status': overall,
@@ -825,11 +933,12 @@ for case in cases:
         'operation_path': op_results,
         'expected_result': case.get('expected_result') or '',
         'actual_result': 'deterministic action runner completed with status ' + overall,
+        'visual_verification': visual_verification,
         'evidence': evidence,
         'artifacts': artifacts,
         'failure_reason': '' if overall == 'passed' else 'one or more deterministic actions failed or were blocked',
         'safe_to_rerun': True,
-        'notes': 'Executed by script-based action runner. Visual/canvas-only assertions without selectors are blocked for manual or vision review.'
+        'notes': 'Executed by script-based action runner. Visual/canvas assertions are verified from screenshots when vision_verify=true; otherwise they remain manual/blocked.'
     })
 
 print(json.dumps(results, ensure_ascii=False))
@@ -847,6 +956,8 @@ BROWSER_ENGINE = "{{browser_engine}}"
 BROWSER_HEADED = "{{browser_headed}}"
 BROWSER_EXECUTABLE_PATH = "{{browser_executable_path}}"
 WEBGL_BROWSER_ARGS = "{{webgl_browser_args}}"
+VISION_VERIFY = "{{vision_verify}}"
+VISION_MODEL = "{{vision_model}}"
 
 [steps.validate]
 format = "json"
@@ -1140,7 +1251,7 @@ description = """
 列 URL、测试提示摘要、是否加载 context_doc、登录策略摘要、禁止动作。不要泄露密码。
 
 ## 用例执行明细
-逐条列出 case id、标题、状态、start_url/final_url、关键操作路径摘要、实际/预期结果、失败原因、截图或其他产物路径。
+逐条列出 case id、标题、状态、start_url/final_url、关键操作路径摘要、实际/预期结果、失败原因、截图或其他产物路径。若存在 visual_verification，必须列出视觉模型状态、截图路径、模型、原因和关键 observations。
 
 ## 17 个提示检查点覆盖矩阵
 必须按 load-final-state.stdout.coverage_points 逐项列出：coverage id、提示原文/预期、关联 case、状态、实际结果/证据。不要只汇总 case，必须说明每个提示点有没有通过。
@@ -1154,6 +1265,7 @@ description = """
 要求：
 - 不要泄露 .tt 文档中的密码、token、cookie；
 - 不要把 blocked/unknown 说成 passed；
+- 对 canvas/WebGL 结果，优先解释 visual_verification；如果 status=uncertain/unavailable，明确说明截图证据不足或百炼视觉不可用；
 - 路径和状态必须足够让用户查看产物并复跑。
 """
 agent.name = "reporter"
