@@ -102,6 +102,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const deckRef = useRef<Reveal.Api | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const overviewListRef = useRef<HTMLDivElement>(null);
   const currentFileRef = useRef(currentFile);
   currentFileRef.current = currentFile;
 
@@ -330,6 +331,16 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       document.removeEventListener('webkitfullscreenchange', updateStageScale);
     };
   }, []);
+
+  useEffect(() => {
+    if (!showOverview) return;
+    const timeout = window.setTimeout(() => {
+      const activeIndex = deckRef.current?.getIndices().h ?? currentSlideIndex;
+      const activeItem = overviewListRef.current?.querySelector<HTMLElement>(`[data-slide-index="${activeIndex}"]`);
+      activeItem?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [showOverview, currentSlideIndex]);
 
   const selectFile = useCallback((path: string) => {
     setCurrentFile(path);
@@ -779,7 +790,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
           </div>
           {overviewError && <div className="slide-overview-error">{overviewError}</div>}
           {isReordering && <div className="slide-overview-saving">正在保存排序…</div>}
-          <div className="slide-overview-list">
+          <div className="slide-overview-list" ref={overviewListRef}>
             {slides.map((slide) => {
               const isActive = deckRef.current?.getIndices().h === slide.index;
               const isDragging = draggedSlideIndex === slide.index;
@@ -790,6 +801,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                   tabIndex={0}
                   draggable={!contentMode && !!currentFile && !isReordering}
                   className={`slide-overview-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${draggedSlideIndex != null && !isDragging ? 'drop-ready' : ''}`}
+                  data-slide-index={slide.index}
                   onDragStart={(event) => handleOverviewDragStart(event, slide.index)}
                   onDragOver={(event) => {
                     if (draggedSlideIndex == null || draggedSlideIndex === slide.index) return;
