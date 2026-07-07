@@ -1186,10 +1186,13 @@ func TestSlideGenerateFormulaPlansLoopsAndAssemblesDeck(t *testing.T) {
 	if draft.Agent != "slide-writer" {
 		t.Fatalf("write-slides draft agent = %#v, want slide-writer", draft.Agent)
 	}
-	for _, want := range []string{"Reveal fragments", "layout_hint", "content", "不要包含 `---`"} {
+	for _, want := range []string{"Reveal fragments", "layout_hint", "content", "speaker_notes", "观众可见文案", "本页旨在", "不是把", "我们需要让观众", "不要包含 `---`"} {
 		if !strings.Contains(draft.Prompt, want) {
 			t.Fatalf("write-slides draft prompt missing %q", want)
 		}
+	}
+	if draft.Validation == nil || !slices.Contains(draft.Validation.Required, "speaker_notes") {
+		t.Fatalf("write-slides draft validation = %#v, want required speaker_notes", draft.Validation)
 	}
 	assemble := workflow.Graph.Nodes[ir.NodeID("assemble-deck")]
 	assembleScript, ok := assemble.Step.(steps.ScriptStep)
