@@ -13,6 +13,7 @@ transition: fade
 
 ---
 
+.full-bleed
 ```widget
 type: bianyao
 name: 01 乾
