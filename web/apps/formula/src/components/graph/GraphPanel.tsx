@@ -234,6 +234,7 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
       lineWidth: edgeData.kind === 'loop-expand' ? 2.4 : 1.8,
       endArrow: true,
       endArrowSize: 8,
+      lineDash: edgeData.kind === 'loop-expand' ? [9, 5] : [4, 5],
       opacity: edgeData.kind === 'loop-expand' ? 0.86 : 1,
     };
   }
@@ -434,7 +435,7 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>Background</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
               <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
               <li><b>Edges</b>: solid lines show execution dependencies; the target step waits for or follows the source step.</li>
-              <li><b>Purple edges</b>: loop expansion or loop-body flow, connecting a loop step to its expanded internal steps.</li>
+              <li><b>Purple dashed edges</b>: loop expansion or loop-body flow; loop bodies are shown as a relatively independent subgraph.</li>
               <li><b>Cyan edges</b>: variable consumption, meaning the target step references a formula var such as <b>{'{{repo}}'}</b>.</li>
               <li><b>Hover</b>: hover a node to highlight related upstream/downstream edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
