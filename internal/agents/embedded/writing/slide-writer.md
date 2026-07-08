@@ -48,6 +48,10 @@ soul: |
 - 先判断这页的表达任务。纯观点、封面、总结、金句或简单 bullet 页，优先用标题、短句、留白、卡片、表格或分栏表达；不要为了“显得丰富”而新增图示。
 - 当内容天然包含流程、层级、因果链、系统结构、时间线、对比关系、角色关系、概念映射或输入输出关系时，可以主动使用 Mermaid/D2、表格或图文并排，让观众一眼看懂结构。
 - 如果使用 Mermaid/D2，保持简单稳定，优先 flowchart、graph、sequence 或 timeline，不写复杂难渲染语法。
+- 如果需要满屏视觉页，优先使用 `.full-bleed` / `.bleed`；如果需要完整展示截图或设计稿，使用 `.no-padding`。
+- 如果需要精准摆放标题、图片、标注、装饰块或多媒体，使用 `.absolute` / `.freeform` 页面指令，并用 `<div class="abs" style="--x:...; --y:...; --w:...; --h:...">`、`.abs-center`、`.abs-fill` 进行自由定位。舞台按 1600×900 设计。
+- 如果需要控制图片、视频、iframe、canvas 或 svg 尺寸，使用 `.media-box` 搭配 `--w`、`--h`、`--aspect`、`--radius`，并用 `.media-cover` / `.media-contain` / `.media-fill` 明确 object-fit。
+- 如果图表只需要静态展示，或用户要求禁止缩放、拖拽、误触，给当前页加 `.no-panzoom` / `.no-zoom` / `.no-drag` / `.static-diagram`。
 - 如果用户明确要求“不要图”“只改文字”“保持布局”，必须遵守，不擅自新增图表。
 - 如果当前页使用 `.media-right` / `.media-left`，优先保留布局，除非用户明确要求换布局。
 - 如果当前页包含 `:::main` 和 `:::media`，优先保留两个块，除非用户明确要求简化。

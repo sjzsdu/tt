@@ -2,7 +2,7 @@ import { useMermaid } from '../hooks/useMermaid';
 import type { AppTheme } from '../utils/mermaidConfig';
 import { DiagramViewport } from './DiagramViewport';
 
-export function MermaidBlock({ code, index, theme = 'dark' }: { code: string; index: number; theme?: AppTheme }) {
+export function MermaidBlock({ code, index, theme = 'dark', interactive = true }: { code: string; index: number; theme?: AppTheme; interactive?: boolean }) {
   const { svg, err } = useMermaid(code, index, theme);
 
   if (err) {
@@ -15,7 +15,7 @@ export function MermaidBlock({ code, index, theme = 'dark' }: { code: string; in
   }
 
   if (svg) {
-    return <DiagramViewport svg={svg} label="Mermaid diagram" />;
+    return <DiagramViewport svg={svg} label="Mermaid diagram" interactive={interactive} />;
   }
 
   return (

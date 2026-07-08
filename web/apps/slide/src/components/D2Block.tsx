@@ -1,7 +1,7 @@
 import { useD2 } from '../hooks/useD2';
 import { DiagramViewport } from './DiagramViewport';
 
-export function D2Block({ code, index, theme = 'dark' }: { code: string; index: number; theme?: 'light' | 'dark' }) {
+export function D2Block({ code, index, theme = 'dark', interactive = true }: { code: string; index: number; theme?: 'light' | 'dark'; interactive?: boolean }) {
   const { svg, err } = useD2(code, index, theme);
 
   if (err) {
@@ -14,7 +14,7 @@ export function D2Block({ code, index, theme = 'dark' }: { code: string; index: 
   }
 
   if (svg) {
-    return <DiagramViewport svg={svg} label="D2 diagram" />;
+    return <DiagramViewport svg={svg} label="D2 diagram" interactive={interactive} />;
   }
 
   return (

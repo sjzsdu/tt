@@ -4,6 +4,7 @@ import type { PointerEvent, WheelEvent } from 'react';
 type DiagramViewportProps = {
   svg: string;
   label: string;
+  interactive?: boolean;
 };
 
 const MIN_SCALE = 0.25;
@@ -48,7 +49,7 @@ function normalizeSvgViewBox(svgElement: SVGSVGElement) {
   }
 }
 
-export function DiagramViewport({ svg, label }: DiagramViewportProps) {
+export function DiagramViewport({ svg, label, interactive = true }: DiagramViewportProps) {
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const svgRef = useRef<HTMLDivElement>(null);
@@ -87,18 +88,20 @@ export function DiagramViewport({ svg, label }: DiagramViewportProps) {
   }, []);
 
   const onWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    if (!interactive) return;
     event.preventDefault();
     event.stopPropagation();
     zoomBy(event.deltaY < 0 ? SCALE_STEP : -SCALE_STEP);
-  }, [zoomBy]);
+  }, [interactive, zoomBy]);
 
   const onPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (!interactive) return;
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
     event.preventDefault();
     event.stopPropagation();
-  }, [pan]);
+  }, [interactive, pan]);
 
   const onPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -118,15 +121,17 @@ export function DiagramViewport({ svg, label }: DiagramViewportProps) {
 
   return (
     <div className="slide-diagram">
-      <div className="diagram-viewport" aria-label={label} onWheel={onWheel} onDoubleClick={reset}>
-        <div className="diagram-toolbar" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={() => zoomBy(-SCALE_STEP)} title="Zoom out">−</button>
-          <span>{Math.round(scale * 100)}%</span>
-          <button type="button" onClick={() => zoomBy(SCALE_STEP)} title="Zoom in">＋</button>
-          <button type="button" onClick={reset} title="Reset pan and zoom">Reset</button>
-        </div>
+      <div className={`diagram-viewport ${interactive ? 'diagram-viewport-interactive' : 'diagram-viewport-static'}`} aria-label={label} onWheel={onWheel} onDoubleClick={interactive ? reset : undefined}>
+        {interactive && (
+          <div className="diagram-toolbar" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+            <button type="button" onClick={() => zoomBy(-SCALE_STEP)} title="Zoom out">−</button>
+            <span>{Math.round(scale * 100)}%</span>
+            <button type="button" onClick={() => zoomBy(SCALE_STEP)} title="Zoom in">＋</button>
+            <button type="button" onClick={reset} title="Reset pan and zoom">Reset</button>
+          </div>
+        )}
         <div
-          className={`diagram-panzoom ${dragRef.current ? 'dragging' : ''}`}
+          className={`diagram-panzoom ${interactive ? 'diagram-panzoom-interactive' : 'diagram-panzoom-static'} ${dragRef.current ? 'dragging' : ''}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
