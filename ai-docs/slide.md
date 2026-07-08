@@ -180,7 +180,37 @@ tt slide deck.slide --template my-template
 | `.split` | 左右分栏 / 图文页 |
 | `.two-column` / `.columns` | 两列内容页 |
 | `.brand` / `.logo` | 品牌页语义，由当前模板决定 logo / 品牌呈现方式 |
+| `.full-bleed` / `.bleed` | 满屏铺展页，移除 section padding，单张图片/视频/iframe/canvas/svg 会按 `object-fit: cover` 铺满 16:9 舞台，适合封面大图和沉浸式视觉页 |
+| `.no-padding` | 仅移除 section padding，单张媒体按 `object-fit: contain` 显示，不裁剪，适合需要完整显示的图表、截图或设计稿 |
 | `.end` / `.closing` / `.final` | 结束页 / 封底页语义，由当前模板决定视觉效果 |
+
+满屏视觉页示例：
+
+```markdown
+---
+
+.full-bleed
+
+![背景图](./hero.png)
+```
+
+完整截图页示例：
+
+```markdown
+---
+
+.no-padding
+
+![产品截图](./screenshot.png)
+```
+
+也可以直接使用 Reveal 原生 section class：
+
+```html
+<section class="full-bleed" data-transition="fade">
+  <img src="./hero.png" alt="">
+</section>
+```
 
 ## 结束页 / 封底页
 
