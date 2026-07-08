@@ -182,6 +182,8 @@ tt slide deck.slide --template my-template
 | `.brand` / `.logo` | 品牌页语义，由当前模板决定 logo / 品牌呈现方式 |
 | `.full-bleed` / `.bleed` | 满屏铺展页，移除 section padding，单张图片/视频/iframe/canvas/svg 会按 `object-fit: cover` 铺满 16:9 舞台，适合封面大图和沉浸式视觉页 |
 | `.no-padding` | 仅移除 section padding，单张媒体按 `object-fit: contain` 显示，不裁剪，适合需要完整显示的图表、截图或设计稿 |
+| `.absolute` / `.freeform` | 自由布局页，移除 padding，并允许页面内 `.abs` / `.abs-center` / `.abs-fill` 元素按 CSS 变量绝对定位到 1600×900 舞台任意位置 |
+| `.no-panzoom` / `.no-zoom` / `.no-drag` / `.static-diagram` | 禁用本页 Mermaid / D2 图表的滚轮缩放、拖拽平移和图表 toolbar，适合静态演示或避免误触 |
 | `.end` / `.closing` / `.final` | 结束页 / 封底页语义，由当前模板决定视觉效果 |
 
 满屏视觉页示例：
@@ -211,6 +213,63 @@ tt slide deck.slide --template my-template
   <img src="./hero.png" alt="">
 </section>
 ```
+
+自由定位页示例。舞台固定为 1600×900，`--x` / `--y` / `--w` / `--h` 可使用 px、%、vw 等 CSS 单位：
+
+```markdown
+---
+
+.absolute
+
+<div class="abs" style="--x:96px; --y:80px; --w:720px; --z:2">
+  <h1>核心判断</h1>
+  <p>一页只承载一个明确观点。</p>
+</div>
+
+<div class="abs media-box media-cover" style="--x:900px; --y:0; --w:700px; --h:900px">
+  <img src="./hero.png" alt="">
+</div>
+```
+
+常用定位类：
+
+- `.abs`：按 `--x`、`--y`、`--right`、`--bottom`、`--w`、`--h` 精确定位。
+- `.abs-center`：默认居中，可用 `--x`、`--y` 改中心点。
+- `.abs-fill`：默认铺满页面，可用 `--inset` 设置内缩。
+- 可选变量：`--z` 控制层级，`--rotate` 控制旋转，`--scale` 控制缩放，`--tx` / `--ty` 做微调。
+
+媒体尺寸控制示例：
+
+```html
+<div class="media-box media-contain" style="--w:980px; --h:560px; --radius:18px">
+  <img src="./screenshot.png" alt="产品截图">
+</div>
+```
+
+常用媒体类：
+
+- `.media-box` / `.slide-media-box`：媒体容器，用 `--w`、`--h`、`--aspect`、`--radius` 控制尺寸和圆角。
+- `.media-cover`：裁剪铺满，等价于 `object-fit: cover`。
+- `.media-contain`：完整显示，等价于 `object-fit: contain`。
+- `.media-fill` / `.media-stretch`：拉伸填满。
+- `.media-none`：原始尺寸显示。
+- `.media-16x9` / `.media-4x3` / `.media-1x1`：快速设置常见比例。
+
+禁用图表拖拽缩放示例：
+
+````markdown
+---
+
+.no-panzoom
+
+```mermaid
+graph LR
+  A[需求] --> B[设计]
+  B --> C[交付]
+```
+````
+
+`.no-panzoom` 只影响 Mermaid / D2 图表 viewport，不会禁用 Reveal 翻页。
 
 ## 结束页 / 封底页
 

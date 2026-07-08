@@ -4,6 +4,8 @@ import { D2Block } from './D2Block';
 import { renderWidgetFallback, renderWidgetTemplate, safeWidgetClassName } from '../widgets/render';
 
 export function SlideContent({ slide, theme = 'dark', widgets = {} }: { slide: SlideData; theme?: AppTheme; widgets?: SlideWidgetRegistry }) {
+  const diagramInteractive = !/\b(?:slide-)?(?:no-panzoom|no-zoom|no-drag|static-diagram)\b/.test(slide.class || '');
+
   return (
     <div className="slide-content">
       {slide.parts.map((part, i) => {
@@ -17,11 +19,11 @@ export function SlideContent({ slide, theme = 'dark', widgets = {} }: { slide: S
           );
         }
         if (part.type === 'mermaid') {
-          const block = <MermaidBlock code={part.code} index={slide.index * 100 + i} theme={theme} />;
+          const block = <MermaidBlock code={part.code} index={slide.index * 100 + i} theme={theme} interactive={diagramInteractive} />;
           return part.role ? <div key={i} className={`slide-part-${part.role}`}>{block}</div> : <div key={i}>{block}</div>;
         }
         if (part.type === 'd2') {
-          const block = <D2Block code={part.code} index={slide.index * 100 + i} theme={theme} />;
+          const block = <D2Block code={part.code} index={slide.index * 100 + i} theme={theme} interactive={diagramInteractive} />;
           return part.role ? <div key={i} className={`slide-part-${part.role}`}>{block}</div> : <div key={i}>{block}</div>;
         }
         if (part.type === 'widget') {
