@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -61,6 +62,7 @@ var (
 	slideWatchMu   sync.Mutex
 
 	slideActionServices = newSlideChildServiceManager()
+	slideOpenBrowser    = openBrowser
 )
 
 var slideFormulaRunIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$`)
@@ -71,6 +73,8 @@ type slideChildService struct {
 	Kind      string
 	Target    string
 	PID       int
+	Port      int
+	URL       string
 	Command   string
 	Process   *os.Process
 	Done      chan struct{}
@@ -78,15 +82,17 @@ type slideChildService struct {
 }
 
 type slideChildServiceManager struct {
-	mu           sync.Mutex
-	services     map[string]*slideChildService
-	startProcess func(workspace string, args []string) (*exec.Cmd, string, error)
+	mu            sync.Mutex
+	services      map[string]*slideChildService
+	reservedPorts map[int]bool
+	startProcess  func(workspace string, args []string) (*exec.Cmd, string, error)
 }
 
 func newSlideChildServiceManager() *slideChildServiceManager {
 	return &slideChildServiceManager{
-		services:     make(map[string]*slideChildService),
-		startProcess: startSlideChildProcess,
+		services:      make(map[string]*slideChildService),
+		reservedPorts: make(map[int]bool),
+		startProcess:  startSlideChildProcess,
 	}
 }
 
@@ -107,16 +113,52 @@ func startSlideChildProcess(workspace string, args []string) (*exec.Cmd, string,
 	return child, strings.Join(append([]string{filepath.Base(exe)}, args...), " "), nil
 }
 
-func (m *slideChildServiceManager) start(key, kind, target, workspace string, args []string) (int, string, error) {
+func (m *slideChildServiceManager) allocatePort(base int) (int, error) {
+	used := make(map[int]bool)
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	for _, service := range m.services {
+		if service.Port > 0 {
+			used[service.Port] = true
+		}
+	}
+	for port := range m.reservedPorts {
+		used[port] = true
+	}
+
+	for port := base; port <= base+20; port++ {
+		if used[port] {
+			continue
+		}
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue
+		}
+		_ = listener.Close()
+		m.reservedPorts[port] = true
+		m.mu.Unlock()
+		return port, nil
+	}
+	m.mu.Unlock()
+	return 0, fmt.Errorf("all candidate ports unavailable starting at %d", base)
+}
+
+func (m *slideChildServiceManager) start(key, kind, target, workspace string, args []string, port int, serviceURL string) (int, string, error) {
+	m.mu.Lock()
 
 	if service, ok := m.services[key]; ok {
-		return service.PID, service.Command, nil
+		pid, command, url := service.PID, service.Command, service.URL
+		delete(m.reservedPorts, port)
+		m.mu.Unlock()
+		if url != "" {
+			go slideOpenBrowser(url)
+		}
+		return pid, command, nil
 	}
 
 	child, command, err := m.startProcess(workspace, args)
 	if err != nil {
+		delete(m.reservedPorts, port)
+		m.mu.Unlock()
 		return 0, "", err
 	}
 	service := &slideChildService{
@@ -124,12 +166,16 @@ func (m *slideChildServiceManager) start(key, kind, target, workspace string, ar
 		Kind:      kind,
 		Target:    target,
 		PID:       child.Process.Pid,
+		Port:      port,
+		URL:       serviceURL,
 		Command:   command,
 		Process:   child.Process,
 		Done:      make(chan struct{}),
 		StartedAt: time.Now(),
 	}
 	m.services[key] = service
+	delete(m.reservedPorts, port)
+	m.mu.Unlock()
 
 	go func() {
 		_ = child.Wait()
@@ -856,9 +902,14 @@ func writeSlideOpenFormulaRunJSON(w http.ResponseWriter, status int, value slide
 }
 
 var startSlideFormulaRunDashboard = func(workspace, runID string, port int) (int, string, error) {
-	args := []string{"formula", "run", "open", runID, "--web-port", strconv.Itoa(port)}
 	key := fmt.Sprintf("formula-run:%s:%d", runID, port)
-	return slideActionServices.start(key, "formula-run", runID, workspace, args)
+	actualPort, err := slideActionServices.allocatePort(port)
+	if err != nil {
+		return 0, "", err
+	}
+	args := []string{"formula", "run", "open", runID, "--web-port", strconv.Itoa(actualPort)}
+	serviceURL := fmt.Sprintf("http://localhost:%d", actualPort)
+	return slideActionServices.start(key, "formula-run", runID, workspace, args, actualPort, serviceURL)
 }
 
 func handleSlideOpenFormulaShow(w http.ResponseWriter, r *http.Request) {
@@ -915,9 +966,14 @@ func writeSlideOpenFormulaShowJSON(w http.ResponseWriter, status int, value slid
 }
 
 var startSlideFormulaShowPreview = func(workspace, name string, port int) (int, string, error) {
-	args := []string{"formula", "show", name, "--markdown", "--port", strconv.Itoa(port)}
 	key := fmt.Sprintf("formula-show:%s:%d", name, port)
-	return slideActionServices.start(key, "formula-show", name, workspace, args)
+	actualPort, err := slideActionServices.allocatePort(port)
+	if err != nil {
+		return 0, "", err
+	}
+	args := []string{"formula", "show", name, "--markdown", "--port", strconv.Itoa(actualPort)}
+	serviceURL := fmt.Sprintf("http://localhost:%d/view/%s", actualPort, url.PathEscape(name+".md"))
+	return slideActionServices.start(key, "formula-show", name, workspace, args, actualPort, serviceURL)
 }
 
 func handleSlideOpenMarkdown(w http.ResponseWriter, r *http.Request) {
@@ -973,9 +1029,14 @@ func writeSlideOpenMarkdownJSON(w http.ResponseWriter, status int, value slideOp
 }
 
 var startSlideMarkdownViewer = func(workspace, mdPath string, port int) (int, string, error) {
-	args := []string{"md", mdPath, "--port", strconv.Itoa(port)}
 	key := fmt.Sprintf("markdown:%s:%d", mdPath, port)
-	return slideActionServices.start(key, "markdown", mdPath, workspace, args)
+	actualPort, err := slideActionServices.allocatePort(port)
+	if err != nil {
+		return 0, "", err
+	}
+	args := []string{"md", mdPath, "--port", strconv.Itoa(actualPort)}
+	serviceURL := fmt.Sprintf("http://localhost:%d/view/%s", actualPort, escapeViewPath(mdPath))
+	return slideActionServices.start(key, "markdown", mdPath, workspace, args, actualPort, serviceURL)
 }
 
 func handleSlideSaveContent(w http.ResponseWriter, r *http.Request) {

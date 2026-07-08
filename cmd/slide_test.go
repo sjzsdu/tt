@@ -164,6 +164,13 @@ func TestSlideChildServiceManagerDedupesAndShutdownSignalsChildren(t *testing.T)
 	starts := 0
 	signalFile := filepath.Join(t.TempDir(), "interrupted")
 	readyFile := filepath.Join(t.TempDir(), "ready")
+	reopened := make(chan string, 1)
+	oldOpenBrowser := slideOpenBrowser
+	slideOpenBrowser = func(url string) {
+		reopened <- url
+	}
+	t.Cleanup(func() { slideOpenBrowser = oldOpenBrowser })
+
 	manager.startProcess = func(workspace string, args []string) (*exec.Cmd, string, error) {
 		starts++
 		cmd := exec.Command(os.Args[0], "-test.run=TestSlideChildServiceHelperProcess")
@@ -178,11 +185,11 @@ func TestSlideChildServiceManagerDedupesAndShutdownSignalsChildren(t *testing.T)
 		return cmd, "tt-test-helper", nil
 	}
 
-	pid1, command1, err := manager.start("same", "test", "target", "", nil)
+	pid1, command1, err := manager.start("same", "test", "target", "", nil, 19999, "http://localhost:19999")
 	if err != nil {
 		t.Fatalf("first start error = %v", err)
 	}
-	pid2, command2, err := manager.start("same", "test", "target", "", nil)
+	pid2, command2, err := manager.start("same", "test", "target", "", nil, 19999, "http://localhost:19999")
 	if err != nil {
 		t.Fatalf("second start error = %v", err)
 	}
@@ -191,6 +198,14 @@ func TestSlideChildServiceManagerDedupesAndShutdownSignalsChildren(t *testing.T)
 	}
 	if pid2 != pid1 || command2 != command1 {
 		t.Fatalf("second start returned pid=%d command=%q, want pid=%d command=%q", pid2, command2, pid1, command1)
+	}
+	select {
+	case got := <-reopened:
+		if got != "http://localhost:19999" {
+			t.Fatalf("reopened URL = %q, want http://localhost:19999", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("duplicate start did not reopen service URL")
 	}
 
 	waitForFile(t, readyFile, 2*time.Second)
