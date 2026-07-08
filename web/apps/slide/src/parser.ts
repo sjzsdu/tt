@@ -48,7 +48,7 @@ type FenceState = {
 
 const slideDirectivePattern = /^\.([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\s*$/i;
 const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
-const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final']);
+const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final', 'full-bleed', 'bleed', 'no-padding']);
 const allowedRevealSectionAttrs = /^(?:id|class|data-[\w:-]+|aria-[\w:-]+)$/i;
 
 function updateFenceState(line: string, fence: FenceState): FenceState {
