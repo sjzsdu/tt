@@ -530,6 +530,7 @@ Review before finishing:
 - Referencing assets with absolute paths.
 - Styling only `.present` sections and leaving overview thumbnails blank.
 - Adding a new directive only in CSS without parser/type/docs support.
+- Treating supported document controls such as `.full-bleed`, `.no-padding`, `.absolute`, `.freeform`, `.media-box`, or `.no-panzoom` as template-private syntax. Templates may style them, but the document semantics belong to `tt slide`.
 - Using overly broad selectors that break Reveal controls or the file/overview panels.
 - Forgetting to run `tt slide --list-templates` after adding a new template.
 
@@ -537,7 +538,7 @@ Review before finishing:
 
 Use `slide-template-writer` for template packages, CSS, assets, visual design, and template-specific behavior.
 
-Use `slide-writer` for `.slide` document content and syntax. The writer should not put visual implementation details into `.slide` files.
+Use `slide-writer` for `.slide` document content and syntax. Supported document-level controls such as `.full-bleed`, `.no-padding`, `.absolute` / `.freeform`, `.media-box`, and `.no-panzoom` are part of `.slide` authoring, not template-private implementation details.
 
 ## Handoff
 
