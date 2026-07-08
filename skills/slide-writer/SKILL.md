@@ -20,7 +20,7 @@ Do:
 
 - Use Markdown for content.
 - Use `---` to separate slides.
-- Use semantic slide directives such as `.center`, `.cover`, `.split`, `.two-column`, `.brand`, and `.end`.
+- Use semantic slide directives such as `.center`, `.cover`, `.split`, `.two-column`, `.brand`, `.end`, `.full-bleed`, `.absolute`, and `.no-panzoom` when they match the slide's job.
 - Use Mermaid / D2 fenced code blocks for diagrams.
 - Keep content concise and presentation-ready.
 
@@ -29,7 +29,7 @@ Do not:
 - Add `template:` to front matter.
 - Mention template names as required document syntax.
 - Depend on any template-specific behavior.
-- Write raw template CSS classes or template-specific HTML for layout.
+- Write raw template CSS classes or template-specific HTML for layout. Raw HTML is acceptable only for supported `.slide` authoring controls such as Reveal fragments, section attributes, `.absolute` freeform positioning, and `.media-box` sizing.
 - Use brand-specific copy, logo placeholders, colors, or visual instructions unless the user explicitly asked for that content as part of the message.
 
 ## File basics
@@ -94,6 +94,10 @@ A directive appears at the top of a slide and is not rendered as visible content
 | `.hero` | Large message plus supporting visual or details |
 | `.media-left` / `.media-right` | Text plus image/diagram/media, with media side indicated |
 | `.brand` / `.logo` | Brand/identity page semantics; template decides presentation |
+| `.full-bleed` / `.bleed` | Remove slide padding and let one media item cover the full 1600×900 stage; use for immersive image/video/iframe/canvas/svg pages |
+| `.no-padding` | Remove slide padding while preserving full media with `object-fit: contain`; use for screenshots, diagrams, and design references that must not be cropped |
+| `.absolute` / `.freeform` | Freeform composition page; remove padding and position elements anywhere with `.abs`, `.abs-center`, or `.abs-fill` CSS-variable controls |
+| `.no-panzoom` / `.no-zoom` / `.no-drag` / `.static-diagram` | Make Mermaid/D2 diagrams static by disabling toolbar, wheel zoom, and drag pan on this slide |
 | `.end` / `.closing` / `.final` | Closing/end page semantics; template decides presentation |
 
 Prefer `.end` for a final closing page because it is short and template-agnostic.
@@ -112,6 +116,8 @@ For every slide, choose one of these patterns:
 | Feature / option / risk cards | `.cards` with `:::card` blocks | Lets templates add card surfaces and spacing. |
 | Short mixed blocks | `.flex` with normal Markdown or `:::item` blocks | Allows stable wrapping inside the fixed canvas. |
 | Big message plus proof | `.hero` | Emphasizes one main statement without top-left sparsity. |
+| Full-screen image/video/visual | `.full-bleed` or `.no-padding` | Gives media the whole stage; choose cover for atmosphere, contain for exact screenshots. |
+| Precise overlay, callouts, or poster-like composition | `.absolute` / `.freeform` plus `.abs` blocks | Allows deliberate placement on the fixed 1600×900 canvas without editing template CSS. |
 | Text plus image/media | `.media-left` / `.media-right` with `:::media` and `:::main` | Keeps media and explanation balanced. |
 | Text plus diagram / evidence | `.split` or `.two-column` | Avoids squeezing diagram under text. |
 | Main diagram / architecture / flow | Short title plus Mermaid/D2 only | Lets renderer treat it as diagram-heavy and use most of the slide. |
@@ -122,6 +128,8 @@ Rules:
 
 - If a slide has fewer than 2 bullets or less than ~120 characters, use `.center` unless it is a cover, diagram, or closing page.
 - If a slide has a diagram, keep surrounding text very short: title plus one sentence at most.
+- If a slide is primarily one image, video, screenshot, design frame, or iframe, use `.full-bleed` when cropping is acceptable and atmospheric, or `.no-padding` when the entire media must remain visible.
+- If the slide needs exact overlays, labels, badges, callouts, or a poster-like composition, use `.absolute` / `.freeform` with `.abs` and CSS variables rather than inventing template CSS.
 - Do not put a large diagram below a long bullet list. Split it into “message” and “diagram” slides, or use `.split`.
 - Prefer 3 to 5 visually balanced blocks over one short lonely paragraph.
 - For lists, keep bullets parallel and similar length so the template can distribute them cleanly.
@@ -229,6 +237,80 @@ Media layout:
 
 Available block roles: `:::columns`, `:::card`, `:::item`, `:::main`, `:::aside`, and `:::media`.
 
+## Freeform and media controls
+
+Use these controls when semantic blocks are not enough, for example poster-like layouts, full-screen visuals, product screenshots, callouts, or precise overlays. They are supported `.slide` syntax, not template-specific CSS.
+
+### Full-screen media
+
+Use `.full-bleed` / `.bleed` when the media may be cropped to fill the 16:9 stage. Use `.no-padding` when the whole image or screenshot must remain visible.
+
+```markdown
+---
+
+.full-bleed
+
+![Launch visual](./assets/hero.png)
+```
+
+```markdown
+---
+
+.no-padding
+
+![Product screenshot](./assets/screenshot.png)
+```
+
+### Absolute positioning
+
+Use `.absolute` / `.freeform` only when the slide needs deliberate placement. The stage is `1600px × 900px`; use CSS variables for placement.
+
+````markdown
+---
+
+.absolute
+
+<div class="abs" style="--x:96px; --y:80px; --w:720px; --z:2">
+  <h1>Core decision</h1>
+  <p>One clear message for the audience.</p>
+</div>
+
+<div class="abs media-box media-cover" style="--x:900px; --y:0; --w:700px; --h:900px">
+  <img src="./assets/hero.png" alt="">
+</div>
+````
+
+Positioning classes:
+
+- `.abs`: exact placement with `--x`, `--y`, `--right`, `--bottom`, `--w`, `--h`.
+- `.abs-center`: centered by default; override center point with `--x` and `--y`.
+- `.abs-fill`: fills the slide; use `--inset` for margins.
+- Optional variables: `--z`, `--rotate`, `--scale`, `--tx`, `--ty`, `--origin`.
+
+### Media sizing
+
+Use `.media-box` around media when size, crop mode, aspect ratio, or radius matters.
+
+```html
+<div class="media-box media-contain" style="--w:980px; --h:560px; --radius:18px">
+  <img src="./assets/screenshot.png" alt="Product screenshot">
+</div>
+```
+
+Media classes:
+
+- `.media-cover`: crop to fill.
+- `.media-contain`: preserve full media.
+- `.media-fill` / `.media-stretch`: stretch to fill.
+- `.media-none`: original sizing.
+- `.media-16x9`, `.media-4x3`, `.media-1x1`: quick aspect ratios.
+
+Rules:
+
+- Prefer semantic layouts first. Use `.absolute` when exact composition is the point.
+- Do not use freeform positioning to squeeze too much text into one slide.
+- Keep inline styles limited to supported CSS variables like `--x`, `--y`, `--w`, `--h`, `--fit`, and `--radius`.
+
 Guidelines:
 
 - Use semantic layout directives before adding raw HTML. Raw HTML should be rare.
@@ -319,6 +401,22 @@ Diagram slides should usually be almost all diagram. Use a short takeaway title,
 
 During presentation, Mermaid and D2 diagrams are fit inside the slide by default. Viewers can use the diagram toolbar or mouse wheel to zoom, drag to pan, and double-click / Reset to return to the full-fit view. Because of this, prefer one meaningful diagram per slide instead of multiple small diagrams.
 
+If a diagram should be purely static, or the user asks to disable zooming, dragging, panning, or accidental interaction, add `.no-panzoom`, `.no-zoom`, `.no-drag`, or `.static-diagram` at the top of that slide.
+
+````markdown
+---
+
+.no-panzoom
+
+# Static process map
+
+```mermaid
+graph LR
+  A[Input] --> B[Decision]
+  B --> C[Action]
+```
+````
+
 Avoid:
 
 - Long bullet lists before a diagram.
@@ -376,6 +474,16 @@ Use standard Markdown image and link syntax. For local deck-owned assets, put fi
 The slide renderer resolves relative paths against the current `.slide` file directory and serves them through the local `/raw/...` route. Prefer relative paths over hand-written `/raw/...` URLs so the deck remains portable when moved as a folder.
 
 Do not reference template assets from `.slide` documents. Template-owned backgrounds, logos, and decorative images belong in `.tt/slide/templates/<name>/assets/` and should be referenced by template CSS.
+
+When a media item needs explicit sizing, cropping, aspect ratio, or rounded corners, wrap it in supported raw HTML with `.media-box` instead of asking the template to guess:
+
+```html
+<div class="media-box media-cover" style="--w:720px; --h:420px; --radius:16px">
+  <img src="./assets/photo.png" alt="">
+</div>
+```
+
+Use `.media-contain` for screenshots that must not crop, `.media-cover` for atmospheric images, and `.media-fill` only when distortion is acceptable.
 
 ## Recommended deck shape
 
