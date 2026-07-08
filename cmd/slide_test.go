@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/agents"
 )
@@ -156,6 +159,147 @@ func TestNormalizeSlideFormulaRunIDRejectsUnsafeValues(t *testing.T) {
 	}
 }
 
+func TestSlideChildServiceManagerDedupesAndShutdownSignalsChildren(t *testing.T) {
+	manager := newSlideChildServiceManager()
+	starts := 0
+	signalFile := filepath.Join(t.TempDir(), "interrupted")
+	readyFile := filepath.Join(t.TempDir(), "ready")
+	manager.startProcess = func(workspace string, args []string) (*exec.Cmd, string, error) {
+		starts++
+		cmd := exec.Command(os.Args[0], "-test.run=TestSlideChildServiceHelperProcess")
+		cmd.Env = append(os.Environ(),
+			"TT_SLIDE_HELPER_PROCESS=1",
+			"TT_SLIDE_HELPER_SIGNAL_FILE="+signalFile,
+			"TT_SLIDE_HELPER_READY_FILE="+readyFile,
+		)
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "tt-test-helper", nil
+	}
+
+	pid1, command1, err := manager.start("same", "test", "target", "", nil)
+	if err != nil {
+		t.Fatalf("first start error = %v", err)
+	}
+	pid2, command2, err := manager.start("same", "test", "target", "", nil)
+	if err != nil {
+		t.Fatalf("second start error = %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("starts = %d, want 1", starts)
+	}
+	if pid2 != pid1 || command2 != command1 {
+		t.Fatalf("second start returned pid=%d command=%q, want pid=%d command=%q", pid2, command2, pid1, command1)
+	}
+
+	waitForFile(t, readyFile, 2*time.Second)
+	manager.shutdown(2 * time.Second)
+	if _, err := os.Stat(signalFile); err != nil {
+		t.Fatalf("helper did not observe interrupt: %v", err)
+	}
+	if services := manager.snapshot(); len(services) != 0 {
+		t.Fatalf("services after shutdown = %d, want 0", len(services))
+	}
+}
+
+func TestSlideChildServiceHelperProcess(t *testing.T) {
+	if os.Getenv("TT_SLIDE_HELPER_PROCESS") != "1" {
+		return
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+	_ = os.WriteFile(os.Getenv("TT_SLIDE_HELPER_READY_FILE"), []byte("ready"), 0o644)
+	select {
+	case <-signals:
+		_ = os.WriteFile(os.Getenv("TT_SLIDE_HELPER_SIGNAL_FILE"), []byte("interrupted"), 0o644)
+		os.Exit(0)
+	case <-time.After(10 * time.Second):
+		os.Exit(2)
+	}
+}
+
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestNormalizeSlideFormulaName(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "plain name", raw: "shan-yi-zhe", want: "shan-yi-zhe"},
+		{name: "custom protocol URL", raw: "tt-formula-show://shan-yi-zhe", want: "shan-yi-zhe"},
+		{name: "custom protocol compact", raw: "tt-formula-show:shan-yi-zhe", want: "shan-yi-zhe"},
+		{name: "formula show URL", raw: "tt-formula://show/shan-yi-zhe", want: "shan-yi-zhe"},
+		{name: "formula show compact", raw: "tt-formula:show/shan-yi-zhe", want: "shan-yi-zhe"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeSlideFormulaName(tt.raw)
+			if err != nil {
+				t.Fatalf("normalizeSlideFormulaName() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeSlideFormulaName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeSlideFormulaNameRejectsUnsafeValues(t *testing.T) {
+	for _, raw := range []string{"", "../formula", "/tmp/formula", "--markdown", "formula/name", `formula\name`, "bad name", "bad..name"} {
+		if got, err := normalizeSlideFormulaName(raw); err == nil {
+			t.Fatalf("normalizeSlideFormulaName(%q) = %q, want error", raw, got)
+		}
+	}
+}
+
+func TestNormalizeSlideMarkdownPath(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "relative markdown", raw: "docs/intro.md", want: "docs/intro.md"},
+		{name: "custom protocol URL", raw: "tt-md://docs/intro.md", want: "docs/intro.md"},
+		{name: "custom protocol compact", raw: "tt-md:docs/intro.md", want: "docs/intro.md"},
+		{name: "markdown alias protocol", raw: "tt-markdown://docs/intro.markdown", want: "docs/intro.markdown"},
+		{name: "url encoded path", raw: "tt-md://docs/intro%20note.md", want: "docs/intro note.md"},
+		{name: "dot segment", raw: "./README.md", want: "README.md"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeSlideMarkdownPath(tt.raw)
+			if err != nil {
+				t.Fatalf("normalizeSlideMarkdownPath() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeSlideMarkdownPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeSlideMarkdownPathRejectsUnsafeValues(t *testing.T) {
+	for _, raw := range []string{"", "../README.md", "/tmp/README.md", "--port.md", "docs/../secret.md", `docs\intro.md`, "docs/intro.txt"} {
+		if got, err := normalizeSlideMarkdownPath(raw); err == nil {
+			t.Fatalf("normalizeSlideMarkdownPath(%q) = %q, want error", raw, got)
+		}
+	}
+}
+
 func TestHandleSlideOpenFormulaRunRejectsInvalidID(t *testing.T) {
 	body, _ := json.Marshal(slideOpenFormulaRunRequest{RunID: "../run"})
 	req := httptest.NewRequest(http.MethodPost, "/api/actions/formula-run/open", bytes.NewReader(body))
@@ -166,6 +310,130 @@ func TestHandleSlideOpenFormulaRunRejectsInvalidID(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "invalid formula run id") {
 		t.Fatalf("handleSlideOpenFormulaRun body = %s", rr.Body.String())
+	}
+}
+
+func TestHandleSlideOpenFormulaShowRejectsInvalidName(t *testing.T) {
+	body, _ := json.Marshal(slideOpenFormulaShowRequest{Name: "../shan-yi-zhe"})
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/formula-show/open", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handleSlideOpenFormulaShow(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("handleSlideOpenFormulaShow status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "invalid formula name") {
+		t.Fatalf("handleSlideOpenFormulaShow body = %s", rr.Body.String())
+	}
+}
+
+func TestHandleSlideOpenFormulaShowStartsPreview(t *testing.T) {
+	workspace := t.TempDir()
+	oldInvocationDir := slideInvocationDir
+	slideInvocationDir = workspace
+	t.Cleanup(func() { slideInvocationDir = oldInvocationDir })
+
+	oldStart := startSlideFormulaShowPreview
+	startSlideFormulaShowPreview = func(gotWorkspace, gotName string, gotPort int) (int, string, error) {
+		if gotWorkspace != workspace {
+			t.Fatalf("workspace = %q, want %q", gotWorkspace, workspace)
+		}
+		if gotName != "shan-yi-zhe" {
+			t.Fatalf("name = %q, want shan-yi-zhe", gotName)
+		}
+		if gotPort != 9598 {
+			t.Fatalf("port = %d, want 9598", gotPort)
+		}
+		return 2345, "tt formula show shan-yi-zhe --markdown --port 9598", nil
+	}
+	t.Cleanup(func() { startSlideFormulaShowPreview = oldStart })
+
+	body, _ := json.Marshal(slideOpenFormulaShowRequest{Name: "tt-formula-show://shan-yi-zhe"})
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/formula-show/open", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handleSlideOpenFormulaShow(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideOpenFormulaShow status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var resp slideOpenFormulaShowResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK || resp.Name != "shan-yi-zhe" || resp.PID != 2345 {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestHandleSlideOpenMarkdownRejectsInvalidPath(t *testing.T) {
+	body, _ := json.Marshal(slideOpenMarkdownRequest{Path: "../README.md"})
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/markdown/open", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handleSlideOpenMarkdown(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("handleSlideOpenMarkdown status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "invalid markdown path") {
+		t.Fatalf("handleSlideOpenMarkdown body = %s", rr.Body.String())
+	}
+}
+
+func TestHandleSlideOpenMarkdownRejectsMissingFile(t *testing.T) {
+	oldInvocationDir := slideInvocationDir
+	slideInvocationDir = t.TempDir()
+	t.Cleanup(func() { slideInvocationDir = oldInvocationDir })
+
+	body, _ := json.Marshal(slideOpenMarkdownRequest{Path: "missing.md"})
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/markdown/open", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handleSlideOpenMarkdown(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("handleSlideOpenMarkdown status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "markdown file not found") {
+		t.Fatalf("handleSlideOpenMarkdown body = %s", rr.Body.String())
+	}
+}
+
+func TestHandleSlideOpenMarkdownStartsViewer(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "docs", "intro.md"), []byte("# Intro\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldInvocationDir := slideInvocationDir
+	slideInvocationDir = workspace
+	t.Cleanup(func() { slideInvocationDir = oldInvocationDir })
+
+	oldStart := startSlideMarkdownViewer
+	startSlideMarkdownViewer = func(gotWorkspace, gotPath string, gotPort int) (int, string, error) {
+		if gotWorkspace != workspace {
+			t.Fatalf("workspace = %q, want %q", gotWorkspace, workspace)
+		}
+		if gotPath != "docs/intro.md" {
+			t.Fatalf("path = %q, want docs/intro.md", gotPath)
+		}
+		if gotPort != 9595 {
+			t.Fatalf("port = %d, want 9595", gotPort)
+		}
+		return 1234, "tt md docs/intro.md --port 9595", nil
+	}
+	t.Cleanup(func() { startSlideMarkdownViewer = oldStart })
+
+	body, _ := json.Marshal(slideOpenMarkdownRequest{Path: "tt-md://docs/intro.md"})
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/markdown/open", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handleSlideOpenMarkdown(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("handleSlideOpenMarkdown status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var resp slideOpenMarkdownResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK || resp.Path != "docs/intro.md" || resp.PID != 1234 {
+		t.Fatalf("response = %+v", resp)
 	}
 }
 

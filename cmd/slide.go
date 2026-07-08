@@ -23,6 +23,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sjzsdu/tt/internal/agents"
+	"github.com/sjzsdu/tt/internal/formula"
 	formularun "github.com/sjzsdu/tt/internal/formula/run"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	"github.com/sjzsdu/tt/internal/webui"
@@ -58,9 +59,154 @@ var (
 	slideClientsMu sync.Mutex
 	slideWatcher   *fsnotify.Watcher
 	slideWatchMu   sync.Mutex
+
+	slideActionServices = newSlideChildServiceManager()
 )
 
 var slideFormulaRunIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$`)
+var slideFormulaNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
+type slideChildService struct {
+	Key       string
+	Kind      string
+	Target    string
+	PID       int
+	Command   string
+	Process   *os.Process
+	Done      chan struct{}
+	StartedAt time.Time
+}
+
+type slideChildServiceManager struct {
+	mu           sync.Mutex
+	services     map[string]*slideChildService
+	startProcess func(workspace string, args []string) (*exec.Cmd, string, error)
+}
+
+func newSlideChildServiceManager() *slideChildServiceManager {
+	return &slideChildServiceManager{
+		services:     make(map[string]*slideChildService),
+		startProcess: startSlideChildProcess,
+	}
+}
+
+func startSlideChildProcess(workspace string, args []string) (*exec.Cmd, string, error) {
+	exe, err := os.Executable()
+	if err != nil || strings.TrimSpace(exe) == "" {
+		exe = os.Args[0]
+	}
+	child := exec.Command(exe, args...)
+	if workspace != "" {
+		child.Dir = workspace
+	}
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
+	if err := child.Start(); err != nil {
+		return nil, "", err
+	}
+	return child, strings.Join(append([]string{filepath.Base(exe)}, args...), " "), nil
+}
+
+func (m *slideChildServiceManager) start(key, kind, target, workspace string, args []string) (int, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if service, ok := m.services[key]; ok {
+		return service.PID, service.Command, nil
+	}
+
+	child, command, err := m.startProcess(workspace, args)
+	if err != nil {
+		return 0, "", err
+	}
+	service := &slideChildService{
+		Key:       key,
+		Kind:      kind,
+		Target:    target,
+		PID:       child.Process.Pid,
+		Command:   command,
+		Process:   child.Process,
+		Done:      make(chan struct{}),
+		StartedAt: time.Now(),
+	}
+	m.services[key] = service
+
+	go func() {
+		_ = child.Wait()
+		close(service.Done)
+		m.remove(key, service)
+	}()
+
+	return service.PID, service.Command, nil
+}
+
+func (m *slideChildServiceManager) remove(key string, service *slideChildService) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current := m.services[key]; current == service {
+		delete(m.services, key)
+	}
+}
+
+func (m *slideChildServiceManager) snapshot() []*slideChildService {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	services := make([]*slideChildService, 0, len(m.services))
+	for _, service := range m.services {
+		services = append(services, service)
+	}
+	return services
+}
+
+func (m *slideChildServiceManager) shutdown(timeout time.Duration) {
+	services := m.snapshot()
+	if len(services) == 0 {
+		return
+	}
+
+	fmt.Printf("Shutting down %d slide child service(s)...\n", len(services))
+	for _, service := range services {
+		if service.Process == nil {
+			continue
+		}
+		_ = service.Process.Signal(os.Interrupt)
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+
+	remaining := make(map[*slideChildService]struct{}, len(services))
+	for _, service := range services {
+		remaining[service] = struct{}{}
+	}
+
+	for len(remaining) > 0 {
+		for service := range remaining {
+			select {
+			case <-service.Done:
+				delete(remaining, service)
+				m.remove(service.Key, service)
+			default:
+			}
+		}
+		if len(remaining) == 0 {
+			return
+		}
+
+		select {
+		case <-deadline.C:
+			for service := range remaining {
+				if service.Process != nil {
+					_ = service.Process.Kill()
+				}
+			}
+			return
+		case <-tick.C:
+		}
+	}
+}
 
 var slideCmd = &cobra.Command{
 	Use:     "slide [files...]",
@@ -286,6 +432,8 @@ func runSlideServer() error {
 	mux.HandleFunc("/api/slide/content", handleSlideSaveContent)
 	mux.HandleFunc("/api/slide/rewrite", handleSlideRewrite)
 	mux.HandleFunc("/api/actions/formula-run/open", handleSlideOpenFormulaRun)
+	mux.HandleFunc("/api/actions/formula-show/open", handleSlideOpenFormulaShow)
+	mux.HandleFunc("/api/actions/markdown/open", handleSlideOpenMarkdown)
 	mux.HandleFunc("/api/widgets", handleSlideWidgets)
 	mux.HandleFunc("/api/template/", handleSlideTemplate)
 	mux.HandleFunc("/template-assets/", handleSlideTemplateAsset)
@@ -346,6 +494,7 @@ func runSlideServer() error {
 			defer cancel()
 			err := slideServer.Shutdown(ctx)
 			slideServer = nil
+			slideActionServices.shutdown(5 * time.Second)
 			return err
 		}
 	}
@@ -476,6 +625,32 @@ type slideOpenFormulaRunResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type slideOpenMarkdownRequest struct {
+	Path string `json:"path"`
+	Port int    `json:"port,omitempty"`
+}
+
+type slideOpenMarkdownResponse struct {
+	OK      bool   `json:"ok"`
+	Path    string `json:"path,omitempty"`
+	PID     int    `json:"pid,omitempty"`
+	Command string `json:"command,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type slideOpenFormulaShowRequest struct {
+	Name string `json:"name"`
+	Port int    `json:"port,omitempty"`
+}
+
+type slideOpenFormulaShowResponse struct {
+	OK      bool   `json:"ok"`
+	Name    string `json:"name,omitempty"`
+	PID     int    `json:"pid,omitempty"`
+	Command string `json:"command,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 func normalizeSlideFormulaRunID(raw string) (string, error) {
 	id := strings.TrimSpace(raw)
 	switch {
@@ -500,6 +675,133 @@ func normalizeSlideFormulaRunID(raw string) (string, error) {
 	return filepath.ToSlash(id), nil
 }
 
+func normalizeSlideFormulaName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	lower := strings.ToLower(name)
+	hadScheme := false
+	for _, prefix := range []string{"tt-formula-show://", "tt-formula-show:", "tt-formula://show/", "tt-formula:show/"} {
+		if strings.HasPrefix(lower, prefix) {
+			name = name[len(prefix):]
+			hadScheme = true
+			break
+		}
+	}
+	if hadScheme {
+		name = strings.TrimLeft(name, "/")
+	}
+	if decoded, err := url.PathUnescape(name); err == nil {
+		name = decoded
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("formula name is required")
+	}
+	if strings.ContainsAny(name, "\x00\r\n") || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return "", fmt.Errorf("invalid formula name %q", raw)
+	}
+	if strings.HasPrefix(name, "-") || filepath.IsAbs(name) || !slideFormulaNamePattern.MatchString(name) {
+		return "", fmt.Errorf("invalid formula name %q", raw)
+	}
+	return name, nil
+}
+
+func normalizeSlideMarkdownPath(raw string) (string, error) {
+	mdPath := strings.TrimSpace(raw)
+	lower := strings.ToLower(mdPath)
+	hadScheme := false
+	for _, prefix := range []string{"tt-md://", "tt-md:", "tt-markdown://", "tt-markdown:"} {
+		if strings.HasPrefix(lower, prefix) {
+			mdPath = mdPath[len(prefix):]
+			hadScheme = true
+			break
+		}
+	}
+	if hadScheme {
+		mdPath = strings.TrimLeft(mdPath, "/")
+	}
+	if decoded, err := url.PathUnescape(mdPath); err == nil {
+		mdPath = decoded
+	}
+	mdPath = strings.TrimSpace(mdPath)
+	if mdPath == "" {
+		return "", fmt.Errorf("markdown path is required")
+	}
+	if strings.ContainsAny(mdPath, "\x00\r\n") || strings.Contains(mdPath, "\\") {
+		return "", fmt.Errorf("invalid markdown path %q", raw)
+	}
+	if strings.HasPrefix(mdPath, "-") || filepath.IsAbs(mdPath) {
+		return "", fmt.Errorf("invalid markdown path %q", raw)
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(mdPath), "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("invalid markdown path %q", raw)
+		}
+	}
+
+	cleaned := filepath.Clean(filepath.FromSlash(mdPath))
+	if cleaned == "." || cleaned == "" {
+		return "", fmt.Errorf("markdown path is required")
+	}
+	rel := filepath.ToSlash(cleaned)
+	if rel == ".." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") || strings.Contains(rel, "//") {
+		return "", fmt.Errorf("invalid markdown path %q", raw)
+	}
+	if !isMarkdownFile(rel) {
+		return "", fmt.Errorf("unsupported markdown path %q: only .md and .markdown files are supported", raw)
+	}
+	return rel, nil
+}
+
+func slideWorkspaceDir() string {
+	workspace := strings.TrimSpace(slideInvocationDir)
+	if workspace == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			workspace = cwd
+		}
+	}
+	return workspace
+}
+
+func slideFormulaSearchPaths(workspace string) []string {
+	var paths []string
+	if strings.TrimSpace(workspace) != "" {
+		paths = append(paths, filepath.Join(workspace, ".tt", "formulas"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".tt", "formulas"))
+	}
+	return paths
+}
+
+func validateSlideMarkdownFile(workspace, relPath string) error {
+	if strings.TrimSpace(workspace) == "" {
+		return fmt.Errorf("workspace is not available")
+	}
+	workspaceAbs, err := filepath.Abs(workspace)
+	if err != nil {
+		return fmt.Errorf("resolve workspace failed: %w", err)
+	}
+	absPath, err := filepath.Abs(filepath.Join(workspaceAbs, filepath.FromSlash(relPath)))
+	if err != nil {
+		return fmt.Errorf("resolve markdown path failed: %w", err)
+	}
+	rel, err := filepath.Rel(workspaceAbs, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("markdown path must stay inside the slide workspace")
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("markdown file not found: %s", relPath)
+		}
+		return fmt.Errorf("stat markdown file failed: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("markdown path must be a file: %s", relPath)
+	}
+	return nil
+}
+
 func handleSlideOpenFormulaRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -518,12 +820,7 @@ func handleSlideOpenFormulaRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workspace := strings.TrimSpace(slideInvocationDir)
-	if workspace == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			workspace = cwd
-		}
-	}
+	workspace := slideWorkspaceDir()
 	record, err := formularun.Resolve(formularun.DefaultRoot(workspace), runID)
 	if err != nil {
 		writeSlideOpenFormulaRunJSON(w, http.StatusNotFound, slideOpenFormulaRunResponse{Error: err.Error()})
@@ -539,34 +836,146 @@ func handleSlideOpenFormulaRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exe, err := os.Executable()
-	if err != nil || strings.TrimSpace(exe) == "" {
-		exe = os.Args[0]
-	}
-	args := []string{"formula", "run", "open", record.ID, "--web-port", strconv.Itoa(webPort)}
-	child := exec.Command(exe, args...)
-	if workspace != "" {
-		child.Dir = workspace
-	}
-	child.Stdout = os.Stdout
-	child.Stderr = os.Stderr
-	if err := child.Start(); err != nil {
+	pid, command, err := startSlideFormulaRunDashboard(workspace, record.ID, webPort)
+	if err != nil {
 		writeSlideOpenFormulaRunJSON(w, http.StatusInternalServerError, slideOpenFormulaRunResponse{RunID: record.ID, Error: fmt.Sprintf("start formula dashboard failed: %v", err)})
 		return
 	}
-	go func() { _ = child.Wait() }()
 
 	writeSlideOpenFormulaRunJSON(w, http.StatusOK, slideOpenFormulaRunResponse{
 		OK:      true,
 		RunID:   record.ID,
-		PID:     child.Process.Pid,
-		Command: strings.Join(append([]string{filepath.Base(exe)}, args...), " "),
+		PID:     pid,
+		Command: command,
 	})
 }
 
 func writeSlideOpenFormulaRunJSON(w http.ResponseWriter, status int, value slideOpenFormulaRunResponse) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+var startSlideFormulaRunDashboard = func(workspace, runID string, port int) (int, string, error) {
+	args := []string{"formula", "run", "open", runID, "--web-port", strconv.Itoa(port)}
+	key := fmt.Sprintf("formula-run:%s:%d", runID, port)
+	return slideActionServices.start(key, "formula-run", runID, workspace, args)
+}
+
+func handleSlideOpenFormulaShow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	var req slideOpenFormulaShowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeSlideOpenFormulaShowJSON(w, http.StatusBadRequest, slideOpenFormulaShowResponse{Error: fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	name, err := normalizeSlideFormulaName(req.Name)
+	if err != nil {
+		writeSlideOpenFormulaShowJSON(w, http.StatusBadRequest, slideOpenFormulaShowResponse{Error: err.Error()})
+		return
+	}
+
+	workspace := slideWorkspaceDir()
+	parser := formula.NewParser(slideFormulaSearchPaths(workspace)...)
+	if _, err := parser.LoadByName(name); err != nil {
+		writeSlideOpenFormulaShowJSON(w, http.StatusNotFound, slideOpenFormulaShowResponse{Name: name, Error: err.Error()})
+		return
+	}
+
+	port := req.Port
+	if port <= 0 {
+		port = 9598
+	}
+	if port < 1024 || port > 65535 {
+		writeSlideOpenFormulaShowJSON(w, http.StatusBadRequest, slideOpenFormulaShowResponse{Name: name, Error: "port must be between 1024 and 65535"})
+		return
+	}
+
+	pid, command, err := startSlideFormulaShowPreview(workspace, name, port)
+	if err != nil {
+		writeSlideOpenFormulaShowJSON(w, http.StatusInternalServerError, slideOpenFormulaShowResponse{Name: name, Error: fmt.Sprintf("start formula preview failed: %v", err)})
+		return
+	}
+
+	writeSlideOpenFormulaShowJSON(w, http.StatusOK, slideOpenFormulaShowResponse{
+		OK:      true,
+		Name:    name,
+		PID:     pid,
+		Command: command,
+	})
+}
+
+func writeSlideOpenFormulaShowJSON(w http.ResponseWriter, status int, value slideOpenFormulaShowResponse) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+var startSlideFormulaShowPreview = func(workspace, name string, port int) (int, string, error) {
+	args := []string{"formula", "show", name, "--markdown", "--port", strconv.Itoa(port)}
+	key := fmt.Sprintf("formula-show:%s:%d", name, port)
+	return slideActionServices.start(key, "formula-show", name, workspace, args)
+}
+
+func handleSlideOpenMarkdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	var req slideOpenMarkdownRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeSlideOpenMarkdownJSON(w, http.StatusBadRequest, slideOpenMarkdownResponse{Error: fmt.Sprintf("invalid request: %v", err)})
+		return
+	}
+	mdPath, err := normalizeSlideMarkdownPath(req.Path)
+	if err != nil {
+		writeSlideOpenMarkdownJSON(w, http.StatusBadRequest, slideOpenMarkdownResponse{Error: err.Error()})
+		return
+	}
+
+	workspace := slideWorkspaceDir()
+	if err := validateSlideMarkdownFile(workspace, mdPath); err != nil {
+		writeSlideOpenMarkdownJSON(w, http.StatusNotFound, slideOpenMarkdownResponse{Path: mdPath, Error: err.Error()})
+		return
+	}
+
+	port := req.Port
+	if port <= 0 {
+		port = 9595
+	}
+	if port < 1024 || port > 65535 {
+		writeSlideOpenMarkdownJSON(w, http.StatusBadRequest, slideOpenMarkdownResponse{Path: mdPath, Error: "port must be between 1024 and 65535"})
+		return
+	}
+
+	pid, command, err := startSlideMarkdownViewer(workspace, mdPath, port)
+	if err != nil {
+		writeSlideOpenMarkdownJSON(w, http.StatusInternalServerError, slideOpenMarkdownResponse{Path: mdPath, Error: fmt.Sprintf("start markdown viewer failed: %v", err)})
+		return
+	}
+
+	writeSlideOpenMarkdownJSON(w, http.StatusOK, slideOpenMarkdownResponse{
+		OK:      true,
+		Path:    mdPath,
+		PID:     pid,
+		Command: command,
+	})
+}
+
+func writeSlideOpenMarkdownJSON(w http.ResponseWriter, status int, value slideOpenMarkdownResponse) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+var startSlideMarkdownViewer = func(workspace, mdPath string, port int) (int, string, error) {
+	args := []string{"md", mdPath, "--port", strconv.Itoa(port)}
+	key := fmt.Sprintf("markdown:%s:%d", mdPath, port)
+	return slideActionServices.start(key, "markdown", mdPath, workspace, args)
 }
 
 func handleSlideSaveContent(w http.ResponseWriter, r *http.Request) {
