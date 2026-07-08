@@ -8,6 +8,11 @@ license: MIT
 
 Use this skill when implementing or refining `tt slide` templates.
 
+Reference docs:
+
+- [tt slide semantic spec](tt-md:ai-docs/slide.md)
+- [Slide writer skill](tt-md:skills/slide-writer/SKILL.md)
+
 A slide template is a self-contained visual package. It decides how a template-agnostic `.slide` document looks: colors, fonts, spacing, backgrounds, logos, cover pages, brand pages, closing pages, and diagram/card styling.
 
 The `.slide` document remains semantic. The template owns all visual decisions.
@@ -538,7 +543,7 @@ Review before finishing:
 
 Use `slide-template-writer` for template packages, CSS, assets, visual design, and template-specific behavior.
 
-Use `slide-writer` for `.slide` document content and syntax. Supported document-level controls such as `.full-bleed`, `.no-padding`, `.absolute` / `.freeform`, `.media-box`, and `.no-panzoom` are part of `.slide` authoring, not template-private implementation details.
+Use `slide-writer` for `.slide` document content and syntax. See [slide-writer](tt-md:skills/slide-writer/SKILL.md) and [tt slide semantic spec](tt-md:ai-docs/slide.md). Supported document-level controls such as `.full-bleed`, `.no-padding`, `.absolute` / `.freeform`, `.media-box`, and `.no-panzoom` are part of `.slide` authoring, not template-private implementation details.
 
 ## Handoff
 
