@@ -4,7 +4,7 @@ import Reveal from 'reveal.js';
 import { parseEditableSlideDocument, parseSlides, serializeEditableSlideDocument } from '../parser';
 import { DEFAULT_TEMPLATE, getTemplate } from '../templates';
 import type { SlideMeta, SlideRuntimeConfig, TemplateConfig, SlideWidgetRegistry } from '../types';
-import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, fetchWidgets, createWS, saveSlideContent, rewriteSlide, openFormulaRun, type SlideFile } from '../api';
+import { fetchSlideContent, fetchRawContent, fetchSlideList, fetchTemplate, fetchWidgets, createWS, saveSlideContent, rewriteSlide, openFormulaRun, openFormulaShow, openMarkdownFile, type SlideFile } from '../api';
 import { SlideContent } from './SlideContent';
 
 const DESIGN_WIDTH = 1600;
@@ -57,9 +57,8 @@ function dirname(path: string) {
   return normalized.slice(0, index);
 }
 
-function formulaRunIDFromHref(href: string) {
+function actionValueFromHref(href: string, scheme: string) {
   const trimmed = href.trim();
-  const scheme = 'tt-formula-run:';
   if (!trimmed.toLowerCase().startsWith(scheme)) return '';
   let value = trimmed.slice(scheme.length);
   if (value.startsWith('//')) value = value.slice(2);
@@ -69,6 +68,20 @@ function formulaRunIDFromHref(href: string) {
   } catch {
     return value;
   }
+}
+
+function formulaRunIDFromHref(href: string) {
+  return actionValueFromHref(href, 'tt-formula-run:');
+}
+
+function formulaShowNameFromHref(href: string) {
+  return actionValueFromHref(href, 'tt-formula-show:')
+    || actionValueFromHref(href, 'tt-formula://show/')
+    || actionValueFromHref(href, 'tt-formula:show/');
+}
+
+function markdownPathFromHref(href: string) {
+  return actionValueFromHref(href, 'tt-md:') || actionValueFromHref(href, 'tt-markdown:');
 }
 
 interface SlideAppProps {
@@ -412,17 +425,41 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
     const href = anchor?.getAttribute('href') || '';
     const runId = formulaRunIDFromHref(href);
-    if (!runId) {
+    const formulaName = formulaShowNameFromHref(href);
+    const markdownPath = markdownPathFromHref(href);
+    if (!runId && !formulaName && !markdownPath) {
       closeOverviewFromStage();
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    setActionNotice({ kind: 'info', text: `正在打开 formula run：${runId}` });
+    if (runId) {
+      setActionNotice({ kind: 'info', text: `正在打开 formula run：${runId}` });
+      try {
+        const result = await openFormulaRun(runId);
+        setActionNotice({ kind: 'success', text: `已打开 formula run：${result.runId}` });
+      } catch (e: any) {
+        setActionNotice({ kind: 'error', text: `打开失败：${String(e?.message || e)}` });
+      }
+      return;
+    }
+
+    if (formulaName) {
+      setActionNotice({ kind: 'info', text: `正在打开 formula：${formulaName}` });
+      try {
+        const result = await openFormulaShow(formulaName);
+        setActionNotice({ kind: 'success', text: `已打开 formula：${result.name}` });
+      } catch (e: any) {
+        setActionNotice({ kind: 'error', text: `打开失败：${String(e?.message || e)}` });
+      }
+      return;
+    }
+
+    setActionNotice({ kind: 'info', text: `正在打开 Markdown：${markdownPath}` });
     try {
-      const result = await openFormulaRun(runId);
-      setActionNotice({ kind: 'success', text: `已打开 formula run：${result.runId}` });
+      const result = await openMarkdownFile(markdownPath);
+      setActionNotice({ kind: 'success', text: `已打开 Markdown：${result.path}` });
     } catch (e: any) {
       setActionNotice({ kind: 'error', text: `打开失败：${String(e?.message || e)}` });
     }

@@ -114,6 +114,46 @@ export function openFormulaRun(runId: string): Promise<OpenFormulaRunResponse> {
   });
 }
 
+export type OpenFormulaShowResponse = {
+  ok: boolean;
+  name: string;
+  pid?: number;
+  command?: string;
+  error?: string;
+};
+
+export function openFormulaShow(name: string): Promise<OpenFormulaShowResponse> {
+  return fetch('/api/actions/formula-show/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+    return data;
+  });
+}
+
+export type OpenMarkdownResponse = {
+  ok: boolean;
+  path: string;
+  pid?: number;
+  command?: string;
+  error?: string;
+};
+
+export function openMarkdownFile(path: string): Promise<OpenMarkdownResponse> {
+  return fetch('/api/actions/markdown/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+    return data;
+  });
+}
+
 export function fetchTemplate(name: string): Promise<ExternalTemplate> {
   return apiFetch(`/api/template/${encodeURIComponent(name)}`);
 }
