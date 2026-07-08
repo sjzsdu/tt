@@ -1019,7 +1019,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(web-feature-test) error = %v", err)
 	}
-	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "gate-runnable-cases", "test-loop", "validate-test-results", "merge-case-results", "load-final-state", "final-report"} {
+	for _, nodeID := range []ir.NodeID{"load-project-context", "normalize-scope", "init-test-state", "plan-test-cases", "persist-test-plan", "prepare-runnable-cases", "prepare-browser-session", "gate-runnable-cases", "test-loop", "validate-test-results", "merge-case-results", "load-final-state", "cleanup-browser-session", "final-report"} {
 		if workflow.Graph.Nodes[nodeID] == nil {
 			t.Fatalf("missing web-feature-test node %s", nodeID)
 		}
@@ -1127,12 +1127,29 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 			t.Fatalf("merge-case-results script missing %q", want)
 		}
 	}
+	cleanupNode := workflow.Graph.Nodes[ir.NodeID("cleanup-browser-session")]
+	cleanupStep, ok := cleanupNode.Step.(steps.ScriptStep)
+	if !ok {
+		t.Fatalf("cleanup-browser-session step = %T, want ScriptStep", cleanupNode.Step)
+	}
+	if !slices.Contains(cleanupStep.Meta().DependsOn, steps.ID("load-final-state")) {
+		t.Fatalf("cleanup-browser-session dependencies = %v, want load-final-state", cleanupStep.Meta().DependsOn)
+	}
+	cleanupSource := cleanupStep.Command[2] + cleanupStep.Env["CLOSE_BROWSER_AFTER_RUN"] + cleanupStep.Env["BROWSER_SESSION_NAME"]
+	for _, want := range []string{"agent-browser", "close", "--session", "CLOSE_BROWSER_AFTER_RUN", "close_browser_after_run", "browser_session_name"} {
+		if !strings.Contains(cleanupSource, want) {
+			t.Fatalf("cleanup-browser-session script missing %q", want)
+		}
+	}
 	final := workflow.Graph.Nodes[ir.NodeID("final-report")]
 	finalAgent, ok := final.Step.(steps.AgentStep)
 	if !ok {
 		t.Fatalf("final-report step = %T, want AgentStep", final.Step)
 	}
-	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵", "visual_verification", "视觉模型"} {
+	if !slices.Contains(final.Step.Meta().DependsOn, steps.ID("cleanup-browser-session")) {
+		t.Fatalf("final-report dependencies = %v, want cleanup-browser-session", final.Step.Meta().DependsOn)
+	}
+	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵", "visual_verification", "视觉模型", "cleanup-browser-session", "agent-browser close --session"} {
 		if !strings.Contains(finalAgent.Prompt, want) {
 			t.Fatalf("final-report prompt missing %q", want)
 		}

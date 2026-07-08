@@ -27,6 +27,7 @@ browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL
 browser_headed = { description = "是否显示 Chrome 窗口；默认 false 静默测试，调试时可设 true", default = "false" }
 browser_executable_path = { description = "agent-browser 使用的 Chrome 可执行文件路径；为空则使用默认浏览器", default = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
 browser_session_name = { description = "agent-browser 自动保存/恢复登录态的 session-name；为空时按 suite 自动生成", default = "" }
+close_browser_after_run = { description = "运行结束后是否关闭本次 agent-browser session，默认 true 防止 Chrome/agent-browser 残留；调试时可设 false", default = "true" }
 ignore_https_errors = { description = "是否忽略本地/自签名 HTTPS 证书错误", default = "true" }
 webgl_browser_args = { description = "agent-browser WebGL/GPU 启动参数，逗号分隔", default = "--ignore-gpu-blocklist,--ignore-certificate-errors,--allow-insecure-localhost,--enable-gpu-rasterization,--enable-webgl,--enable-webgl2,--use-angle=metal" }
 
@@ -1261,10 +1262,95 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "cleanup-browser-session"
+title = "关闭本次 agent-browser 会话"
+depends_on = ["load-final-state"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+
+
+def load_json(value, default):
+    try:
+        if not value or value.lstrip().startswith('{{'):
+            return default
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def compact(value, limit=1000):
+    text = str(value or '').strip()
+    return text if len(text) <= limit else text[:limit] + '...'
+
+
+should_close = os.environ.get('CLOSE_BROWSER_AFTER_RUN', 'true').lower() not in ('0', 'false', 'no', 'off')
+init_state = load_json(os.environ.get('INIT_TEST_STATE', ''), {})
+prepared = load_json(os.environ.get('PREPARE_BROWSER_SESSION', ''), {})
+session_name = prepared.get('browser_session_name') or init_state.get('browser_session_name') or os.environ.get('BROWSER_SESSION_NAME') or ''
+socket_dir = init_state.get('browser_socket_dir') or ''
+env = os.environ.copy()
+if socket_dir:
+    env['AGENT_BROWSER_SOCKET_DIR'] = socket_dir
+if session_name:
+    env['AGENT_BROWSER_SESSION_NAME'] = session_name
+
+result = {
+    'enabled': should_close,
+    'session': session_name,
+    'socket_dir': socket_dir,
+    'status': 'skipped',
+    'command': '',
+    'stdout': '',
+    'stderr': '',
+    'exit_code': None,
+}
+
+if should_close and session_name:
+    cmd = ['agent-browser', 'close', '--session', session_name]
+    result['command'] = ' '.join(cmd)
+    try:
+        proc = subprocess.run(cmd, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=30)
+        result['exit_code'] = proc.returncode
+        result['stdout'] = compact(proc.stdout)
+        result['stderr'] = compact(proc.stderr)
+        result['status'] = 'closed' if proc.returncode == 0 else 'failed'
+    except subprocess.TimeoutExpired as exc:
+        result['status'] = 'timeout'
+        result['stderr'] = compact(exc)
+    except FileNotFoundError:
+        result['status'] = 'unavailable'
+        result['stderr'] = 'agent-browser executable not found'
+    except Exception as exc:
+        result['status'] = 'failed'
+        result['stderr'] = type(exc).__name__ + ': ' + compact(exc)
+elif should_close:
+    result['status'] = 'skipped'
+    result['stderr'] = 'No session name found to close.'
+
+print(json.dumps(result, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "45s"
+
+[steps.script.env]
+INIT_TEST_STATE = "{{init-test-state.stdout}}"
+PREPARE_BROWSER_SESSION = "{{prepare-browser-session.stdout}}"
+BROWSER_SESSION_NAME = "{{init-test-state.stdout.browser_session_name}}"
+CLOSE_BROWSER_AFTER_RUN = "{{close_browser_after_run}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
 id = "final-report"
 title = "输出定点测试报告"
-depends_on = ["load-final-state"]
-input_context = ["merge-case-results.stdout", "load-final-state.stdout"]
+depends_on = ["load-final-state", "cleanup-browser-session"]
+input_context = ["merge-case-results.stdout", "load-final-state.stdout", "cleanup-browser-session.stdout"]
 description = """
 基于全部上下文，输出中文 Markdown 报告。不要输出 JSON，不要用代码块包裹全文。
 
@@ -1277,6 +1363,7 @@ description = """
 
 ## 状态与产物位置
 必须列出：state_path、suite_dir、artifacts_dir、screenshots_dir、runs_path。说明再次运行同一 suite 且 only_failed=true 会只重跑失败/阻塞/未知/待执行用例。
+同时说明 cleanup-browser-session.stdout.status：closed 表示本次 agent-browser session 已关闭；如果 close_browser_after_run=false 或 cleanup 失败，要提醒用户可能需要手动执行 `agent-browser close --session <session>`。
 
 ## 测试范围与安全边界
 列 URL、测试提示摘要、是否加载 context_doc、登录策略摘要、禁止动作。不要泄露密码。
