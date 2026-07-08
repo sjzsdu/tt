@@ -8,6 +8,11 @@ license: MIT
 
 Use this skill to author `.slide` documents for `tt slide`.
 
+Reference docs:
+
+- [tt slide semantic spec](tt-md:ai-docs/slide.md)
+- [Slide template writer skill](tt-md:skills/slide-template-writer/SKILL.md)
+
 The source of truth is the `.slide` document format. A `.slide` deck defines presentation content and semantic structure only. It must not depend on any specific template, brand, color palette, font, logo, CSS class, or visual implementation. Templates beautify the same semantic deck at runtime.
 
 ## Core rule
@@ -464,14 +469,17 @@ Rules:
 
 ## Images and links
 
-Use standard Markdown image and link syntax. For local deck-owned assets, put files next to the deck, usually in an `assets/` directory, and use relative paths:
+Use standard Markdown image and link syntax. For local deck-owned media assets, put files next to the deck, usually in an `assets/` directory, and use relative paths. For local Markdown documents that should open in the tt reader, use `tt-md:` links:
 
 ```markdown
 ![Runtime map](./assets/runtime-map.svg)
-[Design note](./docs/design.md)
+[Design note](tt-md:docs/design.md)
+[Appendix](tt-md:appendix/references.md)
 ```
 
-The slide renderer resolves relative paths against the current `.slide` file directory and serves them through the local `/raw/...` route. Prefer relative paths over hand-written `/raw/...` URLs so the deck remains portable when moved as a folder.
+The slide renderer resolves relative media paths against the current `.slide` file directory and serves them through the local `/raw/...` route. Prefer relative paths over hand-written `/raw/...` URLs so the deck remains portable when moved as a folder.
+
+Use `tt-md:path/to/file.md` or `tt-markdown:path/to/file.md` for links that should open local Markdown documentation inside the tt markdown/slide reader instead of navigating the browser to a raw relative URL. Prefer `tt-md:` for deck handouts, speaker references, design notes, appendix documents, and cross-links to project documentation.
 
 Do not reference template assets from `.slide` documents. Template-owned backgrounds, logos, and decorative images belong in `.tt/slide/templates/<name>/assets/` and should be referenced by template CSS.
 
