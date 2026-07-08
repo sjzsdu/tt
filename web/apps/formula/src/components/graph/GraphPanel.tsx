@@ -223,7 +223,6 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
       lineWidth: 1.35,
       endArrow: true,
       endArrowSize: 7,
-      lineDash: [3, 5],
     };
   }
   if (edgeData?.kind === 'loop-expand' || edgeData?.kind === 'loop-sequence') {
@@ -235,7 +234,6 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
       lineWidth: edgeData.kind === 'loop-expand' ? 2.4 : 1.8,
       endArrow: true,
       endArrowSize: 8,
-      lineDash: edgeData.kind === 'loop-expand' ? [9, 5] : [4, 5],
       opacity: edgeData.kind === 'loop-expand' ? 0.86 : 1,
     };
   }
@@ -248,10 +246,10 @@ function edgeStyle(edgeData: { status?: string; kind?: string; sourcePort?: stri
     targetPort: edgeData?.targetPort,
     curveOffset: [laneOffset, -laneOffset],
     stroke: status ? stroke : baseStroke,
-    lineWidth: status === 'running' ? 2.4 : 1.5,
+    lineWidth: status === 'running' ? 2.4 : status === 'skipped' ? 1.2 : 1.5,
     endArrow: true,
     endArrowSize: 8,
-    lineDash: status === 'running' ? [8, 4] : status === 'skipped' ? [5, 5] : undefined,
+    opacity: status === 'skipped' ? 0.58 : 1,
   };
 }
 
@@ -435,10 +433,9 @@ function GraphHelpPopover({ runningTitle, nodeCount, edgeCount, loopCount, expan
               <li><b>Border</b>: node status. Running nodes also have a soft pulsing border.</li>
               <li><b>Background</b>: execution type. Agent blue, script orange, tool cyan, loop purple, human input yellow.</li>
               <li><b>$ var nodes</b>: formula template variables like <b>{'{{repo}}'}</b> and where they are consumed.</li>
-              <li><b>Solid edges</b>: execution dependencies, meaning the target step waits for or follows the source step.</li>
-              <li><b>Purple dashed edges</b>: loop expansion/loop-body flow, connecting a loop step to its expanded internal steps.</li>
-              <li><b>Cyan dashed edges</b>: variable consumption, meaning the target step references a formula var such as <b>{'{{repo}}'}</b>.</li>
-              <li><b>Other dashed edges</b>: non-normal execution state such as running/skipped, or separated lanes used to reduce overlap.</li>
+              <li><b>Edges</b>: solid lines show execution dependencies; the target step waits for or follows the source step.</li>
+              <li><b>Purple edges</b>: loop expansion or loop-body flow, connecting a loop step to its expanded internal steps.</li>
+              <li><b>Cyan edges</b>: variable consumption, meaning the target step references a formula var such as <b>{'{{repo}}'}</b>.</li>
               <li><b>Hover</b>: hover a node to highlight related upstream/downstream edges.</li>
               <li><b>Layout</b>: dependency depths are layered; ports and curves separate overlapping lanes.</li>
               <li><b>Click</b>: opens details. Use the +/- icon on loop nodes to open or hide the connected loop-body graph on the right.</li>
