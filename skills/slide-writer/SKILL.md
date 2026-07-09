@@ -471,6 +471,7 @@ Rules:
 - Prefer 3 to 5 columns and 3 to 6 body rows.
 - Keep cell text short; use phrases, not paragraphs.
 - If a table needs many rows, split it into multiple slides or summarize the key rows.
+- Use the Markdown delimiter row dash counts as relative width hints when columns need different widths. Example: `| - | --- | ------ |` renders roughly as `1 : 3 : 6` in `tt slide` and `tt markdown`.
 - Do not compensate for dense tables by asking the template to use tiny fonts.
 
 ## Images and links
