@@ -51,6 +51,30 @@ function calculateStageScale() {
 }
 
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
+const aiRewriteTurnsKey = (file: string, index: number) => `tt-slide-ai-rewrite:${file}:${index}`;
+
+function loadAIRewriteTurns(file: string, index: number): AIRewriteTurn[] {
+  if (!file || index < 0) return [];
+  try {
+    const raw = sessionStorage.getItem(aiRewriteTurnsKey(file, index));
+    if (!raw) return [];
+    const turns = JSON.parse(raw) as AIRewriteTurn[];
+    return Array.isArray(turns)
+      ? turns.filter(turn => turn && typeof turn.before === 'string' && typeof turn.after === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAIRewriteTurns(file: string, index: number, turns: AIRewriteTurn[]) {
+  if (!file || index < 0) return;
+  try {
+    sessionStorage.setItem(aiRewriteTurnsKey(file, index), JSON.stringify(turns.slice(-12)));
+  } catch {
+    // Ignore storage failures. The in-memory history still works for this open editor.
+  }
+}
 
 function fileFromURL(url: URL) {
   return url.searchParams.get('file') || '';
@@ -573,7 +597,6 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorBaseMarkdown('');
     setAIInstruction('');
     setAIError('');
-    setAIRewriteTurns([]);
   }, []);
 
   const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number, targetFile = currentFile) => {
@@ -651,7 +674,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorError('');
     setAIInstruction('');
     setAIError('');
-    setAIRewriteTurns([]);
+    setAIRewriteTurns(loadAIRewriteTurns(currentFile, index));
     setIsEditorOpen(true);
     setIsAIModalOpen(true);
   }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
@@ -660,16 +683,18 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (contentMode || !currentFile || !rawMarkdown) return;
     if (!editorFilePath) setEditorFilePath(currentFile);
     if (!editorBaseMarkdown) setEditorBaseMarkdown(rawMarkdown);
+    const index = editorSlideIndex ?? getActiveSlideIndex();
     const draft = editorText.trim();
     if (!draft) {
       setEditorError('当前编辑内容为空，无法进行 AI 修改。');
       return;
     }
+    setAIRewriteTurns(loadAIRewriteTurns(editorFilePath || currentFile, index));
     setAIInstruction('');
     setAIError('');
     setIsEditorOpen(true);
     setIsAIModalOpen(true);
-  }, [contentMode, currentFile, editorBaseMarkdown, editorFilePath, editorText, rawMarkdown]);
+  }, [contentMode, currentFile, editorBaseMarkdown, editorFilePath, editorSlideIndex, editorText, getActiveSlideIndex, rawMarkdown]);
 
   const submitAIRewrite = useCallback(async () => {
     const targetFile = editorFilePath || currentFile;
@@ -710,7 +735,11 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       const summary = response.summary || 'AI 已生成一版修改稿。';
       setEditorText(updated);
       setEditorError(`${summary} 可以继续输入意见迭代，满意后再保存。`);
-      setAIRewriteTurns(turns => [...turns, { instruction, summary, before: slideSource, after: updated }]);
+      setAIRewriteTurns(turns => {
+        const nextTurns = [...turns, { instruction, summary, before: slideSource, after: updated }];
+        saveAIRewriteTurns(targetFile, index, nextTurns);
+        return nextTurns;
+      });
       setAIInstruction('');
       setIsEditorOpen(true);
     } catch (e: any) {
@@ -1126,7 +1155,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                     ))}
                   </div>
                   <div className="slide-ai-quick-actions">
-                    {['再短一点', '更图像化', '结构不对，重新组织', '语气更自然', '变化还不够明显'].map(text => (
+                    {['再短一点', '更图像化', '优化一下布局', '结构不对，重新组织', '语气更自然', '变化还不够明显'].map(text => (
                       <button
                         key={text}
                         type="button"
