@@ -1017,6 +1017,24 @@ html, body, #root {
 .slide-ai-turn-user { color: #e2e8f0; white-space: pre-wrap; }
 .slide-ai-turn-assistant { margin-top: 6px; color: #bae6fd; }
 .slide-ai-turn strong { color: #38bdf8; }
+.slide-ai-turn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.slide-ai-turn-actions button {
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 999px;
+  background: rgba(8, 47, 73, 0.42);
+  color: #bae6fd;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.slide-ai-turn-actions button:hover { border-color: #38bdf8; color: #fff; }
+.slide-ai-turn-actions button:disabled { cursor: not-allowed; opacity: .55; }
 
 .slide-ai-quick-actions {
   display: flex;
