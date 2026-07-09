@@ -1155,7 +1155,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                     ))}
                   </div>
                   <div className="slide-ai-quick-actions">
-                    {['再短一点', '更图像化', '优化一下布局', '结构不对，重新组织', '语气更自然', '变化还不够明显'].map(text => (
+                    {['再短一点', '更图像化', '优化布局但保留当前结构，不新增图示', '结构不对，重新组织', '语气更自然', '变化还不够明显'].map(text => (
                       <button
                         key={text}
                         type="button"

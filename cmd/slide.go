@@ -1222,9 +1222,10 @@ func buildSlideWriterPrompt(req slideRewriteRequest) string {
 	var b strings.Builder
 	b.WriteString("请根据用户意见修改当前 slide。当前页源码是用户正在编辑的最新草稿，必须以它为唯一事实来源；不要从历史对话、旧文件内容或上下文中恢复已经被删除的内容。必须让修改后的 slide 明显体现用户意见，不能原样返回当前页，除非用户明确要求保持不变。只输出修改后的当前 slide block 原文，不要输出解释、Markdown 代码围栏或完整文件。\n\n")
 	b.WriteString("修改要求:\n")
+	b.WriteString("- 默认保持当前页已有布局、分栏、媒体区、表格和图表结构；用户没有明确要求改布局时，不要主动改成 .media-right/.media-left。\n")
 	b.WriteString("- 如果用户说文字太多，就要明显删减或重组文字。\n")
-	b.WriteString("- 如果用户要求图文结构，就要保留或改成 .media-right/.media-left 与 :::main/:::media。\n")
-	b.WriteString("- 如果用户要求图更清楚，就要实质改写 Mermaid/D2 或替换为更清晰的图示。\n")
+	b.WriteString("- 只有用户明确要求图文结构、当前页已经是图文结构且需要修正，或内容不用图明显讲不清时，才使用 .media-right/.media-left 与 :::main/:::media。\n")
+	b.WriteString("- 只有用户明确要求图示、当前页已有 Mermaid/D2 需要修正，或流程/层级/因果/时间线/关系用图明显更清楚时，才新增或改写 Mermaid/D2；不要为了显得丰富而加图。\n")
 	b.WriteString("- 如果用户意见很笼统，也要做一版合理改进，而不是原样返回。\n\n")
 	b.WriteString(fmt.Sprintf("文件: %s\n", req.File))
 	b.WriteString(fmt.Sprintf("当前页: %d\n\n", req.SlideIndex+1))
