@@ -136,6 +136,8 @@ Rules:
 - If a slide is primarily one image, video, screenshot, design frame, or iframe, use `.full-bleed` when cropping is acceptable and atmospheric, or `.no-padding` when the entire media must remain visible.
 - If the slide needs exact overlays, labels, badges, callouts, or a poster-like composition, use `.absolute` / `.freeform` with `.abs` and CSS variables rather than inventing template CSS.
 - Do not put a large diagram below a long bullet list. Split it into “message” and “diagram” slides, or use `.split`.
+- Before finalizing a slide, do a boundary check for the fixed 1600×900 canvas: title, body, diagram, media, and margins must plausibly fit without clipping or overflowing.
+- If content may exceed the slide boundary, reduce text, split into more slides, choose a less dense layout, move detail to notes/appendix, or resize/reposition media. Do not solve overflow by relying on tiny text.
 - Prefer 3 to 5 visually balanced blocks over one short lonely paragraph.
 - For lists, keep bullets parallel and similar length so the template can distribute them cleanly.
 - When converting notes, plan the deck as pages first, then write content. Do not preserve the note order if it creates awkward sparse pages.
@@ -545,6 +547,8 @@ Target per normal slide:
 - Paragraphs: 1 to 2 short paragraphs only.
 
 Avoid full sentences when a crisp phrase works.
+
+Always consider whether the rendered slide will stay inside the visible 1600×900 boundary. If a normal slide needs more than the target density, split the idea, shorten copy, or move supporting detail elsewhere instead of expecting the renderer to fit it automatically.
 
 Sparse does not mean empty. If a slide has very little content, either:
 
