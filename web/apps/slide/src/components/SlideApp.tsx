@@ -17,6 +17,19 @@ type AIRewriteTurn = {
   after: string;
 };
 
+type AIRewriteSessionMode = 'edit' | 'insert';
+
+type AIRewriteSession = {
+  turns: AIRewriteTurn[];
+  draftSource: string;
+  updatedAt: number;
+};
+
+type AIRewriteSessionMap = Record<string, AIRewriteSession>;
+
+const AI_REWRITE_SESSIONS_STORAGE_KEY = 'tt-slide-ai-rewrite-sessions:v1';
+const MAX_AI_REWRITE_SESSIONS = 80;
+
 const CORE_LAYOUT_CSS = `
 .reveal .slides section.slide-grid .slide-content,
 .reveal .slides section.slide-cards .slide-content {
@@ -41,6 +54,23 @@ const CORE_LAYOUT_CSS = `
 .reveal .slides section.slide-grid.slide-dense .slide-markdown:not(.slide-part-item):not(.slide-part-card) h1 { margin-bottom: 0; font-size: 1.28em; }
 .reveal .slides section.slide-grid.slide-compact .slide-widget,
 .reveal .slides section.slide-grid.slide-dense .slide-widget { min-width: 0; min-height: 0; height: 100%; }
+`;
+
+const CORE_MARKDOWN_NORMALIZE_CSS = `
+.reveal .slides section .slide-markdown li > p {
+  max-width: none;
+  font-size: 1em;
+  line-height: inherit;
+}
+.reveal .slides section .slide-markdown li > p:first-child {
+  margin-top: 0;
+}
+.reveal .slides section .slide-markdown li > p:last-child {
+  margin-bottom: 0;
+}
+.reveal .slides section .slide-markdown li > p:only-child {
+  margin: 0;
+}
 `;
 
 function calculateStageScale() {
@@ -87,6 +117,108 @@ function slideIndicesFromHash(hash: string) {
   if (values.some(value => !Number.isInteger(value) || value < 0)) return null;
   return { h: values[0] ?? 0, v: values[1] ?? 0, f: values[2] ?? 0 };
 }
+
+function aiRewriteSessionKey(file: string, slideIndex: number, mode: AIRewriteSessionMode = 'edit') {
+  return `${encodeURIComponent(file)}::${mode}::${slideIndex}`;
+}
+
+function parseAIRewriteSessionKey(file: string, key: string): { mode: AIRewriteSessionMode; slideIndex: number } | null {
+  const prefix = `${encodeURIComponent(file)}::`;
+  if (!key.startsWith(prefix)) return null;
+  const match = key.slice(prefix.length).match(/^(edit|insert)::(-?\d+)$/);
+  if (!match) return null;
+  const slideIndex = Number(match[2]);
+  if (!Number.isInteger(slideIndex) || slideIndex < 0) return null;
+  return { mode: match[1] as AIRewriteSessionMode, slideIndex };
+}
+
+function normalizeAIRewriteTurns(value: unknown): AIRewriteTurn[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(turn => {
+      if (!turn || typeof turn !== 'object') return null;
+      const item = turn as Partial<AIRewriteTurn>;
+      const instruction = typeof item.instruction === 'string' ? item.instruction.trim() : '';
+      const summary = typeof item.summary === 'string' ? item.summary.trim() : '';
+      if (!instruction || !summary) return null;
+      return { instruction, summary };
+    })
+    .filter((turn): turn is AIRewriteTurn => Boolean(turn))
+    .slice(-24);
+}
+
+function pruneAIRewriteSessions(sessions: AIRewriteSessionMap): AIRewriteSessionMap {
+  const entries = Object.entries(sessions)
+    .filter(([, session]) => session.turns.length > 0 || session.draftSource.trim())
+    .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+    .slice(0, MAX_AI_REWRITE_SESSIONS);
+  return Object.fromEntries(entries);
+}
+
+function loadAIRewriteSessions(): AIRewriteSessionMap {
+  try {
+    const raw = localStorage.getItem(AI_REWRITE_SESSIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const sessions: AIRewriteSessionMap = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue;
+      const item = value as Partial<AIRewriteSession>;
+      const turns = normalizeAIRewriteTurns(item.turns);
+      const draftSource = typeof item.draftSource === 'string' ? item.draftSource : '';
+      const updatedAt = typeof item.updatedAt === 'number' && Number.isFinite(item.updatedAt) ? item.updatedAt : Date.now();
+      if (turns.length === 0 && !draftSource.trim()) continue;
+      sessions[key] = { turns, draftSource, updatedAt };
+    }
+    return pruneAIRewriteSessions(sessions);
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveAIRewriteSessions(sessions: AIRewriteSessionMap) {
+  try {
+    localStorage.setItem(AI_REWRITE_SESSIONS_STORAGE_KEY, JSON.stringify(pruneAIRewriteSessions(sessions)));
+  } catch (_) {}
+}
+
+function remapAIRewriteSessionsAfterDelete(sessions: AIRewriteSessionMap, file: string, deletedIndex: number): AIRewriteSessionMap {
+  const next: AIRewriteSessionMap = {};
+  for (const [key, session] of Object.entries(sessions)) {
+    const parsed = parseAIRewriteSessionKey(file, key);
+    if (!parsed) {
+      next[key] = session;
+      continue;
+    }
+    if (parsed.slideIndex === deletedIndex) continue;
+    const slideIndex = parsed.slideIndex > deletedIndex ? parsed.slideIndex - 1 : parsed.slideIndex;
+    next[aiRewriteSessionKey(file, slideIndex, parsed.mode)] = session;
+  }
+  return pruneAIRewriteSessions(next);
+}
+
+function remapAIRewriteSessionsAfterReorder(sessions: AIRewriteSessionMap, file: string, fromIndex: number, toIndex: number): AIRewriteSessionMap {
+  const next: AIRewriteSessionMap = {};
+  for (const [key, session] of Object.entries(sessions)) {
+    const parsed = parseAIRewriteSessionKey(file, key);
+    if (!parsed) {
+      next[key] = session;
+      continue;
+    }
+    let slideIndex = parsed.slideIndex;
+    if (slideIndex === fromIndex) {
+      slideIndex = toIndex;
+    } else if (fromIndex < toIndex && slideIndex > fromIndex && slideIndex <= toIndex) {
+      slideIndex -= 1;
+    } else if (toIndex < fromIndex && slideIndex >= toIndex && slideIndex < fromIndex) {
+      slideIndex += 1;
+    }
+    next[aiRewriteSessionKey(file, slideIndex, parsed.mode)] = session;
+  }
+  return pruneAIRewriteSessions(next);
+}
+
 
 function dirname(path: string) {
   const normalized = path.replace(/\\/g, '/');
@@ -156,6 +288,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [aiError, setAIError] = useState('');
   const [isAIWorking, setIsAIWorking] = useState(false);
   const [aiRewriteTurns, setAIRewriteTurns] = useState<AIRewriteTurn[]>([]);
+  const [aiRewriteSessions, setAIRewriteSessions] = useState<AIRewriteSessionMap>(() => loadAIRewriteSessions());
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -171,6 +304,10 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const overviewListRef = useRef<HTMLDivElement>(null);
   const currentFileRef = useRef(currentFile);
   currentFileRef.current = currentFile;
+
+  useEffect(() => {
+    saveAIRewriteSessions(aiRewriteSessions);
+  }, [aiRewriteSessions]);
 
   const exposeCaptureAPI = useCallback((deck: Reveal.Api | null) => {
     (window as any).ttSlideCapture = {
@@ -589,7 +726,50 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
   const editorDisplayIndex = editorSlideIndex ?? currentSlideIndex;
 
-  const closeEditor = useCallback(() => {
+  const getAIRewriteSession = useCallback((file: string, slideIndex: number, mode: AIRewriteSessionMode = 'edit') => {
+    if (!file || slideIndex < 0) return undefined;
+    return aiRewriteSessions[aiRewriteSessionKey(file, slideIndex, mode)];
+  }, [aiRewriteSessions]);
+
+  const rememberAIRewriteSession = useCallback((file: string, slideIndex: number, mode: AIRewriteSessionMode, turns: AIRewriteTurn[], draftSource: string) => {
+    if (!file || slideIndex < 0) return;
+    const normalizedTurns = normalizeAIRewriteTurns(turns);
+    const normalizedDraft = draftSource.trim();
+    setAIRewriteSessions(sessions => {
+      const next = { ...sessions };
+      const key = aiRewriteSessionKey(file, slideIndex, mode);
+      if (normalizedTurns.length === 0 && !normalizedDraft) {
+        delete next[key];
+        return pruneAIRewriteSessions(next);
+      }
+      next[key] = { turns: normalizedTurns, draftSource: normalizedDraft, updatedAt: Date.now() };
+      return pruneAIRewriteSessions(next);
+    });
+  }, []);
+
+  const persistActiveAIRewriteDraft = useCallback(() => {
+    const targetFile = editorFilePath || currentFile;
+    const index = editorSlideIndex ?? currentSlideIndex;
+    if (!targetFile || index < 0 || aiRewriteTurns.length === 0 || !editorText.trim()) return;
+    rememberAIRewriteSession(targetFile, index, editorMode, aiRewriteTurns, editorText);
+  }, [aiRewriteTurns, currentFile, currentSlideIndex, editorFilePath, editorMode, editorSlideIndex, editorText, rememberAIRewriteSession]);
+
+  const resetAIRewriteSession = useCallback(() => {
+    const targetFile = editorFilePath || currentFile;
+    const index = editorSlideIndex ?? currentSlideIndex;
+    if (!targetFile || index < 0) return;
+    const key = aiRewriteSessionKey(targetFile, index, editorMode);
+    setAIRewriteSessions(sessions => {
+      if (!sessions[key]) return sessions;
+      const next = { ...sessions };
+      delete next[key];
+      return next;
+    });
+    setAIRewriteTurns([]);
+    setAIError('');
+  }, [currentFile, currentSlideIndex, editorFilePath, editorMode, editorSlideIndex]);
+
+  const clearEditorState = useCallback(() => {
     setIsEditorOpen(false);
     setIsAIModalOpen(false);
     setEditorSlideIndex(null);
@@ -598,6 +778,11 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setAIInstruction('');
     setAIError('');
   }, []);
+
+  const closeEditor = useCallback(() => {
+    persistActiveAIRewriteDraft();
+    clearEditorState();
+  }, [clearEditorState, persistActiveAIRewriteDraft]);
 
   const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number, targetFile = currentFile) => {
     if (!targetFile) throw new Error('No slide file specified');
@@ -669,32 +854,47 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorSlideIndex(index);
     setEditorFilePath(currentFile);
     setEditorBaseMarkdown(rawMarkdown);
-    setEditorText(raw);
+    const session = getAIRewriteSession(currentFile, index, 'edit');
+    setEditorText(session?.draftSource.trim() ? session.draftSource : raw);
     setEditorMode('edit');
     setEditorError('');
     setAIInstruction('');
     setAIError('');
-    setAIRewriteTurns(loadAIRewriteTurns(currentFile, index));
+    setAIRewriteTurns(session?.turns || loadAIRewriteTurns(currentFile, index));
     setIsEditorOpen(true);
     setIsAIModalOpen(true);
-  }, [contentMode, currentFile, getActiveSlideIndex, rawMarkdown]);
+  }, [contentMode, currentFile, getAIRewriteSession, getActiveSlideIndex, rawMarkdown]);
 
   const openAIRewriteFromEditor = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
+    const targetFile = editorFilePath || currentFile;
+    const index = editorSlideIndex ?? currentSlideIndex;
+    const sourceMarkdown = editorBaseMarkdown || rawMarkdown;
+    const sourceDoc = parseEditableSlideDocument(sourceMarkdown);
+    const baseSlide = sourceDoc.slides[index] || '';
+    let nextEditorText = editorText;
     if (!editorFilePath) setEditorFilePath(currentFile);
     if (!editorBaseMarkdown) setEditorBaseMarkdown(rawMarkdown);
-    const index = editorSlideIndex ?? getActiveSlideIndex();
-    const draft = editorText.trim();
+    if (aiRewriteTurns.length === 0) {
+      const session = getAIRewriteSession(targetFile, index, editorMode);
+      if (session) {
+        setAIRewriteTurns(session.turns);
+        if (session.draftSource.trim() && editorText.trim() === baseSlide.trim()) {
+          nextEditorText = session.draftSource;
+          setEditorText(nextEditorText);
+        }
+      }
+    }
+    const draft = nextEditorText.trim();
     if (!draft) {
       setEditorError('当前编辑内容为空，无法进行 AI 修改。');
       return;
     }
-    setAIRewriteTurns(loadAIRewriteTurns(editorFilePath || currentFile, index));
     setAIInstruction('');
     setAIError('');
     setIsEditorOpen(true);
     setIsAIModalOpen(true);
-  }, [contentMode, currentFile, editorBaseMarkdown, editorFilePath, editorSlideIndex, editorText, getActiveSlideIndex, rawMarkdown]);
+  }, [aiRewriteTurns.length, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, getAIRewriteSession, rawMarkdown]);
 
   const submitAIRewrite = useCallback(async () => {
     const targetFile = editorFilePath || currentFile;
@@ -736,9 +936,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       setEditorText(updated);
       setEditorError(`${summary} 可以继续输入意见迭代，满意后再保存。`);
       setAIRewriteTurns(turns => {
-        const nextTurns = [...turns, { instruction, summary, before: slideSource, after: updated }];
-        saveAIRewriteTurns(targetFile, index, nextTurns);
-        return nextTurns;
+        const mergedTurns = [...turns, { instruction, summary, before: slideSource, after: updated }];
+        saveAIRewriteTurns(targetFile, index, mergedTurns);
+        return mergedTurns;
       });
       setAIInstruction('');
       setIsEditorOpen(true);
@@ -781,13 +981,28 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setEditorError('');
     try {
       await saveEditableDocument(doc, index, targetFile);
-      closeEditor();
+      if (aiRewriteTurns.length > 0) {
+        const normalizedTurns = normalizeAIRewriteTurns(aiRewriteTurns);
+        setAIRewriteSessions(sessions => {
+          const next = { ...sessions };
+          if (editorMode === 'insert') {
+            delete next[aiRewriteSessionKey(targetFile, index, 'insert')];
+          }
+          next[aiRewriteSessionKey(targetFile, index, 'edit')] = {
+            turns: normalizedTurns,
+            draftSource: nextText,
+            updatedAt: Date.now(),
+          };
+          return pruneAIRewriteSessions(next);
+        });
+      }
+      clearEditorState();
     } catch (e: any) {
       setEditorError(String(e?.message || e));
     } finally {
       setIsSaving(false);
     }
-  }, [closeEditor, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, rawMarkdown, saveEditableDocument]);
+  }, [aiRewriteTurns, clearEditorState, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, rawMarkdown, saveEditableDocument]);
 
   const requestDeleteCurrentSlide = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
@@ -816,6 +1031,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setDeleteError('');
     try {
       await saveEditableDocument(doc, nextIndex);
+      setAIRewriteSessions(sessions => remapAIRewriteSessionsAfterDelete(sessions, currentFile, index));
       setDeleteConfirmIndex(null);
     } catch (e: any) {
       setDeleteError(`删除失败：${String(e?.message || e)}`);
@@ -834,6 +1050,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setOverviewError('');
     try {
       await saveEditableDocument(doc, toIndex);
+      setAIRewriteSessions(sessions => remapAIRewriteSessionsAfterReorder(sessions, currentFile, fromIndex, toIndex));
     } catch (e: any) {
       setOverviewError(`排序保存失败：${String(e?.message || e)}`);
     } finally {
@@ -952,6 +1169,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     <div className="slide-wrapper" ref={wrapperRef}>
       <style>{CORE_LAYOUT_CSS}</style>
       <style>{tpl.css}</style>
+      <style>{CORE_MARKDOWN_NORMALIZE_CSS}</style>
       <div
         className="slide-stage"
         style={{ transform: `scale(${stageScale})` }}
@@ -1120,7 +1338,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                   <div className="slide-ai-panel-header">
                     <div>
                       <div className="slide-ai-panel-title">AI 改稿会话</div>
-                      <div className="slide-ai-panel-subtitle">每一轮都基于左侧最新草稿，满意后再保存。</div>
+                      <div className="slide-ai-panel-subtitle">
+                        {aiRewriteTurns.length > 0 ? `已复用 ${aiRewriteTurns.length} 轮历史；每一轮都基于左侧最新草稿。` : '每一轮都基于左侧最新草稿，满意后再保存。'}
+                      </div>
                     </div>
                     <button className="slide-ai-panel-close" onClick={() => setIsAIModalOpen(false)} title="收起 AI 改稿">×</button>
                   </div>
@@ -1175,6 +1395,9 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                   />
                   {aiError && <div className="slide-edit-error slide-ai-error">{aiError}</div>}
                   <div className="slide-ai-actions">
+                    {aiRewriteTurns.length > 0 && (
+                      <button className="slide-edit-secondary" onClick={resetAIRewriteSession} disabled={isAIWorking}>重开会话</button>
+                    )}
                     <button className="slide-edit-secondary" onClick={() => setAIInstruction('')} disabled={isAIWorking || !aiInstruction.trim()}>清空意见</button>
                     <button className="slide-edit-primary" onClick={submitAIRewrite} disabled={isAIWorking || !aiInstruction.trim()}>
                       {isAIWorking ? '改稿中…' : aiRewriteTurns.length > 0 ? '继续修改' : '生成修改稿'}
