@@ -469,7 +469,16 @@ func TestBuildSlideWriterPromptIncludesContext(t *testing.T) {
 		NextSlide:     "# next",
 		Instruction:   "make it visual",
 	})
-	for _, want := range []string{"当前页: 3", "# prev", "# current", "# next", "make it visual", "只输出修改后的当前 slide block"} {
+	for _, want := range []string{
+		"当前页: 3",
+		"# prev",
+		"# current",
+		"# next",
+		"make it visual",
+		"只输出修改后的当前 slide block",
+		"用户没有明确要求改布局时，不要主动改成 .media-right/.media-left",
+		"不要为了显得丰富而加图",
+	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
