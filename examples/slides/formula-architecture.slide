@@ -1,0 +1,234 @@
+---
+title: Formula 架构介绍
+transition: fade
+---
+
+.cover
+
+# Formula 架构介绍
+
+从一次性 agent 调用，到可恢复、可观察、可组合的 typed workflow runtime
+
+---
+
+.center
+
+# Formula 不是提示词模板，而是工作流运行时
+
+它把重复性工作拆成 typed steps，用图结构表达顺序、分支、循环、人工输入和运行状态。
+
+---
+
+.cards
+
+# 四层架构把“怎么做”变成可运行系统
+
+:::card
+## 定义层
+- TOML 声明 vars、steps、depends_on、condition
+- builtin 与用户公式按搜索路径加载
+:::
+
+:::card
+## 编译层
+- resolve / expand / embed / advice
+- 输出 graph-first Workflow IR
+:::
+
+:::card
+## 执行层
+- typed runtime 拓扑调度步骤
+- 按 step kind 调用不同 capability
+:::
+
+:::card
+## 观察层
+- run store 保存状态、日志、上下文
+- dashboard 支持输入、恢复、复盘
+:::
+
+---
+
+.no-panzoom
+
+# 核心链路：TOML 编译成 Workflow IR 后执行
+
+```mermaid
+flowchart LR
+    A[Formula TOML] --> B[Parser]
+    B --> C[Resolve / Expand / Embed]
+    C --> D[Workflow IR]
+    D --> E[Typed Runtime Executor]
+    E --> F[Step Implementations]
+    F --> G[Context Store]
+    G --> H[Run Store]
+    H --> I[Dashboard / CLI Resume]
+```
+
+---
+
+.two-column
+
+# 作者模型和运行模型分离
+
+:::columns
+## 作者看到的是 SOP
+
+- 变量：用户输入与默认配置
+- 步骤：每个节点的目标和产物
+- 依赖：真实的数据或副作用顺序
+- 条件：运行时根据上下文分流
+:::
+
+:::columns
+## 运行时看到的是图
+
+- `ir.Workflow` 保存节点和边
+- step id 默认就是输出 key
+- executor 按拓扑顺序推进
+- 已完成节点可在 resume 时跳过
+:::
+
+---
+
+.grid
+
+# Step kind 是 formula 的扩展边界
+
+:::item
+## agent
+判断、规划、解释、综合
+:::
+
+:::item
+## script / tool
+确定性命令、git、写文件、等待
+:::
+
+:::item
+## aggregate
+投影和收敛大输出
+:::
+
+:::item
+## human_input
+静态表单与动态澄清
+:::
+
+:::item
+## loop / embed
+循环、并发、复用子 workflow
+:::
+
+:::item
+## external_agent
+连接 codex、jcode、opencode、forge、bl
+:::
+
+---
+
+.no-panzoom
+
+# Runtime 生命周期围绕可恢复执行设计
+
+```mermaid
+flowchart TB
+    A[StartWorkflow] --> B[Preflight Checks]
+    B --> C[Prepare Workspace]
+    C --> D[PlanTopological]
+    D --> E{Next Ready Step}
+    E --> F[Run Step]
+    F --> G{Status}
+    G -- completed --> H[SaveStep + Context]
+    G -- waiting --> I[Persist Human Input Request]
+    G -- failed --> J[Repair or Fail]
+    H --> E
+    I --> K[Resume after input]
+    J --> L[Run Store / Dashboard]
+```
+
+---
+
+.two-column
+
+# 数据流靠 step id、input_context 和 validate 约束
+
+:::columns
+## 上游产物
+
+- 每个 step 输出写入 context store
+- 默认 key 就是稳定 step id
+- `env` 注入 cwd、git、run dir 等上下文
+- 大输出先 aggregate，再给 agent
+:::
+
+:::columns
+## 下游消费
+
+- `input_context` 控制 agent 可见数据
+- `condition` 读取 JSON 字段决定分支
+- `validate` 锁住结构化输出形状
+- 报告步骤消费 curated payload
+:::
+
+---
+
+.two-column
+
+# 可靠性来自明确的副作用边界
+
+:::columns
+## 安全默认值
+
+- script 默认不可自修，避免重复副作用
+- shell 执行默认受安全策略约束
+- preflight 在工作流启动前失败
+- workspace guard 限制 agent 修改范围
+:::
+
+:::columns
+## 可审计修复
+
+- agent 默认可重试
+- 幂等 script 可显式开启自修
+- StepFixer 最多尝试三次
+- RepairRecord 写入 patches 并由人确认
+:::
+
+---
+
+.cards
+
+# 产品入口围绕同一份 run 状态展开
+
+:::card
+## CLI
+`list`、`show`、`compile`、`run`、`runs`、`resume`
+:::
+
+:::card
+## Dashboard
+步骤列表、图视图、日志、人工输入、repairs
+:::
+
+:::card
+## Builtins
+feature、bug-fix、github、docs、qa、workflow
+:::
+
+:::card
+## Schedule
+interval / cron 触发重复 run
+:::
+
+---
+
+.center
+
+# 架构结论：Formula 把 agent 能力变成工程能力
+
+**可重复** · **可观察** · **可恢复** · **可组合** · **可审计**
+
+---
+
+.end
