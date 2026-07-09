@@ -48,7 +48,7 @@ type FenceState = {
 
 const slideDirectivePattern = /^\.([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\s*$/i;
 const blockRolePattern = /^:::\s*(columns?|card|item|media|main|aside)\s*$/i;
-const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final', 'full-bleed', 'bleed', 'no-padding', 'absolute', 'freeform', 'free', 'stage', 'no-panzoom', 'no-zoom', 'no-drag', 'static-diagram']);
+const slideLayoutDirectives = new Set(['center', 'logo', 'brand', 'split', 'two-column', 'columns', 'three-column', 'three-columns', 'four-column', 'four-columns', 'grid', 'cards', 'flex', 'hero', 'media-left', 'media-right', 'cover', 'closing', 'end', 'final', 'full-bleed', 'bleed', 'no-padding', 'absolute', 'freeform', 'free', 'stage', 'no-panzoom', 'no-zoom', 'no-drag', 'static-diagram']);
 const allowedRevealSectionAttrs = /^(?:id|class|data-[\w:-]+|aria-[\w:-]+)$/i;
 
 function updateFenceState(line: string, fence: FenceState): FenceState {
@@ -232,6 +232,10 @@ function extractSlideDirectives(markdown: string): SlideDirective {
         layoutHint = 'split';
       } else if (directive === 'two-column' || directive === 'columns') {
         layoutHint = 'two-column';
+      } else if (directive === 'three-column' || directive === 'three-columns') {
+        layoutHint = 'three-column';
+      } else if (directive === 'four-column' || directive === 'four-columns') {
+        layoutHint = 'four-column';
       } else if (directive === 'grid') {
         layoutHint = 'grid';
       } else if (directive === 'cards') {
@@ -368,6 +372,8 @@ function parseLayoutFromParts(parts: SlidePart[]): SlideLayout {
     if (part.type !== 'markdown') continue;
     const html = part.html;
     if (html.includes('class="two-column"') || html.includes(':::columns')) return 'two-column';
+    if (html.includes('class="three-column"') || html.includes('class="three-columns"')) return 'three-column';
+    if (html.includes('class="four-column"') || html.includes('class="four-columns"')) return 'four-column';
     if (html.includes('class="split"')) return 'split';
     if (html.includes('class="center"')) return 'center';
     if (html.includes('class="grid"')) return 'grid';
@@ -381,6 +387,8 @@ function parseLayoutFromParts(parts: SlidePart[]): SlideLayout {
 function classForLayout(layout: SlideLayout): string {
   if (layout === 'center') return 'slide-center';
   if (layout === 'two-column') return 'slide-two-column';
+  if (layout === 'three-column') return 'slide-three-column';
+  if (layout === 'four-column') return 'slide-four-column';
   if (layout === 'split') return 'slide-split';
   if (layout === 'grid') return 'slide-grid';
   if (layout === 'cards') return 'slide-cards';
@@ -402,7 +410,7 @@ function classesForSlideDensity(parts: SlidePart[], layout: SlideLayout, index: 
 	const markdownParts = parts.filter((part): part is Extract<SlidePart, { type: 'markdown' }> => part.type === 'markdown');
 	const textLength = markdownParts.reduce((total, part) => total + plainTextLength(part.html), 0);
 	const classes: string[] = [];
-	if (layout === 'media-left' || layout === 'media-right' || layout === 'two-column' || layout === 'split') {
+	if (layout === 'media-left' || layout === 'media-right' || layout === 'two-column' || layout === 'three-column' || layout === 'four-column' || layout === 'split') {
 		return classes;
 	}
 	if (diagramCount > 0) {
