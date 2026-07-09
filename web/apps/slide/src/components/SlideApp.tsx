@@ -13,6 +13,8 @@ const DESIGN_HEIGHT = 900;
 type AIRewriteTurn = {
   instruction: string;
   summary: string;
+  before: string;
+  after: string;
 };
 
 const CORE_LAYOUT_CSS = `
@@ -617,7 +619,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       const summary = response.summary || 'AI 已生成一版修改稿。';
       setEditorText(updated);
       setEditorError(`${summary} 可以继续输入意见迭代，满意后再保存。`);
-      setAIRewriteTurns(turns => [...turns, { instruction, summary }]);
+      setAIRewriteTurns(turns => [...turns, { instruction, summary, before: slideSource, after: updated }]);
       setAIInstruction('');
       setIsEditorOpen(true);
     } catch (e: any) {
@@ -626,6 +628,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       setIsAIWorking(false);
     }
   }, [aiInstruction, aiRewriteTurns, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, isEditorOpen, rawMarkdown]);
+
+  const restoreAIRewriteVersion = useCallback((source: string, label: string) => {
+    if (!source.trim()) return;
+    setEditorText(source.trim());
+    setEditorError(`已恢复到${label}。这只是更新左侧草稿，确认后请点击保存。`);
+    setIsEditorOpen(true);
+  }, []);
 
   const saveCurrentSlide = useCallback(async () => {
     const targetFile = editorFilePath || currentFile;
@@ -997,6 +1006,24 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
                       <div className="slide-ai-turn" key={`${index}-${turn.instruction}`}>
                         <div className="slide-ai-turn-user"><strong>你：</strong>{turn.instruction}</div>
                         <div className="slide-ai-turn-assistant"><strong>AI：</strong>{turn.summary}</div>
+                        <div className="slide-ai-turn-actions">
+                          <button
+                            type="button"
+                            onClick={() => restoreAIRewriteVersion(turn.before, `第 ${index + 1} 轮修改前`)}
+                            disabled={isAIWorking}
+                            title="把左侧草稿恢复为本轮 AI 修改前的内容"
+                          >
+                            回退到修改前
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => restoreAIRewriteVersion(turn.after, `第 ${index + 1} 轮 AI 结果`)}
+                            disabled={isAIWorking}
+                            title="把左侧草稿恢复为本轮 AI 生成后的内容"
+                          >
+                            恢复 AI 结果
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
