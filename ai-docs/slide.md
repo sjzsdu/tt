@@ -179,6 +179,8 @@ tt slide deck.slide --template my-template
 | `.cover` | 封面语义，仍使用第一页封面样式优先级 |
 | `.split` | 左右分栏 / 图文页 |
 | `.two-column` / `.columns` | 两列内容页 |
+| `.three-column` / `.three-columns` | 三列内容页，适合三个并列观点、阶段、方案或案例；每列内容必须短 |
+| `.four-column` / `.four-columns` | 四列内容页，适合四个短标签、步骤或对比项；避免长段落 |
 | `.brand` / `.logo` | 品牌页语义，由当前模板决定 logo / 品牌呈现方式 |
 | `.full-bleed` / `.bleed` | 满屏铺展页，移除 section padding，单张图片/视频/iframe/canvas/svg 会按 `object-fit: cover` 铺满 16:9 舞台，适合封面大图和沉浸式视觉页 |
 | `.no-padding` | 仅移除 section padding，单张媒体按 `object-fit: contain` 显示，不裁剪，适合需要完整显示的图表、截图或设计稿 |
@@ -270,6 +272,64 @@ graph LR
 ````
 
 `.no-panzoom` 只影响 Mermaid / D2 图表 viewport，不会禁用 Reveal 翻页。
+
+三列 / 四列内容页示例，继续使用 `:::columns` 分隔每一列：
+
+```markdown
+---
+
+.three-column
+
+# 三种路径
+
+:::columns
+## 路径 A
+- 轻量
+- 快速
+:::
+
+:::columns
+## 路径 B
+- 稳定
+- 可扩展
+:::
+
+:::columns
+## 路径 C
+- 深度定制
+- 成本更高
+:::
+```
+
+```markdown
+---
+
+.four-column
+
+# 四步流程
+
+:::columns
+## 发现
+一句话说明。
+:::
+
+:::columns
+## 判断
+一句话说明。
+:::
+
+:::columns
+## 行动
+一句话说明。
+:::
+
+:::columns
+## 复盘
+一句话说明。
+:::
+```
+
+三列和四列会缩小正文密度。若每列超过 2 到 3 个短点，优先拆页，避免内容超出 1600×900 边界。
 
 ## 结束页 / 封底页
 

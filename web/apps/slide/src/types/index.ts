@@ -12,7 +12,7 @@ export type TemplateConfig = {
   };
 };
 
-export type SlideLayout = 'default' | 'center' | 'two-column' | 'split' | 'grid' | 'cards' | 'flex' | 'hero' | 'media-left' | 'media-right' | 'logo' | 'closing' | 'full-image';
+export type SlideLayout = 'default' | 'center' | 'two-column' | 'three-column' | 'four-column' | 'split' | 'grid' | 'cards' | 'flex' | 'hero' | 'media-left' | 'media-right' | 'logo' | 'closing' | 'full-image';
 
 export type SlideMeta = {
   title: string;

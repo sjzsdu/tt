@@ -93,6 +93,8 @@ A directive appears at the top of a slide and is not rendered as visible content
 | `.center` | Center one important message |
 | `.split` | Two-part slide, usually concept plus evidence, text plus diagram, or before plus after |
 | `.two-column` / `.columns` | Balanced two-column content |
+| `.three-column` / `.three-columns` | Three short parallel columns; use for three peer ideas, options, phases, or examples |
+| `.four-column` / `.four-columns` | Four very short parallel columns; use for compact steps, labels, dimensions, or comparisons |
 | `.grid` | Repeating item layout for 3 to 6 comparable blocks |
 | `.cards` | Card-based layout for features, capabilities, risks, or options |
 | `.flex` | Flexible wrapping layout for mixed short blocks |
@@ -117,6 +119,8 @@ For every slide, choose one of these patterns:
 | --- | --- | --- |
 | One strong message, little text | `.center` | Prevents sparse top-left pages; lets template center and enlarge the message. |
 | Two comparable ideas | `.two-column` with one `:::columns` block per side | Fills horizontal space and creates balance. |
+| Three peer ideas, stages, or options | `.three-column` with three `:::columns` blocks | Shows parallel structure without card chrome; each column must be short. |
+| Four compact labels, steps, or dimensions | `.four-column` with four `:::columns` blocks | Fits compact comparisons; avoid long bullets or paragraphs. |
 | 3 to 6 peer items | `.grid` with `:::item` blocks | Gives each item equal visual weight. |
 | Feature / option / risk cards | `.cards` with `:::card` blocks | Lets templates add card surfaces and spacing. |
 | Short mixed blocks | `.flex` with normal Markdown or `:::item` blocks | Allows stable wrapping inside the fixed canvas. |
@@ -144,7 +148,7 @@ Rules:
 
 ## Columns syntax
 
-For two-column content, use one `:::columns` block per column:
+For two-, three-, or four-column content, use one `:::columns` block per column and choose the matching directive: `.two-column`, `.three-column`, or `.four-column`.
 
 ```markdown
 ---
@@ -170,7 +174,7 @@ For two-column content, use one `:::columns` block per column:
 :::
 ```
 
-Keep the two sides roughly balanced. If one side is much longer, split the slide.
+Keep columns roughly balanced. Three-column and four-column slides have less horizontal room, so each column should usually contain a short heading plus 1 to 3 short bullets or one short sentence. If one side is much longer, split the slide.
 
 Use one `:::columns ... :::` block for each column. Do not use ad-hoc separators for columns.
 
