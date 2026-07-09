@@ -52,6 +52,18 @@ function calculateStageScale() {
 
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
 
+function fileFromURL(url: URL) {
+  return url.searchParams.get('file') || '';
+}
+
+function slideIndicesFromHash(hash: string) {
+  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (parts.length === 0) return null;
+  const values = parts.map(part => Number(part));
+  if (values.some(value => !Number.isInteger(value) || value < 0)) return null;
+  return { h: values[0] ?? 0, v: values[1] ?? 0, f: values[2] ?? 0 };
+}
+
 function dirname(path: string) {
   const normalized = path.replace(/\\/g, '/');
   const index = normalized.lastIndexOf('/');
@@ -392,6 +404,46 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     history.pushState(null, '', url.toString());
   }, []);
 
+  const navigateToSlideURL = useCallback((url: URL, mode: 'push' | 'replace' | 'none' = 'push') => {
+    if (contentMode) return false;
+    if (url.origin !== location.origin || url.pathname !== location.pathname) return false;
+    const nextFile = fileFromURL(url);
+    if (!nextFile) return false;
+
+    const nextHref = url.pathname + url.search + url.hash;
+    if (mode === 'push') {
+      history.pushState(null, '', nextHref);
+    } else if (mode === 'replace') {
+      history.replaceState(null, '', nextHref);
+    }
+
+    setError('');
+    setIsEditorOpen(false);
+    setIsAIModalOpen(false);
+    setEditorSlideIndex(null);
+    setEditorFilePath('');
+    setEditorBaseMarkdown('');
+    setAIInstruction('');
+    setAIError('');
+    setAIRewriteTurns([]);
+    setShowFileList(false);
+    setShowOverview(false);
+
+    if (nextFile !== currentFileRef.current) {
+      setCurrentFile(nextFile);
+      setSlides([]);
+      return true;
+    }
+
+    const indices = slideIndicesFromHash(url.hash);
+    if (indices) {
+      deckRef.current?.slide(indices.h, indices.v, indices.f);
+      setCurrentSlideIndex(indices.h);
+      localStorage.setItem(slidePositionKey(nextFile), JSON.stringify(indices));
+    }
+    return true;
+  }, [contentMode]);
+
   const backToList = useCallback(() => {
     if (contentMode) return;
     setCurrentFile('');
@@ -422,6 +474,33 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     }
   }, [showOverview]);
 
+  useEffect(() => {
+    if (contentMode) return;
+    const syncFromURL = () => {
+      navigateToSlideURL(new URL(location.href), 'none');
+    };
+    const syncHashFromURL = () => {
+      const url = new URL(location.href);
+      if (fileFromURL(url) !== currentFileRef.current) {
+        navigateToSlideURL(url, 'none');
+        return;
+      }
+      const indices = slideIndicesFromHash(url.hash);
+      if (!indices) return;
+      deckRef.current?.slide(indices.h, indices.v, indices.f);
+      setCurrentSlideIndex(indices.h);
+      if (currentFileRef.current) {
+        localStorage.setItem(slidePositionKey(currentFileRef.current), JSON.stringify(indices));
+      }
+    };
+    window.addEventListener('popstate', syncFromURL);
+    window.addEventListener('hashchange', syncHashFromURL);
+    return () => {
+      window.removeEventListener('popstate', syncFromURL);
+      window.removeEventListener('hashchange', syncHashFromURL);
+    };
+  }, [contentMode, navigateToSlideURL]);
+
   const handleStageClick = useCallback(async (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element ? event.target : null;
     const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
@@ -429,6 +508,18 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     const runId = formulaRunIDFromHref(href);
     const formulaName = formulaShowNameFromHref(href);
     const markdownPath = markdownPathFromHref(href);
+    if (anchor && !runId && !formulaName && !markdownPath) {
+      try {
+        const targetURL = new URL(anchor.href);
+        if (navigateToSlideURL(targetURL)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      } catch {
+        // Let the browser handle non-URL href values.
+      }
+    }
     if (!runId && !formulaName && !markdownPath) {
       closeOverviewFromStage();
       return;
@@ -465,7 +556,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     } catch (e: any) {
       setActionNotice({ kind: 'error', text: `打开失败：${String(e?.message || e)}` });
     }
-  }, [closeOverviewFromStage]);
+  }, [closeOverviewFromStage, navigateToSlideURL]);
 
   const getActiveSlideIndex = useCallback(() => {
     const indices = deckRef.current?.getIndices();
@@ -744,6 +835,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (!deck || contentMode || !currentFile) return;
 
     const restorePosition = () => {
+      const explicit = slideIndicesFromHash(location.hash);
+      if (explicit) {
+        deck.slide(explicit.h, explicit.v, explicit.f);
+        localStorage.setItem(slidePositionKey(currentFile), JSON.stringify(explicit));
+        return;
+      }
+
       const saved = localStorage.getItem(slidePositionKey(currentFile));
       if (!saved) {
         deck.slide(0, 0, 0);
