@@ -882,12 +882,12 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !ok {
 		t.Fatalf("teach-personal-guidance step = %T, want AgentStep", personalFinal.Step)
 	}
-	for _, want := range []string{"personal_advice", "一句话结论", "你的时与位", "怎么做", "最后卦训", "立刻做 / 近期做 / 长期取舍", "不要编造用户未提供"} {
+	for _, want := range []string{"personal_advice", "开篇判断", "用户之时与位", "现实行动", "收束卦训", "不要机械套用固定 7 段标题", "不要编造用户未提供"} {
 		if !strings.Contains(personalFinalAgent.Prompt, want) {
 			t.Fatalf("teach-personal-guidance prompt missing %q:\n%s", want, personalFinalAgent.Prompt)
 		}
 	}
-	for _, notWant := range []string{"一句话断局", "他怎么选择，结果如何", "今人学到什么"} {
+	for _, notWant := range []string{"一句话断局", "他怎么选择，结果如何", "今人学到什么", "输出结构必须只有 7 个板块"} {
 		if strings.Contains(personalFinalAgent.Prompt, notWant) {
 			t.Fatalf("teach-personal-guidance prompt should not contain history section %q", notWant)
 		}
@@ -929,12 +929,12 @@ func TestShanYiZheMergesClarificationBeforeDivination(t *testing.T) {
 	if !ok {
 		t.Fatalf("teach-history-case step = %T, want AgentStep", historyFinal.Step)
 	}
-	for _, want := range []string{"historical_case_study", "历史场景学会", "一句话断局", "当时的时与位", "他站在哪一爻", "他怎么选择，结果如何", "今人学到什么", "义理复盘"} {
+	for _, want := range []string{"historical_case_study", "历史场景学会", "历史前夕的断局", "当事人之时与位", "选择与结果", "今人可学的易学智慧", "不要机械套用固定 7 段标题", "义理复盘"} {
 		if !strings.Contains(historyFinalAgent.Prompt, want) {
 			t.Fatalf("teach-history-case prompt missing %q:\n%s", want, historyFinalAgent.Prompt)
 		}
 	}
-	for _, notWant := range []string{"立刻做 / 近期做 / 长期取舍", "你站在哪一爻", "怎么做"} {
+	for _, notWant := range []string{"立刻做 / 近期做 / 长期取舍", "你站在哪一爻", "怎么做", "输出结构必须只有 7 个板块"} {
 		if strings.Contains(historyFinalAgent.Prompt, notWant) {
 			t.Fatalf("teach-history-case prompt should not contain personal section %q", notWant)
 		}
@@ -1275,7 +1275,7 @@ func TestSlideWriterAgentUsesJudgmentDrivenVisuals(t *testing.T) {
 		t.Fatalf("agents.Get(slide-writer) error = %v", err)
 	}
 	prompt := agent.Prompt
-	for _, want := range []string{"用户提示是最高优先级", "最小必要改动", "现有 slide 源码为基底", "用户没有要求改的内容默认保留", "先判断是否需要视觉表达", "图表必须服务表达", "流程、层级、因果", "Mermaid/D2", "不要为了“显得丰富”而新增", "不要借机重写整页"} {
+	for _, want := range []string{"用户提示是最高优先级", "最小必要改动", "现有 slide 源码为基底", "用户没有要求改的内容默认保留", "先判断是否需要视觉表达", "图表必须服务表达", "流程、层级、因果", "Mermaid/D2", "不要为了“显得丰富”", "而新增图示", "不要借机重写整页"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("slide-writer prompt missing %q", want)
 		}
