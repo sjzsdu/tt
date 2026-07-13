@@ -761,7 +761,7 @@ flowchart TD
 
 ---
 
-# tt：本地任务工作流工具集
+# tt：个人生产力工具集
 
 .three-column
 
@@ -818,10 +818,10 @@ flowchart TD
 - **支持嵌套**：在一个 formula 中调用另一个 formula，构建层级结构
 - **外部 Agent**：集成外部 AI agent，扩展工作流能力
 
-[善易者](tt-formula-show://shan-yi-zhe)
-[flow360部署 formula](tt-formula-show://flow360-release)
-[自动评审Github PR](tt-formula-show://github-pr-review)
-[自动解决Github PR](tt-formula-show://github-pr-fix-comments)
+[善易者](tt-formula-show://shan-yi-zhe)  
+[flow360部署 formula](tt-formula-show://flow360-release)  
+[自动评审Github PR](tt-formula-show://github-pr-review)  
+[自动解决Github PR](tt-formula-show://github-pr-fix-comments)  
 :::
 
 :::columns
