@@ -46,6 +46,12 @@ func (m mapContextView) Get(path string) (Value, bool) {
 	return Value{Raw: raw}, true
 }
 
+type fixedLoopExternalAgent struct{ raw string }
+
+func (a fixedLoopExternalAgent) RunExternalAgent(context.Context, ExternalAgentRequest) (Value, error) {
+	return Value{Type: "json", Raw: json.RawMessage(a.raw)}, nil
+}
+
 type mapContextStore map[string]Value
 
 func (m mapContextStore) Get(path string) (Value, bool) { return mapContextView(m).Get(path) }
@@ -294,6 +300,56 @@ func TestLoopStepResolvesTemplatedMax(t *testing.T) {
 	}
 	if started != 3 {
 		t.Fatalf("started ticks = %d, want 3", started)
+	}
+}
+
+func TestLoopStepNormalizesExternalAgentJSONTextForUntil(t *testing.T) {
+	loop := LoopStep{
+		Base:  Base{Metadata: Metadata{ID: "review-loop", Kind: KindLoop}},
+		Max:   5,
+		Until: "review.approved == true",
+		Body: []Step{
+			ExternalAgentStep{
+				Base:       Base{Metadata: Metadata{ID: "review", Kind: KindExternalAgent}},
+				Driver:     "codex",
+				Prompt:     "review",
+				Validation: &OutputValidationSpec{Format: "json", Required: []string{"approved", "summary"}},
+			},
+		},
+	}
+	store := mapContextStore{}
+	raw := `{"driver":"codex","text":"prefix {\"approved\":true,\"summary\":\"ok\",\"issues\":[]} suffix","stderr":"large logs","exit_code":0}`
+	started := 0
+	_, err := loop.Run(context.Background(), RunRequest{
+		NodeID:       "review-loop",
+		Context:      store,
+		Outputs:      store,
+		Capabilities: Capabilities{ExternalAgents: fixedLoopExternalAgent{raw: raw}},
+		Emit: func(nodeID string, eventType string, payload any) {
+			if eventType == "step.started" && strings.HasSuffix(nodeID, ".review") {
+				started++
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("run loop: %v", err)
+	}
+	if started != 1 {
+		t.Fatalf("review started = %d, want 1", started)
+	}
+	value, ok := store.Get("review")
+	if !ok {
+		t.Fatal("missing review context output")
+	}
+	var got map[string]any
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["approved"] != true || got["summary"] != "ok" {
+		t.Fatalf("normalized output = %#v", got)
+	}
+	if _, ok := got["stderr"]; ok {
+		t.Fatalf("loop context should not include stderr: %#v", got)
 	}
 }
 
