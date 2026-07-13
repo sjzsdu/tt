@@ -279,6 +279,7 @@ Runtime control notes:
 	cmd.AddCommand(a.newFormulaRunRmCmd())
 	cmd.AddCommand(a.newFormulaRunResumeCmd())
 	cmd.AddCommand(a.newFormulaRunInputCmd())
+	cmd.AddCommand(a.newFormulaRunChatCmd())
 	return cmd
 }
 
@@ -345,5 +346,24 @@ func (a *App) newFormulaRunInputCmd() *cobra.Command {
 		RunE:  runFormulaRunInput,
 	}
 	cmd.Flags().StringArrayVar(&a.opts.InputFields, "field", nil, "human input field value (key=value, repeatable; duplicate keys become arrays)")
+	return cmd
+}
+
+func (a *App) newFormulaRunChatCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "chat [run-id|latest] <step-id>",
+		Short: "Chat with the agent of a completed step to refine its output and rerun",
+		Long: `Chat with the agent that ran a specific step to provide feedback and refine its output.
+The agent will be re-run with your feedback appended to the prompt, and all downstream
+steps will be re-executed as well.
+
+Usage:
+  tt formula run chat <run-id> <step-id>
+  tt formula run chat latest <step-id>
+
+You will be prompted to enter your feedback message interactively.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: runFormulaRunChat,
+	}
 	return cmd
 }
