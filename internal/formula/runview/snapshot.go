@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/ui"
 )
 
@@ -122,4 +123,47 @@ func shortStepID(id string) string {
 		return id[idx+1:]
 	}
 	return id
+}
+
+func ClearStepAndDownstream(snapshot *ui.Snapshot, stepID string, workflow *ir.Workflow) {
+	if snapshot == nil || workflow == nil {
+		return
+	}
+	downstream := findDownstreamSteps(stepID, workflow)
+	downstream[stepID] = true
+	for i := range snapshot.Steps {
+		if downstream[snapshot.Steps[i].ID] {
+			snapshot.Steps[i].Status = "pending"
+			snapshot.Steps[i].Error = ""
+			snapshot.Steps[i].Output = ""
+			snapshot.Steps[i].StartedAt = ""
+			snapshot.Steps[i].FinishedAt = ""
+			snapshot.Steps[i].DurationMS = 0
+		}
+	}
+	snapshot.Status = "running"
+	snapshot.Error = ""
+}
+
+func findDownstreamSteps(stepID string, workflow *ir.Workflow) map[string]bool {
+	out := map[string]bool{}
+	if workflow == nil || workflow.Graph.Nodes == nil {
+		return out
+	}
+	children := map[string][]string{}
+	for _, edge := range workflow.Graph.Edges {
+		children[string(edge.From)] = append(children[string(edge.From)], string(edge.To))
+	}
+	var visit func(string)
+	visit = func(id string) {
+		if out[id] {
+			return
+		}
+		out[id] = true
+		for _, child := range children[id] {
+			visit(child)
+		}
+	}
+	visit(stepID)
+	return out
 }

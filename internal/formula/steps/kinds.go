@@ -35,6 +35,7 @@ type AgentStep struct {
 	Prompt      string
 	InputCtx    []string
 	DynamicForm bool
+	Review      bool `json:"review,omitempty"`
 	OutputKey   string
 	Validation  *OutputValidationSpec `json:"validate,omitempty"`
 }
@@ -71,6 +72,9 @@ func (s AgentStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) 
 		if found {
 			return &RunResult{Status: StatusWaiting, Output: out, Await: request}, nil
 		}
+	}
+	if s.Review {
+		return &RunResult{Status: StatusWaiting, Output: out, Await: &AwaitRequest{Type: "chat_with_coder", Reason: "Step completed, waiting for review and feedback before proceeding"}}, nil
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
 }
@@ -290,6 +294,7 @@ type ExternalAgentStep struct {
 	Prompt     string                `json:"prompt,omitempty"`
 	ExtraArgs  []string              `json:"extra_args,omitempty"`
 	InputCtx   []string              `json:"input_context,omitempty"`
+	Review     bool                  `json:"review,omitempty"`
 	OutputKey  string                `json:"output_key,omitempty"`
 	Validation *OutputValidationSpec `json:"validate,omitempty"`
 }
@@ -337,6 +342,9 @@ func (s ExternalAgentStep) Run(ctx context.Context, req RunRequest) (*RunResult,
 	})
 	if err != nil {
 		return &RunResult{Status: StatusFailed, Output: out, Error: &StepError{Message: "external_agent step failed", Cause: err}}, err
+	}
+	if s.Review {
+		return &RunResult{Status: StatusWaiting, Output: out, Await: &AwaitRequest{Type: "chat_with_coder", Reason: "Step completed, waiting for review and feedback before proceeding"}}, nil
 	}
 	return &RunResult{Status: StatusCompleted, Output: out}, nil
 }

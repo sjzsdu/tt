@@ -3,12 +3,13 @@ package formulacmd
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sjzsdu/tt/internal/formula/ui"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sjzsdu/tt/internal/formula/ui"
 
 	"github.com/spf13/cobra"
 
@@ -291,4 +292,114 @@ func shortTime(value string) string {
 		return t.Local().Format("2006-01-02 15:04:05")
 	}
 	return value
+}
+
+func runFormulaRunChat(cmd *cobra.Command, args []string) error {
+	id := "latest"
+	stepID := ""
+	if len(args) == 1 {
+		stepID = args[0]
+	} else {
+		id = args[0]
+		stepID = args[1]
+	}
+	record, err := run.Resolve("", id)
+	if err != nil {
+		return err
+	}
+	workflow, err := formula.CompileWorkflowByName(cmd.Context(), record.Metadata.Formula, getSearchPaths(), record.Metadata.Vars)
+	if err != nil {
+		return err
+	}
+	snapshot, err := loadFormulaRunSnapshot(record.Dir, workflow)
+	if err != nil {
+		return fmt.Errorf("load formula run state failed: %w", err)
+	}
+	resolvedStepID, err := runview.ResolveStepID(snapshot, stepID)
+	if err != nil {
+		return err
+	}
+	var stepOutput string
+	var stepStatus string
+	var isReviewWaiting bool
+	for _, step := range snapshot.Steps {
+		if step.ID == resolvedStepID {
+			stepOutput = step.Output
+			stepStatus = step.Status
+			if step.Status == ui.StatusWaitingInput && step.HumanInputRequest != nil && step.HumanInputRequest.Reason != "" && strings.Contains(step.HumanInputRequest.Reason, "chat_with_coder") {
+				isReviewWaiting = true
+			}
+			break
+		}
+	}
+	if stepStatus != ui.StatusCompleted && stepStatus != ui.StatusFailed && !isReviewWaiting {
+		return fmt.Errorf("step %s is not completed, failed, or waiting for chat (status: %s)", resolvedStepID, stepStatus)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\n--- Step %s Output ---\n\n", resolvedStepID)
+	if stepOutput != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\n", stepOutput)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "(no output)\n")
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\n--- Enter your feedback ---\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Describe how you want to adjust this step's output.\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "Press Enter to skip (continue without changes) or enter feedback and press Ctrl+D.\n\n")
+	feedback, err := io.ReadAll(cmd.InOrStdin())
+	if err != nil {
+		return fmt.Errorf("read feedback failed: %w", err)
+	}
+	feedbackStr := strings.TrimSpace(string(feedback))
+	if feedbackStr == "" {
+		if isReviewWaiting {
+			if err := runview.MarkStepCompletedWithOutput(&snapshot, resolvedStepID, stepOutput); err != nil {
+				return fmt.Errorf("mark step completed failed: %w", err)
+			}
+			store := &run.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
+			store.Meta.Status = run.StatusRunning
+			store.Meta.Error = ""
+			store.Meta.FinishedAt = ""
+			store.Meta.PID = os.Getpid()
+			store.Meta.TTVersion = version
+			_ = store.SaveMetadata()
+			_ = store.AppendEvent(run.Event{Type: "run_chat_skipped", StepID: resolvedStepID, Status: run.StatusRunning})
+			if err := store.SaveState(snapshot); err != nil {
+				return fmt.Errorf("save state failed: %w", err)
+			}
+			dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
+			dashboard.readonly = false
+			dashboard.attachStore(store)
+			if err := startResumeDashboard(cmd, dashboard); err != nil {
+				return err
+			}
+			exclude := resumeDependencyExclusions(workflow, snapshot)
+			initialResults, initialContext := runview.BuildResumeStateExcluding(snapshot, exclude)
+			fmt.Fprintf(cmd.OutOrStdout(), "Skipping review, continuing workflow...\n")
+			return executeFormulaResume(cmd, record.Metadata.Formula, store, dashboard, record.Metadata.Vars, initialResults, initialContext)
+		}
+		return fmt.Errorf("feedback cannot be empty for re-running a completed/failed step")
+	}
+	runview.ClearStepAndDownstream(&snapshot, resolvedStepID, workflow)
+	stepAdvice := map[string]string{resolvedStepID: feedbackStr}
+	store := &run.Store{Root: filepath.Dir(record.Dir), Dir: record.Dir, Meta: record.Metadata}
+	store.Meta.Status = run.StatusRunning
+	store.Meta.Error = ""
+	store.Meta.FinishedAt = ""
+	store.Meta.PID = os.Getpid()
+	store.Meta.TTVersion = version
+	_ = store.SaveMetadata()
+	_ = store.AppendEvent(run.Event{Type: "run_chat", StepID: resolvedStepID, Status: run.StatusRunning, Extra: map[string]any{"feedback": feedbackStr}})
+	runview.ResetForResume(&snapshot)
+	if err := store.SaveState(snapshot); err != nil {
+		return fmt.Errorf("save state failed: %w", err)
+	}
+	dashboard := newFormulaDashboardServerFromSnapshot(snapshot)
+	dashboard.readonly = false
+	dashboard.attachStore(store)
+	if err := startResumeDashboard(cmd, dashboard); err != nil {
+		return err
+	}
+	exclude := resumeDependencyExclusions(workflow, snapshot)
+	initialResults, initialContext := runview.BuildResumeStateExcluding(snapshot, exclude)
+	fmt.Fprintf(cmd.OutOrStdout(), "Re-running step %s with your feedback...\n", resolvedStepID)
+	return executeFormulaResumeWithAdvice(cmd, record.Metadata.Formula, store, dashboard, record.Metadata.Vars, initialResults, initialContext, stepAdvice)
 }
