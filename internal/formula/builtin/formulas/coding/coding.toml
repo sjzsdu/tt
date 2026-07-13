@@ -1,7 +1,7 @@
 formula = "coding"
 title = "编码工作流"
 aliases = ["coder", "coding"]
-description = "从需求到编码完成：需求计划（支持动态澄清）→ 外部 Agent 需求评审循环 → 编码实现 → 外部 Agent 编码评审循环 → 最终报告。"
+description = "从需求到编码完成：需求计划 → 外部 Agent 需求评审循环 → 编码实现 → 外部 Agent 编码评审循环 → 最终报告。"
 version = 1
 type = "workflow"
 category = "engineering"
@@ -60,12 +60,11 @@ model = { description = "外部 agent model，可留空使用 CLI 默认值", de
 [[steps]]
 id = "plan-requirement"
 title = "需求计划"
-form = true
 execution = "external_agent"
 description = """
 基于 '{{requirement}}' 理解用户需求，并结合现有代码给出修改代码的计划。
 
-如果需要用户做一些关键的选择，可以使用动态表单澄清；只询问会影响计划方向和范围的必要问题，不要预设固定字段，也不要让用户重复输入已经给出的 requirement。
+不要使用动态表单或等待人工澄清。若信息不足，基于 requirement、仓库上下文和显式 assumptions 继续推进，并把关键假设写入输出 JSON 的 assumptions。
 
 当信息足够时，输出 ONLY compact JSON，格式必须严格如下：
 {

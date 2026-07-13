@@ -1,7 +1,7 @@
 formula = "keep-coding"
 aliases = ["keep-coding"]
 title = "持续处理 Beads"
-description = "循环执行 bead-coding：每轮选择一个 ready bead 树，用 coder 完成实现、验证、提交并关闭，最后输出持续编码报告。"
+description = "循环执行 bead-coding：每轮选择一个 ready bead 树，内嵌无交互 coding 完成实现与验证，再提交并关闭，最后输出持续编码报告。"
 version = 1
 type = "workflow"
 category = "workflow"

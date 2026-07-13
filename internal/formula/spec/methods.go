@@ -181,9 +181,16 @@ func (f *Formula) Validate() error {
 		collectChildIDs(step.Children, stepIDLocations, &errs, prefix)
 	}
 
+	embedStepIDs := map[string]struct{}{}
+	for _, step := range f.Steps {
+		if step != nil && strings.TrimSpace(step.Embed) != "" {
+			embedStepIDs[step.ID] = struct{}{}
+		}
+	}
+
 	for i, step := range f.Steps {
 		for _, dep := range step.DependsOn {
-			if _, exists := stepIDLocations[dep]; !exists {
+			if _, exists := stepIDLocations[dep]; !exists && !isEmbeddedStepRef(dep, embedStepIDs) {
 				errs = append(errs, fmt.Sprintf("steps[%d] (%s): depends_on references unknown step %q", i, step.ID, dep))
 			}
 		}
@@ -267,6 +274,15 @@ func validateFormSpec(form *FormSpec, errs *[]string, prefix string) {
 			*errs = append(*errs, fmt.Sprintf("%s (%s): options are required for %s fields", fieldPrefix, name, fieldType))
 		}
 	}
+}
+
+func isEmbeddedStepRef(ref string, embedStepIDs map[string]struct{}) bool {
+	parent, child, ok := strings.Cut(ref, ".")
+	if !ok || parent == "" || child == "" {
+		return false
+	}
+	_, exists := embedStepIDs[parent]
+	return exists
 }
 
 func isValidFormFieldType(fieldType string) bool {

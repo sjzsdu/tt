@@ -40,9 +40,9 @@
 | --- | --- | --- |
 | `san-sheng-liu-bu` | 三省六部工作流：起草 → 审核 → 拆任务 → 并发生成 → 汇总 | `zhongshu-draft` / `menxia-review` loop / `shangshu-decompose` 拆 `tasks` 数组 / `foreach parallel` 生成各部启动文稿 / `aggregate` 汇总 |
 | `shan-yi-zhe` | 善易者风格的人生参谋、决策建议与历史情境易理复盘 | 先辨事并确定“此人此事此时此位”，识别 personal_advice / historical_case_study；必要时 typed runtime 显式澄清，再取卦定像，解释本卦、卦辞/彖传、关键爻与变卦；个人问题落到现实行动，历史问题复盘人物当时之局、选择、结果与今人可学的易学智慧 |
-| `keep-coding` | 持续处理 ready beads：循环调用 `bead-coding`，每轮完成一个 bead 树的实现、验证、提交和关闭 | 第一层是 runtime loop，第二层是 Markdown final report；通过 `max_cycles` 控制轮数，适合持续清理 beads backlog |
+| `keep-coding` | 持续处理 ready beads：循环调用 `bead-coding`，每轮通过内嵌 `coding` 完成一个 bead 树的实现、验证、提交和关闭 | 第一层是 runtime loop，第二层是 Markdown final report；通过 `max_cycles` 控制轮数，适合持续清理 beads backlog |
 | `feature` | 通用代码 feature 端到端实现：需求理解/动态澄清 → code-context 调研 → 计划 → 编码 → 测试方式 → 影响评估 → 报告 | 不自动 commit；适合作为默认 feature 开发入口，`validation_command` 可覆盖自动验证命令 |
-| `bead-coding` | 执行单个 ready bead 树：读取 bead 详情和依赖，用 `coder` 完成实现，验证、提交并按需关闭 bead | 自动选择 ready bead 或使用指定 `bead_id`；读取 `bd dep tree` 上下游；提交成功后可 `bd close` |
+| `bead-coding` | 执行单个 ready bead 树：读取 bead 详情和依赖，内嵌无交互 `coding` 完成实现与验证，再提交并按需关闭 bead | 自动选择 ready bead 或使用指定 `bead_id`；读取 `bd dep tree` 上下游；提交成功后可 `bd close` |
 | `gongbu` | 代码 feature 的端到端实现：理解需求 → 调研 → 方案 → 实现 → 验证 → 按需提交 | 使用 `[workspace] kind = "worktree"` 创建隔离分支；按需 push |
 | `bug-fix` | 调试 / 修复 bug，并在结论中说明"问题不成立"的备选路径 | 第一步是动态澄清（`form = true`），输出 strict compact JSON；后续 step 串接代码调研、定位、修复、验证 |
 | `requirement-grooming` | 需求整理器：根据用户的模糊需求调研项目，并用 `bead-manager` 创建或规划一组可执行 beads | 动态澄清需求 → code-research 调研项目 → 设计候选 backlog 和 dependency_edges → bead-manager 去重、创建/更新 beads 并用 `bd link <blocked> <blocker>` 建立依赖；支持 `create_mode=plan` 只出计划，最终输出 Markdown 报告 |

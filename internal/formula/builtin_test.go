@@ -481,6 +481,44 @@ func TestKeepCodingWorkflowHasStableCycleNode(t *testing.T) {
 	}
 }
 
+func TestCodingWorkflowIsNonInteractive(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "coding", nil, map[string]string{"requirement": "smoke requirement"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
+	}
+	plan := workflow.Graph.Nodes[ir.NodeID("plan-requirement")]
+	if plan == nil {
+		t.Fatalf("missing plan-requirement node")
+	}
+	agent, ok := plan.Step.(steps.ExternalAgentStep)
+	if !ok {
+		t.Fatalf("plan-requirement = %T, want ExternalAgentStep", plan.Step)
+	}
+	if !strings.Contains(agent.Prompt, "不要使用动态表单") {
+		t.Fatalf("coding plan prompt should explicitly forbid dynamic forms:\n%s", agent.Prompt)
+	}
+}
+
+func TestBeadCodingEmbedsCodingFormula(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, map[string]string{"goal": "smoke goal"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(bead-coding) error = %v", err)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("implement-bead.implement-code")] == nil {
+		t.Fatalf("bead-coding should embed coding implement-code under implement-bead")
+	}
+	runValidation := workflow.Graph.Nodes[ir.NodeID("run-validation")]
+	if runValidation == nil {
+		t.Fatalf("missing run-validation node")
+	}
+	if !slices.Contains(runValidation.Step.Meta().DependsOn, steps.ID("implement-bead.final-report")) {
+		t.Fatalf("run-validation should wait for embedded coding final-report, deps=%v", runValidation.Step.Meta().DependsOn)
+	}
+	if _, err := formularuntime.PlanTopological(workflow.Graph); err != nil {
+		t.Fatalf("bead-coding graph should be topologically valid: %v", err)
+	}
+}
+
 func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
 	if err != nil {
