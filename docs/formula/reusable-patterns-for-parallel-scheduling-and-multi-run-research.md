@@ -186,7 +186,7 @@
 
 - `github-pr-fix-comments` → 复用 `bug-fix`
 - `keep-coding` → 循环调用 `bead-coding`
-- `bead-coding` → 用现成 beads / code 调研命令驱动单 bead 实现
+- `bead-coding` → workflow 层单 bead 执行器：读取 beads 上下文，内嵌无交互 `coding` 完成实现与验证，再负责提交和关闭
 - atomics
   - `run-validation`
   - `github-fetch-pr`
