@@ -26,8 +26,16 @@ function runtimeDuration(step: FormulaDashboardStep, now: number) {
   return 0;
 }
 
+function latestLoopActivities(step: FormulaDashboardStep) {
+  const latest = new Map<string, NonNullable<FormulaDashboardStep['activities']>[number]>();
+  for (const activity of step.activities || []) {
+    latest.set(activity.step_id || `${latest.size}`, activity);
+  }
+  return Array.from(latest.values());
+}
+
 function aggregateLoopStatus(step: FormulaDashboardStep) {
-  const activities = step.activities || [];
+  const activities = latestLoopActivities(step);
   if (!step.loop || activities.length === 0) return step.status;
   if (activities.some(activity => activity.status === 'failed')) return 'failed';
   if (activities.some(activity => activity.status === 'waiting_input')) return 'waiting_input';
@@ -39,8 +47,9 @@ function aggregateLoopStatus(step: FormulaDashboardStep) {
 
 function buildStepRunRecord(step: FormulaDashboardStep, now: number): StepRunRecord {
   const activities = step.activities || [];
+  const latestActivities = latestLoopActivities(step);
   const status = aggregateLoopStatus(step);
-  const completedActivities = activities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
+  const completedActivities = latestActivities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
   const latest = activities.at(-1);
   const visible = step.status !== 'pending' || activities.length > 0 || Boolean(step.started_at || step.finished_at);
 
@@ -48,11 +57,11 @@ function buildStepRunRecord(step: FormulaDashboardStep, now: number): StepRunRec
     step,
     status,
     durationMS: runtimeDuration(step, now),
-    totalActivities: activities.length,
+    totalActivities: latestActivities.length,
     completedActivities,
-    failedActivities: activities.filter(activity => activity.status === 'failed').length,
-    runningActivities: activities.filter(activity => activity.status === 'running').length,
-    waitingActivities: activities.filter(activity => activity.status === 'waiting_input').length,
+    failedActivities: latestActivities.filter(activity => activity.status === 'failed').length,
+    runningActivities: latestActivities.filter(activity => activity.status === 'running').length,
+    waitingActivities: latestActivities.filter(activity => activity.status === 'waiting_input').length,
     latestDetail: latest?.detail,
     visible,
   };
