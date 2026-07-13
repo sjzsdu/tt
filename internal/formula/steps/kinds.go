@@ -1327,6 +1327,7 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 				return res, nil
 			}
 			normalizeScriptStepJSONStdout(child, res)
+			normalizeExternalAgentStepJSONText(child, res)
 			if req.Emit != nil {
 				req.Emit(childNodeID, "step.completed", res)
 			}
@@ -1342,6 +1343,78 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		}
 	}
 	return &RunResult{Status: StatusCompleted, Output: last}, nil
+}
+
+func normalizeExternalAgentStepJSONText(step Step, res *RunResult) {
+	if res == nil {
+		return
+	}
+	var validation *OutputValidationSpec
+	switch s := step.(type) {
+	case ExternalAgentStep:
+		validation = s.Validation
+	case *ExternalAgentStep:
+		if s != nil {
+			validation = s.Validation
+		}
+	}
+	if validation == nil || strings.ToLower(strings.TrimSpace(validation.Format)) != "json" {
+		return
+	}
+	var wrapper map[string]any
+	if err := json.Unmarshal(res.Output.Raw, &wrapper); err != nil {
+		return
+	}
+	text, ok := wrapper["text"].(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return
+	}
+	for _, candidate := range jsonObjectCandidates(text) {
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(candidate), &decoded); err != nil {
+			continue
+		}
+		if !hasRequiredJSONFields(decoded, validation.Required) {
+			continue
+		}
+		data, err := json.Marshal(decoded)
+		if err != nil {
+			return
+		}
+		res.Output = Value{Type: "json", Raw: data}
+		return
+	}
+}
+
+func jsonObjectCandidates(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	candidates := []string{text}
+	if start := strings.Index(text, "{"); start >= 0 {
+		if end := strings.LastIndex(text, "}"); end > start {
+			candidates = append(candidates, text[start:end+1])
+		}
+	}
+	return candidates
+}
+
+func hasRequiredJSONFields(obj map[string]any, fields []string) bool {
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		value, ok := obj[field]
+		if !ok || value == nil {
+			return false
+		}
+		if s, ok := value.(string); ok && strings.TrimSpace(s) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (s LoopStep) resolveMax(ctx ContextView) int {

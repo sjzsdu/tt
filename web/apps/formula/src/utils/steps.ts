@@ -21,6 +21,14 @@ export function latestLoopActivity(step: FormulaDashboardStep) {
   return [...(step.activities || [])].reverse().find(activity => /\.iter\d+\./.test(activity.step_id));
 }
 
+export function latestActivitiesByStepID(activities: FormulaStepActivity[]) {
+  const latest = new Map<string, FormulaStepActivity>();
+  for (const activity of activities) {
+    latest.set(activity.step_id || `${latest.size}`, activity);
+  }
+  return Array.from(latest.values());
+}
+
 export function loopActivityIteration(activity?: { step_id: string }) {
   return activity?.step_id.match(/\.iter(\d+)\./)?.[1] || '';
 }

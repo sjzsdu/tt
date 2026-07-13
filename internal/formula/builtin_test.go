@@ -481,6 +481,114 @@ func TestKeepCodingWorkflowHasStableCycleNode(t *testing.T) {
 	}
 }
 
+func TestCodingWorkflowIsNonInteractive(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "coding", nil, map[string]string{"requirement": "smoke requirement"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("plan")] == nil || workflow.Graph.Nodes[ir.NodeID("implement")] == nil {
+		t.Fatalf("coding should be an orchestrator over plan and implement embedded formulas")
+	}
+	plan := workflow.Graph.Nodes[ir.NodeID("plan.plan-requirement")]
+	if plan == nil {
+		t.Fatalf("missing embedded plan.plan-requirement node")
+	}
+	agent, ok := plan.Step.(steps.ExternalAgentStep)
+	if !ok {
+		t.Fatalf("plan.plan-requirement = %T, want ExternalAgentStep", plan.Step)
+	}
+	if !strings.Contains(agent.Prompt, "不要使用动态表单") {
+		t.Fatalf("coding plan prompt should explicitly forbid dynamic forms:\n%s", agent.Prompt)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("implement.implement-code")] == nil {
+		t.Fatalf("missing embedded implement.implement-code node")
+	}
+}
+
+func TestBeadCodingEmbedsCodingFormula(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, map[string]string{"goal": "smoke goal"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(bead-coding) error = %v", err)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("implement-bead.implement.implement-code")] == nil {
+		t.Fatalf("bead-coding should embed coding implement-code under implement-bead")
+	}
+	runValidation := workflow.Graph.Nodes[ir.NodeID("run-validation")]
+	if runValidation == nil {
+		t.Fatalf("missing run-validation node")
+	}
+	if !slices.Contains(runValidation.Step.Meta().DependsOn, steps.ID("implement-bead.final-report")) {
+		t.Fatalf("run-validation should wait for embedded coding final-report, deps=%v", runValidation.Step.Meta().DependsOn)
+	}
+	if _, err := formularuntime.PlanTopological(workflow.Graph); err != nil {
+		t.Fatalf("bead-coding graph should be topologically valid: %v", err)
+	}
+}
+
+func TestKeepCodingPropagatesExternalAgentDriver(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
+		t.Fatalf("missing cycle node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want LoopStep", cycle.Step)
+	}
+	var agent steps.ExternalAgentStep
+	var found bool
+	for _, child := range loop.Body {
+		if child.Meta().ID != "run-bead-coding.implement-bead.plan.plan-requirement" {
+			continue
+		}
+		var ok bool
+		agent, ok = child.(steps.ExternalAgentStep)
+		if !ok {
+			t.Fatalf("nested plan node = %T, want ExternalAgentStep", child)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("missing nested coding requirement plan node")
+	}
+	if strings.Contains(agent.Driver, "{{") || agent.Driver == "" {
+		t.Fatalf("nested external_agent driver should be concrete, got %q", agent.Driver)
+	}
+}
+
+func TestCodingEmbeddedLoopBodyIDsAlignWithUntil(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "coding", nil, map[string]string{"requirement": "smoke requirement"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
+	}
+	node := workflow.Graph.Nodes[ir.NodeID("plan.plan-review-loop")]
+	if node == nil {
+		t.Fatalf("missing embedded plan review loop")
+	}
+	loop, ok := node.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("plan.plan-review-loop = %T, want LoopStep", node.Step)
+	}
+	if loop.Until != "plan.plan-review.approved == true" {
+		t.Fatalf("plan review loop until = %q, want plan.plan-review.approved == true", loop.Until)
+	}
+	var sawReview bool
+	for _, child := range loop.Body {
+		if child.Meta().ID == "plan.plan-review-loop.plan-review" {
+			t.Fatalf("loop body id %q is double-prefixed with loop id", child.Meta().ID)
+		}
+		if child.Meta().ID == "plan.plan-review" {
+			sawReview = true
+		}
+	}
+	if !sawReview {
+		t.Fatalf("embedded plan review loop body should contain plan.plan-review")
+	}
+}
+
 func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
 	if err != nil {

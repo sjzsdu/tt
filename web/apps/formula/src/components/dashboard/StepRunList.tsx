@@ -2,7 +2,7 @@ import { Card, Empty, Flex, Progress, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormulaDashboardStep } from '../../types';
 import { activityShortId, formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
-import { stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
+import { latestActivitiesByStepID, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
 
 type StepRunRecord = {
   step: FormulaDashboardStep;
@@ -26,10 +26,15 @@ function runtimeDuration(step: FormulaDashboardStep, now: number) {
   return 0;
 }
 
+function latestLoopActivities(step: FormulaDashboardStep) {
+  return latestActivitiesByStepID(step.activities || []);
+}
+
 function aggregateLoopStatus(step: FormulaDashboardStep) {
-  const activities = step.activities || [];
+  const activities = latestLoopActivities(step);
   if (!step.loop || activities.length === 0) return step.status;
   if (activities.some(activity => activity.status === 'failed')) return 'failed';
+  if (activities.some(activity => activity.status === 'interrupted')) return 'interrupted';
   if (activities.some(activity => activity.status === 'waiting_input')) return 'waiting_input';
   if (activities.some(activity => activity.status === 'running')) return 'running';
   const finished = activities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
@@ -39,8 +44,9 @@ function aggregateLoopStatus(step: FormulaDashboardStep) {
 
 function buildStepRunRecord(step: FormulaDashboardStep, now: number): StepRunRecord {
   const activities = step.activities || [];
+  const latestActivities = latestLoopActivities(step);
   const status = aggregateLoopStatus(step);
-  const completedActivities = activities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
+  const completedActivities = latestActivities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
   const latest = activities.at(-1);
   const visible = step.status !== 'pending' || activities.length > 0 || Boolean(step.started_at || step.finished_at);
 
@@ -48,11 +54,11 @@ function buildStepRunRecord(step: FormulaDashboardStep, now: number): StepRunRec
     step,
     status,
     durationMS: runtimeDuration(step, now),
-    totalActivities: activities.length,
+    totalActivities: latestActivities.length,
     completedActivities,
-    failedActivities: activities.filter(activity => activity.status === 'failed').length,
-    runningActivities: activities.filter(activity => activity.status === 'running').length,
-    waitingActivities: activities.filter(activity => activity.status === 'waiting_input').length,
+    failedActivities: latestActivities.filter(activity => activity.status === 'failed').length,
+    runningActivities: latestActivities.filter(activity => activity.status === 'running').length,
+    waitingActivities: latestActivities.filter(activity => activity.status === 'waiting_input').length,
     latestDetail: latest?.detail,
     visible,
   };
