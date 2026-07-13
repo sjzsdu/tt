@@ -566,7 +566,6 @@ id = "final-report"
 title = "输出需求发现报告"
 depends_on = ["aggregate-requirements", "create-beads"]
 input_context = ["aggregate-requirements", "create-beads"]
-execution = "external_agent"
 description = """
 Output requirements discovery report for user.
 
@@ -603,8 +602,4 @@ Requirements:
 - Use Markdown
 - Do not paste raw JSON, stdout/stderr from upstream steps; extract key conclusions only.
 """
-
-[steps.external_agent]
-driver = "codex"
-mode = "exec"
-timeout = "5m"
+agent.name = "reporter"
