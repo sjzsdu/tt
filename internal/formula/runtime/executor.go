@@ -375,6 +375,12 @@ func normalizeStepOutputForContext(step steps.Step, res *steps.RunResult) {
 	if res == nil {
 		return
 	}
+	if validation := outputValidationForStep(step); validation != nil && strings.ToLower(strings.TrimSpace(validation.Format)) == "json" {
+		if normalized, ok := normalizeExternalAgentJSONText(res.Output.Raw, validation); ok {
+			res.Output = steps.Value{Type: "json", Raw: normalized}
+			return
+		}
+	}
 	script, ok := scriptStepValue(step)
 	if !ok || script.Validation == nil || strings.ToLower(strings.TrimSpace(script.Validation.Format)) != "json" {
 		return
@@ -384,6 +390,36 @@ func normalizeStepOutputForContext(step steps.Step, res *steps.RunResult) {
 		return
 	}
 	res.Output = steps.Value{Type: "json", Raw: normalized}
+}
+
+func normalizeExternalAgentJSONText(raw []byte, validation *steps.OutputValidationSpec) ([]byte, bool) {
+	var wrapper map[string]any
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return nil, false
+	}
+	text, ok := wrapper["text"].(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return nil, false
+	}
+	for _, candidate := range jsonTextCandidatesForSpec(text, validation) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(candidate), &decoded); err != nil {
+			continue
+		}
+		if err := validateDecodedStepOutput(decoded, validation); err != nil {
+			continue
+		}
+		data, err := json.Marshal(decoded)
+		if err != nil {
+			return nil, false
+		}
+		return data, true
+	}
+	return nil, false
 }
 
 func normalizeScriptJSONStdout(raw []byte) ([]byte, bool) {
@@ -637,6 +673,10 @@ func outputValidationForStep(step steps.Step) *steps.OutputValidationSpec {
 	case steps.ScriptStep:
 		return s.Validation
 	case *steps.ScriptStep:
+		return s.Validation
+	case steps.ExternalAgentStep:
+		return s.Validation
+	case *steps.ExternalAgentStep:
 		return s.Validation
 	case steps.HumanInputStep:
 		return s.Validation
