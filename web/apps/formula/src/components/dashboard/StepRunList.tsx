@@ -2,7 +2,7 @@ import { Card, Empty, Flex, Progress, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormulaDashboardStep } from '../../types';
 import { activityShortId, formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
-import { stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
+import { latestActivitiesByStepID, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
 
 type StepRunRecord = {
   step: FormulaDashboardStep;
@@ -27,17 +27,14 @@ function runtimeDuration(step: FormulaDashboardStep, now: number) {
 }
 
 function latestLoopActivities(step: FormulaDashboardStep) {
-  const latest = new Map<string, NonNullable<FormulaDashboardStep['activities']>[number]>();
-  for (const activity of step.activities || []) {
-    latest.set(activity.step_id || `${latest.size}`, activity);
-  }
-  return Array.from(latest.values());
+  return latestActivitiesByStepID(step.activities || []);
 }
 
 function aggregateLoopStatus(step: FormulaDashboardStep) {
   const activities = latestLoopActivities(step);
   if (!step.loop || activities.length === 0) return step.status;
   if (activities.some(activity => activity.status === 'failed')) return 'failed';
+  if (activities.some(activity => activity.status === 'interrupted')) return 'interrupted';
   if (activities.some(activity => activity.status === 'waiting_input')) return 'waiting_input';
   if (activities.some(activity => activity.status === 'running')) return 'running';
   const finished = activities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
