@@ -1,0 +1,610 @@
+formula = "requirement-discovery"
+title = "需求发现"
+description = "双轮驱动的需求发现：从技术角度扫描代码质量、安全风险、性能瓶颈等问题，从产品角度走查功能发现体验缺口，综合生成候选需求，去重后创建 beads。"
+version = 1
+type = "workflow"
+category = "engineering"
+tags = ["requirements", "discovery", "scanning", "workflow", "beads"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "requirement-discovery 需要安装 git。"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = false
+message = "requirement-discovery 需要在 git 仓库中运行。"
+
+[vars]
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+max_requirements = { description = "最多生成多少个候选需求", default = "8" }
+create_mode = { description = "创建模式：create=实际创建 beads；plan=只输出建议不创建", default = "create", enum = ["create", "plan"] }
+
+[[steps]]
+id = "collect-repo-facts"
+title = "收集仓库基础信息"
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+
+cwd = os.environ.get('WORKSPACE_PATH', '.').strip() or '.'
+cwd = os.path.abspath(os.path.expanduser(cwd))
+
+def run(cmd):
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=30)
+        return {
+            "ok": p.returncode == 0,
+            "code": p.returncode,
+            "stdout": p.stdout.strip(),
+            "stderr": p.stderr.strip(),
+        }
+    except Exception as e:
+        return {"ok": False, "code": -1, "stdout": "", "stderr": str(e)}
+
+out = {
+    "workspace_path": cwd,
+    "git_root": run(["git", "rev-parse", "--show-toplevel"]),
+    "git_branch": run(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+    "git_status": run(["git", "status", "--short"]),
+    "git_log": run(["git", "log", "--oneline", "-20"]),
+    "top_entries": sorted(os.listdir(cwd))[:100],
+}
+print(json.dumps(out, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "1m"
+
+[steps.script.env]
+WORKSPACE_PATH = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "collect-file-index"
+title = "收集源码文件索引"
+depends_on = ["collect-repo-facts"]
+execution = "script"
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os
+
+cwd = os.environ.get('WORKSPACE_PATH', '.').strip() or '.'
+cwd = os.path.abspath(os.path.expanduser(cwd))
+
+skip_dirs = {
+    ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
+    ".next", ".nuxt", "coverage", ".turbo", ".idea", ".vscode", "__pycache__"
+}
+exts = {
+    ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".rb", ".rs",
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".php", ".swift", ".m", ".mm",
+    ".scala", ".sh", ".sql", ".yaml", ".yml", ".json", ".toml"
+}
+files = []
+for root, dirs, names in os.walk(cwd):
+    dirs[:] = [d for d in dirs if d not in skip_dirs]
+    for name in names:
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, cwd)
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in exts:
+            continue
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        files.append({"path": rel, "ext": ext, "size": size})
+files.sort(key=lambda x: (x["ext"], x["path"]))
+summary = {}
+for f in files:
+    summary[f["ext"]] = summary.get(f["ext"], 0) + 1
+print(json.dumps({
+    "workspace_path": cwd,
+    "file_count": len(files),
+    "by_ext": summary,
+    "files": files[:500]
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "2m"
+
+[steps.script.env]
+WORKSPACE_PATH = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "run-static-checks"
+title = "运行静态代码检查"
+depends_on = ["collect-repo-facts", "collect-file-index"]
+execution = "script"
+continue_on_error = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, re
+
+cwd = os.environ.get('WORKSPACE_PATH', '.').strip() or '.'
+cwd = os.path.abspath(os.path.expanduser(cwd))
+
+skip_dirs = {
+    ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
+    ".next", ".nuxt", "coverage", ".turbo", ".idea", ".vscode", "__pycache__"
+}
+targets = {
+    ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".rb", ".rs",
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".php", ".swift", ".m", ".mm",
+    ".scala", ".sh"
+}
+patterns = [
+    ("debug_print", re.compile(r"\\b(console\\.log|print\\(|fmt\\.Println\\(|System\\.out\\.println\\()")),
+    ("todo_fixme", re.compile(r"\\b(TODO|FIXME|HACK|XXX)\\b")),
+    ("empty_catch", re.compile(r"catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}")),
+    ("bare_except", re.compile(r"except\\s*:\\s*(pass)?")),
+    ("panic_usage", re.compile(r"\\bpanic\\s*\\(")),
+    ("hardcoded_localhost", re.compile(r"localhost|127\\.0\\.0\\.1")),
+    ("hardcoded_secret_like", re.compile(r"(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|api[_-]?key\\s*[:=]|secret\\s*[:=]|password\\s*[:=])", re.I)),
+]
+findings = []
+for root, dirs, names in os.walk(cwd):
+    dirs[:] = [d for d in dirs if d not in skip_dirs]
+    for name in names:
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in targets:
+            continue
+        path = os.path.join(root, name)
+        rel = os.path.relpath(path, cwd)
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for lineno, line in enumerate(f, start=1):
+                    for kind, rx in patterns:
+                        if rx.search(line):
+                            findings.append({
+                                "path": rel,
+                                "line": lineno,
+                                "kind": kind,
+                                "snippet": line.strip()[:200]
+                            })
+        except Exception:
+            continue
+print(json.dumps({
+    "workspace_path": cwd,
+    "finding_count": len(findings),
+    "findings": findings[:500]
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "3m"
+
+[steps.script.env]
+WORKSPACE_PATH = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "load-existing-beads"
+title = "读取现有 beads backlog"
+depends_on = ["collect-repo-facts"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, subprocess
+
+def run(cmd):
+    p = subprocess.run(cmd, text=True, capture_output=True)
+    return {"cmd": cmd, "code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+def parse_json(result, default):
+    if result.get('code') != 0:
+        return default
+    try:
+        return json.loads(result.get('stdout') or '[]')
+    except Exception:
+        return default
+
+where = run(['bd', 'where', '--json'])
+list_res = run(['bd', 'list', '--json']) if where['code'] == 0 else {"cmd": ['bd', 'list', '--json'], "code": 1, "stdout": "", "stderr": "bd workspace unavailable"}
+ready_res = run(['bd', 'ready', '--json', '--limit', '30']) if where['code'] == 0 else {"cmd": ['bd', 'ready', '--json', '--limit', '30'], "code": 1, "stdout": "", "stderr": "bd workspace unavailable"}
+
+issues = parse_json(list_res, [])
+ready = parse_json(ready_res, [])
+if not isinstance(issues, list):
+    issues = []
+if not isinstance(ready, list):
+    ready = []
+
+def slim(issue):
+    deps = issue.get('depends_on') or issue.get('dependencies') or []
+    blocks = issue.get('blocks') or issue.get('blocked') or []
+    return {
+        "id": issue.get('id'),
+        "title": issue.get('title'),
+        "status": issue.get('status'),
+        "priority": issue.get('priority'),
+        "type": issue.get('issue_type') or issue.get('type'),
+        "description": (issue.get('description') or '')[:300],
+        "depends_on": deps,
+        "blocks": blocks,
+    }
+
+by_status = {}
+by_priority = {}
+for issue in issues:
+    by_status[str(issue.get('status') or 'unknown')] = by_status.get(str(issue.get('status') or 'unknown'), 0) + 1
+    by_priority[str(issue.get('priority') if issue.get('priority') is not None else 'unknown')] = by_priority.get(str(issue.get('priority') if issue.get('priority') is not None else 'unknown'), 0) + 1
+
+openish = [i for i in issues if str(i.get('status')) not in ('closed', 'done', 'resolved')]
+print(json.dumps({
+    "available": where['code'] == 0,
+    "where": where,
+    "summary": {
+        "total": len(issues),
+        "openish": len(openish),
+        "ready": len(ready),
+        "by_status": by_status,
+        "by_priority": by_priority,
+    },
+    "open_beads": [slim(i) for i in openish[:50]],
+    "ready_beads": [slim(i) for i in ready[:20]],
+    "commands": {"list": list_res, "ready": ready_res},
+    "notes": [] if where['code'] == 0 else [where.get('stderr') or where.get('stdout') or 'No beads workspace detected.']
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "60s"
+
+[steps.validate]
+format = "json"
+required = ["stdout"]
+
+[[steps]]
+id = "tech-scan"
+title = "技术角度扫描：代码质量与风险发现"
+depends_on = ["collect-repo-facts", "collect-file-index", "run-static-checks"]
+input_context = ["collect-repo-facts.stdout", "collect-file-index.stdout", "run-static-checks.stdout"]
+execution = "external_agent"
+description = """
+You are a code quality analyst. Scan the project from technical perspective and find potential improvement requirements.
+
+Input information:
+- Repository basic info, branch status, recent commits
+- Source file index (classified by extension)
+- Static check results (TODO/FIXME, debug statements, potential security issues)
+
+Scan angles:
+1. Code quality: duplicate code, overly long functions, complex logic, naming issues
+2. Security risks: hardcoded sensitive info, insufficient input validation, potential injection vulnerabilities
+3. Performance bottlenecks: inefficient algorithms, unnecessary computations, memory issues
+4. Test coverage: missing tests, insufficient testing, low test quality
+5. Maintainability: missing comments, incomplete documentation, architectural chaos
+6. Technical debt: legacy code, temporary solutions, outdated tech stack
+7. Stability: insufficient exception handling, missing edge cases, concurrency safety
+
+Output ONLY compact JSON:
+{
+  "scan_summary":"...",
+  "requirements":[
+    {
+      "title":"Requirement title",
+      "category":"code-quality|security|performance|test-gap|maintainability|tech-debt|reliability",
+      "priority":"0|1|2|3",
+      "description":"Detailed problem description and impact",
+      "evidence":["File path or code location"],
+      "impact":"Scope and severity of impact",
+      "suggestion":"Recommended improvement direction",
+      "confidence":0.8
+    }
+  ]
+}
+
+Constraints:
+- Max {{max_requirements}} requirements
+- Only output with confidence >= 0.7
+- Evidence must reference specific files or locations
+- Do not invent file paths
+"""
+
+[steps.external_agent]
+driver = "codex"
+mode = "exec"
+timeout = "15m"
+
+[steps.validate]
+format = "json"
+required = ["scan_summary", "requirements"]
+
+[[steps]]
+id = "product-walkthrough"
+title = "产品角度走查：功能缺口与体验发现"
+depends_on = ["collect-repo-facts", "collect-file-index"]
+input_context = ["collect-repo-facts.stdout", "collect-file-index.stdout"]
+execution = "external_agent"
+description = """
+You are a product manager. Review the project from user/product perspective and find feature gaps and experience issues.
+
+Input information:
+- Repository basic info, project structure, recent commits
+- Source file index (understand project feature scope)
+
+Walkthrough angles:
+1. Feature completeness: missing core features, unimplemented user scenarios
+2. User experience: awkward flows, complex operations, delayed feedback
+3. Usability: unintuitive interface, missing guidance, insufficient error prompts
+4. Compatibility: multi-platform/multi-browser adaptation issues
+5. Extensibility: difficult to add new features, unreasonable interface design
+6. Internationalization: missing multi-language support, regional adaptation issues
+7. User feedback: user pain points found from code comments, issue history, commit messages
+
+Output ONLY compact JSON:
+{
+  "walkthrough_summary":"...",
+  "requirements":[
+    {
+      "title":"Requirement title",
+      "category":"feature-gap|ux|usability|compatibility|extensibility|i18n|user-pain",
+      "priority":"0|1|2|3",
+      "description":"Detailed feature gap or experience issue",
+      "evidence":["Related files or feature modules"],
+      "impact":"Affected user groups and usage scenarios",
+      "suggestion":"Recommended solution",
+      "confidence":0.8
+    }
+  ]
+}
+
+Constraints:
+- Max {{max_requirements}} requirements
+- Only output with confidence >= 0.7
+- Evidence must reference specific modules or features
+- Do not invent non-existent features
+"""
+
+[steps.external_agent]
+driver = "codex"
+mode = "exec"
+timeout = "15m"
+
+[steps.validate]
+format = "json"
+required = ["walkthrough_summary", "requirements"]
+
+[[steps]]
+id = "aggregate-requirements"
+title = "聚合与去重候选需求"
+depends_on = ["tech-scan", "product-walkthrough", "load-existing-beads"]
+input_context = ["tech-scan", "product-walkthrough", "load-existing-beads.stdout"]
+description = """
+You are a requirements analyst. Aggregate requirements from technical scan and product walkthrough, and deduplicate against existing beads backlog.
+
+Input:
+- tech-scan.requirements: Requirements from technical perspective
+- product-walkthrough.requirements: Requirements from product perspective
+- load-existing-beads.stdout.open_beads: Existing open beads
+
+Tasks:
+1. Merge requirements from both sources
+2. Deduplicate: Identify duplicate or highly similar requirements, keep the most complete one
+3. Compare with existing beads: If similar bead exists, mark as duplicate and suggest reuse
+4. Priority sorting: Consider impact scope, urgency, and implementation difficulty
+5. Output final candidate requirements list
+
+Output ONLY compact JSON:
+{
+  "total_candidates":0,
+  "unique_count":0,
+  "duplicates_removed":0,
+  "existing_overlaps":[],
+  "final_requirements":[
+    {
+      "title":"Requirement title",
+      "category":"...",
+      "priority":"0|1|2|3",
+      "description":"...",
+      "evidence":["..."],
+      "impact":"...",
+      "suggestion":"...",
+      "confidence":0.8,
+      "source":"tech-scan|product-walkthrough"
+    }
+  ],
+  "summary":"..."
+}
+
+Constraints:
+- Max {{max_requirements}} final_requirements
+- existing_overlaps lists requirements overlapping with existing beads and their bead ids
+"""
+agent.name = "planner"
+agent.cwd = "{{workspace_path}}"
+
+[steps.validate]
+format = "json"
+required = ["final_requirements", "summary"]
+
+[[steps]]
+id = "create-beads"
+title = "创建需求 beads"
+depends_on = ["aggregate-requirements", "load-existing-beads"]
+input_context = ["aggregate-requirements", "load-existing-beads.stdout"]
+execution = "script"
+idempotent = true
+
+[steps.script]
+command = ["python3", "-c", """
+import json, os, subprocess
+
+create_mode = os.environ.get('CREATE_MODE', 'create').strip() or 'create'
+requirements_json = os.environ.get('REQUIREMENTS_JSON', '')
+
+if not requirements_json:
+    print(json.dumps({"created_count": 0, "mode": create_mode, "error": "missing requirements"}, ensure_ascii=False))
+    raise SystemExit(0)
+
+try:
+    data = json.loads(requirements_json)
+except json.JSONDecodeError as e:
+    print(json.dumps({"created_count": 0, "mode": create_mode, "error": "invalid json: " + str(e)}, ensure_ascii=False))
+    raise SystemExit(0)
+
+requirements = data.get('final_requirements', [])
+existing_overlaps = data.get('existing_overlaps', [])
+
+if create_mode != 'create':
+    print(json.dumps({
+        "mode": create_mode,
+        "planned_count": len(requirements),
+        "planned_requirements": requirements,
+        "existing_overlaps": existing_overlaps,
+        "created_count": 0,
+        "created_beads": []
+    }, ensure_ascii=False))
+    raise SystemExit(0)
+
+created = []
+for req in requirements:
+    title = req.get('title', '')
+    category = req.get('category', '')
+    priority = req.get('priority', '2')
+    description = req.get('description', '')
+    impact = req.get('impact', '')
+    suggestion = req.get('suggestion', '')
+    
+    body_parts = [
+        "Source: " + req.get('source', ''),
+        "Category: " + category,
+        "Priority: P" + str(priority),
+        "",
+        "## Problem Description",
+        description,
+        "",
+        "## Impact",
+        impact,
+        "",
+        "## Suggestion",
+        suggestion,
+        "",
+        "## Evidence",
+        "\\n".join(req.get('evidence', [])),
+        "",
+        "## Confidence",
+        str(req.get('confidence', 0))
+    ]
+    body = "\\n".join(body_parts)
+
+    cmd = ['bd', 'create', '--title', title, '--description', body, '--priority', str(priority), '--type', 'feature']
+    try:
+        p = subprocess.run(cmd, text=True, capture_output=True, timeout=60)
+        bead_id = ''
+        if p.returncode == 0:
+            for line in p.stdout.split('\\n'):
+                if line.startswith('Created:') or line.startswith('ID:'):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        bead_id = parts[-1]
+                        break
+        created.append({
+            "ok": p.returncode == 0,
+            "bead_id": bead_id,
+            "title": title,
+            "priority": priority,
+            "category": category,
+            "stdout": p.stdout.strip()[:500],
+            "stderr": p.stderr.strip()[:500],
+        })
+    except Exception as e:
+        created.append({
+            "ok": False,
+            "bead_id": '',
+            "title": title,
+            "priority": priority,
+            "category": category,
+            "stdout": '',
+            "stderr": str(e),
+        })
+
+created_count = sum(1 for b in created if b.get('ok'))
+print(json.dumps({
+    "mode": create_mode,
+    "created_count": created_count,
+    "attempted_count": len(requirements),
+    "created_beads": created,
+    "existing_overlaps": existing_overlaps
+}, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "10m"
+
+[steps.script.env]
+CREATE_MODE = "{{create_mode}}"
+REQUIREMENTS_JSON = "{{aggregate-requirements}}"
+
+[steps.validate]
+format = "json"
+required = ["created_count", "created_beads", "mode"]
+
+[[steps]]
+id = "final-report"
+title = "输出需求发现报告"
+depends_on = ["aggregate-requirements", "create-beads"]
+input_context = ["aggregate-requirements", "create-beads"]
+execution = "external_agent"
+description = """
+Output requirements discovery report for user.
+
+Input:
+- aggregate-requirements: Aggregated requirements list, deduplication statistics, overlaps with existing beads
+- create-beads: Results of bead creation
+
+Report should summarize final results only, no scan process details.
+
+Fixed structure:
+
+# Requirements Discovery Report
+
+## Conclusion
+1-3 sentences summarizing overall results.
+
+## Scan Overview
+- Number and type distribution from technical scan
+- Number and type distribution from product walkthrough
+
+## Candidate Requirements
+Table with columns: Title, Category, Priority, Source, Confidence.
+
+## Beads Creation Results
+Table with columns: Bead ID, Title, Status.
+
+## Overlaps with Existing Requirements
+List requirements overlapping with existing beads (if any).
+
+## Next Steps
+3-5 recommendations.
+
+Requirements:
+- Use Markdown
+- Do not paste raw JSON, stdout/stderr from upstream steps; extract key conclusions only.
+"""
+
+[steps.external_agent]
+driver = "codex"
+mode = "exec"
+timeout = "5m"
