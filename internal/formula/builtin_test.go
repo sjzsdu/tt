@@ -486,16 +486,22 @@ func TestCodingWorkflowIsNonInteractive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
 	}
-	plan := workflow.Graph.Nodes[ir.NodeID("plan-requirement")]
+	if workflow.Graph.Nodes[ir.NodeID("plan")] == nil || workflow.Graph.Nodes[ir.NodeID("implement")] == nil {
+		t.Fatalf("coding should be an orchestrator over plan and implement embedded formulas")
+	}
+	plan := workflow.Graph.Nodes[ir.NodeID("plan.plan-requirement")]
 	if plan == nil {
-		t.Fatalf("missing plan-requirement node")
+		t.Fatalf("missing embedded plan.plan-requirement node")
 	}
 	agent, ok := plan.Step.(steps.ExternalAgentStep)
 	if !ok {
-		t.Fatalf("plan-requirement = %T, want ExternalAgentStep", plan.Step)
+		t.Fatalf("plan.plan-requirement = %T, want ExternalAgentStep", plan.Step)
 	}
 	if !strings.Contains(agent.Prompt, "不要使用动态表单") {
 		t.Fatalf("coding plan prompt should explicitly forbid dynamic forms:\n%s", agent.Prompt)
+	}
+	if workflow.Graph.Nodes[ir.NodeID("implement.implement-code")] == nil {
+		t.Fatalf("missing embedded implement.implement-code node")
 	}
 }
 
@@ -504,7 +510,7 @@ func TestBeadCodingEmbedsCodingFormula(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(bead-coding) error = %v", err)
 	}
-	if workflow.Graph.Nodes[ir.NodeID("implement-bead.implement-code")] == nil {
+	if workflow.Graph.Nodes[ir.NodeID("implement-bead.implement.implement-code")] == nil {
 		t.Fatalf("bead-coding should embed coding implement-code under implement-bead")
 	}
 	runValidation := workflow.Graph.Nodes[ir.NodeID("run-validation")]

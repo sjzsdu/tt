@@ -1,0 +1,195 @@
+formula = "coding-requirement"
+title = "编码需求计划"
+aliases = ["coding-plan"]
+description = "无交互地把原始需求整理成可执行编码计划，并通过需求评审循环收敛。"
+version = 1
+type = "workflow"
+category = "engineering"
+tags = ["coding", "requirement", "planning", "review", "external-agent"]
+
+[preflight]
+
+[[preflight.checks]]
+type = "command"
+name = "git"
+command = "git"
+message = "coding-requirement 需要安装 git。"
+
+[[preflight.checks]]
+type = "git"
+name = "git-repo"
+require_repo = true
+require_remote = false
+message = "coding-requirement 需要在 git 仓库中运行。"
+
+[[preflight.checks]]
+type = "command"
+name = "codex"
+command = "codex"
+message = "driver = codex 时需要安装 Codex CLI。"
+condition = "{{driver}} == codex"
+
+[[preflight.checks]]
+type = "command"
+name = "jcode"
+command = "jcode"
+message = "driver = jcode 或 bl 时需要安装 jcode。"
+condition = "{{driver}} == jcode"
+
+[[preflight.checks]]
+type = "command"
+name = "opencode"
+command = "opencode"
+message = "driver = opencode 时需要安装 OpenCode CLI。"
+condition = "{{driver}} == opencode"
+
+[[preflight.checks]]
+type = "command"
+name = "forge"
+command = "forge"
+message = "driver = forge 时需要安装 Forge CLI。"
+condition = "{{driver}} == forge"
+
+[vars]
+requirement = { description = "用户的原始需求描述，可以比较笼统和不完善", required = true }
+workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
+driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex；运行时也可用 --ext-driver 覆盖未声明 driver 的步骤。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
+model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
+
+[[steps]]
+id = "plan-requirement"
+title = "需求计划"
+execution = "external_agent"
+description = """
+基于 '{{requirement}}' 理解用户需求，并结合现有代码给出修改代码的计划。
+
+不要使用动态表单或等待人工澄清。若信息不足，基于 requirement、仓库上下文和显式 assumptions 继续推进，并把关键假设写入输出 JSON 的 assumptions。
+
+当信息足够时，输出 ONLY compact JSON，格式必须严格如下：
+{
+  "requirement_summary":"...",
+  "user_goal":"...",
+  "acceptance_criteria":["..."],
+  "in_scope":["..."],
+  "out_of_scope":["..."],
+  "assumptions":["..."],
+  "research_brief":"...",
+  "initial_search_targets":["..."],
+  "plan_steps":[{"id":"step-1","title":"...","details":"...","files_or_modules":["..."]}],
+  "files_to_touch":["..."],
+  "do_not_touch":["..."],
+  "test_plan":["..."],
+  "impact_assessment_plan":["..."],
+  "risk_assessment":["..."]
+}
+
+约束：
+- research_brief 必须足够支撑后续代码调研；
+- acceptance_criteria 必须可验证；
+- plan_steps 必须覆盖编码、验证和影响评估；
+- files_to_touch 是预期最小范围，不要鼓励无关重构；
+- risk_assessment 要说明可能产生的 bug 和影响范围。
+"""
+
+[steps.external_agent]
+driver = "{{driver}}"
+model = "{{model}}"
+mode = "exec"
+timeout = "10m"
+
+[steps.validate]
+format = "json"
+required = ["requirement_summary", "acceptance_criteria", "plan_steps", "files_to_touch", "risk_assessment"]
+
+[[steps]]
+id = "plan-review-loop"
+title = "需求评审循环"
+depends_on = ["plan-requirement"]
+
+  [steps.loop]
+  until = "plan-review.approved == true"
+  max = 5
+
+  [[steps.loop.body]]
+  id = "plan-review"
+  title = "需求评审（第 {{iteration}} 轮）"
+  input_context = ["plan-requirement", "plan-revision"]
+  execution = "external_agent"
+  description = """
+评审需求计划的各项内容。
+
+输入使用方式：
+- 第 1 轮评审 plan-requirement。
+- 若 plan-revision 存在，则审核最新 plan-revision，并将其视为当前有效版本。
+
+评审重点：
+1. 是否符合用户需求；
+2. 影响范围是否清晰；
+3. 是否可能产生 bug；
+4. 测试计划是否充分；
+5. 是否具备进入编码阶段的条件。
+
+输出 ONLY compact JSON：
+{"approved":true,"summary":"...","issues":[],"suggestions":[]}
+或
+{"approved":false,"summary":"...","issues":["..."],"suggestions":["..."]}
+
+issues 和 suggestions 必须具体、可操作。
+"""
+
+  [steps.loop.body.external_agent]
+  driver = "{{driver}}"
+  model = "{{model}}"
+  mode = "exec"
+  timeout = "5m"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["approved", "summary", "issues", "suggestions"]
+
+  [[steps.loop.body]]
+  id = "plan-revision"
+  title = "按评审意见修订需求计划（第 {{iteration}} 轮）"
+  depends_on = ["plan-review"]
+  condition = "plan-review.approved == false"
+  input_context = ["plan-requirement", "plan-revision", "plan-review"]
+  execution = "external_agent"
+  description = """
+根据 plan-review 中的 issues 和 suggestions 修订需求计划。
+
+输入使用方式：
+- 第 1 次修订时，以 plan-requirement 为基底。
+- 若已有 plan-revision，则以最新 plan-revision 为基底继续修订。
+- 必须逐条回应 plan-review.issues。
+
+输出 ONLY compact JSON，格式同 plan-requirement，并额外包含 revision_notes：
+{
+  "requirement_summary":"...",
+  "user_goal":"...",
+  "acceptance_criteria":["..."],
+  "in_scope":["..."],
+  "out_of_scope":["..."],
+  "assumptions":["..."],
+  "research_brief":"...",
+  "initial_search_targets":["..."],
+  "plan_steps":[{"id":"step-1","title":"...","details":"...","files_or_modules":["..."]}],
+  "files_to_touch":["..."],
+  "do_not_touch":["..."],
+  "test_plan":["..."],
+  "impact_assessment_plan":["..."],
+  "risk_assessment":["..."],
+  "revision_notes":["..."]
+}
+
+revision_notes 必须说明本轮修订了哪些内容。
+"""
+
+  [steps.loop.body.external_agent]
+  driver = "{{driver}}"
+  model = "{{model}}"
+  mode = "exec"
+  timeout = "10m"
+
+  [steps.loop.body.validate]
+  format = "json"
+  required = ["requirement_summary", "acceptance_criteria", "plan_steps", "files_to_touch", "risk_assessment", "revision_notes"]

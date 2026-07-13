@@ -1,11 +1,11 @@
 formula = "coding"
 title = "编码工作流"
 aliases = ["coder", "coding"]
-description = "从需求到编码完成：需求计划 → 外部 Agent 需求评审循环 → 编码实现 → 外部 Agent 编码评审循环 → 最终报告。"
+description = "兼容编码入口：先内嵌 coding-requirement 完成无交互需求计划，再内嵌 coding-implementation 完成实现、评审与验证，最后输出总报告。"
 version = 1
 type = "workflow"
 category = "engineering"
-tags = ["coding", "workflow", "planning", "review", "loop", "external-agent", "codex"]
+tags = ["coding", "workflow", "planning", "implementation", "review", "loop", "external-agent", "codex"]
 
 [preflight]
 
@@ -58,307 +58,49 @@ driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。
 model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 
 [[steps]]
-id = "plan-requirement"
-title = "需求计划"
-execution = "external_agent"
-description = """
-基于 '{{requirement}}' 理解用户需求，并结合现有代码给出修改代码的计划。
-
-不要使用动态表单或等待人工澄清。若信息不足，基于 requirement、仓库上下文和显式 assumptions 继续推进，并把关键假设写入输出 JSON 的 assumptions。
-
-当信息足够时，输出 ONLY compact JSON，格式必须严格如下：
-{
-  "requirement_summary":"...",
-  "user_goal":"...",
-  "acceptance_criteria":["..."],
-  "in_scope":["..."],
-  "out_of_scope":["..."],
-  "assumptions":["..."],
-  "research_brief":"...",
-  "initial_search_targets":["..."],
-  "plan_steps":[{"id":"step-1","title":"...","details":"...","files_or_modules":["..."]}],
-  "files_to_touch":["..."],
-  "do_not_touch":["..."],
-  "test_plan":["..."],
-  "impact_assessment_plan":["..."],
-  "risk_assessment":["..."]
-}
-
-约束：
-- research_brief 必须足够支撑后续代码调研；
-- acceptance_criteria 必须可验证；
-- plan_steps 必须覆盖编码、验证和影响评估；
-- files_to_touch 是预期最小范围，不要鼓励无关重构；
-- risk_assessment 要说明可能产生的 bug 和影响范围。
-"""
-
-[steps.external_agent]
-driver = "{{driver}}"
-model = "{{model}}"
-mode = "exec"
-timeout = "10m"
-
-[steps.validate]
-format = "json"
-required = ["requirement_summary", "acceptance_criteria", "plan_steps", "files_to_touch", "risk_assessment"]
-
-[[steps]]
-id = "plan-review-loop"
-title = "需求评审循环"
-depends_on = ["plan-requirement"]
-
-  [steps.loop]
-  until = "plan-review.approved == true"
-  max = 5
-
-  [[steps.loop.body]]
-  id = "plan-review"
-  title = "需求评审（第 {{iteration}} 轮）"
-  input_context = ["plan-requirement", "plan-revision"]
-  execution = "external_agent"
-  description = """
-评审需求计划的各项内容。
-
-输入使用方式：
-- 第 1 轮评审 plan-requirement。
-- 若 plan-revision 存在，则审核最新 plan-revision，并将其视为当前有效版本。
-
-评审重点：
-1. 是否符合用户需求；
-2. 影响范围是否清晰；
-3. 是否可能产生 bug；
-4. 测试计划是否充分；
-5. 是否具备进入编码阶段的条件。
-
-输出 ONLY compact JSON：
-{"approved":true,"summary":"...","issues":[],"suggestions":[]}
-或
-{"approved":false,"summary":"...","issues":["..."],"suggestions":["..."]}
-
-issues 和 suggestions 必须具体、可操作。
-"""
-
-  [steps.loop.body.external_agent]
-  driver = "{{driver}}"
-  model = "{{model}}"
-  mode = "exec"
-  timeout = "5m"
-
-  [steps.loop.body.validate]
-  format = "json"
-  required = ["approved", "summary", "issues", "suggestions"]
-
-  [[steps.loop.body]]
-  id = "plan-revision"
-  title = "按评审意见修订需求计划（第 {{iteration}} 轮）"
-  depends_on = ["plan-review"]
-  condition = "plan-review.approved == false"
-  input_context = ["plan-requirement", "plan-revision", "plan-review"]
-  execution = "external_agent"
-  description = """
-根据 plan-review 中的 issues 和 suggestions 修订需求计划。
-
-输入使用方式：
-- 第 1 次修订时，以 plan-requirement 为基底。
-- 若已有 plan-revision，则以最新 plan-revision 为基底继续修订。
-- 必须逐条回应 plan-review.issues。
-
-输出 ONLY compact JSON，格式同 plan-requirement：
-{
-  "requirement_summary":"...",
-  "user_goal":"...",
-  "acceptance_criteria":["..."],
-  "in_scope":["..."],
-  "out_of_scope":["..."],
-  "assumptions":["..."],
-  "research_brief":"...",
-  "initial_search_targets":["..."],
-  "plan_steps":[{"id":"step-1","title":"...","details":"...","files_or_modules":["..."]}],
-  "files_to_touch":["..."],
-  "do_not_touch":["..."],
-  "test_plan":["..."],
-  "impact_assessment_plan":["..."],
-  "risk_assessment":["..."],
-  "revision_notes":["..."]
-}
-
-revision_notes 必须说明本轮修订了哪些内容。
-"""
-
-  [steps.loop.body.external_agent]
-  driver = "{{driver}}"
-  model = "{{model}}"
-  mode = "exec"
-  timeout = "10m"
-
-  [steps.loop.body.validate]
-  format = "json"
-  required = ["requirement_summary", "acceptance_criteria", "plan_steps", "files_to_touch", "risk_assessment", "revision_notes"]
-
-[[steps]]
-id = "implement-code"
-title = "编码实现"
-depends_on = ["plan-review-loop"]
-condition = "plan-review.approved == true"
-input_context = ["plan-requirement", "plan-revision", "plan-review"]
-execution = "external_agent"
-description = """
-按照通过的需求计划完成编码工作。
-
-输入使用方式：
-- 若 plan-revision 存在，以最新 plan-revision 为最终通过版本。
-- 否则使用 plan-requirement。
-- plan-review.approved 必须为 true。
-
-要求：
-1. 优先遵循 plan_steps 和 files_to_touch；
-2. 不顺手大改无关模块；
-3. 保持实现与 acceptance_criteria 对齐；
-4. 如果发现计划不合理，可以做必要调整，但必须在输出中解释原因；
-5. 尽量补充或更新相关测试；
-6. 不要 commit，不要编造已执行的测试结果。
-
-输出 ONLY compact JSON：
-{
-  "implemented":true,
-  "files_changed":["..."],
-  "change_summary":"...",
-  "plan_adjustments":["..."],
-  "tests_added_or_updated":["..."],
-  "verification_actions":["..."],
-  "verification_result":"...",
-  "blocked_items":["..."],
-  "notes":["..."]
-}
-
-约束：
-- implemented 必须是布尔值；
-- 如果无法完整实现，implemented=false 并明确 blocked_items。
-"""
-
-[steps.external_agent]
-driver = "{{driver}}"
-model = "{{model}}"
-mode = "exec"
-timeout = "30m"
-
-[steps.validate]
-format = "json"
-required = ["implemented", "files_changed", "change_summary", "blocked_items"]
-
-[[steps]]
-id = "code-review-loop"
-title = "编码评审循环"
-depends_on = ["implement-code"]
-condition = "implement-code.implemented == true"
-
-  [steps.loop]
-  until = "code-review.approved == true"
-  max = 5
-
-  [[steps.loop.body]]
-  id = "code-review"
-  title = "编码评审（第 {{iteration}} 轮）"
-  input_context = ["plan-requirement", "plan-revision", "implement-code", "code-revision"]
-  execution = "external_agent"
-  description = """
-对未提交代码进行评审。
-
-输入使用方式：
-- 第 1 轮评审 implement-code。
-- 若 code-revision 存在，则审核最新 code-revision，并将其视为当前有效版本。
-
-评审重点：
-1. 代码质量：可读性、规范性、可维护性；
-2. 功能正确性：是否实现了需求；
-3. 潜在 bug：边界条件、异常处理、并发安全等；
-4. 测试覆盖：是否有足够的测试；
-5. 影响评估：是否影响其他功能；
-6. 是否具备提交条件。
-
-输出 ONLY compact JSON：
-{"approved":true,"summary":"...","issues":[],"suggestions":[]}
-或
-{"approved":false,"summary":"...","issues":["..."],"suggestions":["..."]}
-
-issues 和 suggestions 必须具体、可操作。
-"""
-
-  [steps.loop.body.external_agent]
-  driver = "{{driver}}"
-  model = "{{model}}"
-  mode = "exec"
-  timeout = "5m"
-
-  [steps.loop.body.validate]
-  format = "json"
-  required = ["approved", "summary", "issues", "suggestions"]
-
-  [[steps.loop.body]]
-  id = "code-revision"
-  title = "按评审意见修订代码（第 {{iteration}} 轮）"
-  depends_on = ["code-review"]
-  condition = "code-review.approved == false"
-  input_context = ["plan-requirement", "plan-revision", "implement-code", "code-revision", "code-review"]
-  execution = "external_agent"
-  description = """
-根据 code-review 中的 issues 和 suggestions 修订代码。
-
-输入使用方式：
-- 第 1 次修订时，以 implement-code 为基底。
-- 若已有 code-revision，则以最新 code-revision 为基底继续修订。
-- 必须逐条回应 code-review.issues。
-
-输出 ONLY compact JSON，格式同 implement-code：
-{
-  "implemented":true,
-  "files_changed":["..."],
-  "change_summary":"...",
-  "plan_adjustments":["..."],
-  "tests_added_or_updated":["..."],
-  "verification_actions":["..."],
-  "verification_result":"...",
-  "blocked_items":["..."],
-  "revision_notes":["..."]
-}
-
-revision_notes 必须说明本轮修订了哪些内容。
-"""
-
-  [steps.loop.body.external_agent]
-  driver = "{{driver}}"
-  model = "{{model}}"
-  mode = "exec"
-  timeout = "30m"
-
-  [steps.loop.body.validate]
-  format = "json"
-  required = ["implemented", "files_changed", "change_summary", "blocked_items", "revision_notes"]
-
-[[steps]]
-id = "run-validation"
-title = "执行测试与基础验证"
-depends_on = ["code-review-loop"]
-condition = "code-review.approved == true"
-embed = "run-validation"
+id = "plan"
+title = "需求计划与评审"
+embed = "coding-requirement"
 
 [steps.embed_vars]
-command = "{{validation_command}}"
-auto_detect = "true"
+requirement = "{{requirement}}"
+workspace_path = "{{workspace_path}}"
+driver = "{{driver}}"
+model = "{{model}}"
+
+[[steps]]
+id = "implement"
+title = "编码实现与验证"
+depends_on = ["plan.plan-review-loop"]
+condition = "plan.plan-review.approved == true"
+embed = "coding-implementation"
+
+[steps.embed_vars]
+requirement_plan_context = """
+原始需求：{{requirement}}
+
+需求计划输出：{{plan.plan-requirement}}
+需求计划修订输出：{{plan.plan-revision}}
+需求评审输出：{{plan.plan-review}}
+"""
+workspace_path = "{{workspace_path}}"
+validation_command = "{{validation_command}}"
+driver = "{{driver}}"
+model = "{{model}}"
 
 [[steps]]
 id = "final-report"
-title = "输出总结报告"
-depends_on = ["plan-review-loop", "implement-code", "code-review-loop", "run-validation"]
-input_context = ["plan-review", "implement-code", "code-review", "run-validation.validation.stdout"]
+title = "输出编码总报告"
+depends_on = ["plan.plan-review-loop", "implement.final-report"]
+input_context = ["plan.plan-requirement", "plan.plan-revision", "plan.plan-review", "implement.implement-code", "implement.code-review", "implement.run-validation.validation.stdout", "implement.final-report"]
 description = """
 面向用户输出最终总结报告。
 
 输入说明：
-- plan-review.approved 可能为 false（需求评审未通过）；
-- implement-code.implemented 可能为 false（编码未完成）；
-- code-review.approved 可能为 false（编码评审未通过）；
-- run-validation.validation.stdout 可能不存在（验证未执行）。
+- plan.plan-review.approved 可能为 false（需求评审未通过）；
+- implement.implement-code.implemented 可能为 false（编码未完成）；
+- implement.code-review.approved 可能为 false（编码评审未通过）；
+- implement.run-validation.validation.stdout 可能不存在（验证未执行）。
 
 报告只需汇总最终结果，不需要详述来回审批的细节。
 

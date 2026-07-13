@@ -164,7 +164,7 @@ validation_command = "{{validation_command}}"
 id = "run-validation"
 title = "执行测试与基础验证"
 depends_on = ["implement-bead.final-report"]
-condition = "implement-bead.implement-code.implemented == true"
+condition = "implement-bead.implement.implement-code.implemented == true"
 embed = "run-validation"
 
 [steps.embed_vars]
@@ -175,7 +175,7 @@ auto_detect = "true"
 id = "final-check"
 title = "确认 bead 是否可提交"
 depends_on = ["implement-bead.final-report", "run-validation"]
-input_context = ["load-bead-tree.stdout", "implement-bead.implement-code", "implement-bead.code-review", "implement-bead.run-validation.validation.stdout", "run-validation.validation.stdout"]
+input_context = ["load-bead-tree.stdout", "implement-bead.implement.implement-code", "implement-bead.implement.code-review", "implement-bead.implement.run-validation.validation.stdout", "run-validation.validation.stdout"]
 condition = "select-bead.stdout.selected == true"
 description = """
 判断本次 bead-coding 是否可以提交和关闭 bead。不要编造验证结果。核心目标是让 bead 进入真实闭环：如果交付物已经满足 bead 验收标准，就应该 ready_to_close=true；如果不能关闭，必须给出可执行缺口，而不是泛泛要求人工复核。
@@ -191,7 +191,7 @@ description = """
 }
 
 规则：
-- implement-bead.implement-code.implemented=false 或 blocked_items 非空时 ready_to_commit=false 且 ready_to_close=false；
+- implement-bead.implement.implement-code.implemented=false 或 blocked_items 非空时 ready_to_commit=false 且 ready_to_close=false；
 - 没有实际代码/文档/配置/测试改动时 ready_to_commit=false；如果已有交付物已经满足验收，可以仍然 ready_to_close=true；
 - 文档、调研、需求收敛类 bead 也是有效需求：如果改动覆盖验收标准，并且可通过文件存在性、内容检查、命令输出或自检说明验证，则可以 ready_to_close=true，不要强制要求人工复核；
 - 验证命令未运行时，要区分原因：若仓库暂无可用自动验证但交付物可人工/静态检查且风险低，可以 ready_to_close=true，并在 validation_summary 说明使用了静态/内容自检；若存在无法判断的实质缺口，才 ready_to_close=false；
@@ -262,7 +262,7 @@ timeout = "30s"
 
 [steps.script.env]
 BEAD_ID = "{{select-bead.stdout.bead_id}}"
-REASON = "{{implement-bead.implement-code.change_summary}}"
+REASON = "{{implement-bead.implement.implement-code.change_summary}}"
 
 [steps.validate]
 format = "json"
@@ -272,7 +272,7 @@ required = ["stdout"]
 id = "cycle-summary"
 title = "输出本 bead 执行摘要"
 depends_on = ["select-bead", "load-bead-tree", "implement-bead.final-report", "run-validation", "final-check", "commit-changes", "close-bead"]
-input_context = ["select-bead.stdout", "implement-bead.implement-code", "implement-bead.code-review", "implement-bead.run-validation.validation.stdout", "run-validation.validation.stdout", "final-check", "commit-changes.stdout", "close-bead.stdout"]
+input_context = ["select-bead.stdout", "implement-bead.implement.implement-code", "implement-bead.implement.code-review", "implement-bead.implement.run-validation.validation.stdout", "run-validation.validation.stdout", "final-check", "commit-changes.stdout", "close-bead.stdout"]
 description = """
 输出本次 bead-coding 的机器可读摘要，供 keep-coding loop 汇总。
 
