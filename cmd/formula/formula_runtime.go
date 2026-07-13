@@ -457,6 +457,8 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 		s.dashboard.markStepSkipped(string(event.NodeID), runtimeEventSkipReason(event.Payload))
 	case "step.failed":
 		s.dashboard.markStepFailed(string(event.NodeID), runtimeEventError(event.Payload), runtimeEventOutput(event.Payload))
+	case "step.interrupted":
+		s.dashboard.markStepInterrupted(string(event.NodeID), runtimeEventError(event.Payload), runtimeEventOutput(event.Payload))
 	case "step.waiting":
 		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
 	case "step.repair.recorded":
@@ -588,6 +590,9 @@ func runtimeEventOutput(payload any) string {
 }
 
 func runtimeEventError(payload any) string {
+	if values, ok := payload.(map[string]string); ok {
+		return strings.TrimSpace(values["error"])
+	}
 	result, ok := payload.(*steps.RunResult)
 	if !ok || result == nil || result.Error == nil {
 		return ""

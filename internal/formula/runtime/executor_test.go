@@ -27,6 +27,12 @@ func (a fixedOutputAgent) RunAgent(context.Context, steps.AgentRequest) (steps.V
 	return steps.Value{Type: "json", Raw: json.RawMessage(a.raw)}, nil
 }
 
+type fixedExternalAgent struct{ raw string }
+
+func (a fixedExternalAgent) RunExternalAgent(context.Context, steps.ExternalAgentRequest) (steps.Value, error) {
+	return steps.Value{Type: "json", Raw: json.RawMessage(a.raw)}, nil
+}
+
 type retryValidationAgent struct {
 	calls   int
 	prompts []string
@@ -219,6 +225,41 @@ func TestExecutorExposesScriptJSONStdoutForConditions(t *testing.T) {
 	}
 	if _, ok := exec.Context.Get("prepare.stdout_text"); !ok {
 		t.Fatal("missing raw stdout_text")
+	}
+}
+
+func TestExecutorNormalizesExternalAgentJSONTextForContext(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.ExternalAgentStep{
+		Base:       steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindExternalAgent}},
+		Driver:     "codex",
+		Prompt:     "plan",
+		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"approved", "summary"}},
+	}})
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+	wrapper := `{"driver":"codex","text":"noise before {\"approved\":true,\"summary\":\"ok\",\"issues\":[]} noise after","stderr":"very large prompt log","exit_code":0}`
+	exec := NewExecutor(wf, steps.Capabilities{ExternalAgents: fixedExternalAgent{raw: wrapper}})
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+	value, ok := exec.Context.Get("plan")
+	if !ok {
+		t.Fatal("missing plan context output")
+	}
+	var got map[string]any
+	if err := json.Unmarshal(value.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["approved"] != true || got["summary"] != "ok" {
+		t.Fatalf("normalized output = %#v", got)
+	}
+	if _, ok := got["stderr"]; ok {
+		t.Fatalf("normalized context should not include stderr: %#v", got)
 	}
 }
 

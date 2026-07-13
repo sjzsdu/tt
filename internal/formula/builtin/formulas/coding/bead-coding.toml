@@ -1,7 +1,7 @@
 formula = "bead-coding"
 aliases = ["bead-coding"]
 title = "Bead 编码执行器"
-description = "选择一个 ready bead 或指定 bead，读取其依赖树，用 coder 完成实现、验证、提交代码，并在成功后关闭 bead。"
+description = "选择一个 ready bead 或指定 bead，读取其依赖树，内嵌无交互 coding 完成实现与验证，提交代码，并在成功后关闭 bead。"
 version = 1
 type = "workflow"
 category = "engineering"
@@ -33,6 +33,8 @@ bead_id = { description = "要处理的 bead id；为空时自动选择一个 re
 goal = { description = "本次 bead 编码的总体目标或筛选偏好；用于帮助 coder 判断实现范围", default = "" }
 workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
+external_driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
+external_model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 close_on_success = { description = "验证和提交成功后是否关闭 bead", default = "true" }
 ready_limit = { description = "自动选择 ready bead 时最多读取多少个候选", default = "10" }
 exclude_bead_file = { description = "可选排除 bead id 文件；自动选择 ready bead 时跳过文件中的 bead", default = "" }
@@ -136,49 +138,92 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
-id = "implement-bead"
-title = "用 coder 完成 bead 内容"
+id = "summarize-bead-context"
+title = "压缩 bead 上下文"
 depends_on = ["load-bead-tree"]
-input_context = ["select-bead.stdout", "load-bead-tree.stdout"]
 condition = "select-bead.stdout.selected == true"
-description = """
-你是 coder agent。请根据 load-bead-tree.stdout 中的 bead 详情、依赖树、上游/下游关系和当前 git 状态，完成这个 bead 要求的编码工作。
+execution = "script"
+idempotent = true
 
-本次持续编码目标/偏好：{{goal}}
+[steps.script]
+command = ["python3", "-c", """
+import json, os, re
 
-要求：
-1. 必须理解整棵 bead 树：当前 bead 依赖什么、会阻塞什么、哪些内容属于本 bead 范围；
-2. 使用 code-context 调研项目结构、相关模块、现有模式和测试；
-3. 只实现当前 bead 的范围，不顺手实现下游 bead；
-4. 如果发现当前 bead 被未完成依赖阻塞，或需求不清，停止编码并说明 blocked_reason；
-5. 根据 bead 的验收标准稳定交付：可能是代码、测试、配置、脚本、文档或设计说明；不要因为产出是文档就降低完成标准，也不要为追求“写代码”而偏离 bead 范围；
-6. 不要 commit，不要关闭 bead。
+def clean(text, limit=3000):
+    text = text or ''
+    text = re.sub(chr(27) + r'\\[[0-9;]*m', '', text)
+    text = text.strip()
+    if len(text) > limit:
+        text = text[:limit] + '\\n...<truncated>'
+    return text
 
-输出 ONLY compact JSON：
-{
-  "bead_id":"...",
-  "implemented":true,
-  "blocked":false,
-  "blocked_reason":"",
-  "summary":"...",
-  "files_changed":["..."],
-  "tests_added_or_updated":["..."],
-  "validation_suggestions":["..."],
-  "residual_risks":["..."]
+raw = os.environ.get('BEAD_CONTEXT', '').strip()
+try:
+    data = json.loads(raw) if raw else {}
+except Exception as exc:
+    data = {"parse_error": str(exc), "raw_preview": clean(raw, 1000)}
+
+def section(name):
+    value = data.get(name) or {}
+    return clean(value.get('stdout') if isinstance(value, dict) else str(value))
+
+summary = {
+  "bead_id": data.get('bead_id', ''),
+  "goal": os.environ.get('GOAL', '').strip(),
+  "issue": section('show'),
+  "dependencies_down": section('deps_down'),
+  "dependencies_up": section('deps_up'),
+  "references": section('refs'),
+  "git_status_before": section('git_status_before'),
+  "instructions": [
+    "只实现当前 bead 范围，不顺手实现下游 bead。",
+    "不要使用动态表单或等待人工澄清；信息不足时写明 assumptions 后继续推进。",
+    "完成实现和验证，但不要 commit，不要关闭 bead，外层 bead-coding 负责提交和关闭。"
+  ]
 }
-"""
-agent.name = "coder"
-agent.cwd = "{{workspace_path}}"
+print(json.dumps(summary, ensure_ascii=False))
+"""]
+format = "json"
+timeout = "30s"
+
+[steps.script.env]
+BEAD_CONTEXT = "{{load-bead-tree.stdout}}"
+GOAL = "{{goal}}"
 
 [steps.validate]
 format = "json"
-required = ["bead_id", "implemented", "blocked", "summary", "files_changed", "residual_risks"]
+required = ["stdout"]
+
+[[steps]]
+id = "implement-bead"
+title = "用 coding formula 完成 bead 内容"
+depends_on = ["summarize-bead-context"]
+condition = "select-bead.stdout.selected == true"
+embed = "coding"
+
+[steps.embed_vars]
+requirement = """
+请根据以下压缩后的 bead 上下文，完成这个 bead 要求的编码工作。
+
+bead 上下文 JSON：{{summarize-bead-context.stdout}}
+
+要求：
+1. 必须理解整棵 bead 树：当前 bead 依赖什么、会阻塞什么、哪些内容属于本 bead 范围；
+2. 只实现当前 bead 的范围，不顺手实现下游 bead；
+3. 不要使用动态表单或等待人工澄清；信息不足时，基于 bead 内容和仓库上下文写明 assumptions 后继续推进；
+4. 根据 bead 的验收标准稳定交付：可能是代码、测试、配置、脚本、文档或设计说明；
+5. 完成实现和验证，但不要 commit，不要关闭 bead，外层 bead-coding 会负责提交和关闭。
+"""
+workspace_path = "{{workspace_path}}"
+validation_command = "{{validation_command}}"
+driver = "{{external_driver}}"
+model = "{{external_model}}"
 
 [[steps]]
 id = "run-validation"
 title = "执行测试与基础验证"
-depends_on = ["implement-bead"]
-condition = "implement-bead.implemented == true && implement-bead.blocked == false"
+depends_on = ["implement-bead.final-report"]
+condition = "implement-bead.implement.implement-code.implemented == true"
 embed = "run-validation"
 
 [steps.embed_vars]
@@ -188,8 +233,8 @@ auto_detect = "true"
 [[steps]]
 id = "final-check"
 title = "确认 bead 是否可提交"
-depends_on = ["implement-bead", "run-validation"]
-input_context = ["load-bead-tree.stdout", "implement-bead", "run-validation.validation.stdout"]
+depends_on = ["implement-bead.final-report", "run-validation"]
+input_context = ["load-bead-tree.stdout", "implement-bead.implement.implement-code", "implement-bead.implement.code-review", "implement-bead.implement.run-validation.validation.stdout", "run-validation.validation.stdout"]
 condition = "select-bead.stdout.selected == true"
 description = """
 判断本次 bead-coding 是否可以提交和关闭 bead。不要编造验证结果。核心目标是让 bead 进入真实闭环：如果交付物已经满足 bead 验收标准，就应该 ready_to_close=true；如果不能关闭，必须给出可执行缺口，而不是泛泛要求人工复核。
@@ -205,7 +250,7 @@ description = """
 }
 
 规则：
-- implement-bead.blocked=true 时 ready_to_commit=false 且 ready_to_close=false；
+- implement-bead.implement.implement-code.implemented=false 或 blocked_items 非空时 ready_to_commit=false 且 ready_to_close=false；
 - 没有实际代码/文档/配置/测试改动时 ready_to_commit=false；如果已有交付物已经满足验收，可以仍然 ready_to_close=true；
 - 文档、调研、需求收敛类 bead 也是有效需求：如果改动覆盖验收标准，并且可通过文件存在性、内容检查、命令输出或自检说明验证，则可以 ready_to_close=true，不要强制要求人工复核；
 - 验证命令未运行时，要区分原因：若仓库暂无可用自动验证但交付物可人工/静态检查且风险低，可以 ready_to_close=true，并在 validation_summary 说明使用了静态/内容自检；若存在无法判断的实质缺口，才 ready_to_close=false；
@@ -276,7 +321,7 @@ timeout = "30s"
 
 [steps.script.env]
 BEAD_ID = "{{select-bead.stdout.bead_id}}"
-REASON = "{{implement-bead.summary}}"
+REASON = "{{implement-bead.implement.implement-code.change_summary}}"
 
 [steps.validate]
 format = "json"
@@ -285,8 +330,8 @@ required = ["stdout"]
 [[steps]]
 id = "cycle-summary"
 title = "输出本 bead 执行摘要"
-depends_on = ["select-bead", "load-bead-tree", "implement-bead", "run-validation", "final-check", "commit-changes", "close-bead"]
-input_context = ["select-bead.stdout", "implement-bead", "run-validation.validation.stdout", "final-check", "commit-changes.stdout", "close-bead.stdout"]
+depends_on = ["select-bead", "load-bead-tree", "implement-bead.final-report", "run-validation", "final-check", "commit-changes", "close-bead"]
+input_context = ["select-bead.stdout", "implement-bead.implement.implement-code", "implement-bead.implement.code-review", "implement-bead.implement.run-validation.validation.stdout", "run-validation.validation.stdout", "final-check", "commit-changes.stdout", "close-bead.stdout"]
 description = """
 输出本次 bead-coding 的机器可读摘要，供 keep-coding loop 汇总。
 

@@ -4,9 +4,10 @@ export const statusOrder: Record<string, number> = {
   running: 0,
   waiting_input: 1,
   failed: 2,
-  pending: 3,
-  skipped: 4,
-  completed: 5,
+  interrupted: 3,
+  pending: 4,
+  skipped: 5,
+  completed: 6,
 };
 
 export const statusTone: Record<string, string> = {
@@ -15,6 +16,7 @@ export const statusTone: Record<string, string> = {
   waiting_input: 'warning',
   completed: 'success',
   failed: 'error',
+  interrupted: 'error',
   skipped: 'warning',
 };
 
@@ -33,6 +35,7 @@ export function statusIcon(status: string) {
     case 'waiting_input':
       return <ClockCircleOutlined />;
     case 'failed':
+    case 'interrupted':
       return <WarningOutlined />;
     default:
       return <ClockCircleOutlined />;

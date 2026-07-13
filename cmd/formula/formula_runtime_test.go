@@ -204,6 +204,44 @@ func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
 	}
 }
 
+func TestFormulaRuntimeDashboardEventSinkMarksInterrupted(t *testing.T) {
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
+	dashboard := newFormulaDashboardServer(workflow)
+	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
+
+	sink.Emit(formularuntime.Event{Type: "step.started", NodeID: "demo.work"})
+	sink.Emit(formularuntime.Event{Type: "step.interrupted", NodeID: "demo.work", Payload: map[string]string{"error": "context canceled"}})
+
+	step := dashboard.state.Steps[0]
+	if step.Status != "interrupted" || !strings.Contains(step.Error, "context canceled") {
+		t.Fatalf("step = %+v", step)
+	}
+	if dashboard.state.Status != "interrupted" {
+		t.Fatalf("workflow status = %s", dashboard.state.Status)
+	}
+}
+
+func TestFormulaRuntimeDashboardEventSinkMarksLoopParentInterrupted(t *testing.T) {
+	workflow := testFormulaWorkflow("demo", steps.LoopStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "demo.cycle", Kind: steps.KindLoop, Title: "Cycle"}},
+		Body: []steps.Step{steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "work", Kind: steps.KindAgent, Title: "Work"}}}},
+	})
+	dashboard := newFormulaDashboardServer(workflow)
+	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
+
+	childID := ir.NodeID("demo.cycle.iter1.work")
+	sink.Emit(formularuntime.Event{Type: "step.started", NodeID: childID})
+	sink.Emit(formularuntime.Event{Type: "step.interrupted", NodeID: childID, Payload: map[string]string{"error": "context canceled"}})
+
+	step := dashboard.state.Steps[0]
+	if step.Status != "interrupted" || !strings.Contains(step.Error, "context canceled") {
+		t.Fatalf("loop parent = %+v", step)
+	}
+	if len(step.Activities) != 1 || step.Activities[0].Status != "interrupted" {
+		t.Fatalf("activities = %+v", step.Activities)
+	}
+}
+
 func TestFormulaRuntimeDashboardEventSinkCompletesWorkflow(t *testing.T) {
 	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.final", Kind: steps.KindAgent, Title: "Final"}}})
 	dashboard := newFormulaDashboardServer(workflow)

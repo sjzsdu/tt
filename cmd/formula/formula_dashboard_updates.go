@@ -194,6 +194,43 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 	s.broadcast()
 }
 
+func (s *formulaDashboardServer) markStepInterrupted(stepID, errMsg, output string) {
+	s.mu.Lock()
+	found := false
+	for i := range s.state.Steps {
+		if s.state.Steps[i].ID != stepID {
+			continue
+		}
+		found = true
+		s.state.Steps[i].Status = "interrupted"
+		s.state.Steps[i].Error = errMsg
+		s.state.Steps[i].Output = output
+		s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
+		if s.state.Steps[i].StartedAt != "" {
+			if started, err := time.Parse(time.RFC3339, s.state.Steps[i].StartedAt); err == nil {
+				s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
+			}
+		}
+		if errMsg == "" {
+			errMsg = "step interrupted"
+		}
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "interrupted", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
+		s.appendLogLocked(fmt.Sprintf("Step %s interrupted: %s", stepID, errMsg))
+		break
+	}
+	if !found {
+		if errMsg == "" {
+			errMsg = "loop body interrupted"
+		}
+		s.markLoopActivityLocked(stepID, "", "interrupted", "", errMsg, output, errMsg, 0)
+		s.appendLogLocked(fmt.Sprintf("Loop step %s interrupted: %s", stepID, errMsg))
+	}
+	s.state.Status = "interrupted"
+	s.state.Error = errMsg
+	s.mu.Unlock()
+	s.broadcast()
+}
+
 func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, request *ui.HumanInputRequest) {
 	s.mu.Lock()
 	found := false
@@ -276,6 +313,20 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, s
 		if status == "running" && s.state.Steps[i].Status == "pending" {
 			s.state.Steps[i].Status = "running"
 			s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
+		}
+		if status == "failed" || status == "interrupted" || status == "waiting_input" {
+			s.state.Steps[i].Status = status
+			if errMsg != "" {
+				s.state.Steps[i].Error = errMsg
+			}
+			if status == "failed" || status == "interrupted" {
+				s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
+				if s.state.Steps[i].StartedAt != "" {
+					if started, err := time.Parse(time.RFC3339, s.state.Steps[i].StartedAt); err == nil {
+						s.state.Steps[i].DurationMS = time.Since(started).Milliseconds()
+					}
+				}
+			}
 		}
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Session: session, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
 		return
