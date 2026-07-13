@@ -559,6 +559,36 @@ func TestKeepCodingPropagatesExternalAgentDriver(t *testing.T) {
 	}
 }
 
+func TestCodingEmbeddedLoopBodyIDsAlignWithUntil(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "coding", nil, map[string]string{"requirement": "smoke requirement"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
+	}
+	node := workflow.Graph.Nodes[ir.NodeID("plan.plan-review-loop")]
+	if node == nil {
+		t.Fatalf("missing embedded plan review loop")
+	}
+	loop, ok := node.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("plan.plan-review-loop = %T, want LoopStep", node.Step)
+	}
+	if loop.Until != "plan.plan-review.approved == true" {
+		t.Fatalf("plan review loop until = %q, want plan.plan-review.approved == true", loop.Until)
+	}
+	var sawReview bool
+	for _, child := range loop.Body {
+		if child.Meta().ID == "plan.plan-review-loop.plan-review" {
+			t.Fatalf("loop body id %q is double-prefixed with loop id", child.Meta().ID)
+		}
+		if child.Meta().ID == "plan.plan-review" {
+			sawReview = true
+		}
+	}
+	if !sawReview {
+		t.Fatalf("embedded plan review loop body should contain plan.plan-review")
+	}
+}
+
 func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
 	if err != nil {

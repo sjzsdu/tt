@@ -225,6 +225,14 @@ func expandEmbeddedStep(step *spec.Step, parser *Parser, parentVars map[string]s
 
 	protectedTemplateRoots := collectTemplateRootsFromVars(childVars)
 	namespaced := namespaceEmbeddedSteps(filteredSteps, step.ID, name, step.ID, protectedTemplateRoots)
+	if strings.TrimSpace(step.Condition) != "" {
+		for _, childStep := range namespaced {
+			if childStep == nil {
+				continue
+			}
+			childStep.Condition = combineConditions(step.Condition, childStep.Condition)
+		}
+	}
 	if len(namespaced) > 0 {
 		entryIDs, exitIDs := embeddedBoundaryIDs(namespaced)
 		for _, childStep := range namespaced {
@@ -354,6 +362,19 @@ func substituteStringMapVars(values map[string]string, vars map[string]string) m
 	return out
 }
 
+func combineConditions(parent, child string) string {
+	parent = strings.TrimSpace(parent)
+	child = strings.TrimSpace(child)
+	switch {
+	case parent == "":
+		return child
+	case child == "":
+		return parent
+	default:
+		return parent + " && " + child
+	}
+}
+
 func namespaceEmbeddedSteps(steps []*spec.Step, prefix, sourceFormula, embeddedBy string, protectedTemplateRoots map[string]bool) []*spec.Step {
 	mapping := make(map[string]string)
 	collectStepNamespaceMapping(steps, prefix, mapping)
@@ -374,7 +395,12 @@ func collectStepNamespaceMapping(steps []*spec.Step, prefix string, mapping map[
 			collectStepNamespaceMapping(step.Children, prefix+"."+step.ID, mapping)
 		}
 		if step.Loop != nil && len(step.Loop.Body) > 0 {
-			collectStepNamespaceMapping(step.Loop.Body, prefix+"."+step.ID, mapping)
+			// Loop bodies are executed dynamically by LoopStep, which already scopes
+			// emitted event node IDs under the loop iteration. Keep their context keys
+			// as siblings under the embedded formula prefix so loop until/condition
+			// expressions like `review.approved == true` rewrite to the same key that
+			// LoopStep stores after each body execution.
+			collectStepNamespaceMapping(step.Loop.Body, prefix, mapping)
 		}
 	}
 }
