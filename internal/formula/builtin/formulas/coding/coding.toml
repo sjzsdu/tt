@@ -65,8 +65,6 @@ embed = "coding-requirement"
 [steps.embed_vars]
 requirement = "{{requirement}}"
 workspace_path = "{{workspace_path}}"
-driver = "{{driver}}"
-model = "{{model}}"
 
 [[steps]]
 id = "implement"

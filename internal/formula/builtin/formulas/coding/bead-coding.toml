@@ -33,6 +33,8 @@ bead_id = { description = "要处理的 bead id；为空时自动选择一个 re
 goal = { description = "本次 bead 编码的总体目标或筛选偏好；用于帮助 coder 判断实现范围", default = "" }
 workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
+external_driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
+external_model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 close_on_success = { description = "验证和提交成功后是否关闭 bead", default = "true" }
 ready_limit = { description = "自动选择 ready bead 时最多读取多少个候选", default = "10" }
 exclude_bead_file = { description = "可选排除 bead id 文件；自动选择 ready bead 时跳过文件中的 bead", default = "" }
@@ -159,6 +161,8 @@ bead 详情和依赖树 JSON：{{load-bead-tree.stdout}}
 """
 workspace_path = "{{workspace_path}}"
 validation_command = "{{validation_command}}"
+driver = "{{external_driver}}"
+model = "{{external_model}}"
 
 [[steps]]
 id = "run-validation"

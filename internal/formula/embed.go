@@ -291,6 +291,18 @@ func substituteStepTemplateVars(steps []*spec.Step, vars map[string]string) []*s
 			agent.Cwd = spec.Substitute(agent.Cwd, vars)
 			clone.Agent = &agent
 		}
+		if clone.ExternalAgent != nil {
+			agent := *clone.ExternalAgent
+			agent.Driver = spec.Substitute(agent.Driver, vars)
+			agent.Provider = spec.Substitute(agent.Provider, vars)
+			agent.Model = spec.Substitute(agent.Model, vars)
+			agent.Mode = spec.Substitute(agent.Mode, vars)
+			agent.Resume = spec.Substitute(agent.Resume, vars)
+			agent.Cwd = spec.Substitute(agent.Cwd, vars)
+			agent.Timeout = spec.Substitute(agent.Timeout, vars)
+			agent.ExtraArgs = substituteStringSliceVars(agent.ExtraArgs, vars)
+			clone.ExternalAgent = &agent
+		}
 		if clone.Script != nil {
 			script := *clone.Script
 			script.Command = substituteStringSliceVars(script.Command, vars)

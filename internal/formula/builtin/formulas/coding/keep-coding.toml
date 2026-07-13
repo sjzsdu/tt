@@ -33,6 +33,8 @@ goal = { description = "本次持续编码的总体目标或筛选偏好；为�
 max_cycles = { description = "最多执行多少个 bead-coding 循环", default = "100", pattern = "^[1-9][0-9]*$" }
 workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
+external_driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
+external_model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 close_on_success = { description = "每轮成功后是否关闭 bead", default = "true" }
 ready_limit = { description = "每轮自动选择 ready bead 时最多读取多少个候选", default = "10" }
 skip_file = { description = "本次 keep-coding 运行内跳过 partial/blocked bead 的临时文件", default = ".tt/tmp/keep-coding-skip.txt" }

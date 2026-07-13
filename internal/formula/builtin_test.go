@@ -525,6 +525,40 @@ func TestBeadCodingEmbedsCodingFormula(t *testing.T) {
 	}
 }
 
+func TestKeepCodingPropagatesExternalAgentDriver(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
+	}
+	cycle := workflow.Graph.Nodes[ir.NodeID("cycle")]
+	if cycle == nil {
+		t.Fatalf("missing cycle node")
+	}
+	loop, ok := cycle.Step.(steps.LoopStep)
+	if !ok {
+		t.Fatalf("cycle step = %T, want LoopStep", cycle.Step)
+	}
+	var agent steps.ExternalAgentStep
+	var found bool
+	for _, child := range loop.Body {
+		if child.Meta().ID != "run-bead-coding.implement-bead.plan.plan-requirement" {
+			continue
+		}
+		var ok bool
+		agent, ok = child.(steps.ExternalAgentStep)
+		if !ok {
+			t.Fatalf("nested plan node = %T, want ExternalAgentStep", child)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("missing nested coding requirement plan node")
+	}
+	if strings.Contains(agent.Driver, "{{") || agent.Driver == "" {
+		t.Fatalf("nested external_agent driver should be concrete, got %q", agent.Driver)
+	}
+}
+
 func TestKeepCodingDefaultMaxCyclesIsHighEnoughForBacklog(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
 	if err != nil {
