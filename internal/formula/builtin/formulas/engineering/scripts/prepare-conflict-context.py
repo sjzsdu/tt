@@ -13,7 +13,7 @@ def run_text(args):
 def trunc(text, limit=24000):
     if text is None: return ""
     if len(text) <= limit: return text
-    return text[:limit] + f"\\n...<truncated {len(text) - limit} chars>"
+    return text[:limit] + f"\n...<truncated {len(text) - limit} chars>"
 
 def stage(path, n):
     rc, stdout, stderr = run_text(["git", "show", f":{n}:{path}"])
@@ -39,8 +39,8 @@ def hunks(path, radius=24, limit=160000):
         else: merged.append((start,end))
     chunks=[]
     for start,end in merged:
-        chunks.append("\\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
-    return trunc("\\n\\n--- conflict hunk ---\\n\\n".join(chunks), limit)
+        chunks.append("\n".join(f"{idx+1}: {lines[idx]}" for idx in range(start,end)))
+    return trunc("\n\n--- conflict hunk ---\n\n".join(chunks), limit)
 
 def conflict_regions(path):
     try: lines=open(path, encoding="utf-8", errors="replace").read().splitlines()
@@ -61,9 +61,7 @@ def conflict_regions(path):
     return regions
 
 try:
-    env_repo_root=os.environ.get("TT_REPO_ROOT", "").strip()
-    if env_repo_root:
-        os.chdir(env_repo_root)
+    env_context_root=os.environ.get("TT_CONTEXT_ROOT", "").strip()
     repo_root=run(["git","rev-parse","--show-toplevel"]).strip()
     current_branch=run(["git","branch","--show-current"]).strip()
     merge_head=run(["git","rev-parse","--git-path","MERGE_HEAD"]).strip()
@@ -84,7 +82,8 @@ try:
                 marker_files.append(candidate)
     files=sorted(set(unmerged_files + marker_files))
     unmerged_set=set(unmerged_files)
-    ctx_dir=pathlib.Path(".tt/conflict-context/git-resolve-conflicts")
+    ctx_base=pathlib.Path(env_context_root) if env_context_root else pathlib.Path(".")
+    ctx_dir=ctx_base / ".tt/conflict-context/git-resolve-conflicts"
     ctx_dir.mkdir(parents=True, exist_ok=True)
     items=[]
     for path in files:
@@ -97,7 +96,7 @@ try:
         key=hashlib.sha1(path.encode()).hexdigest()[:12]
         context_file=str(ctx_dir / f"{key}.json")
         regions=conflict_regions(path)
-        payload={"path":path,"context_note":context_note,"conflict_regions":regions,"base_excerpt":trunc(base,40000),"ours_excerpt":trunc(ours,80000),"theirs_excerpt":trunc(theirs,80000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\\n")+(1 if theirs else 0)}}
+        payload={"path":path,"context_note":context_note,"conflict_regions":regions,"base_excerpt":trunc(base,40000),"ours_excerpt":trunc(ours,80000),"theirs_excerpt":trunc(theirs,80000),"conflict_hunks":hunks(path),"ours_stat":{"chars":len(ours),"lines":ours.count("\n")+(1 if ours else 0)},"theirs_stat":{"chars":len(theirs),"lines":theirs.count("\n")+(1 if theirs else 0)}}
         pathlib.Path(context_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         items.append({"path":path,"file_kind":os.path.splitext(path)[1].lstrip('.') or os.path.basename(path),"context_file":context_file,"conflict_regions":regions,"conflict_region_count":len(regions),"ours_stat":payload["ours_stat"],"theirs_stat":payload["theirs_stat"]})
     started_at=os.environ.get("TT_STARTED_AT", "")

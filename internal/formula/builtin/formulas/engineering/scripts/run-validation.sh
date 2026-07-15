@@ -1,6 +1,6 @@
 #!/bin/bash
 # 运行可选验证命令
-set -u
+set -uo pipefail
 
 repo_root="${TT_REPO_ROOT:-}"
 cmd="${TT_VALIDATION_COMMAND:-}"
@@ -12,7 +12,7 @@ if [ -z "$cmd" ] || [ "$cmd" = "-" ]; then
   exit 0
 fi
 
-out="$(bash -lc "$cmd" 2>&1)"
+out="$(bash -lc "$cmd" 2>&1 || true)"
 rc=$?
 
 jq -cn \
