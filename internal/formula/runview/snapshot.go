@@ -55,6 +55,7 @@ func MarkStepCompletedWithOutput(snapshot *ui.Snapshot, stepID, output string) e
 		snapshot.Steps[i].Error = ""
 		snapshot.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
 		ui.AppendStepActivity(&snapshot.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: snapshot.Steps[i].Title, Status: ui.StatusCompleted, Detail: "Human input submitted", Output: output})
+		ui.RecordExecutionTransition(snapshot, ui.ExecutionTransition{Address: stepID, Title: snapshot.Steps[i].Title, Status: ui.StatusCompleted, Session: snapshot.Steps[i].Session, Detail: "Human input submitted", Output: output})
 		return nil
 	}
 	return fmt.Errorf("step %q not found in snapshot", stepID)

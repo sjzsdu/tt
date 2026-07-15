@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -12,29 +12,43 @@ const packageEntry = join(root, 'src/components/graph/graphModel.ts');
 const repoEntry = join(root, 'web/apps/formula/src/components/graph/graphModel.ts');
 const entry = existsSync(packageEntry) ? packageEntry : repoEntry;
 const outfile = join(tmpdir(), `formula-graph-model-smoke-${process.pid}.mjs`);
+const executionEntry = join(dirname(entry), '../../utils/execution.ts');
+const executionOutfile = join(tmpdir(), `formula-execution-smoke-${process.pid}.mjs`);
 
 if (!existsSync(entry)) {
   throw new Error(`Missing graph model entry: ${entry}`);
 }
 
 const source = await readFile(entry, 'utf8');
-const transpiled = ts.transpileModule(source, {
+let transpiled = ts.transpileModule(source, {
   compilerOptions: {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ES2022,
     importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove,
   },
 }).outputText;
+const executionSource = await readFile(executionEntry, 'utf8');
+const executionTranspiled = ts.transpileModule(executionSource, {
+  compilerOptions: {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ES2022,
+    importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove,
+  },
+}).outputText;
+transpiled = transpiled.replace('../../utils/execution', `./formula-execution-smoke-${process.pid}.mjs`);
 await writeFile(outfile, transpiled);
+await writeFile(executionOutfile, executionTranspiled);
 
 try {
   const {
     computeGraphData,
+    computeLiveGraphData,
     computeLoopBodyGraphData,
     loopBodyGraphID,
     loopBodyStep,
     resolveClickedStep,
   } = await import(pathToFileURL(outfile));
+  const { parseExecutionAddress } = await import(pathToFileURL(executionOutfile));
 
   const loopStep = {
     id: 'collect',
@@ -77,6 +91,8 @@ try {
   assert.ok(collapsed.edges.some(edge => edge.id === 'prepare-collect'), 'depends_on should synthesize prepare -> collect edge');
   assert.ok(collapsed.edges.some(edge => edge.id === 'collect-publish'), 'depends_on should synthesize collect -> publish edge');
   assert.ok(collapsed.edges.some(edge => edge.id === 'collect-audit'), 'depends_on should synthesize collect -> audit edge');
+  const collectOverview = collapsed.nodes.find(node => node.id === 'collect');
+  assert.match(collectOverview?.data.step.metadata?.execution_summary || '', /running|completed/, 'overview loop node should summarize concrete instance states');
   const collectOutgoing = collapsed.edges.filter(edge => edge.source === 'collect').sort((a, b) => a.target.localeCompare(b.target));
   assert.equal(new Set(collectOutgoing.map(edge => edge.data.sourcePort)).size, collectOutgoing.length, 'same-source edges should use distinct source ports');
   assert.deepEqual(collectOutgoing.map(edge => edge.data.sourcePort).sort(), ['bottom-left-1', 'bottom-right-1'], 'two same-source edges should use balanced ports around the center');
@@ -118,6 +134,15 @@ try {
     independentBodyGraph.nodes.map(node => node.id).sort(),
     [fetchNodeID, summarizeNodeID].sort(),
     'loop body graph helper should model only the loop body island',
+  );
+
+  const live = computeLiveGraphData(snapshot);
+  assert.ok(live.nodes.some(node => node.id === 'collect.iter2.fetch'), 'live graph should materialize concrete loop addresses');
+  assert.equal(live.nodes.find(node => node.id === 'collect.iter2.fetch')?.data.step.status, 'completed', 'live node should keep concrete instance status');
+  assert.deepEqual(
+    parseExecutionAddress('outer.iter3.inner.iter2.summarize').iterationPath,
+    [3, 2],
+    'execution address parser should support nested loops',
   );
 
   const nestedLoopStep = {
@@ -166,6 +191,17 @@ try {
     nestedExpanded.nodes.find(node => node.id === innerFetchNodeID).style.x
       > nestedExpanded.nodes.find(node => node.id === innerLoopNodeID).style.x,
     'nested loop graph island should be placed to the right of the nested loop node',
+  );
+  const nestedLive = computeLiveGraphData({
+    ...nestedSnapshot,
+    execution_instances: [
+      { address: 'outer.iter3.inner-loop.iter2.inner-fetch', definition_step_id: 'inner-fetch', parent_loop_id: 'outer', body_step_id: 'inner-fetch', iteration_path: [3, 2], status: 'completed' },
+      { address: 'outer.iter3.inner-loop.iter2.inner-summarize', definition_step_id: 'inner-summarize', parent_loop_id: 'outer', body_step_id: 'inner-summarize', iteration_path: [3, 2], status: 'running' },
+    ],
+  });
+  assert.ok(
+    nestedLive.edges.some(edge => edge.source === 'outer.iter3.inner-loop.iter2.inner-fetch' && edge.target === 'outer.iter3.inner-loop.iter2.inner-summarize'),
+    'live nested iterations should preserve nested body dependencies',
   );
 
   const selectedFromBody = resolveClickedStep(fetchNodeID, { kind: 'loop-body', parentStep: loopStep, step: fetchBodyStep }, snapshot);
@@ -319,4 +355,5 @@ try {
   console.log('formula graph smoke passed');
 } finally {
   await rm(outfile, { force: true });
+  await rm(executionOutfile, { force: true });
 }

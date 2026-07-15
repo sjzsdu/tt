@@ -16,6 +16,42 @@ export type FormulaStepActivity = {
   duration_ms?: number;
 };
 
+export type FormulaExecutionInstance = {
+  address: string;
+  definition_step_id: string;
+  parent_loop_id?: string;
+  body_step_id?: string;
+  iteration_path?: number[];
+  title?: string;
+  status: string;
+  attempt?: number;
+  started_at?: string;
+  finished_at?: string;
+  updated_at?: string;
+  duration_ms?: number;
+  session?: string;
+  detail?: string;
+  output?: string;
+  error?: string;
+};
+
+export type FormulaExecutionEvent = {
+  id: string;
+  at: string;
+  instance_address?: string;
+  definition_step_id?: string;
+  parent_loop_id?: string;
+  type: string;
+  from_status?: string;
+  status: string;
+  attempt?: number;
+  title?: string;
+  detail?: string;
+  duration_ms?: number;
+  session?: string;
+  error?: string;
+};
+
 export type FormulaDashboardLoopBody = {
   id: string;
   title: string;
@@ -157,6 +193,8 @@ export type FormulaDashboardSnapshot = {
   steps: FormulaDashboardStep[];
   edges: FormulaDashboardEdge[];
   logs: FormulaDashboardLogEntry[];
+  execution_instances?: FormulaExecutionInstance[];
+  execution_events?: FormulaExecutionEvent[];
   workspace_dir?: string;
   run_id?: string;
   stop_requested?: boolean;

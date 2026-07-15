@@ -42,6 +42,10 @@ export function normalizeSnapshot(snapshot: FormulaDashboardSnapshot): FormulaDa
     steps: Array.isArray(snapshot.steps) ? snapshot.steps.map(normalizeStep) : [],
     edges: Array.isArray(snapshot.edges) ? snapshot.edges : [],
     logs: Array.isArray(snapshot.logs) ? snapshot.logs : [],
+    execution_instances: Array.isArray(snapshot.execution_instances)
+      ? snapshot.execution_instances.map(instance => ({ ...instance, iteration_path: Array.isArray(instance.iteration_path) ? instance.iteration_path : [] }))
+      : [],
+    execution_events: Array.isArray(snapshot.execution_events) ? snapshot.execution_events : [],
   };
 }
 

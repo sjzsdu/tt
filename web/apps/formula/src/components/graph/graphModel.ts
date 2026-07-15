@@ -1,4 +1,5 @@
 import type { FormulaDashboardLoopBody, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
+import { executionInstances, executionInstanceStep, isActiveExecution } from '../../utils/execution';
 
 
 function loopActivityIteration(activity?: { step_id: string }) {
@@ -20,6 +21,51 @@ export type StepNodeData = {
   layoutX?: number;
   layoutY?: number;
 };
+
+function executionStatus(instances: ReturnType<typeof executionInstances>, fallback: string) {
+  if (instances.some(instance => instance.status === 'failed')) return 'failed';
+  if (instances.some(instance => instance.status === 'interrupted')) return 'interrupted';
+  if (instances.some(instance => instance.status === 'waiting_input')) return 'waiting_input';
+  if (instances.some(instance => instance.status === 'running')) return 'running';
+  if (fallback === 'running' || fallback === 'waiting_input' || fallback === 'failed' || fallback === 'interrupted') return fallback;
+  if (instances.length && instances.every(instance => instance.status === 'skipped')) return 'skipped';
+  if (instances.some(instance => instance.status === 'completed')) return 'completed';
+  return fallback;
+}
+
+function decorateStepWithExecutions(step: FormulaDashboardStep, instances: ReturnType<typeof executionInstances>) {
+  if (!instances.length) return step;
+  const counts = instances.reduce<Record<string, number>>((acc, instance) => {
+    acc[instance.status] = (acc[instance.status] || 0) + 1;
+    return acc;
+  }, {});
+  const summary = ['running', 'waiting_input', 'failed', 'completed', 'skipped']
+    .filter(status => counts[status])
+    .map(status => `${counts[status]} ${status.replace('_', ' ')}`)
+    .join(' · ');
+  const active = instances.filter(isActiveExecution).slice(0, 2).map(instance => instance.address).join(', ');
+  return {
+    ...step,
+    status: executionStatus(instances, step.status),
+    metadata: {
+      ...(step.metadata || {}),
+      execution_summary: summary,
+      active_address: active,
+    },
+  };
+}
+
+function findLoopBody(step: FormulaDashboardStep | undefined, bodyID: string): FormulaDashboardLoopBody | undefined {
+  const visit = (body: FormulaDashboardLoopBody[]): FormulaDashboardLoopBody | undefined => {
+    for (const item of body) {
+      if (item.id === bodyID) return item;
+      const nested = item.loop?.body ? visit(item.loop.body) : undefined;
+      if (nested) return nested;
+    }
+    return undefined;
+  };
+  return step?.loop?.body ? visit(step.loop.body) : undefined;
+}
 
 export type LoopGroupNodeData = {
   kind: 'loop-group';
@@ -590,7 +636,16 @@ export function computeGraphData(
   const graphEdges = [...snapshot.edges];
 
   const graphEdgeIDs = new Set(graphEdges.map(edge => `${edge.from}\u0000${edge.to}`));
-  for (const step of snapshot.steps) {
+  const allInstances = executionInstances(snapshot);
+  const decoratedStepMap = new Map(snapshot.steps.map(originalStep => {
+    const childInstances = allInstances.filter(instance => instance.parent_loop_id === originalStep.id);
+    const relevant = childInstances.length
+      ? childInstances
+      : allInstances.filter(instance => instance.address === originalStep.id);
+    return [originalStep.id, decorateStepWithExecutions(originalStep, relevant)] as const;
+  }));
+  for (const originalStep of snapshot.steps) {
+    const step = decoratedStepMap.get(originalStep.id) || originalStep;
     for (const dep of step.depends_on || []) {
       if (!stepMap.has(dep)) continue;
       const edgeID = `${dep}\u0000${step.id}`;
@@ -612,7 +667,8 @@ export function computeGraphData(
     }
   };
 
-  for (const step of snapshot.steps) {
+  for (const originalStep of snapshot.steps) {
+    const step = decoratedStepMap.get(originalStep.id) || originalStep;
     nodes.push({
       id: step.id,
       data: {
@@ -676,6 +732,13 @@ export function computeGraphData(
     const bodyGraph = computeLoopBodyGraphData(parentStep, parentNodeID, activitySource, expandedLoopIDs);
     if (!bodyGraph.nodes.length) return;
 
+    for (const node of bodyGraph.nodes) {
+      if (node.data.kind === 'variable' || node.data.kind === 'loop-group') continue;
+      const bodyID = node.data.body?.id || node.data.step.metadata?.body_id || '';
+      const relevant = allInstances.filter(instance => instance.parent_loop_id === activitySource.id && instance.definition_step_id === bodyID);
+      if (relevant.length) node.data = { ...node.data, step: decorateStepWithExecutions(node.data.step, relevant) };
+    }
+
     placeLoopBodyGraphToRight(bodyGraph.nodes, parentNode);
 
     for (const node of bodyGraph.nodes) {
@@ -708,6 +771,57 @@ export function computeGraphData(
   }
 
   return { nodes, edges, combos };
+}
+
+export function computeLiveGraphData(snapshot: FormulaDashboardSnapshot): { nodes: FormulaGraphNode[]; edges: FormulaGraphEdge[]; combos: FormulaGraphCombo[] } {
+  const instances = executionInstances(snapshot).filter(instance => !!instance.parent_loop_id);
+  if (!instances.length) return computeGraphData(snapshot, new Set());
+
+  const iterationGroups = new Map<string, typeof instances>();
+  for (const instance of instances) {
+    const key = `${instance.parent_loop_id}:${(instance.iteration_path || []).join('.')}`;
+    if (!iterationGroups.has(key)) iterationGroups.set(key, []);
+    iterationGroups.get(key)!.push(instance);
+  }
+  const activeKeys = new Set([...iterationGroups].filter(([, group]) => group.some(isActiveExecution)).map(([key]) => key));
+  const recentKeys = [...iterationGroups.keys()].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).slice(0, 3);
+  const selectedKeys = new Set([...activeKeys, ...recentKeys]);
+  const selected = [...iterationGroups].filter(([key]) => selectedKeys.has(key)).flatMap(([, group]) => group);
+
+  const nodes: FormulaGraphNode[] = selected.map(instance => ({
+    id: instance.address,
+    data: {
+      kind: 'loop-body',
+      step: executionInstanceStep(instance, snapshot),
+      parentStep: snapshot.steps.find(step => step.id === instance.parent_loop_id),
+    },
+  }));
+  const nodeIDs = new Set(nodes.map(node => node.id));
+  const edges: FormulaGraphEdge[] = [];
+
+  for (const instance of selected) {
+    const parent = snapshot.steps.find(step => step.id === instance.parent_loop_id);
+    const body = findLoopBody(parent, instance.definition_step_id || instance.body_step_id || '');
+    const definitionID = instance.definition_step_id || instance.body_step_id || '';
+    const prefix = definitionID && instance.address.endsWith(definitionID)
+      ? instance.address.slice(0, -definitionID.length)
+      : instance.address.slice(0, instance.address.lastIndexOf('.') + 1);
+    for (const dependency of body?.depends_on || []) {
+      const source = `${prefix}${dependency}`;
+      if (!nodeIDs.has(source)) continue;
+      edges.push({
+        id: `${source}-${instance.address}`,
+        source,
+        target: instance.address,
+        data: { status: instance.status, kind: 'loop-sequence' },
+      });
+    }
+  }
+
+  assignLayoutOrder(nodes, edges);
+  assignLayoutPositions(nodes, { xGap: LOOP_BODY_NODE_X_GAP, yGap: LOOP_BODY_NODE_Y_GAP });
+  applyEdgeLanes(edges, nodes);
+  return { nodes, edges, combos: [] };
 }
 
 export function resolveClickedStep(
