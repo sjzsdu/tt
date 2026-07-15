@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	formula "github.com/sjzsdu/tt/internal/formula"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/run"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
@@ -249,6 +250,9 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 		capabilities.ExternalAgents = formularuntime.ExternalAgentCapability{Driver: opt.ExternalAgentDriver}
 	}
 	exec := formularuntime.NewExecutor(workflow, capabilities)
+	exec.ResolveWorkflow = func(ctx context.Context, name string, inputs map[string]steps.Value) (*ir.Workflow, error) {
+		return formula.CompileWorkflowByName(ctx, name, getSearchPaths(), formulaInputStrings(inputs))
+	}
 	exec.SeedEnvironment(opt.Workspace)
 	exec.SeedWorkflowVars(workflow)
 	exec.SeedVars(opt.Vars)
@@ -260,6 +264,19 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)
 	}
 	return exec, nil
+}
+
+func formulaInputStrings(inputs map[string]steps.Value) map[string]string {
+	out := make(map[string]string, len(inputs))
+	for name, value := range inputs {
+		var text string
+		if err := json.Unmarshal(value.Raw, &text); err == nil {
+			out[name] = text
+			continue
+		}
+		out[name] = strings.TrimSpace(string(value.Raw))
+	}
+	return out
 }
 
 type executeFormulaRuntimeOptions struct {

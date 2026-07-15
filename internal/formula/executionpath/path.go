@@ -76,6 +76,14 @@ func (p Path) Iteration(index int) Path {
 	return p.append(Segment{Kind: SegmentIteration, Index: index})
 }
 
+// Append returns a path with all segments from child appended. It is used to
+// map a child workflow's local addresses into its FormulaCall prefix.
+func (p Path) Append(child Path) Path {
+	segments := append([]Segment(nil), p.Segments...)
+	segments = append(segments, child.Segments...)
+	return Path{Segments: segments}
+}
+
 func (p Path) append(segment Segment) Path {
 	segments := append([]Segment(nil), p.Segments...)
 	segments = append(segments, segment)

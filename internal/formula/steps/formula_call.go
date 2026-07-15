@@ -1,0 +1,108 @@
+package steps
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/sjzsdu/tt/internal/formula/ast"
+)
+
+// FormulaCallStep treats another Formula as one executable, composable step.
+// With is the explicit input binding contract; the child Formula's declared
+// outputs are returned as one JSON object.
+type FormulaCallStep struct {
+	Base
+	Formula   string            `json:"formula"`
+	With      map[string]string `json:"with,omitempty"`
+	OutputKey string            `json:"output_key,omitempty"`
+}
+
+type FormulaCallDecoder struct{}
+
+func (FormulaCallDecoder) Kind() Kind { return KindFormula }
+
+func (FormulaCallDecoder) Decode(decl ast.StepDecl) (Step, error) {
+	var step FormulaCallStep
+	if err := json.Unmarshal(decl.Raw, &step); err != nil {
+		return nil, fmt.Errorf("decode formula step: %w", err)
+	}
+	step.Base = Base{metadataFromDecl(decl, KindFormula)}
+	return step, nil
+}
+
+func (s FormulaCallStep) Validate(ValidationContext) error {
+	if strings.TrimSpace(s.Formula) == "" {
+		return fmt.Errorf("formula is required")
+	}
+	return nil
+}
+
+func (s FormulaCallStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if req.Capabilities.Workflows == nil {
+		err := &StepError{Message: "workflow capability is required"}
+		return &RunResult{Status: StatusFailed, Error: err}, err
+	}
+	inputs := make(map[string]Value, len(s.With))
+	for name, binding := range s.With {
+		inputs[name] = bindFormulaInput(binding, req.Context)
+	}
+	result, err := req.Capabilities.Workflows.RunWorkflow(ctx, WorkflowRequest{
+		RunID: req.RunID, NodeID: req.NodeID, Formula: strings.TrimSpace(s.Formula), Inputs: inputs,
+	})
+	if result == nil {
+		result = &WorkflowResult{}
+	}
+	if err != nil {
+		stepErr := result.Error
+		if stepErr == nil {
+			stepErr = &StepError{Message: "formula step failed", Cause: err}
+		}
+		return &RunResult{Status: StatusFailed, Error: stepErr}, err
+	}
+	if result.Status == StatusWaiting {
+		return &RunResult{Status: StatusWaiting, Await: result.Await, Error: result.Error}, nil
+	}
+	if result.Status == StatusFailed {
+		stepErr := result.Error
+		if stepErr == nil {
+			stepErr = &StepError{Message: "formula step failed"}
+		}
+		return &RunResult{Status: StatusFailed, Error: stepErr}, stepErr
+	}
+	output, marshalErr := marshalWorkflowOutputs(result.Outputs)
+	if marshalErr != nil {
+		stepErr := &StepError{Message: "encode formula outputs", Cause: marshalErr}
+		return &RunResult{Status: StatusFailed, Error: stepErr}, marshalErr
+	}
+	return &RunResult{Status: StatusCompleted, Output: output}, nil
+}
+
+func bindFormulaInput(binding string, ctx ContextView) Value {
+	trimmed := strings.TrimSpace(binding)
+	if match := runtimeTemplatePattern.FindStringSubmatch(trimmed); len(match) == 2 && match[0] == trimmed && ctx != nil {
+		if value, ok := ctx.Get(match[1]); ok {
+			return value
+		}
+	}
+	rendered := renderContextTemplates(binding, ctx)
+	raw, _ := json.Marshal(rendered)
+	return Value{Type: "json", Raw: raw}
+}
+
+func marshalWorkflowOutputs(outputs map[string]Value) (Value, error) {
+	object := make(map[string]any, len(outputs))
+	for name, value := range outputs {
+		var decoded any
+		if err := json.Unmarshal(value.Raw, &decoded); err != nil {
+			return Value{}, fmt.Errorf("output %q: %w", name, err)
+		}
+		object[name] = decoded
+	}
+	raw, err := json.Marshal(object)
+	if err != nil {
+		return Value{}, err
+	}
+	return Value{Type: "json", Raw: raw}, nil
+}

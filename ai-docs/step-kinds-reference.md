@@ -32,9 +32,9 @@
 | `validate` | 输出 schema 校验；失败时对 agent step 会自动 advice retry 一次 |
 | `idempotent` | 布尔（typed schema: `StepDecl.Idempotent`；recipe TOML: 顶层 `idempotent = true`）；决定失败时是否能被 `StepFixer` 重新执行。`agent` / `external_agent` 默认可重试；`script` 默认**非幂等**，必须显式写 `idempotent = true` 才走自修路径 |
 | `output_key` | 可选覆盖默认输出 key；新公式不要写 |
-| `execution` | `agent` / `script` / `human_input` / `aggregate` / `tool` / `write_files` / `noop` |
+| `execution` | `agent` / `script` / `human_input` / `formula` / `aggregate` / `tool` / `write_files` / `noop` |
 
-`kind` 枚举的权威来源是 `internal/formula/steps/step.go` 的常量块。`NewDefaultRegistry()` 默认只注册 `Noop` / `Agent` / `Script` / `HumanInput` / `Loop` / `Retry` —— 其它 kind（`condition` / `gate` / `embed` / `expand` / `tool` / `aggregate` / `write_files`）有类型与 kind 常量，但需要走 `compile.Compiler` 注入自定义 `steps.Registry` 才能直接运行；通常被 runtime 在 `loop` body 内嵌或被专用子命令消费。
+`kind` 枚举的权威来源是 `internal/formula/steps/step.go` 的常量块。`NewDefaultRegistry()` 默认注册 `Noop` / `Agent` / `Script` / `HumanInput` / `Loop` / `Retry` / `ExternalAgent` / `FormulaCall`。其它 kind（`condition` / `gate` / `embed` / `expand` / `tool` / `aggregate` / `write_files`）通常由 recipe 编译链路转成 typed step，或由专用子命令消费。
 
 ## 13 种 Step Kind
 
@@ -151,6 +151,30 @@ description = "运营同学手动确认后由 operator 用 formula run input 注
 ```
 
 要点：直接返回 `completed`，不调用任何能力。常用于占位 / 显式分隔 / 后续手动 step。
+
+### `formula` —— 运行时复合步骤
+
+把另一个 Formula 当作一个普通 step 执行。父 Formula 只绑定子 Formula 的公开 `vars`，并只接收其公开 `outputs`：
+
+```toml
+[[steps]]
+id = "implementation"
+title = "执行实现流程"
+execution = "formula"
+formula = "coding-implementation"
+
+[steps.with]
+requirement = "{{requirement}}"      # 完整模板会保留对象/数组等 JSON 类型
+project_context = "repo={{env.git.repo}}"
+```
+
+要点：
+
+- `[steps.with]` 是显式输入映射；完整的 `{{context.path}}` 会保留原始 JSON 类型，混合文本模板会得到字符串。
+- step 输出是子 Formula 所有公开 outputs 组成的 JSON 对象，因此可用 `implementation.<output-name>` 访问。
+- 子步骤状态写入父 run 的 StateStore，地址形如 `implementation.formula(coding-implementation).plan`。
+- 子 Formula 的 waiting、失败和取消会传播到 FormulaCall；恢复父 run 时，已经完成的子步骤会从同一状态存储中恢复。
+- runtime 会拒绝直接或间接递归 Formula 调用，并限制最大嵌套深度。
 
 ### `loop` —— 嵌套 typed 步骤
 

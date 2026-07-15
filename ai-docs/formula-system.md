@@ -71,10 +71,11 @@ flowchart TD
 - `children`（子步骤）
 - `gate` / `loop` / `on_complete` / `retry` / `timeout`
 - `agent` / `script` / `aggregate` / `tool` / `write_files` / `form` / `dynamic_form`
+- `formula` / `with`（把另一个 Formula 作为运行时复合 step 调用，并显式绑定输入）
 - `validate`（output schema）
 - `output_key`（可选；推荐用 step `id`）
 - `input_context`
-- `execution`（`agent` / `script` / `human_input` / `aggregate` / `tool` / `write_files` / `noop`）
+- `execution`（`agent` / `script` / `human_input` / `formula` / `aggregate` / `tool` / `write_files` / `noop`）
 - `expand` / `expand_vars` / `embed` / `embed_vars`
 
 当前推荐：用 step `id` 作为输出上下文 key。普通公式不要再写 `output_key`。
@@ -93,7 +94,7 @@ description = "对调用方公开的最终报告"
 - `required = true` 时，workflow 在成功结束前必须产生该 context value，否则整个 run 失败。
 - 未产生的 optional output 不会出现在 runtime `RunResult.Outputs` 中。
 - `extends` 会继承父 Formula 的 outputs；子 Formula 用同名 output 覆盖父定义。
-- 调用方应只依赖公开 output 名，不应依赖 Formula 的内部 step ID。当前 `embed` 仍是编译期 inline；这些契约是后续 runtime FormulaCall 的稳定调用边界。
+- 调用方应只依赖公开 output 名，不应依赖 Formula 的内部 step ID。`embed` 仍是编译期 inline；运行时复用应优先使用 `execution = "formula"`，它通过公开 vars/outputs 契约隔离父子 Formula。
 
 ## 编译模型：Formula 到 Workflow
 
@@ -149,8 +150,9 @@ step(implementation) / formula(coding) / step(review)
 path segment 的 kind 为 `step` / `iteration` / `formula`。旧的
 `review.iter2.check` 地址继续保留并可无损解析，因此已有 run artifact、dashboard
 链接和 session key 不需要迁移。Runtime `StepState` 与 `Event` 都保存结构化 path；
-loop body 的具体运行实例也会进入 StateStore，不再只存在于事件日志中。后续
-FormulaCall 复用同一 path 模型表达调用层级。
+loop body 的具体运行实例也会进入 StateStore，不再只存在于事件日志中。
+FormulaCall 使用同一 path 模型表达调用层级，例如
+`implementation.formula(coding).review`，父子状态因此可以在同一 run 中恢复和展示。
 
 ### 运行变量来源与默认 vars 文件
 
@@ -218,6 +220,7 @@ type Executable interface {
 - `AggregateStep`（基于已有 context 的投影/收集）
 - `ToolStep`（deterministic 内建工具：write_files / sleep / git_*）
 - `WriteFilesStep`（按 JSON 字段写入文件）
+- `FormulaCallStep`（通过 `Capabilities.Workflows` 递归执行子 Formula，显式绑定 vars 并收集公开 outputs）
 
 其中 agent/external_agent/script/human_input/noop 已经是直接运行路径，Loop/Retry/Aggregate/Tool/WriteFiles 是面向扩展的 typed step 结构。
 
@@ -283,6 +286,7 @@ const (
     KindTool          Kind = "tool"
     KindAggregate     Kind = "aggregate"
     KindWriteFiles    Kind = "write_files"
+    KindFormula       Kind = "formula"
 )
 ```
 

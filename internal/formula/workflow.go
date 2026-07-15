@@ -152,6 +152,9 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 	}
 	execution := strings.TrimSpace(step.Execution)
 	switch execution {
+	case "formula":
+		meta.Kind = steps.KindFormula
+		return steps.FormulaCallStep{Base: steps.Base{Metadata: meta}, Formula: step.Formula, With: step.With, OutputKey: step.OutputKey}
 	case "noop":
 		meta.Kind = steps.KindNoop
 		return steps.NoopStep{Base: steps.Base{Metadata: meta}}
