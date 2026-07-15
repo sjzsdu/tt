@@ -95,8 +95,8 @@ description = """
 - resolution_summary 简要说明 ours/theirs 各自意图和你如何合并。
 
 输出 ONLY compact JSON object：
-{"input":{"path":"{{conflict_file.path}}","context_file":"{{conflict_file.context_file}}","conflict_region_count":{{conflict_file.conflict_region_count}},"conflict_regions":[{"start_line":1,"separator_line":2,"end_line":3,"summary":"lines 1-3"}],"file_kind":"{{conflict_file.file_kind}}"},"attempted":true,"resolved":true,"conflicted_files":["{{conflict_file.path}}"],"touched_files":["{{conflict_file.path}}"],"extra_touched_files":[],"resolution_summary":"","validations_run":[],"assumptions":[],"blocker_type":"none|io_error|validation_failed|unknown","blocker_summary":""}
-其中 input 必须回显本次 iteration 的输入摘要；conflict_regions 请从 conflict_file/context_file 中复制真实数组，不要使用上面的示例行号。
+{"input":{"path":"{{conflict_file.path}}","context_file":"{{conflict_file.context_file}}","conflict_region_count":{{conflict_file.conflict_region_count}},"conflict_regions":[{"start_line":1,"separator_line":2,"end_line":3,"summary":"lines 1-3"}],"file_kind":"{{conflict_file.file_kind}}"},"attempted":true,"resolved":true,"conflicted_files":["{{conflict_file.path}}"],"touched_files":["{{conflict_file.path}}"],"extra_touched_files":[],"resolution_summary":"简要说明 ours/theirs 各自意图和合并方式","validations_run":[],"assumptions":[],"blocker_type":"none|io_error|validation_failed|unknown","blocker_summary":""}
+其中 input 必须回显本次 iteration 的输入摘要；conflict_regions 请从 conflict_file/context_file 中复制真实数组，不要使用上面的示例行号；resolution_summary 必须填写，不能留空。
 """
 
 [steps.loop.body.agent]
@@ -110,7 +110,7 @@ required = ["input", "attempted", "resolved", "blocker_type"]
 id = "verify-conflict-resolution"
 title = "确认冲突已解决"
 execution = "script"
-depends_on = ["prepare-conflict-context", "resolve-conflict-file"]
+depends_on = ["prepare-conflict-context"]
 description = "检查工作区剩余 conflict markers；不执行 git add，也不要求 index 已标记 resolved。resolver 的 unresolved 结果只报告，不作为硬失败。若仍有冲突标记，直接失败中断。"
 
 [steps.script]
@@ -150,7 +150,7 @@ required = ["stdout"]
 [[steps]]
 id = "final-report"
 title = "当前冲突修复报告"
-depends_on = ["prepare-conflict-context", "resolve-conflict-file", "verify-conflict-resolution", "run-validation"]
+depends_on = ["prepare-conflict-context", "verify-conflict-resolution"]
 input_context = ["prepare-conflict-context.stdout", "resolve-conflict-file", "verify-conflict-resolution.stdout", "run-validation.stdout"]
 description = """
 输出中文最终报告，结论先行。只报告用户关心的结果，不复述内部约束。

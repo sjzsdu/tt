@@ -20,7 +20,7 @@ completed_epoch="$(date +%s)"
 elapsed_seconds=$(( completed_epoch - started_epoch )); [ "$elapsed_seconds" -lt 0 ] && elapsed_seconds=0
 
 unmerged_index_files="$(git diff --name-only --diff-filter=U | jq -R -s -c 'split("\n") | map(select(length>0))')"
-marker_files="$(jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r file; do [ -f "$file" ] && git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null | cut -d: -f1 || true; done | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
+marker_files="$({ jq -r '.[]' <<<"$initial_conflicts" | while IFS= read -r file; do [ -f "$file" ] && git grep -l -E '^(<<<<<<<|=======|>>>>>>>)' -- "$file" 2>/dev/null || true; done; } | sort -u | jq -R -s -c 'split("\n") | map(select(length>0))')"
 resolver_unresolved="$(jq -c '[.[] | select((.resolved != true) or ((.blocker_type // "none") != "none")) | (.conflicted_files // .touched_files // [])[]] | unique' <<<"$resolve_json")"
 
 remaining="$(jq -cn --argjson a "$marker_files" '$a|unique')"
