@@ -13,15 +13,23 @@ import (
 )
 
 type documentFile struct {
-	Formula     string             `json:"formula" toml:"formula"`
-	Title       string             `json:"title" toml:"title"`
-	Description string             `json:"description" toml:"description"`
-	Version     int                `json:"version" toml:"version"`
-	Contract    string             `json:"contract" toml:"contract"`
-	Vars        map[string]varFile `json:"vars" toml:"vars"`
-	Steps       []map[string]any   `json:"steps" toml:"steps"`
-	Workspace   *workspaceFile     `json:"workspace" toml:"workspace"`
-	Worktree    bool               `json:"worktree" toml:"worktree"`
+	Formula     string                `json:"formula" toml:"formula"`
+	Title       string                `json:"title" toml:"title"`
+	Description string                `json:"description" toml:"description"`
+	Version     int                   `json:"version" toml:"version"`
+	Contract    string                `json:"contract" toml:"contract"`
+	Vars        map[string]varFile    `json:"vars" toml:"vars"`
+	Outputs     map[string]outputFile `json:"outputs" toml:"outputs"`
+	Steps       []map[string]any      `json:"steps" toml:"steps"`
+	Workspace   *workspaceFile        `json:"workspace" toml:"workspace"`
+	Worktree    bool                  `json:"worktree" toml:"worktree"`
+}
+
+type outputFile struct {
+	From        string `json:"from" toml:"from"`
+	Type        string `json:"type" toml:"type"`
+	Required    bool   `json:"required" toml:"required"`
+	Description string `json:"description" toml:"description"`
 }
 
 type varFile struct {
@@ -80,9 +88,19 @@ func normalize(raw documentFile) (*ast.Document, error) {
 	if strings.TrimSpace(raw.Formula) == "" {
 		return nil, fmt.Errorf("formula is required")
 	}
-	doc := &ast.Document{Name: raw.Formula, Title: raw.Title, Description: raw.Description, Version: raw.Version, Contract: raw.Contract, Vars: map[string]ast.VarDecl{}}
+	doc := &ast.Document{Name: raw.Formula, Title: raw.Title, Description: raw.Description, Version: raw.Version, Contract: raw.Contract, Vars: map[string]ast.VarDecl{}, Outputs: map[string]ast.OutputDecl{}}
 	for name, v := range raw.Vars {
 		doc.Vars[name] = ast.VarDecl{Description: v.Description, Default: v.Default, Required: v.Required, Enum: v.Enum, Pattern: v.Pattern, Type: v.Type}
+	}
+	for name, output := range raw.Outputs {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("outputs: output name cannot be empty")
+		}
+		if strings.TrimSpace(output.From) == "" {
+			return nil, fmt.Errorf("outputs.%s.from is required", name)
+		}
+		doc.Outputs[name] = ast.OutputDecl{From: strings.TrimSpace(output.From), Type: strings.TrimSpace(output.Type), Required: output.Required, Description: output.Description}
 	}
 	if raw.Workspace != nil {
 		doc.Workspace = &spec.WorkspaceSpec{Kind: strings.TrimSpace(raw.Workspace.Kind), Path: strings.TrimSpace(raw.Workspace.Path), Cleanup: raw.Workspace.Cleanup, Branch: strings.TrimSpace(raw.Workspace.Branch), Base: strings.TrimSpace(raw.Workspace.Base), BranchSlugFrom: strings.TrimSpace(raw.Workspace.BranchSlugFrom), BranchPrefix: strings.TrimSpace(raw.Workspace.BranchPrefix)}

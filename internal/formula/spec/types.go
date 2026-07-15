@@ -2,28 +2,39 @@ package spec
 
 // Formula is the root structure for formula definition files.
 type Formula struct {
-	Formula     string             `json:"formula" toml:"formula"`
-	Description string             `json:"description,omitempty" toml:"description,omitempty"`
-	Title       string             `json:"title,omitempty" toml:"title,omitempty"`
-	Aliases     []string           `json:"aliases,omitempty" toml:"aliases,omitempty"`
-	Category    string             `json:"category,omitempty" toml:"category,omitempty"`
-	Tags        []string           `json:"tags,omitempty" toml:"tags,omitempty"`
-	Version     int                `json:"version" toml:"version"`
-	Contract    string             `json:"contract,omitempty" toml:"contract,omitempty"`
-	Type        Type               `json:"type" toml:"type"`
-	Extends     []string           `json:"extends,omitempty" toml:"extends,omitempty"`
-	Vars        map[string]*VarDef `json:"vars,omitempty" toml:"vars,omitempty"`
-	Steps       []*Step            `json:"steps,omitempty" toml:"steps,omitempty"`
-	Template    []*Step            `json:"template,omitempty" toml:"template,omitempty"`
-	Compose     *ComposeRules      `json:"compose,omitempty" toml:"compose,omitempty"`
-	Advice      []*AdviceRule      `json:"advice,omitempty" toml:"advice,omitempty"`
-	Pointcuts   []*Pointcut        `json:"pointcuts,omitempty" toml:"pointcuts,omitempty"`
-	Phase       string             `json:"phase,omitempty" toml:"phase,omitempty"`
-	Pour        bool               `json:"pour,omitempty" toml:"pour,omitempty"`
-	Worktree    bool               `json:"worktree,omitempty" toml:"worktree,omitempty"`
-	Workspace   *WorkspaceSpec     `json:"workspace,omitempty" toml:"workspace,omitempty"`
-	Preflight   *PreflightSpec     `json:"preflight,omitempty" toml:"preflight,omitempty"`
-	Source      string             `json:"-" toml:"-"`
+	Formula     string                `json:"formula" toml:"formula"`
+	Description string                `json:"description,omitempty" toml:"description,omitempty"`
+	Title       string                `json:"title,omitempty" toml:"title,omitempty"`
+	Aliases     []string              `json:"aliases,omitempty" toml:"aliases,omitempty"`
+	Category    string                `json:"category,omitempty" toml:"category,omitempty"`
+	Tags        []string              `json:"tags,omitempty" toml:"tags,omitempty"`
+	Version     int                   `json:"version" toml:"version"`
+	Contract    string                `json:"contract,omitempty" toml:"contract,omitempty"`
+	Type        Type                  `json:"type" toml:"type"`
+	Extends     []string              `json:"extends,omitempty" toml:"extends,omitempty"`
+	Vars        map[string]*VarDef    `json:"vars,omitempty" toml:"vars,omitempty"`
+	Outputs     map[string]*OutputDef `json:"outputs,omitempty" toml:"outputs,omitempty"`
+	Steps       []*Step               `json:"steps,omitempty" toml:"steps,omitempty"`
+	Template    []*Step               `json:"template,omitempty" toml:"template,omitempty"`
+	Compose     *ComposeRules         `json:"compose,omitempty" toml:"compose,omitempty"`
+	Advice      []*AdviceRule         `json:"advice,omitempty" toml:"advice,omitempty"`
+	Pointcuts   []*Pointcut           `json:"pointcuts,omitempty" toml:"pointcuts,omitempty"`
+	Phase       string                `json:"phase,omitempty" toml:"phase,omitempty"`
+	Pour        bool                  `json:"pour,omitempty" toml:"pour,omitempty"`
+	Worktree    bool                  `json:"worktree,omitempty" toml:"worktree,omitempty"`
+	Workspace   *WorkspaceSpec        `json:"workspace,omitempty" toml:"workspace,omitempty"`
+	Preflight   *PreflightSpec        `json:"preflight,omitempty" toml:"preflight,omitempty"`
+	Source      string                `json:"-" toml:"-"`
+}
+
+// OutputDef declares one public Formula output. From is a runtime context
+// path, usually a step ID or an explicit step output_key. Vars are the Formula
+// input contract; Outputs form the corresponding public result contract.
+type OutputDef struct {
+	From        string `json:"from" toml:"from"`
+	Type        string `json:"type,omitempty" toml:"type,omitempty"`
+	Required    bool   `json:"required,omitempty" toml:"required,omitempty"`
+	Description string `json:"description,omitempty" toml:"description,omitempty"`
 }
 
 // PreflightSpec contains configurable checks to run before starting a formula.

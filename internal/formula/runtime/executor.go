@@ -36,6 +36,7 @@ type RunResult struct {
 	WorkflowID ir.WorkflowID
 	Status     steps.Status
 	Nodes      map[ir.NodeID]*steps.RunResult
+	Outputs    map[string]steps.Value
 }
 
 func NewExecutor(workflow *ir.Workflow, capabilities steps.Capabilities) *Executor {
@@ -60,7 +61,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	if err != nil {
 		return nil, err
 	}
-	out = &RunResult{WorkflowID: e.Workflow.ID, Status: steps.StatusCompleted, Nodes: map[ir.NodeID]*steps.RunResult{}}
+	out = &RunResult{WorkflowID: e.Workflow.ID, Status: steps.StatusCompleted, Nodes: map[ir.NodeID]*steps.RunResult{}, Outputs: map[string]steps.Value{}}
 	var workspace *workspaceSession
 	defer func() {
 		if workspace == nil || out == nil || out.Status == steps.StatusWaiting {
@@ -215,9 +216,42 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 		e.emit(nodeID, "step.completed", res)
 	}
+	if err := e.resolveWorkflowOutputs(out); err != nil {
+		out.Status = steps.StatusFailed
+		_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+		e.emit("", "workflow.failed", map[string]string{"error": err.Error()})
+		return out, err
+	}
 	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
+}
+
+func (e *Executor) resolveWorkflowOutputs(out *RunResult) error {
+	if e == nil || e.Workflow == nil || out == nil || len(e.Workflow.Outputs) == 0 {
+		return nil
+	}
+	if out.Outputs == nil {
+		out.Outputs = map[string]steps.Value{}
+	}
+	names := make([]string, 0, len(e.Workflow.Outputs))
+	for name := range e.Workflow.Outputs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		output := e.Workflow.Outputs[name]
+		from := strings.TrimSpace(output.From)
+		value, ok := e.Context.Get(from)
+		if !ok {
+			if output.Required {
+				return fmt.Errorf("required workflow output %q was not produced from context path %q", name, from)
+			}
+			continue
+		}
+		out.Outputs[name] = value
+	}
+	return nil
 }
 
 func scriptStepValue(step steps.Step) (steps.ScriptStep, bool) {

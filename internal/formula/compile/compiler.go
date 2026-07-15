@@ -23,9 +23,18 @@ func (c *Compiler) Compile(doc *ast.Document) (*ir.Workflow, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("formula document is required")
 	}
-	wf := &ir.Workflow{ID: ir.WorkflowID(doc.Name), Name: doc.Name, Description: doc.Description, Vars: map[string]ir.VarSchema{}, Workspace: workspacePolicyFromDocument(doc), Graph: ir.NewGraph()}
+	wf := &ir.Workflow{ID: ir.WorkflowID(doc.Name), Name: doc.Name, Description: doc.Description, Vars: map[string]ir.VarSchema{}, Outputs: map[string]ir.OutputSchema{}, Workspace: workspacePolicyFromDocument(doc), Graph: ir.NewGraph()}
 	for name, v := range doc.Vars {
 		wf.Vars[name] = ir.VarSchema{Type: v.Type, Required: v.Required, Default: v.Default}
+	}
+	for name, output := range doc.Outputs {
+		if strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("workflow output name is required")
+		}
+		if strings.TrimSpace(output.From) == "" {
+			return nil, fmt.Errorf("workflow output %q source is required", name)
+		}
+		wf.Outputs[name] = ir.OutputSchema{From: output.From, Type: output.Type, Required: output.Required, Description: output.Description}
 	}
 	seen := map[string]bool{}
 	for _, decl := range doc.Steps {

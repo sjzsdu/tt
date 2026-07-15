@@ -209,6 +209,7 @@ func (p *Parser) Resolve(formula *spec.Formula) (*spec.Formula, error) {
 		Worktree:    formula.Worktree,
 		Workspace:   formula.Workspace,
 		Vars:        make(map[string]*spec.VarDef),
+		Outputs:     make(map[string]*spec.OutputDef),
 		Steps:       nil,
 		Template:    nil,
 		Compose:     nil,
@@ -244,6 +245,11 @@ func (p *Parser) Resolve(formula *spec.Formula) (*spec.Formula, error) {
 				merged.Vars[name] = varDef
 			}
 		}
+		for name, output := range parent.Outputs {
+			if _, exists := merged.Outputs[name]; !exists {
+				merged.Outputs[name] = output
+			}
+		}
 
 		merged.Steps = append(merged.Steps, parent.Steps...)
 		merged.Template = append(merged.Template, parent.Template...)
@@ -252,6 +258,9 @@ func (p *Parser) Resolve(formula *spec.Formula) (*spec.Formula, error) {
 
 	for name, varDef := range formula.Vars {
 		merged.Vars[name] = varDef
+	}
+	for name, output := range formula.Outputs {
+		merged.Outputs[name] = output
 	}
 
 	merged.Steps = mergeSteps(merged.Steps, formula.Steps)

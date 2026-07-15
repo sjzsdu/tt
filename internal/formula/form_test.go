@@ -1,6 +1,8 @@
 package formula
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -110,6 +112,97 @@ execution = "noop"
 	}
 	if step.MaxExpr != "{{max_cycles}}" {
 		t.Fatalf("compiled MaxExpr = %q", step.MaxExpr)
+	}
+}
+
+func TestFormulaOutputsParseValidateAndCompile(t *testing.T) {
+	const src = `
+formula = "output-demo"
+version = 1
+type = "workflow"
+
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "Public implementation report"
+
+[[steps]]
+id = "final-report"
+title = "Final report"
+`
+	p := NewParser()
+	f, err := p.ParseTOML([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseTOML() error = %v", err)
+	}
+	if err := f.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	output := f.Outputs["report"]
+	if output == nil || output.From != "final-report" || output.Type != "markdown" || !output.Required {
+		t.Fatalf("parsed output = %+v", output)
+	}
+	wf := WorkflowFromFormula(f)
+	compiled := wf.Outputs["report"]
+	if compiled.From != "final-report" || compiled.Type != "markdown" || !compiled.Required || compiled.Description == "" {
+		t.Fatalf("compiled output = %+v", compiled)
+	}
+}
+
+func TestFormulaOutputValidationRequiresSource(t *testing.T) {
+	f := &spec.Formula{
+		Formula: "bad-output",
+		Version: 1,
+		Type:    spec.TypeWorkflow,
+		Outputs: map[string]*spec.OutputDef{"report": {}},
+	}
+	if err := f.Validate(); err == nil {
+		t.Fatal("expected validation error for output without from")
+	}
+}
+
+func TestResolveFormulaOutputsInheritAndOverride(t *testing.T) {
+	dir := t.TempDir()
+	parent := `
+formula = "parent"
+version = 1
+type = "workflow"
+
+[outputs.report]
+from = "parent-report"
+required = true
+
+[outputs.log]
+from = "parent-log"
+`
+	if err := os.WriteFile(filepath.Join(dir, "parent.toml"), []byte(parent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child := `
+formula = "child"
+version = 1
+type = "workflow"
+extends = ["parent"]
+
+[outputs.report]
+from = "child-report"
+required = true
+`
+	p := NewParser(dir)
+	f, err := p.ParseTOML([]byte(child))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := p.Resolve(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.Outputs["report"].From; got != "child-report" {
+		t.Fatalf("overridden report source = %q", got)
+	}
+	if got := resolved.Outputs["log"].From; got != "parent-log" {
+		t.Fatalf("inherited log source = %q", got)
 	}
 }
 
