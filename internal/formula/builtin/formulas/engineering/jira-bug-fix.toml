@@ -1,5 +1,5 @@
 formula = "jira-bug-fix"
-description = "获取 Jira ticket 与最新评论后，直接用 typed runtime 内嵌 bug-fix workflow 分析、修复并输出最终结论。"
+description = "获取 Jira ticket 与最新评论后，通过 FormulaCall 调用 bug-fix workflow 分析、修复并输出最终结论。"
 version = 3
 type = "workflow"
 
@@ -26,12 +26,13 @@ timeout = "30s"
 
 [[steps]]
 id = "run-bug-fix"
-title = "内嵌 bug-fix workflow 处理 ticket"
+title = "调用 bug-fix workflow 处理 ticket"
 depends_on = ["fetch-ticket-data"]
 input_context = ["fetch-ticket-data"]
-embed = "bug-fix"
+execution = "formula"
+formula = "bug-fix"
 
-[steps.embed_vars]
+[steps.with]
 issue_summary = """
 Jira ticket {{ticket_key}} 的原始内容与最新评论如下。请先在 bug-fix 的 analyze-issue 步骤中整理问题现象、期望行为、评论线索和必要假设，再继续代码调研与修复判断。
 
@@ -42,7 +43,7 @@ Jira ticket {{ticket_key}} 的原始内容与最新评论如下。请先在 bug-
 id = "final-report"
 title = "输出 Jira 处理最终报告"
 depends_on = ["run-bug-fix"]
-input_context = ["fetch-ticket-data", "run-bug-fix"]
+input_context = ["fetch-ticket-data", "run-bug-fix.report"]
 description = """
 面向用户输出简明中文报告。
 

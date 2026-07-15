@@ -57,6 +57,33 @@ validation_command = { description = "可选验证命令；为空则自动检测
 driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex；运行时也可用 --ext-driver 覆盖未声明 driver 的步骤。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
 model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 
+[outputs.implementation]
+from = "implement-code"
+type = "json"
+required = true
+description = "实现结果"
+
+[outputs.revision]
+from = "code-revision"
+type = "json"
+description = "评审后的最新代码修订；未发生修订时省略"
+
+[outputs.review]
+from = "code-review"
+type = "json"
+description = "最终代码评审结论；未进入评审时省略"
+
+[outputs.validation]
+from = "run-validation.validation.stdout"
+type = "json"
+description = "验证命令结果；未执行验证时省略"
+
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "实现阶段的人类可读报告"
+
 [[steps]]
 id = "implement-code"
 title = "编码实现"

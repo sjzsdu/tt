@@ -487,45 +487,84 @@ func TestCodingWorkflowIsNonInteractive(t *testing.T) {
 		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
 	}
 	if workflow.Graph.Nodes[ir.NodeID("plan")] == nil || workflow.Graph.Nodes[ir.NodeID("implement")] == nil {
-		t.Fatalf("coding should be an orchestrator over plan and implement embedded formulas")
+		t.Fatalf("coding should orchestrate plan and implement formulas")
 	}
-	plan := workflow.Graph.Nodes[ir.NodeID("plan.plan-requirement")]
-	if plan == nil {
-		t.Fatalf("missing embedded plan.plan-requirement node")
+	plan, ok := workflow.Graph.Nodes[ir.NodeID("plan")].Step.(steps.FormulaCallStep)
+	if !ok || plan.Formula != "coding-requirement" {
+		t.Fatalf("plan = %T (%q), want coding-requirement FormulaCallStep", workflow.Graph.Nodes[ir.NodeID("plan")].Step, plan.Formula)
 	}
-	agent, ok := plan.Step.(steps.ExternalAgentStep)
-	if !ok {
-		t.Fatalf("plan.plan-requirement = %T, want ExternalAgentStep", plan.Step)
+	implement, ok := workflow.Graph.Nodes[ir.NodeID("implement")].Step.(steps.FormulaCallStep)
+	if !ok || implement.Formula != "coding-implementation" {
+		t.Fatalf("implement = %T (%q), want coding-implementation FormulaCallStep", workflow.Graph.Nodes[ir.NodeID("implement")].Step, implement.Formula)
 	}
+	requirement, err := CompileWorkflowByName(context.Background(), "coding-requirement", nil, map[string]string{"requirement": "smoke requirement"})
+	if err != nil {
+		t.Fatalf("CompileWorkflowByName(coding-requirement) error = %v", err)
+	}
+	agent := requirement.Graph.Nodes[ir.NodeID("plan-requirement")].Step.(steps.ExternalAgentStep)
 	if !strings.Contains(agent.Prompt, "不要使用动态表单") {
 		t.Fatalf("coding plan prompt should explicitly forbid dynamic forms:\n%s", agent.Prompt)
 	}
-	if workflow.Graph.Nodes[ir.NodeID("implement.implement-code")] == nil {
-		t.Fatalf("missing embedded implement.implement-code node")
+	for _, output := range []string{"plan", "plan_review", "implementation", "report"} {
+		if _, ok := workflow.Outputs[output]; !ok {
+			t.Fatalf("coding missing public output %q", output)
+		}
 	}
 }
 
-func TestBeadCodingEmbedsCodingFormula(t *testing.T) {
+func TestBeadCodingCallsCodingFormula(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "bead-coding", nil, map[string]string{"goal": "smoke goal"})
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(bead-coding) error = %v", err)
 	}
-	if workflow.Graph.Nodes[ir.NodeID("implement-bead.implement.implement-code")] == nil {
-		t.Fatalf("bead-coding should embed coding implement-code under implement-bead")
+	call, ok := workflow.Graph.Nodes[ir.NodeID("implement-bead")].Step.(steps.FormulaCallStep)
+	if !ok || call.Formula != "coding" {
+		t.Fatalf("implement-bead = %T (%q), want coding FormulaCallStep", workflow.Graph.Nodes[ir.NodeID("implement-bead")].Step, call.Formula)
 	}
 	runValidation := workflow.Graph.Nodes[ir.NodeID("run-validation")]
 	if runValidation == nil {
 		t.Fatalf("missing run-validation node")
 	}
-	if !slices.Contains(runValidation.Step.Meta().DependsOn, steps.ID("implement-bead.final-report")) {
-		t.Fatalf("run-validation should wait for embedded coding final-report, deps=%v", runValidation.Step.Meta().DependsOn)
+	if !slices.Contains(runValidation.Step.Meta().DependsOn, steps.ID("implement-bead")) {
+		t.Fatalf("run-validation should wait for coding FormulaCall, deps=%v", runValidation.Step.Meta().DependsOn)
+	}
+	if got := workflow.Outputs["cycle_summary"].From; got != "cycle-summary" {
+		t.Fatalf("cycle_summary output source = %q", got)
 	}
 	if _, err := formularuntime.PlanTopological(workflow.Graph); err != nil {
 		t.Fatalf("bead-coding graph should be topologically valid: %v", err)
 	}
 }
 
-func TestKeepCodingPropagatesExternalAgentDriver(t *testing.T) {
+func TestJiraWrappersUseFormulaCallPublicReport(t *testing.T) {
+	tests := []struct {
+		formula string
+		vars    map[string]string
+		stepID  ir.NodeID
+		child   string
+	}{
+		{formula: "jira-feature", vars: map[string]string{"ticket_key": "PROJ-1"}, stepID: "run-feature", child: "feature"},
+		{formula: "jira-bug-fix", vars: map[string]string{"ticket_key": "PROJ-1"}, stepID: "run-bug-fix", child: "bug-fix"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.formula, func(t *testing.T) {
+			workflow, err := CompileWorkflowByName(context.Background(), tt.formula, nil, tt.vars)
+			if err != nil {
+				t.Fatalf("CompileWorkflowByName(%s) error = %v", tt.formula, err)
+			}
+			call, ok := workflow.Graph.Nodes[tt.stepID].Step.(steps.FormulaCallStep)
+			if !ok || call.Formula != tt.child {
+				t.Fatalf("%s = %T (%q), want %s FormulaCallStep", tt.stepID, workflow.Graph.Nodes[tt.stepID].Step, call.Formula, tt.child)
+			}
+			final := workflow.Graph.Nodes["final-report"].Step.(steps.AgentStep)
+			if !slices.Contains(final.InputCtx, string(tt.stepID)+".report") {
+				t.Fatalf("final-report input_context = %v, want child public report", final.InputCtx)
+			}
+		})
+	}
+}
+
+func TestKeepCodingPropagatesFormulaInputs(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, nil)
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(keep-coding) error = %v", err)
@@ -538,54 +577,54 @@ func TestKeepCodingPropagatesExternalAgentDriver(t *testing.T) {
 	if !ok {
 		t.Fatalf("cycle step = %T, want LoopStep", cycle.Step)
 	}
-	var agent steps.ExternalAgentStep
+	var call steps.FormulaCallStep
 	var found bool
 	for _, child := range loop.Body {
-		if child.Meta().ID != "run-bead-coding.implement-bead.plan.plan-requirement" {
+		if child.Meta().ID != "run-bead-coding" {
 			continue
 		}
 		var ok bool
-		agent, ok = child.(steps.ExternalAgentStep)
+		call, ok = child.(steps.FormulaCallStep)
 		if !ok {
-			t.Fatalf("nested plan node = %T, want ExternalAgentStep", child)
+			t.Fatalf("run-bead-coding = %T, want FormulaCallStep", child)
 		}
 		found = true
 	}
 	if !found {
-		t.Fatalf("missing nested coding requirement plan node")
+		t.Fatalf("missing bead-coding FormulaCallStep")
 	}
-	if strings.Contains(agent.Driver, "{{") || agent.Driver == "" {
-		t.Fatalf("nested external_agent driver should be concrete, got %q", agent.Driver)
+	if call.Formula != "bead-coding" || call.With["external_driver"] != "{{external_driver}}" || call.With["external_model"] != "{{external_model}}" {
+		t.Fatalf("bead-coding FormulaCall should bind external agent inputs, got formula=%q with=%v", call.Formula, call.With)
 	}
 }
 
-func TestCodingEmbeddedLoopBodyIDsAlignWithUntil(t *testing.T) {
-	workflow, err := CompileWorkflowByName(context.Background(), "coding", nil, map[string]string{"requirement": "smoke requirement"})
+func TestCodingRequirementLoopBodyIDsAlignWithUntil(t *testing.T) {
+	workflow, err := CompileWorkflowByName(context.Background(), "coding-requirement", nil, map[string]string{"requirement": "smoke requirement"})
 	if err != nil {
 		t.Fatalf("CompileWorkflowByName(coding) error = %v", err)
 	}
-	node := workflow.Graph.Nodes[ir.NodeID("plan.plan-review-loop")]
+	node := workflow.Graph.Nodes[ir.NodeID("plan-review-loop")]
 	if node == nil {
-		t.Fatalf("missing embedded plan review loop")
+		t.Fatalf("missing plan review loop")
 	}
 	loop, ok := node.Step.(steps.LoopStep)
 	if !ok {
 		t.Fatalf("plan.plan-review-loop = %T, want LoopStep", node.Step)
 	}
-	if loop.Until != "plan.plan-review.approved == true" {
-		t.Fatalf("plan review loop until = %q, want plan.plan-review.approved == true", loop.Until)
+	if loop.Until != "plan-review.approved == true" {
+		t.Fatalf("plan review loop until = %q, want plan-review.approved == true", loop.Until)
 	}
 	var sawReview bool
 	for _, child := range loop.Body {
-		if child.Meta().ID == "plan.plan-review-loop.plan-review" {
+		if child.Meta().ID == "plan-review-loop.plan-review" {
 			t.Fatalf("loop body id %q is double-prefixed with loop id", child.Meta().ID)
 		}
-		if child.Meta().ID == "plan.plan-review" {
+		if child.Meta().ID == "plan-review" {
 			sawReview = true
 		}
 	}
 	if !sawReview {
-		t.Fatalf("embedded plan review loop body should contain plan.plan-review")
+		t.Fatalf("plan review loop body should contain plan-review")
 	}
 }
 
@@ -626,12 +665,12 @@ func TestKeepCodingSkipsPartialBeadsWithinRun(t *testing.T) {
 		if child.Meta().ID == "append-skip-list" {
 			sawAppend = true
 		}
-		if child.Meta().ID == "run-bead-coding.select-bead" {
-			script, ok := child.(steps.ScriptStep)
+		if child.Meta().ID == "run-bead-coding" {
+			call, ok := child.(steps.FormulaCallStep)
 			if !ok {
-				t.Fatalf("run-bead-coding.select-bead = %T, want ScriptStep", child)
+				t.Fatalf("run-bead-coding = %T, want FormulaCallStep", child)
 			}
-			if strings.Contains(script.Env["EXCLUDE_BEAD_FILE"], "keep-coding-skip.txt") {
+			if call.With["exclude_bead_file"] == "{{skip_file}}" {
 				sawExclude = true
 			}
 		}
@@ -640,7 +679,7 @@ func TestKeepCodingSkipsPartialBeadsWithinRun(t *testing.T) {
 		t.Fatalf("keep-coding loop body should append partial beads to a skip list")
 	}
 	if !sawExclude {
-		t.Fatalf("embedded bead-coding select-bead should receive the skip file")
+		t.Fatalf("bead-coding FormulaCall should receive the skip file")
 	}
 }
 

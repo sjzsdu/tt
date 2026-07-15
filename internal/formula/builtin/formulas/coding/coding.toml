@@ -1,7 +1,7 @@
 formula = "coding"
 title = "编码工作流"
 aliases = ["coder", "coding"]
-description = "兼容编码入口：先内嵌 coding-requirement 完成无交互需求计划，再内嵌 coding-implementation 完成实现、评审与验证，最后输出总报告。"
+description = "统一编码入口：依次调用需求计划与编码实现 Formula，并通过公开输入输出契约组合最终报告。"
 version = 1
 type = "workflow"
 category = "engineering"
@@ -57,29 +57,76 @@ validation_command = { description = "可选验证命令；为空则自动检测
 driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex；运行时也可用 --ext-driver 覆盖未声明 driver 的步骤。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
 model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 
+[outputs.plan]
+from = "plan.plan"
+type = "json"
+required = true
+description = "需求计划"
+
+[outputs.plan_revision]
+from = "plan.revision"
+type = "json"
+description = "需求计划修订；未发生修订时省略"
+
+[outputs.plan_review]
+from = "plan.review"
+type = "json"
+required = true
+description = "需求评审结论"
+
+[outputs.implementation]
+from = "implement.implementation"
+type = "json"
+description = "实现结果；需求评审未通过时省略"
+
+[outputs.implementation_revision]
+from = "implement.revision"
+type = "json"
+description = "代码修订；未发生修订时省略"
+
+[outputs.implementation_review]
+from = "implement.review"
+type = "json"
+description = "代码评审结论；未进入评审时省略"
+
+[outputs.validation]
+from = "implement.validation"
+type = "json"
+description = "实现阶段验证结果；未执行时省略"
+
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "完整编码工作流报告"
+
 [[steps]]
 id = "plan"
 title = "需求计划与评审"
-embed = "coding-requirement"
+execution = "formula"
+formula = "coding-requirement"
 
-[steps.embed_vars]
+[steps.with]
 requirement = "{{requirement}}"
 workspace_path = "{{workspace_path}}"
+driver = "{{driver}}"
+model = "{{model}}"
 
 [[steps]]
 id = "implement"
 title = "编码实现与验证"
-depends_on = ["plan.plan-review-loop"]
-condition = "plan.plan-review.approved == true"
-embed = "coding-implementation"
+depends_on = ["plan"]
+condition = "plan.review.approved == true"
+execution = "formula"
+formula = "coding-implementation"
 
-[steps.embed_vars]
+[steps.with]
 requirement_plan_context = """
 原始需求：{{requirement}}
 
-需求计划输出：{{plan.plan-requirement}}
-需求计划修订输出：{{plan.plan-revision}}
-需求评审输出：{{plan.plan-review}}
+需求计划输出：{{plan.plan}}
+需求计划修订输出：{{plan.revision}}
+需求评审输出：{{plan.review}}
 """
 workspace_path = "{{workspace_path}}"
 validation_command = "{{validation_command}}"
@@ -89,16 +136,16 @@ model = "{{model}}"
 [[steps]]
 id = "final-report"
 title = "输出编码总报告"
-depends_on = ["plan.plan-review-loop", "implement.final-report"]
-input_context = ["plan.plan-requirement", "plan.plan-revision", "plan.plan-review", "implement.implement-code", "implement.code-review", "implement.run-validation.validation.stdout", "implement.final-report"]
+depends_on = ["plan", "implement"]
+input_context = ["plan.plan", "plan.revision", "plan.review", "implement.implementation", "implement.review", "implement.validation", "implement.report"]
 description = """
 面向用户输出最终总结报告。
 
 输入说明：
-- plan.plan-review.approved 可能为 false（需求评审未通过）；
-- implement.implement-code.implemented 可能为 false（编码未完成）；
-- implement.code-review.approved 可能为 false（编码评审未通过）；
-- implement.run-validation.validation.stdout 可能不存在（验证未执行）。
+- plan.review.approved 可能为 false（需求评审未通过）；
+- implement.implementation.implemented 可能为 false（编码未完成）；
+- implement.review.approved 可能为 false（编码评审未通过）；
+- implement.validation 可能不存在（验证未执行）。
 
 报告只需汇总最终结果，不需要详述来回审批的细节。
 
