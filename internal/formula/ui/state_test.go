@@ -1,6 +1,10 @@
 package ui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sjzsdu/tt/internal/formula/executionpath"
+)
 
 func TestAppendStepActivityPreservesSessionOnUpdate(t *testing.T) {
 	step := &Step{ID: "loop", Title: "Loop"}
@@ -35,10 +39,18 @@ func TestAppendStepActivityPreservesSessionOnUpdate(t *testing.T) {
 }
 
 func TestCloneSnapshotClonesExecutionIterationPath(t *testing.T) {
-	original := Snapshot{ExecutionInstances: []ExecutionInstance{{Address: "loop.iter1.work", IterationPath: []int{1}}}}
+	original := Snapshot{ExecutionInstances: []ExecutionInstance{{
+		Address: "loop.iter1.work", IterationPath: []int{1}, FormulaPath: []string{"child"},
+		Path: []executionpath.Segment{{Kind: executionpath.SegmentStep, ID: "loop"}},
+	}}}
 	clone := CloneSnapshot(original)
 	clone.ExecutionInstances[0].IterationPath[0] = 9
+	clone.ExecutionInstances[0].FormulaPath[0] = "changed"
+	clone.ExecutionInstances[0].Path[0].ID = "changed"
 	if original.ExecutionInstances[0].IterationPath[0] != 1 {
 		t.Fatalf("clone mutated original: %+v", original.ExecutionInstances)
+	}
+	if original.ExecutionInstances[0].FormulaPath[0] != "child" || original.ExecutionInstances[0].Path[0].ID != "loop" {
+		t.Fatalf("clone mutated structured path: %+v", original.ExecutionInstances)
 	}
 }

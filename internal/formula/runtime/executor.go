@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sjzsdu/tt/internal/formula/executionpath"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
@@ -27,6 +28,7 @@ type EventSink interface{ Emit(Event) }
 type Event struct {
 	WorkflowID ir.WorkflowID
 	NodeID     ir.NodeID
+	Path       executionpath.Path
 	Type       string
 	Payload    any
 	Time       time.Time
@@ -805,17 +807,69 @@ func stepOutputKey(step steps.Step) string {
 
 func (e *Executor) saveStep(state StepState) {
 	if e.Store != nil {
+		if len(state.Path.Segments) == 0 && state.NodeID != "" {
+			state.Path = executionpath.Parse(string(state.NodeID))
+		}
 		_ = e.Store.SaveStep(state)
 	}
 }
 
 func (e *Executor) emit(nodeID ir.NodeID, typ string, payload any) {
-	event := Event{WorkflowID: e.Workflow.ID, NodeID: nodeID, Type: typ, Payload: payload, Time: time.Now()}
+	now := time.Now()
+	path := executionpath.Parse(string(nodeID))
+	event := Event{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: path, Type: typ, Payload: payload, Time: now}
 	if e.Store != nil {
+		e.saveChildStepTransition(nodeID, path, typ, payload, now)
 		_ = e.Store.AppendEvent(event)
 	}
 	if e.Events != nil {
 		e.Events.Emit(event)
+	}
+}
+
+func (e *Executor) saveChildStepTransition(nodeID ir.NodeID, path executionpath.Path, typ string, payload any, now time.Time) {
+	if nodeID == "" || e.Workflow == nil {
+		return
+	}
+	if _, topLevel := e.Workflow.Graph.Nodes[nodeID]; topLevel {
+		return
+	}
+	state, _, _ := e.Store.GetStep(e.Workflow.ID, nodeID)
+	state.WorkflowID = e.Workflow.ID
+	state.NodeID = nodeID
+	state.Path = path
+	state.UpdatedAt = now
+	switch typ {
+	case "step.started":
+		state.Status = "running"
+		state.StartedAt = now
+		state.CompletedAt = time.Time{}
+		state.Result = nil
+	case "step.completed", "step.failed", "step.skipped", "step.interrupted":
+		state.Status = childTransitionStatus(typ)
+		state.CompletedAt = now
+		if result, ok := payload.(*steps.RunResult); ok {
+			state.Result = result
+		}
+	case "step.waiting":
+		state.Status = steps.StatusWaiting
+		if await, ok := payload.(*steps.AwaitRequest); ok {
+			state.Result = &steps.RunResult{Status: steps.StatusWaiting, Await: await}
+		}
+	default:
+		return
+	}
+	_ = e.Store.SaveStep(state)
+}
+
+func childTransitionStatus(typ string) steps.Status {
+	switch typ {
+	case "step.completed":
+		return steps.StatusCompleted
+	case "step.skipped":
+		return steps.StatusSkipped
+	default:
+		return steps.StatusFailed
 	}
 }
 

@@ -161,6 +161,33 @@ func TestExecutorFailsWhenRequiredWorkflowOutputIsMissing(t *testing.T) {
 	}
 }
 
+func TestExecutorPersistsLoopChildExecutionState(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "review", Step: steps.LoopStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "review", Kind: steps.KindLoop}},
+		Max:  1,
+		Body: []steps.Step{steps.NoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "check", Kind: steps.KindNoop}}}},
+	}})
+	exec := NewExecutor(&ir.Workflow{ID: "loop-state", Graph: g}, steps.Capabilities{})
+	if _, err := exec.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := exec.Store.Snapshot("loop-state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, ok := snapshot.Steps["review.iter1.check"]
+	if !ok {
+		t.Fatalf("child state missing: %+v", snapshot.Steps)
+	}
+	if child.Status != steps.StatusCompleted || child.Path.DefinitionStepID() != "check" {
+		t.Fatalf("child state = %+v", child)
+	}
+	if got := child.Path.IterationPath(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("iteration path = %v", got)
+	}
+}
+
 func TestBuildEnvironmentContextDetectsGitRepo(t *testing.T) {
 	if _, err := os.Stat(".git"); err != nil {
 		t.Skip("test workspace is not a git repository")

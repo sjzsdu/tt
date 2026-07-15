@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/sjzsdu/tt/internal/formula/executionpath"
 	"github.com/sjzsdu/tt/internal/formula/spec"
 )
 
@@ -233,9 +234,15 @@ func CloneSnapshot(s Snapshot) Snapshot {
 	cp.Logs = append([]LogEntry(nil), s.Logs...)
 	cp.ExecutionInstances = append([]ExecutionInstance(nil), s.ExecutionInstances...)
 	for i := range cp.ExecutionInstances {
+		cp.ExecutionInstances[i].Path = append([]executionpath.Segment(nil), s.ExecutionInstances[i].Path...)
+		cp.ExecutionInstances[i].FormulaPath = append([]string(nil), s.ExecutionInstances[i].FormulaPath...)
 		cp.ExecutionInstances[i].IterationPath = append([]int(nil), s.ExecutionInstances[i].IterationPath...)
 	}
 	cp.ExecutionEvents = append([]ExecutionEvent(nil), s.ExecutionEvents...)
+	for i := range cp.ExecutionEvents {
+		cp.ExecutionEvents[i].Path = append([]executionpath.Segment(nil), s.ExecutionEvents[i].Path...)
+		cp.ExecutionEvents[i].FormulaPath = append([]string(nil), s.ExecutionEvents[i].FormulaPath...)
+	}
 	cp.Repairs = append([]RepairRecord(nil), s.Repairs...)
 	for i := range cp.Repairs {
 		cp.Repairs[i].OriginalCommand = append([]string(nil), s.Repairs[i].OriginalCommand...)
