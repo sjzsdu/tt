@@ -10,8 +10,16 @@ type Workflow struct {
 	Name        string
 	Description string
 	Vars        map[string]VarSchema
+	Outputs     map[string]OutputSchema
 	Workspace   *WorkspacePolicy
 	Graph       Graph
+}
+
+type OutputSchema struct {
+	From        string
+	Type        string
+	Required    bool
+	Description string
 }
 
 type VarSchema struct {

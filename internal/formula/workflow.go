@@ -91,12 +91,18 @@ func WorkflowFromFormula(f *spec.Formula) *ir.Workflow {
 	if f == nil {
 		return nil
 	}
-	wf := &ir.Workflow{ID: ir.WorkflowID(f.Formula), Name: f.Formula, Description: f.Description, Vars: make(map[string]ir.VarSchema, len(f.Vars)), Workspace: formulaWorkspacePolicy(f), Graph: ir.NewGraph()}
+	wf := &ir.Workflow{ID: ir.WorkflowID(f.Formula), Name: f.Formula, Description: f.Description, Vars: make(map[string]ir.VarSchema, len(f.Vars)), Outputs: make(map[string]ir.OutputSchema, len(f.Outputs)), Workspace: formulaWorkspacePolicy(f), Graph: ir.NewGraph()}
 	for name, def := range f.Vars {
 		if def == nil {
 			continue
 		}
 		wf.Vars[name] = ir.VarSchema{Type: def.Type, Required: def.Required, Default: def.Default}
+	}
+	for name, output := range f.Outputs {
+		if output == nil {
+			continue
+		}
+		wf.Outputs[name] = ir.OutputSchema{From: strings.TrimSpace(output.From), Type: strings.TrimSpace(output.Type), Required: output.Required, Description: output.Description}
 	}
 	sourceDir := ""
 	if strings.TrimSpace(f.Source) != "" {

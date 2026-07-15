@@ -14,6 +14,7 @@
 - 想做并发迭代 → 用 `loop` + `for_each` / `parallel` / `max_concurrency`。
 - 想保留兼容性 → 优先用 `agent` / `script` / `human_input` / `noop`，它们在 `NewDefaultRegistry` 中默认注册；其它 kind 仅在自定义 registry 下可用。
 - 想让 step **失败时自动修复** → 看 [自我修复](./formula-system.md#自我修复self-repair)：agent 默认 idempotent、script 必须显式写 `idempotent = true` 才会走 `StepFixer` 重试路径。
+- 想让整个 Formula 被稳定复用 → 用顶层 `[outputs.<name>]` 声明公开结果；`vars` 是输入契约，调用方不应绑定内部 step ID。
 
 ## 通用字段
 

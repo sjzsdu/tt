@@ -52,7 +52,8 @@ flowchart TD
 顶层 `Formula` 包含：
 
 - `formula` / `description` / `title` / `category` / `tags` / `version` / `type` / `contract`
-- `vars`（变量声明）
+- `vars`（变量声明，也是 Formula 的公开输入契约）
+- `outputs`（Formula 的公开输出契约）
 - `steps` / `template`（steps 与 expansion template）
 - `compose`（bond_points / hooks / expand / map / branch / gate / aspects）
 - `advice` / `pointcuts`
@@ -77,6 +78,22 @@ flowchart TD
 - `expand` / `expand_vars` / `embed` / `embed_vars`
 
 当前推荐：用 step `id` 作为输出上下文 key。普通公式不要再写 `output_key`。
+
+Formula 可以把内部 context path 映射成稳定的公开输出：
+
+```toml
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "对调用方公开的最终报告"
+```
+
+- `from` 必填，通常填写 step `id` 或显式 `output_key`。
+- `required = true` 时，workflow 在成功结束前必须产生该 context value，否则整个 run 失败。
+- 未产生的 optional output 不会出现在 runtime `RunResult.Outputs` 中。
+- `extends` 会继承父 Formula 的 outputs；子 Formula 用同名 output 覆盖父定义。
+- 调用方应只依赖公开 output 名，不应依赖 Formula 的内部 step ID。当前 `embed` 仍是编译期 inline；这些契约是后续 runtime FormulaCall 的稳定调用边界。
 
 ## 编译模型：Formula 到 Workflow
 
@@ -114,6 +131,7 @@ flowchart TD
 
 - `ID` / `Name` / `Description`
 - `Vars`
+- `Outputs`
 - `Graph.Nodes`
 - `Graph.Edges`
 

@@ -57,3 +57,39 @@ idempotent = true
 		t.Fatal("idempotent = false, want true")
 	}
 }
+
+func TestDecodeFormulaOutputs(t *testing.T) {
+	data := []byte(`formula = "demo"
+version = 1
+
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "Public report"
+
+[[steps]]
+id = "final-report"
+kind = "agent"
+`)
+	doc, err := Decode("demo.toml", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := doc.Outputs["report"]
+	if !ok || output.From != "final-report" || output.Type != "markdown" || !output.Required || output.Description == "" {
+		t.Fatalf("output = %+v, ok = %v", output, ok)
+	}
+}
+
+func TestDecodeFormulaOutputRequiresSource(t *testing.T) {
+	data := []byte(`formula = "demo"
+version = 1
+
+[outputs.report]
+required = true
+`)
+	if _, err := Decode("demo.toml", data); err == nil {
+		t.Fatal("expected output source validation error")
+	}
+}

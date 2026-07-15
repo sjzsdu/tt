@@ -19,10 +19,18 @@ type Document struct {
 	Version     int
 	Contract    string
 	Vars        map[string]VarDecl
+	Outputs     map[string]OutputDecl
 	Steps       []StepDecl
 	Workspace   *spec.WorkspaceSpec
 	Worktree    bool
 	Source      SourcePos
+}
+
+type OutputDecl struct {
+	From        string
+	Type        string
+	Required    bool
+	Description string
 }
 type VarDecl struct {
 	Description string

@@ -9,6 +9,10 @@ import (
 
 func TestCompilerBuildsTypedWorkflow(t *testing.T) {
 	doc, err := schema.Decode("demo.toml", []byte(`formula = "demo"
+[outputs.result]
+from = "b"
+type = "json"
+required = true
 [[steps]]
 id = "a"
 kind = "agent"
@@ -32,5 +36,9 @@ depends_on = ["a"]
 	}
 	if len(wf.Graph.Edges) != 1 {
 		t.Fatalf("edges = %d", len(wf.Graph.Edges))
+	}
+	output := wf.Outputs["result"]
+	if output.From != "b" || output.Type != "json" || !output.Required {
+		t.Fatalf("output = %+v", output)
 	}
 }

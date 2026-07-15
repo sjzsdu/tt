@@ -118,6 +118,49 @@ func TestExecutorSeedsEnvironmentContext(t *testing.T) {
 	}
 }
 
+func TestExecutorResolvesDeclaredWorkflowOutputs(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "final-report", Step: steps.AgentStep{
+		Base:      steps.Base{Metadata: steps.Metadata{ID: "final-report", Kind: steps.KindAgent}},
+		OutputKey: "report-context",
+	}})
+	wf := &ir.Workflow{
+		ID:    "output-demo",
+		Graph: g,
+		Outputs: map[string]ir.OutputSchema{
+			"report": {From: "report-context", Required: true},
+			"extra":  {From: "missing-optional"},
+		},
+	}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fakeAgent{}})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, ok := result.Outputs["report"]
+	if !ok || len(output.Raw) == 0 {
+		t.Fatalf("report output = %+v, ok = %v", output, ok)
+	}
+	if _, ok := result.Outputs["extra"]; ok {
+		t.Fatal("optional missing output should be omitted")
+	}
+}
+
+func TestExecutorFailsWhenRequiredWorkflowOutputIsMissing(t *testing.T) {
+	wf := &ir.Workflow{
+		ID:      "missing-output",
+		Graph:   ir.NewGraph(),
+		Outputs: map[string]ir.OutputSchema{"report": {From: "never-produced", Required: true}},
+	}
+	result, err := NewExecutor(wf, steps.Capabilities{}).Run(context.Background())
+	if err == nil {
+		t.Fatal("expected required output error")
+	}
+	if result == nil || result.Status != steps.StatusFailed {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestBuildEnvironmentContextDetectsGitRepo(t *testing.T) {
 	if _, err := os.Stat(".git"); err != nil {
 		t.Skip("test workspace is not a git repository")

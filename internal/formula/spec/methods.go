@@ -131,6 +131,21 @@ func (f *Formula) Validate() error {
 		}
 	}
 
+	for name, output := range f.Outputs {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			errs = append(errs, "outputs: output name cannot be empty")
+			continue
+		}
+		if output == nil {
+			errs = append(errs, fmt.Sprintf("outputs.%s: definition cannot be null", name))
+			continue
+		}
+		if strings.TrimSpace(output.From) == "" {
+			errs = append(errs, fmt.Sprintf("outputs.%s.from: is required", name))
+		}
+	}
+
 	stepIDLocations := make(map[string]string)
 	for i, step := range f.Steps {
 		prefix := fmt.Sprintf("steps[%d]", i)
