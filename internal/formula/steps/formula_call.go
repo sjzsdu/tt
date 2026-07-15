@@ -46,7 +46,7 @@ func (s FormulaCallStep) Run(ctx context.Context, req RunRequest) (*RunResult, e
 	}
 	inputs := make(map[string]Value, len(s.With))
 	for name, binding := range s.With {
-		inputs[name] = bindFormulaInput(binding, req.Context)
+		inputs[name] = bindFormulaInput(binding, req.InputView())
 	}
 	result, err := req.Capabilities.Workflows.RunWorkflow(ctx, WorkflowRequest{
 		RunID: req.RunID, NodeID: req.NodeID, Formula: strings.TrimSpace(s.Formula), Inputs: inputs,
@@ -62,7 +62,9 @@ func (s FormulaCallStep) Run(ctx context.Context, req RunRequest) (*RunResult, e
 		return &RunResult{Status: StatusFailed, Error: stepErr}, err
 	}
 	if result.Status == StatusWaiting {
-		return &RunResult{Status: StatusWaiting, Await: result.Await, Error: result.Error}, nil
+		out := &RunResult{Status: StatusWaiting, Outputs: result.Outputs, Await: result.Await, Error: result.Error}
+		out.NormalizeOutputs()
+		return out, nil
 	}
 	if result.Status == StatusFailed {
 		stepErr := result.Error
@@ -71,12 +73,9 @@ func (s FormulaCallStep) Run(ctx context.Context, req RunRequest) (*RunResult, e
 		}
 		return &RunResult{Status: StatusFailed, Error: stepErr}, stepErr
 	}
-	output, marshalErr := marshalWorkflowOutputs(result.Outputs)
-	if marshalErr != nil {
-		stepErr := &StepError{Message: "encode formula outputs", Cause: marshalErr}
-		return &RunResult{Status: StatusFailed, Error: stepErr}, marshalErr
-	}
-	return &RunResult{Status: StatusCompleted, Output: output}, nil
+	out := &RunResult{Status: StatusCompleted, Outputs: result.Outputs}
+	out.NormalizeOutputs()
+	return out, nil
 }
 
 func bindFormulaInput(binding string, ctx ContextView) Value {
@@ -89,20 +88,4 @@ func bindFormulaInput(binding string, ctx ContextView) Value {
 	rendered := renderContextTemplates(binding, ctx)
 	raw, _ := json.Marshal(rendered)
 	return Value{Type: "json", Raw: raw}
-}
-
-func marshalWorkflowOutputs(outputs map[string]Value) (Value, error) {
-	object := make(map[string]any, len(outputs))
-	for name, value := range outputs {
-		var decoded any
-		if err := json.Unmarshal(value.Raw, &decoded); err != nil {
-			return Value{}, fmt.Errorf("output %q: %w", name, err)
-		}
-		object[name] = decoded
-	}
-	raw, err := json.Marshal(object)
-	if err != nil {
-		return Value{}, err
-	}
-	return Value{Type: "json", Raw: raw}, nil
 }

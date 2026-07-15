@@ -48,6 +48,7 @@ func (c *Compiler) Compile(doc *ast.Document) (*ir.Workflow, error) {
 		}
 		wf.Graph.AddNode(&ir.Node{ID: ir.NodeID(decl.ID), Step: step})
 	}
+	ir.ApplyOutputConventions(wf)
 	for _, decl := range doc.Steps {
 		for _, dep := range decl.DependsOn {
 			if !seen[dep] {

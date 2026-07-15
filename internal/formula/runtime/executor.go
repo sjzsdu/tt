@@ -117,6 +117,9 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		if state, ok, err := e.Store.GetStep(e.stateWorkflowID(), e.runtimeNodeID(nodeID)); err != nil {
 			return out, err
 		} else if ok && state.Status == steps.StatusCompleted {
+			if state.Result != nil {
+				state.Result.NormalizeOutputs()
+			}
 			out.Nodes[nodeID] = state.Result
 			e.rememberStepOutput(node.Step, state.Result)
 			continue
@@ -150,6 +153,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		if res == nil {
 			res = &steps.RunResult{}
 		}
+		res.NormalizeOutputs()
 		out.Nodes[nodeID] = res
 		if err != nil || res.Status == steps.StatusFailed {
 			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, err, nil); ok {
@@ -192,6 +196,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 				if res == nil {
 					res = &steps.RunResult{}
 				}
+				res.NormalizeOutputs()
 				out.Nodes[nodeID] = res
 				if err != nil || res.Status == steps.StatusFailed {
 					out.Status = steps.StatusFailed
@@ -264,6 +269,9 @@ func (e *Executor) resolveWorkflowOutputs(out *RunResult) error {
 			}
 			continue
 		}
+		if output.Type != "" {
+			value.Type = output.Type
+		}
 		out.Outputs[name] = value
 	}
 	return nil
@@ -284,7 +292,7 @@ func scriptStepValue(step steps.Step) (steps.ScriptStep, bool) {
 }
 
 func (e *Executor) stepRunRequest(nodeID ir.NodeID, step steps.Step) steps.RunRequest {
-	return steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: step, Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities, Emit: func(childNodeID string, eventType string, payload any) {
+	return steps.RunRequest{RunID: string(e.Workflow.ID), NodeID: string(nodeID), Step: step, Inputs: steps.InputMap(e.Context.Snapshot()), Context: e.Context, Outputs: e.Context, Capabilities: e.Capabilities, Emit: func(childNodeID string, eventType string, payload any) {
 		e.emit(ir.NodeID(childNodeID), eventType, payload)
 	}}
 }
@@ -361,6 +369,7 @@ func (e *Executor) tryFixAndRerun(ctx context.Context, nodeID ir.NodeID, step st
 		if retryRes == nil {
 			retryRes = &steps.RunResult{}
 		}
+		retryRes.NormalizeOutputs()
 		if retryRes.Status == steps.StatusWaiting {
 			e.recordRepair(nodeID, buildRepairRecord(fixedStep, attempt, "waiting", report, retryErr))
 			return retryRes, retryErr, true
@@ -427,7 +436,7 @@ func normalizeStepOutputForContext(step steps.Step, res *steps.RunResult) {
 	}
 	if validation := outputValidationForStep(step); validation != nil && strings.ToLower(strings.TrimSpace(validation.Format)) == "json" {
 		if normalized, ok := normalizeExternalAgentJSONText(res.Output.Raw, validation); ok {
-			res.Output = steps.Value{Type: "json", Raw: normalized}
+			res.SetPrimaryOutput(steps.Value{Type: "json", Raw: normalized})
 			return
 		}
 	}
@@ -439,7 +448,7 @@ func normalizeStepOutputForContext(step steps.Step, res *steps.RunResult) {
 	if !ok {
 		return
 	}
-	res.Output = steps.Value{Type: "json", Raw: normalized}
+	res.SetPrimaryOutput(steps.Value{Type: "json", Raw: normalized})
 }
 
 func normalizeExternalAgentJSONText(raw []byte, validation *steps.OutputValidationSpec) ([]byte, bool) {
@@ -775,14 +784,22 @@ func isMissingRequiredJSONValue(value any) bool {
 }
 
 func (e *Executor) rememberStepOutput(step steps.Step, result *steps.RunResult) {
-	if e.Context == nil || step == nil || result == nil || len(result.Output.Raw) == 0 {
+	if e.Context == nil || step == nil || result == nil {
 		return
 	}
+	result.NormalizeOutputs()
 	key := stepOutputKey(step)
 	if key == "" {
 		return
 	}
-	_ = e.Context.Set(key, result.Output)
+	for name, value := range result.Outputs {
+		if strings.TrimSpace(name) != "" && len(value.Raw) > 0 {
+			_ = e.Context.Set(key+"."+name, value)
+		}
+	}
+	if primary, ok := result.PrimaryOutput(); ok {
+		_ = e.Context.Set(key, primary)
+	}
 }
 
 func stepOutputKey(step steps.Step) string {
@@ -825,6 +842,9 @@ func stepOutputKey(step steps.Step) string {
 
 func (e *Executor) saveStep(state StepState) {
 	if e.Store != nil {
+		if state.Result != nil {
+			state.Result.NormalizeOutputs()
+		}
 		state.WorkflowID = e.stateWorkflowID()
 		state.Path = e.executionPath(state.NodeID)
 		state.NodeID = ir.NodeID(state.Path.String())
@@ -871,6 +891,7 @@ func (e *Executor) saveChildStepTransition(localNodeID, nodeID ir.NodeID, path e
 		state.Status = childTransitionStatus(typ)
 		state.CompletedAt = now
 		if result, ok := payload.(*steps.RunResult); ok {
+			result.NormalizeOutputs()
 			state.Result = result
 		}
 	case "step.waiting":

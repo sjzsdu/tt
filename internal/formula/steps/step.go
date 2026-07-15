@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -66,9 +67,12 @@ type OutputSink interface {
 }
 
 type RunRequest struct {
-	RunID        string
-	NodeID       string
-	Step         Step
+	RunID  string
+	NodeID string
+	Step   Step
+	Inputs InputMap
+	// Context is retained while existing step implementations migrate to the
+	// explicit Inputs map. New composite steps should read Inputs first.
 	Context      ContextView
 	Outputs      OutputSink
 	Capabilities Capabilities
@@ -86,9 +90,84 @@ const (
 
 type RunResult struct {
 	Status Status
+	// Outputs is the canonical named output-port map for every step kind.
+	Outputs map[string]Value
+	// Output mirrors the primary output for artifact/UI compatibility. New
+	// orchestration code should consume Outputs.
 	Output Value
 	Await  *AwaitRequest
 	Error  *StepError
+}
+
+const (
+	OutputResult = "result"
+	OutputReport = "report"
+)
+
+// NormalizeOutputs keeps the transitional primary Output field and canonical
+// Outputs map consistent. A legacy single output becomes the "result" port.
+func (r *RunResult) NormalizeOutputs() {
+	if r == nil {
+		return
+	}
+	if len(r.Outputs) == 0 && len(r.Output.Raw) > 0 {
+		r.Outputs = map[string]Value{OutputResult: r.Output}
+	}
+	if len(r.Output.Raw) == 0 {
+		if value, ok := r.PrimaryOutput(); ok {
+			r.Output = value
+		}
+	}
+}
+
+// PrimaryOutput selects the human-facing report first, then the conventional
+// result/default port, then the only or lexicographically first named port.
+func (r *RunResult) PrimaryOutput() (Value, bool) {
+	if r == nil {
+		return Value{}, false
+	}
+	for _, name := range []string{OutputReport, OutputResult, "default"} {
+		if value, ok := r.Outputs[name]; ok && len(value.Raw) > 0 {
+			return value, true
+		}
+	}
+	if len(r.Output.Raw) > 0 {
+		return r.Output, true
+	}
+	if len(r.Outputs) == 0 {
+		return Value{}, false
+	}
+	names := make([]string, 0, len(r.Outputs))
+	for name := range r.Outputs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	value := r.Outputs[names[0]]
+	return value, len(value.Raw) > 0
+}
+
+func (r *RunResult) SetPrimaryOutput(value Value) {
+	if r == nil {
+		return
+	}
+	name := OutputResult
+	for _, candidate := range []string{OutputReport, OutputResult, "default"} {
+		if _, ok := r.Outputs[candidate]; ok {
+			name = candidate
+			break
+		}
+	}
+	if r.Outputs == nil {
+		r.Outputs = map[string]Value{}
+	}
+	r.Outputs[name] = value
+	r.Output = value
+}
+
+func ResultWithOutput(status Status, value Value) *RunResult {
+	result := &RunResult{Status: status}
+	result.SetPrimaryOutput(value)
+	return result
 }
 
 type AwaitRequest struct {

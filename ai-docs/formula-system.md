@@ -95,6 +95,7 @@ description = "对调用方公开的最终报告"
 - 未产生的 optional output 不会出现在 runtime `RunResult.Outputs` 中。
 - `extends` 会继承父 Formula 的 outputs；子 Formula 用同名 output 覆盖父定义。
 - 调用方应只依赖公开 output 名，不应依赖 Formula 的内部 step ID。`embed` 仍是编译期 inline；运行时复用应优先使用 `execution = "formula"`，它通过公开 vars/outputs 契约隔离父子 Formula。
+- 约定：存在顶层 `final-report` step 且未显式声明 `outputs.report` 时，编译器自动公开必需的 Markdown `report` output。显式声明仍具有最高优先级。
 
 ## 编译模型：Formula 到 Workflow
 
@@ -206,7 +207,19 @@ type Executable interface {
     Step
     Run(context.Context, RunRequest) (*RunResult, error)
 }
+
+type RunRequest struct {
+    Inputs InputMap // 所有 step 统一的命名输入
+    // ...runtime metadata/capabilities
+}
+
+type RunResult struct {
+    Status  Status
+    Outputs map[string]Value // 所有 step 统一的命名输出
+}
 ```
+
+运行时统一遵循 `inputs map → Step → outputs map`。传统单输出 step 使用 `result` 端口；`report` 是优先展示的人类可读端口。为兼容已有 formula，主输出仍写到 `<step-id>`，同时每个命名端口写到 `<step-id>.<output-name>`。因此普通 step 可继续使用 `fetch.foo`，FormulaCall 则可稳定使用 `implementation.report`。
 
 现有实现集中在 `internal/formula/steps/kinds.go`：
 

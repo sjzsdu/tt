@@ -61,8 +61,9 @@ func (s *FormulaRunStateStore) SaveStep(state StepState) error {
 	if s.Store != nil {
 		stepID := string(state.NodeID)
 		if state.Result != nil {
-			if len(state.Result.Output.Raw) > 0 {
-				_ = s.Store.SaveStepOutput(stepID, string(state.Result.Output.Raw))
+			state.Result.NormalizeOutputs()
+			if primary, ok := state.Result.PrimaryOutput(); ok {
+				_ = s.Store.SaveStepOutput(stepID, string(primary.Raw))
 			}
 			if state.Result.Error != nil {
 				_ = s.Store.SaveStepError(stepID, state.Result.Error.Error())

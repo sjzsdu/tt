@@ -144,6 +144,13 @@ func TestExecutorResolvesDeclaredWorkflowOutputs(t *testing.T) {
 	if _, ok := result.Outputs["extra"]; ok {
 		t.Fatal("optional missing output should be omitted")
 	}
+	stepResult := result.Nodes["final-report"]
+	if stepResult == nil || len(stepResult.Outputs[steps.OutputResult].Raw) == 0 {
+		t.Fatalf("step output ports = %#v", stepResult)
+	}
+	if _, ok := exec.Context.Get("report-context.result"); !ok {
+		t.Fatal("named result port was not stored in runtime context")
+	}
 }
 
 func TestExecutorFailsWhenRequiredWorkflowOutputIsMissing(t *testing.T) {

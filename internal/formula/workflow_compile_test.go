@@ -151,3 +151,22 @@ context = "project={{project.name}}"
 		t.Fatalf("with = %#v", step.With)
 	}
 }
+
+func TestWorkflowFinalReportConvention(t *testing.T) {
+	wf, err := CompileWorkflow("report.toml", []byte(`formula = "report-demo"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "final-report"
+title = "Final report"
+execution = "agent"
+`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := wf.Outputs[steps.OutputReport]
+	if !ok || report.From != "final-report" || report.Type != "markdown" || !report.Required {
+		t.Fatalf("report output = %+v, ok=%v", report, ok)
+	}
+}
