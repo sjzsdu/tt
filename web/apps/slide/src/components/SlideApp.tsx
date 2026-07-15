@@ -27,7 +27,6 @@ type AIRewriteSession = {
 
 type AIRewriteSessionMap = Record<string, AIRewriteSession>;
 
-const AI_REWRITE_SESSIONS_STORAGE_KEY = 'tt-slide-ai-rewrite-sessions:v1';
 const MAX_AI_REWRITE_SESSIONS = 80;
 
 const CORE_LAYOUT_CSS = `
@@ -81,29 +80,15 @@ function calculateStageScale() {
 }
 
 const slidePositionKey = (file: string) => `tt-slide-position:${file}`;
-const aiRewriteTurnsKey = (file: string, index: number) => `tt-slide-ai-rewrite:${file}:${index}`;
 
-function loadAIRewriteTurns(file: string, index: number): AIRewriteTurn[] {
-  if (!file || index < 0) return [];
-  try {
-    const raw = sessionStorage.getItem(aiRewriteTurnsKey(file, index));
-    if (!raw) return [];
-    const turns = JSON.parse(raw) as AIRewriteTurn[];
-    return Array.isArray(turns)
-      ? turns.filter(turn => turn && typeof turn.before === 'string' && typeof turn.after === 'string')
-      : [];
-  } catch {
-    return [];
-  }
+function newRuntimeSlideId() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `slide-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function saveAIRewriteTurns(file: string, index: number, turns: AIRewriteTurn[]) {
-  if (!file || index < 0) return;
-  try {
-    sessionStorage.setItem(aiRewriteTurnsKey(file, index), JSON.stringify(turns.slice(-12)));
-  } catch {
-    // Ignore storage failures. The in-memory history still works for this open editor.
-  }
+function createRuntimeSlideIds(count: number) {
+  return Array.from({ length: count }, () => newRuntimeSlideId());
 }
 
 function fileFromURL(url: URL) {
@@ -118,18 +103,8 @@ function slideIndicesFromHash(hash: string) {
   return { h: values[0] ?? 0, v: values[1] ?? 0, f: values[2] ?? 0 };
 }
 
-function aiRewriteSessionKey(file: string, slideIndex: number, mode: AIRewriteSessionMode = 'edit') {
-  return `${encodeURIComponent(file)}::${mode}::${slideIndex}`;
-}
-
-function parseAIRewriteSessionKey(file: string, key: string): { mode: AIRewriteSessionMode; slideIndex: number } | null {
-  const prefix = `${encodeURIComponent(file)}::`;
-  if (!key.startsWith(prefix)) return null;
-  const match = key.slice(prefix.length).match(/^(edit|insert)::(-?\d+)$/);
-  if (!match) return null;
-  const slideIndex = Number(match[2]);
-  if (!Number.isInteger(slideIndex) || slideIndex < 0) return null;
-  return { mode: match[1] as AIRewriteSessionMode, slideIndex };
+function aiRewriteSessionKey(file: string, slideRuntimeId: string, mode: AIRewriteSessionMode = 'edit') {
+  return `${encodeURIComponent(file)}::${mode}::${slideRuntimeId}`;
 }
 
 function normalizeAIRewriteTurns(value: unknown): AIRewriteTurn[] {
@@ -154,71 +129,6 @@ function pruneAIRewriteSessions(sessions: AIRewriteSessionMap): AIRewriteSession
     .slice(0, MAX_AI_REWRITE_SESSIONS);
   return Object.fromEntries(entries);
 }
-
-function loadAIRewriteSessions(): AIRewriteSessionMap {
-  try {
-    const raw = localStorage.getItem(AI_REWRITE_SESSIONS_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return {};
-    const sessions: AIRewriteSessionMap = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object') continue;
-      const item = value as Partial<AIRewriteSession>;
-      const turns = normalizeAIRewriteTurns(item.turns);
-      const draftSource = typeof item.draftSource === 'string' ? item.draftSource : '';
-      const updatedAt = typeof item.updatedAt === 'number' && Number.isFinite(item.updatedAt) ? item.updatedAt : Date.now();
-      if (turns.length === 0 && !draftSource.trim()) continue;
-      sessions[key] = { turns, draftSource, updatedAt };
-    }
-    return pruneAIRewriteSessions(sessions);
-  } catch (_) {
-    return {};
-  }
-}
-
-function saveAIRewriteSessions(sessions: AIRewriteSessionMap) {
-  try {
-    localStorage.setItem(AI_REWRITE_SESSIONS_STORAGE_KEY, JSON.stringify(pruneAIRewriteSessions(sessions)));
-  } catch (_) {}
-}
-
-function remapAIRewriteSessionsAfterDelete(sessions: AIRewriteSessionMap, file: string, deletedIndex: number): AIRewriteSessionMap {
-  const next: AIRewriteSessionMap = {};
-  for (const [key, session] of Object.entries(sessions)) {
-    const parsed = parseAIRewriteSessionKey(file, key);
-    if (!parsed) {
-      next[key] = session;
-      continue;
-    }
-    if (parsed.slideIndex === deletedIndex) continue;
-    const slideIndex = parsed.slideIndex > deletedIndex ? parsed.slideIndex - 1 : parsed.slideIndex;
-    next[aiRewriteSessionKey(file, slideIndex, parsed.mode)] = session;
-  }
-  return pruneAIRewriteSessions(next);
-}
-
-function remapAIRewriteSessionsAfterReorder(sessions: AIRewriteSessionMap, file: string, fromIndex: number, toIndex: number): AIRewriteSessionMap {
-  const next: AIRewriteSessionMap = {};
-  for (const [key, session] of Object.entries(sessions)) {
-    const parsed = parseAIRewriteSessionKey(file, key);
-    if (!parsed) {
-      next[key] = session;
-      continue;
-    }
-    let slideIndex = parsed.slideIndex;
-    if (slideIndex === fromIndex) {
-      slideIndex = toIndex;
-    } else if (fromIndex < toIndex && slideIndex > fromIndex && slideIndex <= toIndex) {
-      slideIndex -= 1;
-    } else if (toIndex < fromIndex && slideIndex >= toIndex && slideIndex < fromIndex) {
-      slideIndex += 1;
-    }
-    next[aiRewriteSessionKey(file, slideIndex, parsed.mode)] = session;
-  }
-  return pruneAIRewriteSessions(next);
-}
-
 
 function dirname(path: string) {
   const normalized = path.replace(/\\/g, '/');
@@ -263,6 +173,7 @@ interface SlideAppProps {
 
 export function SlideApp({ contentMode, filePath, templateOverride = '', runtimeConfig = {} }: SlideAppProps) {
   const [slides, setSlides] = useState<Awaited<ReturnType<typeof parseSlides>>['slides']>([]);
+  const [slideRuntimeIds, setSlideRuntimeIds] = useState<string[]>([]);
   const [meta, setMeta] = useState<SlideMeta | null>(null);
   const [error, setError] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -276,6 +187,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [rawMarkdown, setRawMarkdown] = useState('');
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [editorSlideIndex, setEditorSlideIndex] = useState<number | null>(null);
+  const [editorSlideRuntimeId, setEditorSlideRuntimeId] = useState('');
   const [editorFilePath, setEditorFilePath] = useState('');
   const [editorBaseMarkdown, setEditorBaseMarkdown] = useState('');
   const [editorText, setEditorText] = useState('');
@@ -288,7 +200,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const [aiError, setAIError] = useState('');
   const [isAIWorking, setIsAIWorking] = useState(false);
   const [aiRewriteTurns, setAIRewriteTurns] = useState<AIRewriteTurn[]>([]);
-  const [aiRewriteSessions, setAIRewriteSessions] = useState<AIRewriteSessionMap>(() => loadAIRewriteSessions());
+  const [aiRewriteSessions, setAIRewriteSessions] = useState<AIRewriteSessionMap>({});
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -304,10 +216,6 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const overviewListRef = useRef<HTMLDivElement>(null);
   const currentFileRef = useRef(currentFile);
   currentFileRef.current = currentFile;
-
-  useEffect(() => {
-    saveAIRewriteSessions(aiRewriteSessions);
-  }, [aiRewriteSessions]);
 
   const exposeCaptureAPI = useCallback((deck: Reveal.Api | null) => {
     (window as any).ttSlideCapture = {
@@ -346,6 +254,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
       setMeta(parsedMeta);
       setSlides(parsed);
+      setSlideRuntimeIds(createRuntimeSlideIds(parsed.length));
       setError('');
     } catch (e: any) {
       setError(String(e));
@@ -548,10 +457,12 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const selectFile = useCallback((path: string) => {
     setCurrentFile(path);
     setSlides([]);
+    setSlideRuntimeIds([]);
     setError('');
     setIsEditorOpen(false);
     setIsAIModalOpen(false);
     setEditorSlideIndex(null);
+    setEditorSlideRuntimeId('');
     setEditorFilePath('');
     setEditorBaseMarkdown('');
     setAIInstruction('');
@@ -582,6 +493,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setIsEditorOpen(false);
     setIsAIModalOpen(false);
     setEditorSlideIndex(null);
+    setEditorSlideRuntimeId('');
     setEditorFilePath('');
     setEditorBaseMarkdown('');
     setAIInstruction('');
@@ -593,6 +505,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (nextFile !== currentFileRef.current) {
       setCurrentFile(nextFile);
       setSlides([]);
+      setSlideRuntimeIds([]);
       return true;
     }
 
@@ -609,11 +522,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (contentMode) return;
     setCurrentFile('');
     setSlides([]);
+    setSlideRuntimeIds([]);
     setMeta(null);
     setError('');
     setRawMarkdown('');
     setCurrentSlideIndex(0);
     setEditorSlideIndex(null);
+    setEditorSlideRuntimeId('');
     setEditorFilePath('');
     setEditorBaseMarkdown('');
     setIsEditorOpen(false);
@@ -726,18 +641,22 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
 
   const editorDisplayIndex = editorSlideIndex ?? currentSlideIndex;
 
-  const getAIRewriteSession = useCallback((file: string, slideIndex: number, mode: AIRewriteSessionMode = 'edit') => {
-    if (!file || slideIndex < 0) return undefined;
-    return aiRewriteSessions[aiRewriteSessionKey(file, slideIndex, mode)];
+  const getSlideRuntimeId = useCallback((slideIndex: number) => {
+    return slideRuntimeIds[slideIndex] || '';
+  }, [slideRuntimeIds]);
+
+  const getAIRewriteSession = useCallback((file: string, slideRuntimeId: string, mode: AIRewriteSessionMode = 'edit') => {
+    if (!file || !slideRuntimeId) return undefined;
+    return aiRewriteSessions[aiRewriteSessionKey(file, slideRuntimeId, mode)];
   }, [aiRewriteSessions]);
 
-  const rememberAIRewriteSession = useCallback((file: string, slideIndex: number, mode: AIRewriteSessionMode, turns: AIRewriteTurn[], draftSource: string) => {
-    if (!file || slideIndex < 0) return;
+  const rememberAIRewriteSession = useCallback((file: string, slideRuntimeId: string, mode: AIRewriteSessionMode, turns: AIRewriteTurn[], draftSource: string) => {
+    if (!file || !slideRuntimeId) return;
     const normalizedTurns = normalizeAIRewriteTurns(turns);
     const normalizedDraft = draftSource.trim();
     setAIRewriteSessions(sessions => {
       const next = { ...sessions };
-      const key = aiRewriteSessionKey(file, slideIndex, mode);
+      const key = aiRewriteSessionKey(file, slideRuntimeId, mode);
       if (normalizedTurns.length === 0 && !normalizedDraft) {
         delete next[key];
         return pruneAIRewriteSessions(next);
@@ -750,15 +669,17 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
   const persistActiveAIRewriteDraft = useCallback(() => {
     const targetFile = editorFilePath || currentFile;
     const index = editorSlideIndex ?? currentSlideIndex;
-    if (!targetFile || index < 0 || aiRewriteTurns.length === 0 || !editorText.trim()) return;
-    rememberAIRewriteSession(targetFile, index, editorMode, aiRewriteTurns, editorText);
-  }, [aiRewriteTurns, currentFile, currentSlideIndex, editorFilePath, editorMode, editorSlideIndex, editorText, rememberAIRewriteSession]);
+    const runtimeId = editorSlideRuntimeId || getSlideRuntimeId(index);
+    if (!targetFile || !runtimeId || index < 0 || aiRewriteTurns.length === 0 || !editorText.trim()) return;
+    rememberAIRewriteSession(targetFile, runtimeId, editorMode, aiRewriteTurns, editorText);
+  }, [aiRewriteTurns, currentFile, currentSlideIndex, editorFilePath, editorMode, editorSlideIndex, editorSlideRuntimeId, editorText, getSlideRuntimeId, rememberAIRewriteSession]);
 
   const resetAIRewriteSession = useCallback(() => {
     const targetFile = editorFilePath || currentFile;
     const index = editorSlideIndex ?? currentSlideIndex;
-    if (!targetFile || index < 0) return;
-    const key = aiRewriteSessionKey(targetFile, index, editorMode);
+    const runtimeId = editorSlideRuntimeId || getSlideRuntimeId(index);
+    if (!targetFile || !runtimeId || index < 0) return;
+    const key = aiRewriteSessionKey(targetFile, runtimeId, editorMode);
     setAIRewriteSessions(sessions => {
       if (!sessions[key]) return sessions;
       const next = { ...sessions };
@@ -767,12 +688,13 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     });
     setAIRewriteTurns([]);
     setAIError('');
-  }, [currentFile, currentSlideIndex, editorFilePath, editorMode, editorSlideIndex]);
+  }, [currentFile, currentSlideIndex, editorFilePath, editorMode, editorSlideIndex, editorSlideRuntimeId, getSlideRuntimeId]);
 
   const clearEditorState = useCallback(() => {
     setIsEditorOpen(false);
     setIsAIModalOpen(false);
     setEditorSlideIndex(null);
+    setEditorSlideRuntimeId('');
     setEditorFilePath('');
     setEditorBaseMarkdown('');
     setAIInstruction('');
@@ -784,7 +706,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     clearEditorState();
   }, [clearEditorState, persistActiveAIRewriteDraft]);
 
-  const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number, targetFile = currentFile) => {
+  const saveEditableDocument = useCallback(async (doc: ReturnType<typeof parseEditableSlideDocument>, nextIndex: number, targetFile = currentFile, nextRuntimeIds?: string[]) => {
     if (!targetFile) throw new Error('No slide file specified');
     const nextMarkdown = serializeEditableSlideDocument(doc);
     const safeIndex = Math.max(0, Math.min(nextIndex, Math.max(doc.slides.length - 1, 0)));
@@ -794,6 +716,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setRawMarkdown(nextMarkdown);
     const { slides: parsed, meta: parsedMeta } = parseSlides(nextMarkdown, { assetBasePath: dirname(targetFile) });
     setSlides(parsed);
+    setSlideRuntimeIds(nextRuntimeIds && nextRuntimeIds.length === parsed.length ? nextRuntimeIds : createRuntimeSlideIds(parsed.length));
     setMeta(parsedMeta);
     setCurrentSlideIndex(safeIndex);
     setTimeout(() => deckRef.current?.slide(safeIndex, 0, 0), 0);
@@ -810,6 +733,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     }
     setCurrentSlideIndex(index);
     setEditorSlideIndex(index);
+    setEditorSlideRuntimeId(getSlideRuntimeId(index));
     setEditorFilePath(currentFile);
     setEditorBaseMarkdown(rawMarkdown);
     setEditorText(raw);
@@ -829,6 +753,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     const insertIndex = Math.max(0, Math.min(activeIndex + 1, doc.slides.length));
     setCurrentSlideIndex(insertIndex);
     setEditorSlideIndex(insertIndex);
+    setEditorSlideRuntimeId(newRuntimeSlideId());
     setEditorFilePath(currentFile);
     setEditorBaseMarkdown(rawMarkdown);
     setEditorMode('insert');
@@ -852,37 +777,38 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     }
     setCurrentSlideIndex(index);
     setEditorSlideIndex(index);
+    const runtimeId = getSlideRuntimeId(index);
+    setEditorSlideRuntimeId(runtimeId);
     setEditorFilePath(currentFile);
     setEditorBaseMarkdown(rawMarkdown);
-    const session = getAIRewriteSession(currentFile, index, 'edit');
-    setEditorText(session?.draftSource.trim() ? session.draftSource : raw);
+    const session = getAIRewriteSession(currentFile, runtimeId, 'edit');
+    // Keep the toolbar "编辑" and "AI 修改" entry points anchored to the
+    // current saved slide source. Historical AI drafts are still available via
+    // the turn history actions, but opening AI should not silently replace the
+    // visible editor content with an unsaved draft from a previous session.
+    setEditorText(raw);
     setEditorMode('edit');
     setEditorError('');
     setAIInstruction('');
     setAIError('');
-    setAIRewriteTurns(session?.turns || loadAIRewriteTurns(currentFile, index));
+    setAIRewriteTurns(session?.turns || []);
     setIsEditorOpen(true);
     setIsAIModalOpen(true);
-  }, [contentMode, currentFile, getAIRewriteSession, getActiveSlideIndex, rawMarkdown]);
+  }, [contentMode, currentFile, getAIRewriteSession, getActiveSlideIndex, getSlideRuntimeId, rawMarkdown]);
 
   const openAIRewriteFromEditor = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
     const targetFile = editorFilePath || currentFile;
     const index = editorSlideIndex ?? currentSlideIndex;
-    const sourceMarkdown = editorBaseMarkdown || rawMarkdown;
-    const sourceDoc = parseEditableSlideDocument(sourceMarkdown);
-    const baseSlide = sourceDoc.slides[index] || '';
+    const runtimeId = editorSlideRuntimeId || getSlideRuntimeId(index);
     let nextEditorText = editorText;
     if (!editorFilePath) setEditorFilePath(currentFile);
     if (!editorBaseMarkdown) setEditorBaseMarkdown(rawMarkdown);
+    if (!editorSlideRuntimeId && runtimeId) setEditorSlideRuntimeId(runtimeId);
     if (aiRewriteTurns.length === 0) {
-      const session = getAIRewriteSession(targetFile, index, editorMode);
+      const session = getAIRewriteSession(targetFile, runtimeId, editorMode);
       if (session) {
         setAIRewriteTurns(session.turns);
-        if (session.draftSource.trim() && editorText.trim() === baseSlide.trim()) {
-          nextEditorText = session.draftSource;
-          setEditorText(nextEditorText);
-        }
       }
     }
     const draft = nextEditorText.trim();
@@ -894,7 +820,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     setAIError('');
     setIsEditorOpen(true);
     setIsAIModalOpen(true);
-  }, [aiRewriteTurns.length, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, getAIRewriteSession, rawMarkdown]);
+  }, [aiRewriteTurns.length, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorSlideRuntimeId, editorText, getAIRewriteSession, getSlideRuntimeId, rawMarkdown]);
 
   const submitAIRewrite = useCallback(async () => {
     const targetFile = editorFilePath || currentFile;
@@ -937,7 +863,8 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       setEditorError(`${summary} 可以继续输入意见迭代，满意后再保存。`);
       setAIRewriteTurns(turns => {
         const mergedTurns = [...turns, { instruction, summary, before: slideSource, after: updated }];
-        saveAIRewriteTurns(targetFile, index, mergedTurns);
+        const runtimeId = editorSlideRuntimeId || getSlideRuntimeId(index);
+        rememberAIRewriteSession(targetFile, runtimeId, editorMode, mergedTurns, updated);
         return mergedTurns;
       });
       setAIInstruction('');
@@ -947,7 +874,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     } finally {
       setIsAIWorking(false);
     }
-  }, [aiInstruction, aiRewriteTurns, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, isEditorOpen, rawMarkdown]);
+  }, [aiInstruction, aiRewriteTurns, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorSlideRuntimeId, editorText, getSlideRuntimeId, isEditorOpen, rawMarkdown, rememberAIRewriteSession]);
 
   const restoreAIRewriteVersion = useCallback((source: string, label: string) => {
     if (!source.trim()) return;
@@ -977,18 +904,26 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     } else {
       doc.slides[index] = nextText;
     }
+    const nextRuntimeIds = [...slideRuntimeIds];
+    const runtimeId = editorSlideRuntimeId || getSlideRuntimeId(index) || newRuntimeSlideId();
+    if (editorMode === 'insert') {
+      const insertIndex = Math.max(0, Math.min(index, nextRuntimeIds.length));
+      nextRuntimeIds.splice(insertIndex, 0, runtimeId);
+    } else if (index >= 0 && index < nextRuntimeIds.length) {
+      nextRuntimeIds[index] = runtimeId;
+    }
     setIsSaving(true);
     setEditorError('');
     try {
-      await saveEditableDocument(doc, index, targetFile);
+      await saveEditableDocument(doc, index, targetFile, nextRuntimeIds);
       if (aiRewriteTurns.length > 0) {
         const normalizedTurns = normalizeAIRewriteTurns(aiRewriteTurns);
         setAIRewriteSessions(sessions => {
           const next = { ...sessions };
           if (editorMode === 'insert') {
-            delete next[aiRewriteSessionKey(targetFile, index, 'insert')];
+            delete next[aiRewriteSessionKey(targetFile, runtimeId, 'insert')];
           }
-          next[aiRewriteSessionKey(targetFile, index, 'edit')] = {
+          next[aiRewriteSessionKey(targetFile, runtimeId, 'edit')] = {
             turns: normalizedTurns,
             draftSource: nextText,
             updatedAt: Date.now(),
@@ -1002,7 +937,7 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     } finally {
       setIsSaving(false);
     }
-  }, [aiRewriteTurns, clearEditorState, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorText, rawMarkdown, saveEditableDocument]);
+  }, [aiRewriteTurns, clearEditorState, contentMode, currentFile, currentSlideIndex, editorBaseMarkdown, editorFilePath, editorMode, editorSlideIndex, editorSlideRuntimeId, editorText, getSlideRuntimeId, rawMarkdown, saveEditableDocument, slideRuntimeIds]);
 
   const requestDeleteCurrentSlide = useCallback(() => {
     if (contentMode || !currentFile || !rawMarkdown) return;
@@ -1026,19 +961,28 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
       return;
     }
     doc.slides.splice(index, 1);
+    const nextRuntimeIds = [...slideRuntimeIds];
+    const [deletedRuntimeId] = nextRuntimeIds.splice(index, 1);
     const nextIndex = Math.max(0, Math.min(index, doc.slides.length - 1));
     setIsDeleting(true);
     setDeleteError('');
     try {
-      await saveEditableDocument(doc, nextIndex);
-      setAIRewriteSessions(sessions => remapAIRewriteSessionsAfterDelete(sessions, currentFile, index));
+      await saveEditableDocument(doc, nextIndex, currentFile, nextRuntimeIds);
+      if (deletedRuntimeId) {
+        setAIRewriteSessions(sessions => {
+          const next = { ...sessions };
+          delete next[aiRewriteSessionKey(currentFile, deletedRuntimeId, 'edit')];
+          delete next[aiRewriteSessionKey(currentFile, deletedRuntimeId, 'insert')];
+          return next;
+        });
+      }
       setDeleteConfirmIndex(null);
     } catch (e: any) {
       setDeleteError(`删除失败：${String(e?.message || e)}`);
     } finally {
       setIsDeleting(false);
     }
-  }, [contentMode, currentFile, deleteConfirmIndex, rawMarkdown, saveEditableDocument]);
+  }, [contentMode, currentFile, deleteConfirmIndex, rawMarkdown, saveEditableDocument, slideRuntimeIds]);
 
   const reorderSlides = useCallback(async (fromIndex: number, toIndex: number) => {
     if (contentMode || !currentFile || !rawMarkdown || fromIndex === toIndex) return;
@@ -1046,18 +990,20 @@ export function SlideApp({ contentMode, filePath, templateOverride = '', runtime
     if (fromIndex < 0 || fromIndex >= doc.slides.length || toIndex < 0 || toIndex >= doc.slides.length) return;
     const [moved] = doc.slides.splice(fromIndex, 1);
     doc.slides.splice(toIndex, 0, moved);
+    const nextRuntimeIds = [...slideRuntimeIds];
+    const [movedRuntimeId] = nextRuntimeIds.splice(fromIndex, 1);
+    if (movedRuntimeId) nextRuntimeIds.splice(toIndex, 0, movedRuntimeId);
     setIsReordering(true);
     setOverviewError('');
     try {
-      await saveEditableDocument(doc, toIndex);
-      setAIRewriteSessions(sessions => remapAIRewriteSessionsAfterReorder(sessions, currentFile, fromIndex, toIndex));
+      await saveEditableDocument(doc, toIndex, currentFile, nextRuntimeIds);
     } catch (e: any) {
       setOverviewError(`排序保存失败：${String(e?.message || e)}`);
     } finally {
       setIsReordering(false);
       setDraggedSlideIndex(null);
     }
-  }, [contentMode, currentFile, rawMarkdown, saveEditableDocument]);
+  }, [contentMode, currentFile, rawMarkdown, saveEditableDocument, slideRuntimeIds]);
 
   const handleOverviewDragStart = useCallback((event: DragEvent<HTMLDivElement>, index: number) => {
     setDraggedSlideIndex(index);
