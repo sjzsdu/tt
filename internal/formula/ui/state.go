@@ -16,21 +16,23 @@ const (
 )
 
 type Snapshot struct {
-	RecipeName      string           `json:"recipe_name"`
-	Description     string           `json:"description,omitempty"`
-	Phase           string           `json:"phase,omitempty"`
-	Status          string           `json:"status"`
-	FinalOutput     string           `json:"final_output,omitempty"`
-	FinalReportChat *FinalReportChat `json:"final_report_chat,omitempty"`
-	Repairs         []RepairRecord   `json:"repairs,omitempty"`
-	Error           string           `json:"error,omitempty"`
-	Vars            map[string]any   `json:"vars,omitempty"`
-	Steps           []Step           `json:"steps"`
-	Edges           []Edge           `json:"edges,omitempty"`
-	Logs            []LogEntry       `json:"logs,omitempty"`
-	WorkspaceDir    string           `json:"workspace_dir,omitempty"`
-	RunID           string           `json:"run_id,omitempty"`
-	StopRequested   bool             `json:"stop_requested,omitempty"`
+	RecipeName         string              `json:"recipe_name"`
+	Description        string              `json:"description,omitempty"`
+	Phase              string              `json:"phase,omitempty"`
+	Status             string              `json:"status"`
+	FinalOutput        string              `json:"final_output,omitempty"`
+	FinalReportChat    *FinalReportChat    `json:"final_report_chat,omitempty"`
+	Repairs            []RepairRecord      `json:"repairs,omitempty"`
+	Error              string              `json:"error,omitempty"`
+	Vars               map[string]any      `json:"vars,omitempty"`
+	Steps              []Step              `json:"steps"`
+	Edges              []Edge              `json:"edges,omitempty"`
+	Logs               []LogEntry          `json:"logs,omitempty"`
+	ExecutionInstances []ExecutionInstance `json:"execution_instances,omitempty"`
+	ExecutionEvents    []ExecutionEvent    `json:"execution_events,omitempty"`
+	WorkspaceDir       string              `json:"workspace_dir,omitempty"`
+	RunID              string              `json:"run_id,omitempty"`
+	StopRequested      bool                `json:"stop_requested,omitempty"`
 }
 
 type FinalReportChat struct {
@@ -229,6 +231,11 @@ func CloneSnapshot(s Snapshot) Snapshot {
 	}
 	cp.Edges = append([]Edge(nil), s.Edges...)
 	cp.Logs = append([]LogEntry(nil), s.Logs...)
+	cp.ExecutionInstances = append([]ExecutionInstance(nil), s.ExecutionInstances...)
+	for i := range cp.ExecutionInstances {
+		cp.ExecutionInstances[i].IterationPath = append([]int(nil), s.ExecutionInstances[i].IterationPath...)
+	}
+	cp.ExecutionEvents = append([]ExecutionEvent(nil), s.ExecutionEvents...)
 	cp.Repairs = append([]RepairRecord(nil), s.Repairs...)
 	for i := range cp.Repairs {
 		cp.Repairs[i].OriginalCommand = append([]string(nil), s.Repairs[i].OriginalCommand...)

@@ -162,7 +162,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
           <div className="step-card-kicker">{step.id}</div>
           <h2>{step.title}</h2>
         </div>
-        {step.status === 'failed' && <Button type="primary" danger onClick={() => onRetry(step)}>Retry this step</Button>}
+        {step.status === 'failed' && step.type !== 'execution-instance' && <Button type="primary" danger onClick={() => onRetry(step)}>Retry this step</Button>}
         {primaryAgentSession && <Button type="primary" onClick={() => setSelectedSession(primaryAgentSession)}>View agent session</Button>}
       </div>
 
@@ -176,7 +176,7 @@ export function StepInspector({ step, snapshot, open, onClose, onRetry }: { step
         {step.priority && <Tag>P{step.priority}</Tag>}
       </div>
 
-      {statusSummary && <Alert showIcon type={statusSummary.type} message={statusSummary.message} description={statusSummary.description} action={step.status === 'failed' ? <Button danger onClick={() => onRetry(step)}>Retry this step</Button> : undefined} className="step-status-summary" />}
+      {statusSummary && <Alert showIcon type={statusSummary.type} message={statusSummary.message} description={statusSummary.description} action={step.status === 'failed' && step.type !== 'execution-instance' ? <Button danger onClick={() => onRetry(step)}>Retry this step</Button> : undefined} className="step-status-summary" />}
 
       <div className="step-modal-main inspector-main-only">
         {(step.description || step.notes) && (

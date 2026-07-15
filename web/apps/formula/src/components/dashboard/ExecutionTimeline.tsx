@@ -1,129 +1,98 @@
 import { Button, Card, Empty, Flex, Segmented, Space, Tag, Timeline, Typography } from 'antd';
+import { SwapOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';
-import type { FormulaDashboardLogEntry, FormulaDashboardStep } from '../../types';
-import { activityShortId, formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
-import { stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
+import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
+import { formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
+import { executionEvents, executionInstances, executionInstanceStep, isActiveExecution } from '../../utils/execution';
 
-type TimelineFilter = 'all' | 'errors' | 'linked';
+type TimelineFilter = 'current' | 'errors' | 'completed' | 'all';
 
-type TimelineItem = {
-  log: FormulaDashboardLogEntry;
-  isError: boolean;
-  step: FormulaDashboardStep | null;
-};
-
-function TimelineFilterLabel({ label, count }: { label: string; count: number }) {
-  return (
-    <span className="timeline-filter-label">
-      <span className="timeline-filter-name">{label}</span>
-      <span className="timeline-filter-count">{count}</span>
-    </span>
-  );
+function displayTime(value: string) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function matchLogStep(log: FormulaDashboardLogEntry, steps: FormulaDashboardStep[]) {
-  const text = log.text.toLowerCase();
-  return steps.find(step => text.includes(step.id.toLowerCase()))
-    || steps.find(step => step.title && text.includes(step.title.toLowerCase()))
-    || null;
-}
-
-function stepDuration(step: FormulaDashboardStep, now: number) {
-  if (step.duration_ms) return step.duration_ms;
-  if (step.status !== 'running' || !step.started_at) return 0;
-  const started = Date.parse(step.started_at);
-  if (!Number.isFinite(started)) return 0;
-  return Math.max(0, now - started);
-}
-
-function TimelineStepMeta({ step, now }: { step: FormulaDashboardStep; now: number }) {
-  const executionKind = stepExecutionKind(step);
-  const duration = stepDuration(step, now);
-  const latest = step.activities?.at(-1);
-
-  return (
-    <div className={`timeline-step-meta timeline-step-${executionKind}`}>
-      <Flex align="center" gap={8} wrap="wrap" className="timeline-step-title-row">
-        <Tag color={stepExecutionTone(executionKind)} className="timeline-kind-tag">
-          {stepExecutionLabel(executionKind)}
-        </Tag>
-        <Typography.Text strong className="timeline-step-title">{step.title || step.id}</Typography.Text>
-        <Typography.Text type="secondary" className="timeline-step-id">{activityShortId(step.id)}</Typography.Text>
-      </Flex>
-      <Flex gap={6} wrap="wrap" className="timeline-step-tags">
-        <Tag color={statusTone[step.status] || 'default'} icon={statusIcon(step.status)}>{statusLabel(step.status)}</Tag>
-        {duration ? <Tag>duration · {formatDuration(duration)}</Tag> : null}
-        {step.agent ? <Tag>agent · {step.agent}</Tag> : null}
-        {step.model ? <Tag>model · {step.model}</Tag> : null}
-        {step.session ? <Tag color="geekblue">session · {step.session}</Tag> : null}
-        {step.script_path ? <Tag color="volcano">script · {step.script_path}</Tag> : null}
-        {latest?.detail ? <Tag className="timeline-detail-tag">{latest.detail}</Tag> : null}
-      </Flex>
-    </div>
-  );
-}
-
-export function ExecutionTimeline({ logs, steps, onSelectStep }: { logs: FormulaDashboardLogEntry[]; steps: FormulaDashboardStep[]; onSelectStep: (step: FormulaDashboardStep) => void }) {
-  const [filter, setFilter] = useState<TimelineFilter>('all');
-  const [now, setNow] = useState(() => Date.now());
-  const hasRunningStep = steps.some(step => step.status === 'running' && step.started_at);
+export function ExecutionTimeline({ snapshot, onSelectStep }: { snapshot: FormulaDashboardSnapshot; onSelectStep: (step: FormulaDashboardStep) => void }) {
+  const [filter, setFilter] = useState<TimelineFilter>('current');
+  const [newestFirst, setNewestFirst] = useState(true);
+  const instances = useMemo(() => executionInstances(snapshot), [snapshot]);
+  const instanceByAddress = useMemo(() => new Map(instances.map(instance => [instance.address, instance])), [instances]);
+  const activeAddresses = useMemo(() => new Set(instances.filter(isActiveExecution).map(instance => instance.address)), [instances]);
+  const events = useMemo(() => executionEvents(snapshot), [snapshot]);
 
   useEffect(() => {
-    if (!hasRunningStep) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [hasRunningStep]);
-  const items = useMemo<TimelineItem[]>(() => logs.slice(-40).map(log => ({
-    log,
-    isError: /fail|error|blocked/i.test(log.text),
-    step: matchLogStep(log, steps),
-  })), [logs, steps]);
+    if (!activeAddresses.size && filter === 'current') setFilter('all');
+  }, [activeAddresses.size, filter]);
 
   const counts = {
-    all: items.length,
-    errors: items.filter(item => item.isError).length,
-    linked: items.filter(item => item.step).length,
+    current: events.filter(event => !!event.instance_address && activeAddresses.has(event.instance_address)).length,
+    errors: events.filter(event => event.status === 'failed' || event.status === 'interrupted').length,
+    completed: events.filter(event => event.status === 'completed' || event.status === 'skipped').length,
+    all: events.length,
   };
 
-  const visible = items
-    .filter(item => filter === 'all' || (filter === 'errors' && item.isError) || (filter === 'linked' && item.step))
-    .slice(-14);
+  const visible = useMemo(() => {
+    const filtered = events.filter(event => {
+      if (filter === 'current') return !!event.instance_address && activeAddresses.has(event.instance_address);
+      if (filter === 'errors') return event.status === 'failed' || event.status === 'interrupted';
+      if (filter === 'completed') return event.status === 'completed' || event.status === 'skipped';
+      return true;
+    }).slice(-100);
+    return newestFirst ? filtered.reverse().slice(0, 24) : filtered.slice(-24);
+  }, [activeAddresses, events, filter, newestFirst]);
 
   return (
     <Card
-      className="console-card"
+      className="console-card execution-timeline-card"
       title="Execution timeline"
       extra={(
-        <Segmented
-          size="small"
-          value={filter}
-          onChange={value => setFilter(value as TimelineFilter)}
-          options={[
-            { value: 'all', label: <TimelineFilterLabel label="All" count={counts.all} /> },
-            { value: 'errors', label: <TimelineFilterLabel label="Errors" count={counts.errors} /> },
-            { value: 'linked', label: <TimelineFilterLabel label="Linked" count={counts.linked} /> },
-          ]}
-        />
+        <Flex gap={6} wrap="wrap" justify="flex-end">
+          <Segmented
+            size="small"
+            value={filter}
+            onChange={value => setFilter(value as TimelineFilter)}
+            options={[
+              { value: 'current', label: `Current ${counts.current}` },
+              { value: 'errors', label: `Errors ${counts.errors}` },
+              { value: 'completed', label: `Done ${counts.completed}` },
+              { value: 'all', label: `All ${counts.all}` },
+            ]}
+          />
+          <Button size="small" icon={<SwapOutlined />} onClick={() => setNewestFirst(value => !value)}>{newestFirst ? 'Newest' : 'Oldest'}</Button>
+        </Flex>
       )}
     >
       {visible.length ? (
         <Timeline
-          items={visible.map(({ log, isError, step }) => ({
-            color: isError ? 'red' : step ? 'green' : 'blue',
-            children: (
-              <div className={isError ? 'timeline-entry timeline-entry-error' : 'timeline-entry'}>
-                <Space size={8} wrap className="timeline-entry-header">
-                  <Typography.Text type="secondary" className="timeline-time">{log.at}</Typography.Text>
-                  {step && <Tag bordered={false}>{activityShortId(step.id)}</Tag>}
-                </Space>
-                <Typography.Paragraph className="timeline-text">{log.text}</Typography.Paragraph>
-                {step && <TimelineStepMeta step={step} now={now} />}
-                {step && <Button size="small" onClick={() => onSelectStep(step)}>Open step</Button>}
-              </div>
-            ),
-          }))}
+          items={visible.map(event => {
+            const instance = event.instance_address ? instanceByAddress.get(event.instance_address) : undefined;
+            const isError = event.status === 'failed' || event.status === 'interrupted';
+            return {
+              color: isError ? 'red' : event.status === 'running' ? 'blue' : event.status === 'completed' ? 'green' : 'gray',
+              children: (
+                <div className={isError ? 'timeline-entry timeline-entry-error' : 'timeline-entry'}>
+                  <Space size={8} wrap className="timeline-entry-header">
+                    <Typography.Text type="secondary" className="timeline-time">{displayTime(event.at)}</Typography.Text>
+                    <Tag color={statusTone[event.status] || 'default'} icon={statusIcon(event.status)}>{statusLabel(event.status)}</Tag>
+                    <Tag bordered={false}>{event.type}</Tag>
+                  </Space>
+                  <Typography.Text strong className="timeline-address">{event.instance_address || 'workflow'}</Typography.Text>
+                  {event.title && <Typography.Text>{event.title}</Typography.Text>}
+                  {event.detail && <Typography.Paragraph className="timeline-text">{event.detail}</Typography.Paragraph>}
+                  <Flex gap={6} wrap="wrap">
+                    {event.duration_ms ? <Tag>duration · {formatDuration(event.duration_ms)}</Tag> : null}
+                    {(event.attempt || 0) > 1 ? <Tag color="purple">attempt · {event.attempt}</Tag> : null}
+                    {event.session ? <Tag color="geekblue">session</Tag> : null}
+                    {event.from_status ? <Tag>{event.from_status} → {event.status}</Tag> : null}
+                  </Flex>
+                  {instance && <Button size="small" onClick={() => onSelectStep(executionInstanceStep(instance, snapshot))}>Open run</Button>}
+                </div>
+              ),
+            };
+          })}
         />
-      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No matching timeline events" />}
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No matching execution events" />}
     </Card>
   );
 }

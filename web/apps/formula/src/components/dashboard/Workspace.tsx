@@ -141,8 +141,8 @@ export function Workspace({
       </Col>
       <Col xs={24} xl={7}>
         <Space direction="vertical" size="middle" className="dashboard-side-stack">
-          <StepRunList steps={snapshot.steps} onSelectStep={onSelectStep} />
-          <ExecutionTimeline logs={snapshot.logs} steps={snapshot.steps} onSelectStep={onSelectStep} />
+          <StepRunList snapshot={snapshot} onSelectStep={onSelectStep} />
+          <ExecutionTimeline snapshot={snapshot} onSelectStep={onSelectStep} />
         </Space>
       </Col>
     </Row>

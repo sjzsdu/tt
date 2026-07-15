@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Empty, Popover, Switch } from 'antd';
+import { Empty, Popover, Segmented, Switch } from 'antd';
 import { EyeOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { Graph, type GraphOptions } from '@antv/g6';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { graphShortId } from '../../utils/status';
 import { stepExecutionKind, stepExecutionLabel } from '../../utils/steps';
-import { computeGraphData, loopBodyGraphID, resolveClickedStep, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
+import { computeGraphData, computeLiveGraphData, loopBodyGraphID, resolveClickedStep, type LoopGroupNodeData, type StepNodeData, type VariableNodeData } from './graphModel';
+import { executionInstances, isActiveExecution } from '../../utils/execution';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'rgba(148, 163, 184, 0.82)',
@@ -85,7 +86,10 @@ function wrapSafeText(text: string) {
 function stepNodeLabel(step: FormulaDashboardStep) {
   const id = wrapSafeText(step.id || graphShortId(step.id));
   const title = wrapSafeText(step.title || graphShortId(step.id));
-  return title === id ? id : `${id}\n${title}`;
+  const base = title === id ? id : `${id}\n${title}`;
+  const summary = step.metadata?.execution_summary;
+  const activeAddress = step.metadata?.active_address;
+  return [base, summary, activeAddress ? `live: ${activeAddress}` : ''].filter(Boolean).join('\n');
 }
 
 function stepNodeMetrics(step: FormulaDashboardStep) {
@@ -507,6 +511,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
   const [expandedLoopIDs, setExpandedLoopIDs] = useState<Set<string>>(() => new Set(loopStepIDs(snapshot)));
   const [showVariables, setShowVariables] = useState(true);
   const [showEdges, setShowEdges] = useState(true);
+  const [mode, setMode] = useState<'overview' | 'live'>('overview');
 
   const toggleLoop = (stepID: string) => {
     setExpandedLoopIDs(current => {
@@ -519,7 +524,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
 
   const isDark = theme === 'dark';
 
-  const rawGraphData = useMemo(() => computeGraphData(snapshot, expandedLoopIDs), [snapshot, expandedLoopIDs]);
+  const rawGraphData = useMemo(() => mode === 'live' ? computeLiveGraphData(snapshot) : computeGraphData(snapshot, expandedLoopIDs), [snapshot, expandedLoopIDs, mode]);
   const graphData = useMemo(() => {
     const nodes = showVariables
       ? rawGraphData.nodes
@@ -833,6 +838,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
     }
   }, [graphData]);
 
+  const runningInstance = executionInstances(snapshot).find(isActiveExecution);
   const running = snapshot.steps.find(step => step.status === 'running');
   const allLoopIDs = loopStepIDs(snapshot);
   const loopSteps = allLoopIDs.length;
@@ -850,6 +856,12 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
         <div>
           <div className="graph-title-row">
             <h3>Execution graph</h3>
+            <Segmented
+              size="small"
+              value={mode}
+              onChange={value => setMode(value as 'overview' | 'live')}
+              options={[{ value: 'overview', label: 'Overview' }, { value: 'live', label: 'Live iterations' }]}
+            />
             <GraphDisplayToggle
               showVariables={showVariables}
               showEdges={showEdges}
@@ -857,7 +869,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
               onShowEdgesChange={setShowEdges}
             />
             <GraphHelpPopover
-              runningTitle={running?.title}
+              runningTitle={runningInstance?.address || running?.title}
               nodeCount={metricNodeCount}
               edgeCount={metricEdgeCount}
               loopCount={loopSteps}

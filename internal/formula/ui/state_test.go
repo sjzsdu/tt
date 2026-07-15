@@ -33,3 +33,12 @@ func TestAppendStepActivityPreservesSessionOnUpdate(t *testing.T) {
 		t.Fatalf("status = %q, want completed", activity.Status)
 	}
 }
+
+func TestCloneSnapshotClonesExecutionIterationPath(t *testing.T) {
+	original := Snapshot{ExecutionInstances: []ExecutionInstance{{Address: "loop.iter1.work", IterationPath: []int{1}}}}
+	clone := CloneSnapshot(original)
+	clone.ExecutionInstances[0].IterationPath[0] = 9
+	if original.ExecutionInstances[0].IterationPath[0] != 1 {
+		t.Fatalf("clone mutated original: %+v", original.ExecutionInstances)
+	}
+}

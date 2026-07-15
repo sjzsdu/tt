@@ -28,6 +28,29 @@ func TestDashboardStepUpdatesPopulateTimelineLogs(t *testing.T) {
 	}
 }
 
+func TestDashboardStepUpdatesPopulateStructuredExecutionHistory(t *testing.T) {
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	workflow.Graph.AddNode(&ir.Node{ID: "cycle", Step: steps.LoopStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "cycle", Kind: steps.KindLoop, Title: "Cycle"}},
+		Body: []steps.Step{steps.NoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "fetch", Kind: steps.KindNoop, Title: "Fetch"}}}},
+	}})
+	dashboard := newFormulaDashboardServer(workflow)
+
+	dashboard.markStepRunning("cycle.iter2.fetch", "Fetch", "", "", "session-2")
+	dashboard.markStepCompleted("cycle.iter2.fetch", "ok")
+
+	if len(dashboard.state.ExecutionInstances) != 1 || len(dashboard.state.ExecutionEvents) != 2 {
+		t.Fatalf("instances=%+v events=%+v", dashboard.state.ExecutionInstances, dashboard.state.ExecutionEvents)
+	}
+	instance := dashboard.state.ExecutionInstances[0]
+	if instance.Address != "cycle.iter2.fetch" || instance.ParentLoopID != "cycle" || instance.Status != ui.StatusCompleted {
+		t.Fatalf("instance = %+v", instance)
+	}
+	if dashboard.state.ExecutionEvents[0].Status != ui.StatusRunning || dashboard.state.ExecutionEvents[1].Status != ui.StatusCompleted {
+		t.Fatalf("events = %+v", dashboard.state.ExecutionEvents)
+	}
+}
+
 func TestDashboardFinalReportChatLifecycle(t *testing.T) {
 	dashboard := newFormulaDashboardServer(nil)
 	dashboard.state.RunID = "run-123"

@@ -1,129 +1,137 @@
-import { Card, Empty, Flex, Progress, Tag, Typography } from 'antd';
+import { Card, Empty, Flex, Segmented, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import type { FormulaDashboardStep } from '../../types';
-import { activityShortId, formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
-import { latestActivitiesByStepID, stepExecutionKind, stepExecutionLabel, stepExecutionTone } from '../../utils/steps';
+import type { FormulaDashboardSnapshot, FormulaDashboardStep, FormulaExecutionInstance } from '../../types';
+import { formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
+import {
+  compareExecutionRecency,
+  executionAddressLabel,
+  executionInstances,
+  executionInstanceStep,
+  executionUpdatedAt,
+  isActiveExecution,
+  isTerminalExecution,
+  iterationLabel,
+} from '../../utils/execution';
 
-type StepRunRecord = {
-  step: FormulaDashboardStep;
-  status: string;
-  durationMS: number;
-  totalActivities: number;
-  completedActivities: number;
-  failedActivities: number;
-  runningActivities: number;
-  waitingActivities: number;
-  latestDetail?: string;
-  visible: boolean;
-};
+type RunFilter = 'active' | 'recent' | 'all';
 
-function runtimeDuration(step: FormulaDashboardStep, now: number) {
-  if (step.duration_ms) return step.duration_ms;
-  if ((step.status === 'running' || step.status === 'waiting_input') && step.started_at) {
-    const started = Date.parse(step.started_at);
+function runtimeDuration(instance: FormulaExecutionInstance, now: number) {
+  if (instance.duration_ms) return instance.duration_ms;
+  if (isActiveExecution(instance) && instance.started_at) {
+    const started = Date.parse(instance.started_at);
     if (Number.isFinite(started)) return Math.max(0, now - started);
   }
   return 0;
 }
 
-function latestLoopActivities(step: FormulaDashboardStep) {
-  return latestActivitiesByStepID(step.activities || []);
-}
-
-function aggregateLoopStatus(step: FormulaDashboardStep) {
-  const activities = latestLoopActivities(step);
-  if (!step.loop || activities.length === 0) return step.status;
-  if (activities.some(activity => activity.status === 'failed')) return 'failed';
-  if (activities.some(activity => activity.status === 'interrupted')) return 'interrupted';
-  if (activities.some(activity => activity.status === 'waiting_input')) return 'waiting_input';
-  if (activities.some(activity => activity.status === 'running')) return 'running';
-  const finished = activities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
-  if (finished > 0 && finished === activities.length) return activities.every(activity => activity.status === 'skipped') ? 'skipped' : 'completed';
-  return step.status;
-}
-
-function buildStepRunRecord(step: FormulaDashboardStep, now: number): StepRunRecord {
-  const activities = step.activities || [];
-  const latestActivities = latestLoopActivities(step);
-  const status = aggregateLoopStatus(step);
-  const completedActivities = latestActivities.filter(activity => activity.status === 'completed' || activity.status === 'skipped').length;
-  const latest = activities.at(-1);
-  const visible = step.status !== 'pending' || activities.length > 0 || Boolean(step.started_at || step.finished_at);
-
-  return {
-    step,
-    status,
-    durationMS: runtimeDuration(step, now),
-    totalActivities: latestActivities.length,
-    completedActivities,
-    failedActivities: latestActivities.filter(activity => activity.status === 'failed').length,
-    runningActivities: latestActivities.filter(activity => activity.status === 'running').length,
-    waitingActivities: latestActivities.filter(activity => activity.status === 'waiting_input').length,
-    latestDetail: latest?.detail,
-    visible,
-  };
-}
-
-function recordOrder(record: StepRunRecord) {
-  if (record.status === 'running') return 0;
-  if (record.status === 'waiting_input') return 1;
-  if (record.status === 'failed') return 2;
+function attentionOrder(instance: FormulaExecutionInstance) {
+  if (instance.status === 'failed' || instance.status === 'interrupted') return 0;
+  if (instance.status === 'waiting_input') return 1;
+  if (instance.status === 'running') return 2;
   return 3;
 }
 
-export function StepRunList({ steps, onSelectStep }: { steps: FormulaDashboardStep[]; onSelectStep: (step: FormulaDashboardStep) => void }) {
+function groupLabel(instance: FormulaExecutionInstance) {
+  if (!instance.parent_loop_id) return 'Top-level steps';
+  return `${instance.parent_loop_id} · ${iterationLabel(instance.iteration_path) || 'loop'}`;
+}
+
+export function StepRunList({ snapshot, onSelectStep }: { snapshot: FormulaDashboardSnapshot; onSelectStep: (step: FormulaDashboardStep) => void }) {
+  const [filter, setFilter] = useState<RunFilter>('active');
   const [now, setNow] = useState(() => Date.now());
-  const hasLiveStep = steps.some(step => (step.status === 'running' || step.status === 'waiting_input') && step.started_at);
+  const instances = useMemo(() => {
+    const all = executionInstances(snapshot);
+    const loopsWithChildren = new Set(all.map(instance => instance.parent_loop_id).filter(Boolean));
+    return all.filter(instance => !(
+      loopsWithChildren.has(instance.address)
+      && snapshot.steps.some(step => step.id === instance.address && !!step.loop)
+    ));
+  }, [snapshot]);
+  const active = useMemo(() => instances.filter(isActiveExecution), [instances]);
+  const recent = useMemo(() => instances.filter(isTerminalExecution).sort(compareExecutionRecency).slice(0, 30), [instances]);
 
   useEffect(() => {
-    if (!hasLiveStep) return;
+    if (!active.some(instance => instance.started_at)) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [hasLiveStep]);
+  }, [active]);
 
-  const records = useMemo(() => steps
-    .map(step => buildStepRunRecord(step, now))
-    .filter(record => record.visible)
-    .sort((a, b) => recordOrder(a) - recordOrder(b) || a.step.index - b.step.index), [steps, now]);
+  useEffect(() => {
+    if (!active.length && filter === 'active') setFilter('recent');
+  }, [active.length, filter]);
+
+  const visible = useMemo(() => {
+    const source = filter === 'active' ? active : filter === 'recent' ? recent : [...active, ...recent];
+    return [...source].sort((a, b) => attentionOrder(a) - attentionOrder(b) || compareExecutionRecency(a, b));
+  }, [active, filter, recent]);
+
+  const groups = useMemo(() => {
+    const grouped = new Map<string, FormulaExecutionInstance[]>();
+    for (const instance of visible) {
+      const label = groupLabel(instance);
+      if (!grouped.has(label)) grouped.set(label, []);
+      grouped.get(label)!.push(instance);
+    }
+    return [...grouped.entries()];
+  }, [visible]);
 
   return (
-    <Card className="console-card step-run-card" title="Step runs" extra={<Tag>{records.length} loaded</Tag>}>
-      {records.length ? (
-        <div className="step-run-list">
-          {records.map(record => {
-            const { step } = record;
-            const executionKind = stepExecutionKind(step);
-            const progress = record.totalActivities ? Math.round((record.completedActivities / record.totalActivities) * 100) : undefined;
-            return (
-              <button key={step.id} type="button" className={`step-run-item ${record.status} step-run-${executionKind}`} onClick={() => onSelectStep(step)}>
-                <Flex align="flex-start" justify="space-between" gap={8} className="step-run-head">
-                  <div className="step-run-title-block">
-                    <Typography.Text strong className="step-run-title">{step.title || step.id}</Typography.Text>
-                    <Typography.Text type="secondary" className="step-run-id">{activityShortId(step.id)}</Typography.Text>
-                  </div>
-                  <Tag color={statusTone[record.status] || 'default'} icon={statusIcon(record.status)}>{statusLabel(record.status)}</Tag>
-                </Flex>
-
-                <Flex gap={6} wrap="wrap" className="step-run-tags">
-                  <Tag color={stepExecutionTone(executionKind)}>{stepExecutionLabel(executionKind)}</Tag>
-                  {record.durationMS ? <Tag>duration · {formatDuration(record.durationMS)}</Tag> : null}
-                  {step.agent ? <Tag>agent · {step.agent}</Tag> : null}
-                  {step.script_path ? <Tag color="volcano">script</Tag> : null}
-                  {step.loop ? <Tag color="purple">loop · {record.completedActivities}/{record.totalActivities || step.loop.body?.length || 0}</Tag> : null}
-                  {record.failedActivities ? <Tag color="error">failed · {record.failedActivities}</Tag> : null}
-                  {record.runningActivities ? <Tag color="processing">running · {record.runningActivities}</Tag> : null}
-                  {record.waitingActivities ? <Tag color="warning">input · {record.waitingActivities}</Tag> : null}
-                </Flex>
-
-                {typeof progress === 'number' && <Progress percent={progress} size="small" status={record.failedActivities ? 'exception' : record.status === 'running' ? 'active' : 'normal'} showInfo={false} />}
-                {record.latestDetail && <Typography.Text type="secondary" className="step-run-detail">{record.latestDetail}</Typography.Text>}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No step has started yet" />
+    <Card
+      className="console-card step-run-card"
+      title={<Flex align="center" gap={8}><span>Step runs</span>{active.length ? <Tag color="processing">{active.length} live</Tag> : null}</Flex>}
+      extra={(
+        <Segmented
+          size="small"
+          value={filter}
+          onChange={value => setFilter(value as RunFilter)}
+          options={[
+            { value: 'active', label: `Active ${active.length}` },
+            { value: 'recent', label: `Recent ${recent.length}` },
+            { value: 'all', label: 'All' },
+          ]}
+        />
       )}
+    >
+      {groups.length ? (
+        <div className="step-run-groups">
+          {groups.map(([label, records]) => (
+            <section className="step-run-group" key={label}>
+              <div className="step-run-group-title">
+                <Typography.Text strong>{label}</Typography.Text>
+                <Tag>{records.length}</Tag>
+              </div>
+              <div className="step-run-list">
+                {records.map(instance => {
+                  const duration = runtimeDuration(instance, now);
+                  return (
+                    <button
+                      key={instance.address}
+                      type="button"
+                      className={`step-run-item ${instance.status} ${isActiveExecution(instance) ? 'step-run-live' : ''}`}
+                      onClick={() => onSelectStep(executionInstanceStep(instance, snapshot))}
+                    >
+                      <Flex align="flex-start" justify="space-between" gap={8} className="step-run-head">
+                        <div className="step-run-title-block">
+                          <Typography.Text strong className="step-run-title">{instance.title || instance.body_step_id || instance.definition_step_id}</Typography.Text>
+                          <Typography.Text type="secondary" className="step-run-id">{executionAddressLabel(instance)}</Typography.Text>
+                        </div>
+                        <Tag color={statusTone[instance.status] || 'default'} icon={statusIcon(instance.status)}>{statusLabel(instance.status)}</Tag>
+                      </Flex>
+                      <Flex gap={6} wrap="wrap" className="step-run-tags">
+                        {duration ? <Tag>duration · {formatDuration(duration)}</Tag> : null}
+                        {(instance.attempt || 0) > 1 ? <Tag color="purple">attempt · {instance.attempt}</Tag> : null}
+                        {instance.session ? <Tag color="geekblue">session</Tag> : null}
+                        {executionUpdatedAt(instance) ? <Tag>{executionUpdatedAt(instance)}</Tag> : null}
+                      </Flex>
+                      {instance.detail && <Typography.Text type="secondary" className="step-run-detail">{instance.detail}</Typography.Text>}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={filter === 'active' ? 'No execution instance is active' : 'No finished execution instances'} />}
     </Card>
   );
 }

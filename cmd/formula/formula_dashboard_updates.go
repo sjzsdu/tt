@@ -85,6 +85,7 @@ func (s *formulaDashboardServer) markStepRunning(stepID, title, agent, model, se
 		s.state.Steps[i].Error = ""
 		s.state.Steps[i].Output = ""
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: "running", Session: session, Detail: fmt.Sprintf("Agent %s started this step", agent)})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, "running", session, fmt.Sprintf("Agent %s started this step", agent), "", "", 0)
 		s.appendLogLocked(fmt.Sprintf("Step %s started", stepID))
 		break
 	}
@@ -116,6 +117,7 @@ func (s *formulaDashboardServer) markStepCompleted(stepID, output string) {
 			}
 		}
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "completed", Detail: fmt.Sprintf("Completed with %d chars of output", len(output)), Output: output, DurationMS: s.state.Steps[i].DurationMS})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, "completed", s.state.Steps[i].Session, fmt.Sprintf("Completed with %d chars of output", len(output)), output, "", s.state.Steps[i].DurationMS)
 		s.appendLogLocked(fmt.Sprintf("Step %s completed", stepID))
 		break
 	}
@@ -148,6 +150,7 @@ func (s *formulaDashboardServer) markStepSkipped(stepID, reason string) {
 			detail = "Step condition evaluated to false"
 		}
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "skipped", Detail: detail})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, "skipped", s.state.Steps[i].Session, detail, "", "", s.state.Steps[i].DurationMS)
 		s.appendLogLocked(fmt.Sprintf("Step %s skipped", stepID))
 		break
 	}
@@ -181,6 +184,7 @@ func (s *formulaDashboardServer) markStepFailed(stepID, errMsg, output string) {
 			}
 		}
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "failed", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, "failed", s.state.Steps[i].Session, errMsg, output, errMsg, s.state.Steps[i].DurationMS)
 		s.appendLogLocked(fmt.Sprintf("Step %s failed: %s", stepID, errMsg))
 		break
 	}
@@ -215,6 +219,7 @@ func (s *formulaDashboardServer) markStepInterrupted(stepID, errMsg, output stri
 			errMsg = "step interrupted"
 		}
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "interrupted", Detail: errMsg, Output: output, Error: errMsg, DurationMS: s.state.Steps[i].DurationMS})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, "interrupted", s.state.Steps[i].Session, errMsg, output, errMsg, s.state.Steps[i].DurationMS)
 		s.appendLogLocked(fmt.Sprintf("Step %s interrupted: %s", stepID, errMsg))
 		break
 	}
@@ -248,6 +253,7 @@ func (s *formulaDashboardServer) markStepWaitingInput(stepID, title string, requ
 		}
 		s.state.Steps[i].FinishedAt = ""
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: "waiting_input", Detail: "Waiting for human input"})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, "waiting_input", s.state.Steps[i].Session, "Waiting for human input", "", "", 0)
 		s.appendLogLocked(fmt.Sprintf("Step %s waiting for human input", stepID))
 		break
 	}
@@ -329,6 +335,14 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, s
 			}
 		}
 		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: time.Now().Format("15:04:05"), StepID: stepID, Title: title, Status: status, Session: session, Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS})
+		s.recordExecutionTransitionLocked(stepID, title, status, session, detail, output, errMsg, durationMS)
 		return
 	}
+}
+
+func (s *formulaDashboardServer) recordExecutionTransitionLocked(stepID, title, status, session, detail, output, errMsg string, durationMS int64) {
+	ui.RecordExecutionTransition(&s.state, ui.ExecutionTransition{
+		Address: stepID, Title: title, Status: status, Session: session,
+		Detail: detail, Output: output, Error: errMsg, DurationMS: durationMS,
+	})
 }
