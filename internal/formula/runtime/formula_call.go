@@ -63,6 +63,17 @@ func (r executorWorkflowRunner) RunWorkflow(ctx context.Context, req steps.Workf
 
 	runResult, runErr := child.Run(ctx)
 	result := workflowResultFromRun(runResult)
+	if result.Await != nil && strings.TrimSpace(result.Await.StepID) == "" && runResult != nil {
+		for nodeID, nodeResult := range runResult.Nodes {
+			if nodeResult == nil || nodeResult.Status != steps.StatusWaiting || nodeResult.Await == nil {
+				continue
+			}
+			await := *nodeResult.Await
+			await.StepID = string(child.runtimeNodeID(nodeID))
+			result.Await = &await
+			break
+		}
+	}
 	if runErr != nil && result.Error == nil {
 		result.Error = &steps.StepError{Message: "child formula failed", Cause: runErr}
 	}

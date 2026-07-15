@@ -3,7 +3,7 @@ import { SwapOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
 import { formatDuration, statusIcon, statusLabel, statusTone } from '../../utils/status';
-import { executionEvents, executionInstances, executionInstanceStep, isActiveExecution } from '../../utils/execution';
+import { executionAddressLabel, executionEvents, executionFormulaLabel, executionInstances, executionInstanceStep, isActiveExecution } from '../../utils/execution';
 
 type TimelineFilter = 'current' | 'errors' | 'completed' | 'all';
 
@@ -77,11 +77,12 @@ export function ExecutionTimeline({ snapshot, onSelectStep }: { snapshot: Formul
                     <Tag color={statusTone[event.status] || 'default'} icon={statusIcon(event.status)}>{statusLabel(event.status)}</Tag>
                     <Tag bordered={false}>{event.type}</Tag>
                   </Space>
-                  <Typography.Text strong className="timeline-address">{event.instance_address || 'workflow'}</Typography.Text>
+					<Typography.Text strong className="timeline-address">{instance ? executionAddressLabel(instance) : event.instance_address || 'workflow'}</Typography.Text>
                   {event.title && <Typography.Text>{event.title}</Typography.Text>}
                   {event.detail && <Typography.Paragraph className="timeline-text">{event.detail}</Typography.Paragraph>}
                   <Flex gap={6} wrap="wrap">
                     {event.duration_ms ? <Tag>duration · {formatDuration(event.duration_ms)}</Tag> : null}
+					{instance?.formula_path?.length ? <Tag color="purple">formula · {executionFormulaLabel(instance)}</Tag> : null}
                     {(event.attempt || 0) > 1 ? <Tag color="purple">attempt · {event.attempt}</Tag> : null}
                     {event.session ? <Tag color="geekblue">session</Tag> : null}
                     {event.from_status ? <Tag>{event.from_status} → {event.status}</Tag> : null}

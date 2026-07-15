@@ -145,6 +145,29 @@ try {
     'execution address parser should support nested loops',
   );
 
+  const formulaSnapshot = {
+    recipe_name: 'formula-call', status: 'running', logs: [], edges: [],
+    steps: [{ id: 'implementation', title: 'Implementation', type: 'formula', execution: 'formula', formula: 'coding-implementation', status: 'running', index: 0 }],
+    execution_instances: [
+      {
+        address: 'implementation.formula(coding-implementation).plan',
+        path: [{ kind: 'step', id: 'implementation' }, { kind: 'formula', id: 'coding-implementation' }, { kind: 'step', id: 'plan' }],
+        definition_step_id: 'plan', formula_path: ['coding-implementation'], status: 'completed',
+      },
+      {
+        address: 'implementation.formula(coding-implementation).code',
+        path: [{ kind: 'step', id: 'implementation' }, { kind: 'formula', id: 'coding-implementation' }, { kind: 'step', id: 'code' }],
+        definition_step_id: 'code', formula_path: ['coding-implementation'], status: 'running',
+      },
+    ],
+  };
+  const formulaOverview = computeGraphData(formulaSnapshot, new Set());
+  assert.match(formulaOverview.nodes[0].data.step.metadata.execution_summary, /1 running.*1 completed/, 'FormulaCall overview node should aggregate child statuses');
+  const formulaLive = computeLiveGraphData(formulaSnapshot);
+  assert.ok(formulaLive.nodes.some(node => node.id === 'implementation'), 'live Formula graph should retain the FormulaCall parent');
+  assert.ok(formulaLive.nodes.some(node => node.id.endsWith('.code')), 'live Formula graph should show concrete child steps');
+  assert.ok(formulaLive.edges.some(edge => edge.source === 'implementation' && edge.target.endsWith('.code')), 'FormulaCall parent should connect visually to child runs');
+
   const nestedLoopStep = {
     id: 'outer',
     title: 'Outer loop',

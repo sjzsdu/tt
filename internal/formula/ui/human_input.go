@@ -8,4 +8,5 @@ import "github.com/sjzsdu/tt/internal/formula/spec"
 type HumanInputRequest struct {
 	Reason string         `json:"reason,omitempty"`
 	Form   *spec.FormSpec `json:"form,omitempty"`
+	StepID string         `json:"step_id,omitempty"`
 }

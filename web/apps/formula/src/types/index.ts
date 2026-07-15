@@ -110,6 +110,7 @@ export type FormulaFormSpec = {
 export type HumanInputRequest = {
   reason?: string;
   form?: FormulaFormSpec;
+  step_id?: string;
 };
 
 export type FormulaDashboardStep = {
@@ -134,6 +135,7 @@ export type FormulaDashboardStep = {
   input_ctx?: string[];
   var_refs?: string[];
   execution?: string;
+  formula?: string;
   condition?: string;
   metadata?: Record<string, string>;
   gate?: FormulaDashboardGate;

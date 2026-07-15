@@ -89,6 +89,7 @@ type Step struct {
 	OutputKey         string             `json:"output_key,omitempty"`
 	InputCtx          []string           `json:"input_ctx,omitempty"`
 	Execution         string             `json:"execution,omitempty"`
+	Formula           string             `json:"formula,omitempty"`
 	Condition         string             `json:"condition,omitempty"`
 	Metadata          map[string]string  `json:"metadata,omitempty"`
 	Gate              *Gate              `json:"gate,omitempty"`

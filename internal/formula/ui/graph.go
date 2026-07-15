@@ -122,6 +122,16 @@ func BuildWorkflowGraph(workflow *ir.Workflow) ([]Step, []Edge) {
 				request.Form = form
 			}
 			uiStep.HumanInputRequest = request
+		case steps.FormulaCallStep:
+			uiStep.Execution = string(steps.KindFormula)
+			uiStep.Formula = typed.Formula
+			uiStep.Description = fmt.Sprintf("Formula: %s", typed.Formula)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.With)
+		case *steps.FormulaCallStep:
+			uiStep.Execution = string(steps.KindFormula)
+			uiStep.Formula = typed.Formula
+			uiStep.Description = fmt.Sprintf("Formula: %s", typed.Formula)
+			uiStep.VarRefs = templateVarRefs(allowedVars, nil, typed.With)
 		case steps.LoopStep:
 			uiStep.VarRefs = templateVarRefs(allowedVars, localVarSet(typed.Var), typed.ForEach, typed.Until)
 			uiStep.Loop = BuildLoopFromStep(typed, allowedVars)

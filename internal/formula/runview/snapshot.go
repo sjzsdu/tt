@@ -19,6 +19,11 @@ func ResolveWaitingInputStepID(snapshot ui.Snapshot, stepID string) (string, err
 			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", resolvedStepID, step.Status)
 		}
 	}
+	for _, instance := range snapshot.ExecutionInstances {
+		if instance.Address == resolvedStepID && instance.Status != ui.StatusWaitingInput {
+			return "", fmt.Errorf("step %s is not waiting for input (status: %s)", resolvedStepID, instance.Status)
+		}
+	}
 	return resolvedStepID, nil
 }
 
@@ -27,19 +32,31 @@ func ResolveStepID(snapshot ui.Snapshot, stepID string) (string, error) {
 	if stepID == "" {
 		return "", fmt.Errorf("step id is required")
 	}
-	var matches []string
+	matches := map[string]struct{}{}
 	for _, step := range snapshot.Steps {
 		if step.ID == stepID || shortStepID(step.ID) == stepID || strings.HasSuffix(step.ID, "."+stepID) {
-			matches = append(matches, step.ID)
+			matches[step.ID] = struct{}{}
+		}
+	}
+	for _, instance := range snapshot.ExecutionInstances {
+		if instance.Address == stepID || shortStepID(instance.Address) == stepID || strings.HasSuffix(instance.Address, "."+stepID) {
+			matches[instance.Address] = struct{}{}
 		}
 	}
 	if len(matches) == 0 {
 		return "", fmt.Errorf("step %q not found in run", stepID)
 	}
 	if len(matches) > 1 {
-		return "", fmt.Errorf("step %q is ambiguous: %s", stepID, strings.Join(matches, ", "))
+		values := make([]string, 0, len(matches))
+		for match := range matches {
+			values = append(values, match)
+		}
+		return "", fmt.Errorf("step %q is ambiguous: %s", stepID, strings.Join(values, ", "))
 	}
-	return matches[0], nil
+	for match := range matches {
+		return match, nil
+	}
+	return "", fmt.Errorf("step %q not found in run", stepID)
 }
 
 func MarkStepCompletedWithOutput(snapshot *ui.Snapshot, stepID, output string) error {
@@ -58,6 +75,13 @@ func MarkStepCompletedWithOutput(snapshot *ui.Snapshot, stepID, output string) e
 		ui.RecordExecutionTransition(snapshot, ui.ExecutionTransition{Address: stepID, Title: snapshot.Steps[i].Title, Status: ui.StatusCompleted, Session: snapshot.Steps[i].Session, Detail: "Human input submitted", Output: output})
 		return nil
 	}
+	for _, instance := range snapshot.ExecutionInstances {
+		if instance.Address != stepID {
+			continue
+		}
+		ui.RecordExecutionTransition(snapshot, ui.ExecutionTransition{Address: stepID, Title: instance.Title, Status: ui.StatusCompleted, Session: instance.Session, Detail: "Human input submitted", Output: output})
+		return nil
+	}
 	return fmt.Errorf("step %q not found in snapshot", stepID)
 }
 
@@ -68,6 +92,7 @@ func BuildResumeState(snapshot ui.Snapshot) ([]ui.ResumeStepResult, map[string]s
 func BuildResumeStateExcluding(snapshot ui.Snapshot, exclude map[string]bool) ([]ui.ResumeStepResult, map[string]string) {
 	var results []ui.ResumeStepResult
 	ctx := map[string]string{}
+	seen := map[string]bool{}
 	for _, step := range snapshot.Steps {
 		if exclude != nil && exclude[step.ID] {
 			continue
@@ -77,8 +102,21 @@ func BuildResumeStateExcluding(snapshot ui.Snapshot, exclude map[string]bool) ([
 			continue
 		}
 		results = append(results, ui.ResumeStepResult{StepID: step.ID, Title: step.Title, Status: status, Output: step.Output, Error: step.Error})
+		seen[step.ID] = true
 		if step.Output != "" {
 			ctx[step.ID] = step.Output
+		}
+	}
+	for _, instance := range snapshot.ExecutionInstances {
+		if seen[instance.Address] || (exclude != nil && exclude[instance.Address]) {
+			continue
+		}
+		if instance.Status != ui.StatusCompleted && instance.Status != ui.StatusSkipped {
+			continue
+		}
+		results = append(results, ui.ResumeStepResult{StepID: instance.Address, Title: instance.Title, Status: instance.Status, Output: instance.Output, Error: instance.Error})
+		if instance.Output != "" {
+			ctx[instance.Address] = instance.Output
 		}
 	}
 	return results, ctx
