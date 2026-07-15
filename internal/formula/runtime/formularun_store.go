@@ -92,12 +92,16 @@ func (s *FormulaRunStateStore) AppendEvent(event Event) error {
 		return err
 	}
 	if s.Store != nil {
+		extra := map[string]any{"runtime_event": event.Type}
+		if len(event.Path.Segments) > 0 {
+			extra["execution_path"] = event.Path
+		}
 		_ = s.Store.AppendEvent(run.Event{
 			Type:   normalizeRuntimeEventType(event.Type),
 			At:     event.Time.Format(formularunTimeFormat),
 			StepID: string(event.NodeID),
 			Status: eventStatus(event),
-			Extra:  map[string]any{"runtime_event": event.Type},
+			Extra:  extra,
 		})
 	}
 	return s.persistSnapshot(event.WorkflowID)

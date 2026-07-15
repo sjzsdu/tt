@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sjzsdu/tt/internal/formula/executionpath"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
 )
@@ -12,6 +13,7 @@ import (
 type StepState struct {
 	WorkflowID  ir.WorkflowID
 	NodeID      ir.NodeID
+	Path        executionpath.Path
 	Status      steps.Status
 	Result      *steps.RunResult
 	StartedAt   time.Time
@@ -135,6 +137,7 @@ func (s *MemoryStateStore) Snapshot(id ir.WorkflowID) (Snapshot, error) {
 	defer s.mu.RUnlock()
 	stepsCopy := map[ir.NodeID]StepState{}
 	for nodeID, state := range s.steps[id] {
+		state.Path.Segments = append([]executionpath.Segment(nil), state.Path.Segments...)
 		stepsCopy[nodeID] = state
 	}
 	eventsCopy := append([]Event(nil), s.events[id]...)

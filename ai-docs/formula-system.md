@@ -137,6 +137,21 @@ flowchart TD
 
 每个 node 持有一个 `steps.Step` 接口实例，而不是旧的扁平任务结构。
 
+### 结构化执行路径
+
+具体运行实例除兼容字符串 `address` 外，还携带结构化 execution path：
+
+```text
+step(review) / iteration(2) / step(check)
+step(implementation) / formula(coding) / step(review)
+```
+
+path segment 的 kind 为 `step` / `iteration` / `formula`。旧的
+`review.iter2.check` 地址继续保留并可无损解析，因此已有 run artifact、dashboard
+链接和 session key 不需要迁移。Runtime `StepState` 与 `Event` 都保存结构化 path；
+loop body 的具体运行实例也会进入 StateStore，不再只存在于事件日志中。后续
+FormulaCall 复用同一 path 模型表达调用层级。
+
 ### 运行变量来源与默认 vars 文件
 
 `tt formula run` 的变量合并顺序是：

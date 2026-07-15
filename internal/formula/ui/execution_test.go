@@ -35,6 +35,9 @@ func TestRecordExecutionTransitionPreservesImmutableHistory(t *testing.T) {
 	if snapshot.ExecutionEvents[0].Status != StatusRunning || snapshot.ExecutionEvents[1].FromStatus != StatusRunning {
 		t.Fatalf("events = %+v", snapshot.ExecutionEvents)
 	}
+	if len(instance.Path) != 3 || instance.Path[1].Kind != "iteration" || instance.Path[1].Index != 2 {
+		t.Fatalf("structured path = %+v", instance.Path)
+	}
 }
 
 func TestRecordExecutionTransitionIncrementsAttemptAfterTerminalState(t *testing.T) {

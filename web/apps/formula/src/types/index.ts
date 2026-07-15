@@ -16,10 +16,18 @@ export type FormulaStepActivity = {
   duration_ms?: number;
 };
 
+export type FormulaExecutionPathSegment = {
+  kind: 'step' | 'formula' | 'iteration' | string;
+  id?: string;
+  index?: number;
+};
+
 export type FormulaExecutionInstance = {
   address: string;
+  path?: FormulaExecutionPathSegment[];
   definition_step_id: string;
   parent_loop_id?: string;
+  formula_path?: string[];
   body_step_id?: string;
   iteration_path?: number[];
   title?: string;
@@ -39,8 +47,10 @@ export type FormulaExecutionEvent = {
   id: string;
   at: string;
   instance_address?: string;
+  path?: FormulaExecutionPathSegment[];
   definition_step_id?: string;
   parent_loop_id?: string;
+  formula_path?: string[];
   type: string;
   from_status?: string;
   status: string;

@@ -20,6 +20,16 @@ export function parseExecutionAddress(address: string) {
   };
 }
 
+function executionPathMetadata(instance: FormulaExecutionInstance) {
+  if (!instance.path?.length) return {};
+  return {
+    execution_path: instance.path.map(segment => segment.kind === 'iteration'
+      ? `iter:${segment.index}`
+      : `${segment.kind}:${segment.id || ''}`).join(' / '),
+    formula_path: instance.formula_path?.join(' / ') || '',
+  };
+}
+
 export function iterationLabel(path?: number[]) {
   if (!path?.length) return '';
   return path.map((value, index) => `${index ? 'nested ' : ''}iter ${value}`).join(' / ');
@@ -144,6 +154,7 @@ export function executionInstanceStep(instance: FormulaExecutionInstance, snapsh
     execution: parent?.execution,
     metadata: {
       ...(parent?.metadata || {}),
+      ...executionPathMetadata(instance),
       runtime_address: instance.address,
       parent_loop: instance.parent_loop_id || '',
       iteration: iterationLabel(instance.iteration_path),

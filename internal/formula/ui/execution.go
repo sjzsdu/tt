@@ -2,11 +2,11 @@ package ui
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sjzsdu/tt/internal/formula/executionpath"
 )
 
 const (
@@ -16,46 +16,48 @@ const (
 	maxExecutionDetail    = 4096
 )
 
-var loopIterationPattern = regexp.MustCompile(`\.iter(\d+)\.`)
-
 // ExecutionInstance is one concrete runtime address. Top-level steps have an
 // address equal to their definition ID; loop bodies use parent.iterN.body.
 type ExecutionInstance struct {
-	Address          string `json:"address"`
-	DefinitionStepID string `json:"definition_step_id"`
-	ParentLoopID     string `json:"parent_loop_id,omitempty"`
-	BodyStepID       string `json:"body_step_id,omitempty"`
-	IterationPath    []int  `json:"iteration_path,omitempty"`
-	Title            string `json:"title,omitempty"`
-	Status           string `json:"status"`
-	Attempt          int    `json:"attempt,omitempty"`
-	StartedAt        string `json:"started_at,omitempty"`
-	FinishedAt       string `json:"finished_at,omitempty"`
-	UpdatedAt        string `json:"updated_at,omitempty"`
-	DurationMS       int64  `json:"duration_ms,omitempty"`
-	Session          string `json:"session,omitempty"`
-	Detail           string `json:"detail,omitempty"`
-	Output           string `json:"output,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Address          string                  `json:"address"`
+	Path             []executionpath.Segment `json:"path,omitempty"`
+	DefinitionStepID string                  `json:"definition_step_id"`
+	ParentLoopID     string                  `json:"parent_loop_id,omitempty"`
+	FormulaPath      []string                `json:"formula_path,omitempty"`
+	BodyStepID       string                  `json:"body_step_id,omitempty"`
+	IterationPath    []int                   `json:"iteration_path,omitempty"`
+	Title            string                  `json:"title,omitempty"`
+	Status           string                  `json:"status"`
+	Attempt          int                     `json:"attempt,omitempty"`
+	StartedAt        string                  `json:"started_at,omitempty"`
+	FinishedAt       string                  `json:"finished_at,omitempty"`
+	UpdatedAt        string                  `json:"updated_at,omitempty"`
+	DurationMS       int64                   `json:"duration_ms,omitempty"`
+	Session          string                  `json:"session,omitempty"`
+	Detail           string                  `json:"detail,omitempty"`
+	Output           string                  `json:"output,omitempty"`
+	Error            string                  `json:"error,omitempty"`
 }
 
 // ExecutionEvent is immutable event-time history. It intentionally records
 // the status at the transition rather than relying on a step's current state.
 type ExecutionEvent struct {
-	ID               string `json:"id"`
-	At               string `json:"at"`
-	InstanceAddress  string `json:"instance_address,omitempty"`
-	DefinitionStepID string `json:"definition_step_id,omitempty"`
-	ParentLoopID     string `json:"parent_loop_id,omitempty"`
-	Type             string `json:"type"`
-	FromStatus       string `json:"from_status,omitempty"`
-	Status           string `json:"status"`
-	Attempt          int    `json:"attempt,omitempty"`
-	Title            string `json:"title,omitempty"`
-	Detail           string `json:"detail,omitempty"`
-	DurationMS       int64  `json:"duration_ms,omitempty"`
-	Session          string `json:"session,omitempty"`
-	Error            string `json:"error,omitempty"`
+	ID               string                  `json:"id"`
+	At               string                  `json:"at"`
+	InstanceAddress  string                  `json:"instance_address,omitempty"`
+	Path             []executionpath.Segment `json:"path,omitempty"`
+	DefinitionStepID string                  `json:"definition_step_id,omitempty"`
+	ParentLoopID     string                  `json:"parent_loop_id,omitempty"`
+	FormulaPath      []string                `json:"formula_path,omitempty"`
+	Type             string                  `json:"type"`
+	FromStatus       string                  `json:"from_status,omitempty"`
+	Status           string                  `json:"status"`
+	Attempt          int                     `json:"attempt,omitempty"`
+	Title            string                  `json:"title,omitempty"`
+	Detail           string                  `json:"detail,omitempty"`
+	DurationMS       int64                   `json:"duration_ms,omitempty"`
+	Session          string                  `json:"session,omitempty"`
+	Error            string                  `json:"error,omitempty"`
 }
 
 type ExecutionTransition struct {
@@ -71,18 +73,12 @@ type ExecutionTransition struct {
 }
 
 func ParseExecutionAddress(address string) (parentLoopID string, iterationPath []int, bodyStepID string) {
-	matches := loopIterationPattern.FindAllStringSubmatchIndex(address, -1)
-	if len(matches) == 0 {
+	path := executionpath.Parse(address)
+	iterationPath = path.IterationPath()
+	if len(iterationPath) == 0 {
 		return "", nil, ""
 	}
-	parentLoopID = address[:matches[0][0]]
-	for _, match := range matches {
-		if value, err := strconv.Atoi(address[match[2]:match[3]]); err == nil {
-			iterationPath = append(iterationPath, value)
-		}
-	}
-	bodyStepID = address[matches[len(matches)-1][1]:]
-	return parentLoopID, iterationPath, bodyStepID
+	return path.ParentLoopID(), iterationPath, path.DefinitionStepID()
 }
 
 func RecordExecutionTransition(snapshot *Snapshot, transition ExecutionTransition) {
@@ -93,7 +89,9 @@ func RecordExecutionTransition(snapshot *Snapshot, transition ExecutionTransitio
 	if now.IsZero() {
 		now = time.Now()
 	}
+	path := executionpath.Parse(transition.Address)
 	parentLoopID, iterationPath, bodyStepID := ParseExecutionAddress(transition.Address)
+	formulaPath := path.FormulaPath()
 	definitionStepID := transition.Address
 	if bodyStepID != "" {
 		definitionStepID = bodyStepID
@@ -109,9 +107,9 @@ func RecordExecutionTransition(snapshot *Snapshot, transition ExecutionTransitio
 	previousStatus := ""
 	if index < 0 {
 		snapshot.ExecutionInstances = append(snapshot.ExecutionInstances, ExecutionInstance{
-			Address: transition.Address, DefinitionStepID: definitionStepID,
+			Address: transition.Address, Path: append([]executionpath.Segment(nil), path.Segments...), DefinitionStepID: definitionStepID,
 			ParentLoopID: parentLoopID, BodyStepID: bodyStepID,
-			IterationPath: append([]int(nil), iterationPath...),
+			FormulaPath: append([]string(nil), formulaPath...), IterationPath: append([]int(nil), iterationPath...),
 		})
 		index = len(snapshot.ExecutionInstances) - 1
 	}
@@ -152,9 +150,10 @@ func RecordExecutionTransition(snapshot *Snapshot, transition ExecutionTransitio
 	eventType := executionEventType(transition.Status)
 	snapshot.ExecutionEvents = append(snapshot.ExecutionEvents, ExecutionEvent{
 		ID: fmt.Sprintf("%d-%d", now.UnixNano(), len(snapshot.ExecutionEvents)),
-		At: now.Format(time.RFC3339Nano), InstanceAddress: transition.Address,
+		At: now.Format(time.RFC3339Nano), InstanceAddress: transition.Address, Path: append([]executionpath.Segment(nil), path.Segments...),
 		DefinitionStepID: definitionStepID, ParentLoopID: parentLoopID,
-		Type: eventType, FromStatus: previousStatus, Status: transition.Status,
+		FormulaPath: append([]string(nil), formulaPath...),
+		Type:        eventType, FromStatus: previousStatus, Status: transition.Status,
 		Attempt: instance.Attempt,
 		Title:   instance.Title, Detail: instance.Detail, DurationMS: instance.DurationMS,
 		Session: instance.Session, Error: instance.Error,
