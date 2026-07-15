@@ -1,7 +1,7 @@
 formula = "keep-coding"
 aliases = ["keep-coding"]
 title = "持续处理 Beads"
-description = "循环执行 bead-coding：每轮选择一个 ready bead 树，内嵌无交互 coding 完成实现与验证，再提交并关闭，最后输出持续编码报告。"
+description = "循环调用 bead-coding：每轮选择一个 ready bead 树，完成实现、验证、提交与关闭，最后输出持续编码报告。"
 version = 1
 type = "workflow"
 category = "workflow"
@@ -79,13 +79,16 @@ until = "cycle-note.selected == false"
 [[steps.loop.body]]
 id = "run-bead-coding"
 title = "处理一个 ready bead"
-embed = "bead-coding"
+execution = "formula"
+formula = "bead-coding"
 
-[steps.loop.body.embed_vars]
+[steps.loop.body.with]
 bead_id = ""
 goal = "{{goal}}"
 workspace_path = "{{workspace_path}}"
 validation_command = "{{validation_command}}"
+external_driver = "{{external_driver}}"
+external_model = "{{external_model}}"
 close_on_success = "{{close_on_success}}"
 ready_limit = "{{ready_limit}}"
 exclude_bead_file = "{{skip_file}}"
@@ -133,14 +136,14 @@ format = "json"
 timeout = "10s"
 
 [steps.loop.body.script.env]
-SELECTED_IN = "{{run-bead-coding.cycle-summary.selected}}"
-BEAD_ID = "{{run-bead-coding.cycle-summary.bead_id}}"
-STATUS = "{{run-bead-coding.cycle-summary.status}}"
-COMMITTED = "{{run-bead-coding.cycle-summary.committed}}"
-COMMIT_HASH = "{{run-bead-coding.cycle-summary.commit_hash}}"
-CLOSED = "{{run-bead-coding.cycle-summary.closed}}"
-SUMMARY = "{{run-bead-coding.cycle-summary.summary}}"
-NEXT_ACTION = "{{run-bead-coding.cycle-summary.next_action}}"
+SELECTED_IN = "{{run-bead-coding.cycle_summary.selected}}"
+BEAD_ID = "{{run-bead-coding.cycle_summary.bead_id}}"
+STATUS = "{{run-bead-coding.cycle_summary.status}}"
+COMMITTED = "{{run-bead-coding.cycle_summary.committed}}"
+COMMIT_HASH = "{{run-bead-coding.cycle_summary.commit_hash}}"
+CLOSED = "{{run-bead-coding.cycle_summary.closed}}"
+SUMMARY = "{{run-bead-coding.cycle_summary.summary}}"
+NEXT_ACTION = "{{run-bead-coding.cycle_summary.next_action}}"
 
 	[steps.loop.body.validate]
 	format = "json"

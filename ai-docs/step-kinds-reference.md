@@ -323,6 +323,9 @@ create = true
 - `expand` —— 在 `template` 段中按条件生成 steps；`expand_vars` 控制哪些变量被注入新步骤。
 
 二者都仅在解析/编译阶段生效，runtime 不再识别为独立 step kind。
+`embed` 只应用于调用方必须把子图并入自身图、读取内部 step 输出，或复用 atomic
+实现片段的场景。能够用稳定公开 outputs 表达边界时，应改用 `execution = "formula"`；
+这样子 Formula 可以独立演进、恢复和展示，调用方只依赖命名端口。
 
 ## 上下文模板与条件
 

@@ -50,11 +50,11 @@
 
 | 公式 | 适用场景 | 关键能力 |
 | --- | --- | --- |
-| `coding` | 兼容编码入口：需求计划 → 编码实现 → 总报告 | 编排 `coding-requirement` 和 `coding-implementation`；保持原 `coding` / `coder` 入口可用；全程无动态表单 |
+| `coding` | 统一编码入口：需求计划 → 编码实现 → 总报告 | 以 FormulaCall 编排 `coding-requirement` 和 `coding-implementation`，父子层只通过公开 inputs/outputs 交互；保持原 `coding` / `coder` 入口可用；全程无动态表单 |
 | `coding-requirement` | 单独完成无交互需求理解、计划和需求评审 | 输出可执行计划、验收标准、影响范围、风险和测试计划；信息不足时用 assumptions 继续推进 |
 | `coding-implementation` | 基于已收敛需求计划完成实现、代码评审和验证 | 执行实现、代码评审循环和 `run-validation`；不负责 commit |
-| `bead-coding` | 执行单个 ready bead 树：读取 bead 详情和依赖，内嵌无交互 `coding` 完成实现与验证，再提交并按需关闭 bead | 自动选择 ready bead 或使用指定 `bead_id`；读取 `bd dep tree` 上下游；提交成功后可 `bd close` |
-| `keep-coding` | 持续处理 ready beads：循环调用 `bead-coding`，每轮通过内嵌 `coding` 完成一个 bead 树的实现、验证、提交和关闭 | 第一层是 runtime loop，第二层是 Markdown final report；通过 `max_cycles` 控制轮数，适合持续清理 beads backlog |
+| `bead-coding` | 执行单个 ready bead 树：读取 bead 详情和依赖，通过 FormulaCall 调用无交互 `coding` 完成实现与验证，再提交并按需关闭 bead | 公开 `cycle_summary` 与 Markdown `report`；自动选择 ready bead 或使用指定 `bead_id`；提交成功后可 `bd close` |
+| `keep-coding` | 持续处理 ready beads：runtime loop 每轮以 FormulaCall 调用 `bead-coding`，完成一个 bead 树的实现、验证、提交和关闭 | 循环只读取公开 `cycle_summary`，不依赖 bead-coding 内部 step；通过 `max_cycles` 控制轮数 |
 | `requirement-discovery` | 需求发现与澄清入口 | 面向 coding 目录的需求探索辅助 formula |
 
 ### docs / 学习
@@ -69,7 +69,7 @@
 
 | 公式 | 适用场景 | 关键能力 |
 | --- | --- | --- |
-| `jira-bug-fix` | 从 Jira ticket 直接拉数据并嵌套 `bug-fix` | `[preflight]` 校验 `jira` CLI；第一步用 `script` step 调 `jira issue view --comments 20 --raw` 取结构化数据 |
+| `jira-bug-fix` / `jira-feature` | 从 Jira ticket 拉取数据并以 FormulaCall 调用 `bug-fix` / `feature` | `[preflight]` 校验 `jira` CLI；父 Formula 只消费子 Formula 的公开 `report`，不读取内部 step |
 
 ### examples
 
@@ -124,7 +124,7 @@ Atomic 是当前 builtin formula 通过 `embed = "..."` 复用的最小原子步
 | schedule 触发 | `tt formula schedule`（CLI 与 tests 在 `cmd/formula/formula_schedule_test.go`） | 可直接复用 every / cron / run-now / max-runs 这些已有触发语义，作为未来多 run 场景的“启动条件” | schedule 只负责决定何时启动新 run，不提供跨 run 聚合观察或批次管理 |
 | worktree 隔离工作区 | `gongbu`、`github-pr-rebase-main` | 可直接复用 run 级隔离 workspace、自动 cleanup、agent/script 在独立目录中执行的约束 | 不能替代多个 run 之间的资源池、批量 worktree 总览或跨 run 资源编排 |
 | resume / human input | `bug-fix` 的动态澄清入口；runtime/CLI 对 human input 与 resume 的支持 | 可复用等待态、人类补充输入后继续执行、失败后 resume 等单 run 生命周期能力 | 仍围绕单个 run snapshot 设计，不能直接回答“多个 run 谁在等人、如何统一提交输入” |
-| 嵌套 formula / 复用公式 | `github-pr-fix-comments` → `bug-fix`、`keep-coding` → `bead-coding` | 证明当前已经有“一个公式驱动另一个公式”的真实样例，可供后续 bead 提炼最小验证矩阵 | 复用的是执行拼图，不是多 run 监控/聚合平面 |
+| 嵌套 formula / 复用公式 | `coding` → `coding-requirement` / `coding-implementation`、`keep-coding` → `bead-coding` | 证明 FormulaCall 能在普通节点和 runtime loop 中通过公开 map 契约递归编排，并保留独立层级状态 | 每个 FormulaCall 仍属于同一个顶层 run，不是跨 run 调度平面 |
 
 ### 建议优先深挖的测试 / 样例入口
 

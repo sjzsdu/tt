@@ -56,6 +56,23 @@ workspace_path = { description = "可选执行工作区路径；为空时使用 
 driver = { description = "外部 agent driver：codex/jcode/opencode/forge/bl。默认 codex；运行时也可用 --ext-driver 覆盖未声明 driver 的步骤。", default = "codex", enum = ["codex", "jcode", "opencode", "forge", "bl"] }
 model = { description = "外部 agent model，可留空使用 CLI 默认值", default = "" }
 
+[outputs.plan]
+from = "plan-requirement"
+type = "json"
+required = true
+description = "初始需求计划"
+
+[outputs.revision]
+from = "plan-revision"
+type = "json"
+description = "评审后的最新计划修订；未发生修订时省略"
+
+[outputs.review]
+from = "plan-review"
+type = "json"
+required = true
+description = "最终需求评审结论"
+
 [[steps]]
 id = "plan-requirement"
 title = "需求计划"

@@ -1,5 +1,5 @@
 formula = "jira-feature"
-description = "获取 Jira ticket 与最新评论后，直接用 typed runtime 内嵌 feature workflow 理解需求、调研代码、实现功能并输出交付报告。"
+description = "获取 Jira ticket 与最新评论后，通过 FormulaCall 调用 feature workflow 理解需求、调研代码、实现功能并输出交付报告。"
 version = 1
 type = "workflow"
 
@@ -28,12 +28,13 @@ timeout = "30s"
 
 [[steps]]
 id = "run-feature"
-title = "内嵌 feature workflow 处理 ticket"
+title = "调用 feature workflow 处理 ticket"
 depends_on = ["fetch-ticket-data"]
 input_context = ["fetch-ticket-data"]
-embed = "feature"
+execution = "formula"
+formula = "feature"
 
-[steps.embed_vars]
+[steps.with]
 feature_request = """
 Jira ticket {{ticket_key}} 的原始内容与最新评论如下。请把它作为 feature 需求来源：先理解业务目标、用户价值、验收标准、边界和必要假设；如果 ticket 信息不足以安全实现，可以在 feature workflow 的 understand-requirement 步骤动态澄清；信息足够时继续做代码调研、实施计划、编码、验证和影响评估。
 
@@ -46,7 +47,7 @@ validation_command = "{{validation_command}}"
 id = "final-report"
 title = "输出 Jira feature 交付报告"
 depends_on = ["run-feature"]
-input_context = ["fetch-ticket-data", "run-feature"]
+input_context = ["fetch-ticket-data", "run-feature.report"]
 description = """
 面向用户输出简明中文 Markdown 报告。
 
