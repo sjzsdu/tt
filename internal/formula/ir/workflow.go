@@ -56,3 +56,20 @@ func (g *Graph) AddNode(node *Node) {
 func (g *Graph) AddEdge(from, to NodeID, typ string) {
 	g.Edges = append(g.Edges, Edge{From: from, To: to, Type: typ})
 }
+
+// ApplyOutputConventions supplies the stable public report port used by
+// reusable Formulas while allowing an explicit declaration to override it.
+func ApplyOutputConventions(workflow *Workflow) {
+	if workflow == nil {
+		return
+	}
+	if workflow.Outputs == nil {
+		workflow.Outputs = map[string]OutputSchema{}
+	}
+	if _, declared := workflow.Outputs[steps.OutputReport]; declared {
+		return
+	}
+	if _, hasFinalReport := workflow.Graph.Nodes["final-report"]; hasFinalReport {
+		workflow.Outputs[steps.OutputReport] = OutputSchema{From: "final-report", Type: "markdown", Required: true, Description: "Human-readable final Formula report"}
+	}
+}

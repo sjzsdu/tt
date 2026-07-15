@@ -1314,6 +1314,7 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			if res == nil {
 				res = &RunResult{}
 			}
+			res.NormalizeOutputs()
 			if err != nil || res.Status == StatusFailed {
 				if req.Emit != nil {
 					req.Emit(childNodeID, "step.failed", res)
@@ -1331,11 +1332,9 @@ func (s LoopStep) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			if req.Emit != nil {
 				req.Emit(childNodeID, "step.completed", res)
 			}
-			if len(res.Output.Raw) > 0 {
-				last = res.Output
-				if req.Outputs != nil {
-					_ = req.Outputs.Set(string(child.Meta().ID), res.Output)
-				}
+			if primary, ok := res.PrimaryOutput(); ok {
+				last = primary
+				writeStepOutputs(req.Outputs, string(child.Meta().ID), res)
 			}
 		}
 		if strings.TrimSpace(s.Until) != "" && stepConditionMatches(s.Until, req.Context) {
@@ -1381,7 +1380,7 @@ func normalizeExternalAgentStepJSONText(step Step, res *RunResult) {
 		if err != nil {
 			return
 		}
-		res.Output = Value{Type: "json", Raw: data}
+		res.SetPrimaryOutput(Value{Type: "json", Raw: data})
 		return
 	}
 }
@@ -1576,6 +1575,7 @@ func loopIterationRequest(req RunRequest, iteration int, item any, varName strin
 	_ = store.Set(varName, Value{Type: "json", Raw: itemRaw})
 	req.Context = store
 	req.Outputs = store
+	req.Inputs = nil
 	return req, nil
 }
 
@@ -1756,6 +1756,7 @@ func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int
 		if res == nil {
 			res = &RunResult{}
 		}
+		res.NormalizeOutputs()
 		if err != nil || res.Status == StatusFailed {
 			if req.Emit != nil {
 				req.Emit(childNodeID, "step.failed", res)
@@ -1772,11 +1773,9 @@ func (s LoopStep) runBodyOnce(ctx context.Context, req RunRequest, iteration int
 		if req.Emit != nil {
 			req.Emit(childNodeID, "step.completed", res)
 		}
-		if len(res.Output.Raw) > 0 {
-			last = res.Output
-			if req.Outputs != nil {
-				_ = req.Outputs.Set(string(child.Meta().ID), res.Output)
-			}
+		if primary, ok := res.PrimaryOutput(); ok {
+			last = primary
+			writeStepOutputs(req.Outputs, string(child.Meta().ID), res)
 		}
 	}
 	return last, nil, nil
@@ -1794,7 +1793,22 @@ func normalizeScriptStepJSONStdout(step Step, res *RunResult) {
 	if !ok {
 		return
 	}
-	res.Output = Value{Type: "json", Raw: normalized}
+	res.SetPrimaryOutput(Value{Type: "json", Raw: normalized})
+}
+
+func writeStepOutputs(sink OutputSink, key string, result *RunResult) {
+	if sink == nil || result == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	result.NormalizeOutputs()
+	for name, value := range result.Outputs {
+		if strings.TrimSpace(name) != "" && len(value.Raw) > 0 {
+			_ = sink.Set(key+"."+name, value)
+		}
+	}
+	if primary, ok := result.PrimaryOutput(); ok {
+		_ = sink.Set(key, primary)
+	}
 }
 
 func scriptStepFromStep(step Step) (ScriptStep, bool) {

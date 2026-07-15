@@ -171,7 +171,8 @@ project_context = "repo={{env.git.repo}}"
 要点：
 
 - `[steps.with]` 是显式输入映射；完整的 `{{context.path}}` 会保留原始 JSON 类型，混合文本模板会得到字符串。
-- step 输出是子 Formula 所有公开 outputs 组成的 JSON 对象，因此可用 `implementation.<output-name>` 访问。
+- step 直接返回子 Formula 的公开 outputs map，不再额外包一层特殊 JSON；可用 `implementation.<output-name>` 访问。
+- `report` 是约定的人类可读 Markdown 主输出。若子 Formula 有顶层 `final-report` 且没有显式声明，编译器会自动生成 `outputs.report`。
 - 子步骤状态写入父 run 的 StateStore，地址形如 `implementation.formula(coding-implementation).plan`。
 - 子 Formula 的 waiting、失败和取消会传播到 FormulaCall；恢复父 run 时，已经完成的子步骤会从同一状态存储中恢复。
 - runtime 会拒绝直接或间接递归 Formula 调用，并限制最大嵌套深度。

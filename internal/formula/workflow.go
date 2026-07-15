@@ -111,6 +111,7 @@ func WorkflowFromFormula(f *spec.Formula) *ir.Workflow {
 	for _, step := range f.Steps {
 		addFormulaStepToWorkflow(wf, step, sourceDir)
 	}
+	ir.ApplyOutputConventions(wf)
 	return wf
 }
 

@@ -555,10 +555,12 @@ func finalOutputFromRunResult(workflow *ir.Workflow, result *formularuntime.RunR
 	}
 	for i := len(order) - 1; i >= 0; i-- {
 		res := result.Nodes[order[i]]
-		if res == nil || res.Status != steps.StatusCompleted || len(res.Output.Raw) == 0 {
+		if res == nil || res.Status != steps.StatusCompleted {
 			continue
 		}
-		return runtimeEventOutput(res)
+		if output := runtimeEventOutput(res); output != "" {
+			return output
+		}
 	}
 	return ""
 }
@@ -596,14 +598,19 @@ func loopBodyEventDetails(workflow *ir.Workflow, nodeID string) (title, agent, m
 
 func runtimeEventOutput(payload any) string {
 	result, ok := payload.(*steps.RunResult)
-	if !ok || result == nil || len(result.Output.Raw) == 0 {
+	if !ok || result == nil {
+		return ""
+	}
+	result.NormalizeOutputs()
+	output, ok := result.PrimaryOutput()
+	if !ok {
 		return ""
 	}
 	var text string
-	if err := json.Unmarshal(result.Output.Raw, &text); err == nil {
+	if err := json.Unmarshal(output.Raw, &text); err == nil {
 		return text
 	}
-	return string(result.Output.Raw)
+	return string(output.Raw)
 }
 
 func runtimeEventError(payload any) string {

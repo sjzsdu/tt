@@ -44,12 +44,26 @@ func TestFormulaCallStepPreservesTypedInputAndCollectsOutputs(t *testing.T) {
 	if err := json.Unmarshal(runner.request.Inputs["label"].Raw, &label); err != nil || label != "item=demo" {
 		t.Fatalf("label = %q, err = %v", label, err)
 	}
-	var output map[string]any
-	if err := json.Unmarshal(result.Output.Raw, &output); err != nil {
+	if got := string(result.Outputs["summary"].Raw); got != `{"ok":true}` {
+		t.Fatalf("summary output = %s", got)
+	}
+}
+
+func TestFormulaCallStepUsesReportAsPrimaryOutput(t *testing.T) {
+	runner := &recordingWorkflowRunner{result: &WorkflowResult{Status: StatusCompleted, Outputs: map[string]Value{
+		"data":   {Type: "json", Raw: json.RawMessage(`{"count":2}`)},
+		"report": {Type: "markdown", Raw: json.RawMessage(`"# Final report"`)},
+	}}}
+	step := FormulaCallStep{Base: Base{Metadata: Metadata{ID: "call", Kind: KindFormula}}, Formula: "child"}
+	result, err := step.Run(context.Background(), RunRequest{Capabilities: Capabilities{Workflows: runner}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if summary, ok := output["summary"].(map[string]any); !ok || summary["ok"] != true {
-		t.Fatalf("output = %#v", output)
+	if got := string(result.Output.Raw); got != `"# Final report"` {
+		t.Fatalf("primary output = %s", got)
+	}
+	if len(result.Outputs) != 2 {
+		t.Fatalf("outputs = %#v", result.Outputs)
 	}
 }
 
