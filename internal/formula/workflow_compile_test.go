@@ -120,3 +120,34 @@ extra_args = ["--sandbox", "read-only"]
 		t.Fatalf("input ctx = %#v", step.InputCtx)
 	}
 }
+
+func TestCompileWorkflowFormulaCallStep(t *testing.T) {
+	wf, err := CompileWorkflow("parent.toml", []byte(`formula = "parent"
+version = 1
+type = "workflow"
+
+[[steps]]
+id = "implementation"
+title = "Implement"
+execution = "formula"
+formula = "coding-implementation"
+output_key = "implementation_result"
+
+[steps.with]
+requirement = "{{requirement}}"
+context = "project={{project.name}}"
+`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, ok := wf.Graph.Nodes["implementation"].Step.(steps.FormulaCallStep)
+	if !ok {
+		t.Fatalf("step type = %T", wf.Graph.Nodes["implementation"].Step)
+	}
+	if step.Meta().Kind != steps.KindFormula || step.Formula != "coding-implementation" || step.OutputKey != "implementation_result" {
+		t.Fatalf("formula step = %+v", step)
+	}
+	if step.With["requirement"] != "{{requirement}}" || step.With["context"] != "project={{project.name}}" {
+		t.Fatalf("with = %#v", step.With)
+	}
+}

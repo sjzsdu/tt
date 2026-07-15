@@ -25,6 +25,7 @@ const (
 	KindAggregate     Kind = "aggregate"
 	KindWriteFiles    Kind = "write_files"
 	KindExternalAgent Kind = "external_agent"
+	KindFormula       Kind = "formula"
 )
 
 type ID string
@@ -177,7 +178,29 @@ type Capabilities struct {
 	Agents         AgentRunner
 	Scripts        ScriptRunner
 	ExternalAgents ExternalAgentRunner
+	Workflows      WorkflowRunner
 	Clock          Clock
+}
+
+// WorkflowRunner executes a Formula as a composite step. It deliberately
+// lives in the steps package so FormulaCallStep does not depend on the runtime
+// or IR packages.
+type WorkflowRunner interface {
+	RunWorkflow(context.Context, WorkflowRequest) (*WorkflowResult, error)
+}
+
+type WorkflowRequest struct {
+	RunID   string
+	NodeID  string
+	Formula string
+	Inputs  map[string]Value
+}
+
+type WorkflowResult struct {
+	Status  Status
+	Outputs map[string]Value
+	Await   *AwaitRequest
+	Error   *StepError
 }
 
 type AgentRunner interface {

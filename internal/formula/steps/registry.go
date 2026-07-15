@@ -62,6 +62,7 @@ func NewDefaultRegistry() *Registry {
 		LoopDecoder{},
 		RetryDecoder{},
 		ExternalAgentDecoder{},
+		FormulaCallDecoder{},
 	} {
 		_ = r.RegisterDecoder(decoder)
 	}

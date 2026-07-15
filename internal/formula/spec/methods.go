@@ -177,6 +177,7 @@ func (f *Formula) Validate() error {
 				errs = append(errs, fmt.Sprintf("%s (%s): embed cannot be combined with agent/script/form", prefix, step.ID))
 			}
 		}
+		validateFormulaCallStep(step, &errs, prefix)
 
 		if step.Priority != nil && (*step.Priority < 0 || *step.Priority > 4) {
 			errs = append(errs, fmt.Sprintf("%s (%s): priority must be 0-4", prefix, step.ID))
@@ -417,6 +418,7 @@ func collectChildIDs(children []*Step, idLocations map[string]string, errs *[]st
 				*errs = append(*errs, fmt.Sprintf("%s (%s): embed cannot be combined with agent/script/form", childPrefix, child.ID))
 			}
 		}
+		validateFormulaCallStep(child, errs, childPrefix)
 
 		if child.Priority != nil && (*child.Priority < 0 || *child.Priority > 4) {
 			*errs = append(*errs, fmt.Sprintf("%s (%s): priority must be 0-4", childPrefix, child.ID))
@@ -432,6 +434,18 @@ func collectChildIDs(children []*Step, idLocations map[string]string, errs *[]st
 		}
 
 		collectChildIDs(child.Children, idLocations, errs, childPrefix)
+	}
+}
+
+func validateFormulaCallStep(step *Step, errs *[]string, prefix string) {
+	if step == nil || !strings.EqualFold(strings.TrimSpace(step.Execution), "formula") {
+		return
+	}
+	if strings.TrimSpace(step.Formula) == "" {
+		*errs = append(*errs, fmt.Sprintf("%s (%s): execution=formula requires formula", prefix, step.ID))
+	}
+	if step.Embed != "" || step.Expand != "" || step.Loop != nil || len(step.Children) > 0 || step.Agent != nil || step.Script != nil || step.ExternalAgent != nil || step.Form != nil {
+		*errs = append(*errs, fmt.Sprintf("%s (%s): formula cannot be combined with embed/expand/loop/children/agent/script/external_agent/form", prefix, step.ID))
 	}
 }
 

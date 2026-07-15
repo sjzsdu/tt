@@ -104,6 +104,23 @@ func (e *Executor) SeedVars(vars map[string]string) {
 	}
 }
 
+// SeedValues preserves typed JSON values when binding parent context into a
+// child FormulaCall. Unlike SeedVars it does not stringify objects or arrays.
+func (e *Executor) SeedValues(values map[string]steps.Value) {
+	if e == nil || len(values) == 0 {
+		return
+	}
+	if e.Context == nil {
+		e.Context = NewContextStore()
+	}
+	for name, value := range values {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			_ = e.Context.Set(name, value)
+		}
+	}
+}
+
 func (e *Executor) SeedWorkflowVars(workflow *ir.Workflow) {
 	if e == nil || workflow == nil || len(workflow.Vars) == 0 {
 		return

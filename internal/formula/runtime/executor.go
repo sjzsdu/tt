@@ -14,14 +14,21 @@ import (
 )
 
 type Executor struct {
-	Workflow      *ir.Workflow
-	Context       *ContextStore
-	Capabilities  steps.Capabilities
-	Events        EventSink
-	Store         StateStore
-	runID         string
-	formulaRunDir string
+	Workflow        *ir.Workflow
+	Context         *ContextStore
+	Capabilities    steps.Capabilities
+	Events          EventSink
+	Store           StateStore
+	ResolveWorkflow WorkflowResolver
+	AddressPrefix   executionpath.Path
+	StateWorkflowID ir.WorkflowID
+	CallStack       []string
+	Nested          bool
+	runID           string
+	formulaRunDir   string
 }
+
+type WorkflowResolver func(context.Context, string, map[string]steps.Value) (*ir.Workflow, error)
 
 type EventSink interface{ Emit(Event) }
 
@@ -44,6 +51,9 @@ type RunResult struct {
 func NewExecutor(workflow *ir.Workflow, capabilities steps.Capabilities) *Executor {
 	store := NewMemoryStateStore()
 	exec := &Executor{Workflow: workflow, Context: NewContextStore(), Capabilities: capabilities, Store: store}
+	if exec.Capabilities.Workflows == nil {
+		exec.Capabilities.Workflows = executorWorkflowRunner{executor: exec}
+	}
 	exec.SeedEnvironment("")
 	return exec
 }
@@ -55,7 +65,10 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	if e.Store == nil {
 		e.Store = NewMemoryStateStore()
 	}
-	if err = e.Store.StartWorkflow(e.Workflow.ID); err != nil {
+	if !e.Nested {
+		err = e.Store.StartWorkflow(e.stateWorkflowID())
+	}
+	if err != nil {
 		return nil, err
 	}
 	e.emit("", "workflow.started", nil)
@@ -72,7 +85,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		if cleanupErr := e.finalizeWorkspace(workspace); cleanupErr != nil {
 			if out.Status == steps.StatusCompleted {
 				out.Status = steps.StatusFailed
-				_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+				e.finishWorkflow(steps.StatusFailed)
 			}
 			if err == nil {
 				err = cleanupErr
@@ -84,7 +97,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	workspace, err = e.prepareWorkspace(ctx)
 	if err != nil {
 		out.Status = steps.StatusFailed
-		_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+		e.finishWorkflow(steps.StatusFailed)
 		return out, err
 	}
 	if workspace != nil && strings.TrimSpace(workspace.path) != "" {
@@ -94,14 +107,14 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		if err := ctx.Err(); err != nil {
 			out.Status = steps.StatusFailed
 			e.emit(nodeID, "step.interrupted", map[string]string{"error": err.Error()})
-			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			e.finishWorkflow(steps.StatusFailed)
 			return out, err
 		}
 		node := e.Workflow.Graph.Nodes[nodeID]
 		if node == nil || node.Step == nil {
 			continue
 		}
-		if state, ok, err := e.Store.GetStep(e.Workflow.ID, nodeID); err != nil {
+		if state, ok, err := e.Store.GetStep(e.stateWorkflowID(), e.runtimeNodeID(nodeID)); err != nil {
 			return out, err
 		} else if ok && state.Status == steps.StatusCompleted {
 			out.Nodes[nodeID] = state.Result
@@ -115,7 +128,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			out.Nodes[nodeID] = res
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 			e.emit(nodeID, "step.failed", res)
-			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			e.finishWorkflow(steps.StatusFailed)
 			return out, err
 		}
 		if !shouldRun {
@@ -153,12 +166,12 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 				}
 				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 				e.emit(nodeID, "step.interrupted", res)
-				_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+				e.finishWorkflow(steps.StatusFailed)
 				return out, ctx.Err()
 			}
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 			e.emit(nodeID, "step.failed", res)
-			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			e.finishWorkflow(steps.StatusFailed)
 			if err != nil {
 				return out, err
 			}
@@ -169,7 +182,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			out.Status = steps.StatusWaiting
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
 			e.emit(nodeID, "step.waiting", res.Await)
-			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
+			e.finishWorkflow(steps.StatusWaiting)
 			return out, nil
 		}
 		normalizeStepOutputForContext(node.Step, res)
@@ -184,7 +197,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 					out.Status = steps.StatusFailed
 					e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 					e.emit(nodeID, "step.failed", res)
-					_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+					e.finishWorkflow(steps.StatusFailed)
 					if err != nil {
 						return out, err
 					}
@@ -194,7 +207,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 					out.Status = steps.StatusWaiting
 					e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
 					e.emit(nodeID, "step.waiting", res.Await)
-					_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusWaiting)
+					e.finishWorkflow(steps.StatusWaiting)
 					return out, nil
 				}
 				normalizeStepOutputForContext(node.Step, res)
@@ -211,7 +224,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			res.Error = &steps.StepError{Message: "step output validation failed", Cause: validationErr}
 			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
 			e.emit(nodeID, "step.failed", res)
-			_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+			e.finishWorkflow(steps.StatusFailed)
 			return out, res.Error
 		}
 		e.rememberStepOutput(node.Step, res)
@@ -220,11 +233,11 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	}
 	if err := e.resolveWorkflowOutputs(out); err != nil {
 		out.Status = steps.StatusFailed
-		_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusFailed)
+		e.finishWorkflow(steps.StatusFailed)
 		e.emit("", "workflow.failed", map[string]string{"error": err.Error()})
 		return out, err
 	}
-	_ = e.Store.FinishWorkflow(e.Workflow.ID, steps.StatusCompleted)
+	e.finishWorkflow(steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
 }
@@ -403,7 +416,8 @@ func (e *Executor) recordRepair(nodeID ir.NodeID, record RepairRecord) {
 	if strings.TrimSpace(record.StepID) == "" {
 		record.StepID = string(nodeID)
 	}
-	_ = e.Store.SaveRepair(e.Workflow.ID, record)
+	record.StepID = string(e.runtimeNodeID(ir.NodeID(record.StepID)))
+	_ = e.Store.SaveRepair(e.stateWorkflowID(), record)
 	e.emit(nodeID, "step.repair.recorded", record)
 }
 
@@ -798,6 +812,10 @@ func stepOutputKey(step steps.Step) string {
 		key = s.OutputKey
 	case *steps.ToolStep:
 		key = s.OutputKey
+	case steps.FormulaCallStep:
+		key = s.OutputKey
+	case *steps.FormulaCallStep:
+		key = s.OutputKey
 	}
 	if key != "" {
 		return key
@@ -807,19 +825,23 @@ func stepOutputKey(step steps.Step) string {
 
 func (e *Executor) saveStep(state StepState) {
 	if e.Store != nil {
-		if len(state.Path.Segments) == 0 && state.NodeID != "" {
-			state.Path = executionpath.Parse(string(state.NodeID))
-		}
+		state.WorkflowID = e.stateWorkflowID()
+		state.Path = e.executionPath(state.NodeID)
+		state.NodeID = ir.NodeID(state.Path.String())
 		_ = e.Store.SaveStep(state)
 	}
 }
 
 func (e *Executor) emit(nodeID ir.NodeID, typ string, payload any) {
 	now := time.Now()
-	path := executionpath.Parse(string(nodeID))
-	event := Event{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: path, Type: typ, Payload: payload, Time: now}
+	path := e.executionPath(nodeID)
+	runtimeNodeID := ir.NodeID(path.String())
+	if e.Nested && nodeID == "" {
+		typ = strings.Replace(typ, "workflow.", "formula.", 1)
+	}
+	event := Event{WorkflowID: e.stateWorkflowID(), NodeID: runtimeNodeID, Path: path, Type: typ, Payload: payload, Time: now}
 	if e.Store != nil {
-		e.saveChildStepTransition(nodeID, path, typ, payload, now)
+		e.saveChildStepTransition(nodeID, runtimeNodeID, path, typ, payload, now)
 		_ = e.Store.AppendEvent(event)
 	}
 	if e.Events != nil {
@@ -827,15 +849,15 @@ func (e *Executor) emit(nodeID ir.NodeID, typ string, payload any) {
 	}
 }
 
-func (e *Executor) saveChildStepTransition(nodeID ir.NodeID, path executionpath.Path, typ string, payload any, now time.Time) {
+func (e *Executor) saveChildStepTransition(localNodeID, nodeID ir.NodeID, path executionpath.Path, typ string, payload any, now time.Time) {
 	if nodeID == "" || e.Workflow == nil {
 		return
 	}
-	if _, topLevel := e.Workflow.Graph.Nodes[nodeID]; topLevel {
+	if _, topLevel := e.Workflow.Graph.Nodes[localNodeID]; topLevel {
 		return
 	}
-	state, _, _ := e.Store.GetStep(e.Workflow.ID, nodeID)
-	state.WorkflowID = e.Workflow.ID
+	state, _, _ := e.Store.GetStep(e.stateWorkflowID(), nodeID)
+	state.WorkflowID = e.stateWorkflowID()
 	state.NodeID = nodeID
 	state.Path = path
 	state.UpdatedAt = now
@@ -860,6 +882,35 @@ func (e *Executor) saveChildStepTransition(nodeID ir.NodeID, path executionpath.
 		return
 	}
 	_ = e.Store.SaveStep(state)
+}
+
+func (e *Executor) stateWorkflowID() ir.WorkflowID {
+	if e.StateWorkflowID != "" {
+		return e.StateWorkflowID
+	}
+	if e.Workflow != nil {
+		return e.Workflow.ID
+	}
+	return ""
+}
+
+func (e *Executor) executionPath(nodeID ir.NodeID) executionpath.Path {
+	local := executionpath.Parse(string(nodeID))
+	if len(e.AddressPrefix.Segments) == 0 {
+		return local
+	}
+	return e.AddressPrefix.Append(local)
+}
+
+func (e *Executor) runtimeNodeID(nodeID ir.NodeID) ir.NodeID {
+	return ir.NodeID(e.executionPath(nodeID).String())
+}
+
+func (e *Executor) finishWorkflow(status steps.Status) {
+	if e == nil || e.Nested || e.Store == nil {
+		return
+	}
+	_ = e.Store.FinishWorkflow(e.stateWorkflowID(), status)
 }
 
 func childTransitionStatus(typ string) steps.Status {
