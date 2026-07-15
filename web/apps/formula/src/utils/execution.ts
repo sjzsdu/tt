@@ -36,10 +36,27 @@ export function iterationLabel(path?: number[]) {
 }
 
 export function executionAddressLabel(instance: FormulaExecutionInstance) {
+	if (instance.path?.length) {
+		return instance.path.map(segment => {
+			if (segment.kind === 'formula') return `formula ${segment.id || ''}`;
+			if (segment.kind === 'iteration') return `iter ${segment.index || 0}`;
+			return segment.id || '';
+		}).filter(Boolean).join(' / ');
+	}
   const iteration = iterationLabel(instance.iteration_path);
   return [instance.parent_loop_id, iteration, instance.body_step_id || instance.definition_step_id]
     .filter(Boolean)
     .join(' / ') || instance.address;
+}
+
+export function executionFormulaLabel(instance: FormulaExecutionInstance) {
+	return instance.formula_path?.join(' / ') || '';
+}
+
+export function executionRootStepID(instance: FormulaExecutionInstance) {
+	const root = instance.path?.find(segment => segment.kind === 'step' && segment.id)?.id;
+	if (root) return root;
+	return instance.address.split('.formula(')[0].split('.iter')[0];
 }
 
 function fromActivity(activity: FormulaStepActivity, parent: FormulaDashboardStep): FormulaExecutionInstance {
@@ -135,13 +152,14 @@ export function executionUpdatedAt(instance: FormulaExecutionInstance) {
 }
 
 export function executionInstanceStep(instance: FormulaExecutionInstance, snapshot: FormulaDashboardSnapshot): FormulaDashboardStep {
-  const parent = snapshot.steps.find(step => step.id === instance.parent_loop_id)
+  const parent = snapshot.steps.find(step => step.id === executionRootStepID(instance))
+    || snapshot.steps.find(step => step.id === instance.parent_loop_id)
     || snapshot.steps.find(step => step.id === instance.definition_step_id);
   return {
     id: instance.address,
     title: instance.title || instance.body_step_id || instance.definition_step_id,
     description: parent?.description,
-    type: instance.parent_loop_id ? 'execution-instance' : parent?.type,
+	type: instance.parent_loop_id || instance.formula_path?.length ? 'execution-instance' : parent?.type,
     agent: parent?.agent || '',
     model: parent?.model,
     session: instance.session,
@@ -157,6 +175,7 @@ export function executionInstanceStep(instance: FormulaExecutionInstance, snapsh
       ...executionPathMetadata(instance),
       runtime_address: instance.address,
       parent_loop: instance.parent_loop_id || '',
+		formula_path: executionFormulaLabel(instance),
       iteration: iterationLabel(instance.iteration_path),
       definition_step: instance.definition_step_id,
     },
@@ -166,7 +185,7 @@ export function executionInstanceStep(instance: FormulaExecutionInstance, snapsh
       detail: instance.detail, output: instance.output, error: instance.error,
       duration_ms: instance.duration_ms,
     }],
-    depth: instance.iteration_path?.length || 0,
+		depth: (instance.iteration_path?.length || 0) + (instance.formula_path?.length || 0),
     index: parent?.index || 0,
   };
 }

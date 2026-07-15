@@ -106,6 +106,7 @@ button, input, textarea { font: inherit; }
 .timeline-step-external_agent { border-left-color: #eb2f96; }
 .timeline-step-script { border-left-color: #fa541c; }
 .timeline-step-loop { border-left-color: #722ed1; }
+.timeline-step-formula { border-left-color: #8b5cf6; }
 .timeline-step-tool { border-left-color: #13c2c2; }
 .timeline-step-human_input { border-left-color: #faad14; }
 .timeline-step-title-row, .timeline-step-tags { min-width: 0; }
@@ -127,6 +128,7 @@ button, input, textarea { font: inherit; }
 .step-run-external_agent { border-left-color: #eb2f96; }
 .step-run-script { border-left-color: #fa541c; }
 .step-run-loop { border-left-color: #722ed1; }
+.step-run-formula { border-left-color: #8b5cf6; }
 .step-run-tool { border-left-color: #13c2c2; }
 .step-run-human_input { border-left-color: #faad14; }
 .step-run-title-block { display: grid; gap: 2px; min-width: 0; }

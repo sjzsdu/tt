@@ -33,7 +33,10 @@ export function App({ theme, onThemeChange }: { theme: 'light' | 'dark'; onTheme
   }, [message]);
 
   const { snapshot, error, summary, orderedSteps } = useFormulaDashboard(handleLoadError);
-  const waitingInputStep = snapshot?.steps.find(step => step.status === 'waiting_input' && step.human_input_request);
+  const waitingParentStep = snapshot?.steps.find(step => step.status === 'waiting_input' && step.human_input_request);
+  const waitingInputStep = waitingParentStep?.human_input_request?.step_id
+    ? { ...waitingParentStep, id: waitingParentStep.human_input_request.step_id }
+    : waitingParentStep;
 
   useEffect(() => {
     if (!snapshot) return;

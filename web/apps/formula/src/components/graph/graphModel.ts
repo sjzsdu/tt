@@ -1,5 +1,5 @@
 import type { FormulaDashboardLoopBody, FormulaDashboardSnapshot, FormulaDashboardStep } from '../../types';
-import { executionInstances, executionInstanceStep, isActiveExecution } from '../../utils/execution';
+import { executionInstances, executionInstanceStep, executionRootStepID, isActiveExecution } from '../../utils/execution';
 
 
 function loopActivityIteration(activity?: { step_id: string }) {
@@ -639,8 +639,10 @@ export function computeGraphData(
   const allInstances = executionInstances(snapshot);
   const decoratedStepMap = new Map(snapshot.steps.map(originalStep => {
     const childInstances = allInstances.filter(instance => instance.parent_loop_id === originalStep.id);
-    const relevant = childInstances.length
-      ? childInstances
+    const formulaInstances = allInstances.filter(instance => instance.formula_path?.length && executionRootStepID(instance) === originalStep.id);
+    const nestedInstances = [...childInstances, ...formulaInstances];
+    const relevant = nestedInstances.length
+      ? nestedInstances
       : allInstances.filter(instance => instance.address === originalStep.id);
     return [originalStep.id, decorateStepWithExecutions(originalStep, relevant)] as const;
   }));
@@ -774,12 +776,14 @@ export function computeGraphData(
 }
 
 export function computeLiveGraphData(snapshot: FormulaDashboardSnapshot): { nodes: FormulaGraphNode[]; edges: FormulaGraphEdge[]; combos: FormulaGraphCombo[] } {
-  const instances = executionInstances(snapshot).filter(instance => !!instance.parent_loop_id);
+  const instances = executionInstances(snapshot).filter(instance => !!instance.parent_loop_id || !!instance.formula_path?.length);
   if (!instances.length) return computeGraphData(snapshot, new Set());
 
   const iterationGroups = new Map<string, typeof instances>();
   for (const instance of instances) {
-    const key = `${instance.parent_loop_id}:${(instance.iteration_path || []).join('.')}`;
+    const key = instance.formula_path?.length
+      ? `formula:${executionRootStepID(instance)}:${instance.formula_path.join('/')}:${(instance.iteration_path || []).join('.')}`
+      : `loop:${instance.parent_loop_id}:${(instance.iteration_path || []).join('.')}`;
     if (!iterationGroups.has(key)) iterationGroups.set(key, []);
     iterationGroups.get(key)!.push(instance);
   }
@@ -793,13 +797,26 @@ export function computeLiveGraphData(snapshot: FormulaDashboardSnapshot): { node
     data: {
       kind: 'loop-body',
       step: executionInstanceStep(instance, snapshot),
-      parentStep: snapshot.steps.find(step => step.id === instance.parent_loop_id),
+      parentStep: snapshot.steps.find(step => step.id === executionRootStepID(instance))
+        || snapshot.steps.find(step => step.id === instance.parent_loop_id),
     },
   }));
   const nodeIDs = new Set(nodes.map(node => node.id));
   const edges: FormulaGraphEdge[] = [];
+	const formulaRoots = new Set(selected.filter(instance => instance.formula_path?.length).map(executionRootStepID));
+	for (const rootID of formulaRoots) {
+		const root = snapshot.steps.find(step => step.id === rootID);
+		if (!root || nodeIDs.has(rootID)) continue;
+		nodes.push({ id: rootID, data: { kind: 'step', step: decorateStepWithExecutions(root, selected.filter(instance => executionRootStepID(instance) === rootID)) } });
+		nodeIDs.add(rootID);
+	}
 
   for (const instance of selected) {
+	if (instance.formula_path?.length) {
+		const rootID = executionRootStepID(instance);
+		edges.push({ id: `${rootID}-formula-${instance.address}`, source: rootID, target: instance.address, data: { status: instance.status, kind: 'loop-expand' } });
+		continue;
+	}
     const parent = snapshot.steps.find(step => step.id === instance.parent_loop_id);
     const body = findLoopBody(parent, instance.definition_step_id || instance.body_step_id || '');
     const definitionID = instance.definition_step_id || instance.body_step_id || '';

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sjzsdu/tt/internal/formula/executionpath"
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
 	"github.com/sjzsdu/tt/internal/formula/steps"
@@ -287,6 +288,25 @@ func TestRuntimeSnapshotToDashboardSnapshot(t *testing.T) {
 	}
 	if len(dashboard.Steps) != 1 || dashboard.Steps[0].Output != "saved output" || dashboard.Steps[0].Status != "completed" {
 		t.Fatalf("steps = %+v", dashboard.Steps)
+	}
+	if len(dashboard.ExecutionInstances) != 1 || dashboard.ExecutionInstances[0].Address != "demo.work" {
+		t.Fatalf("execution instances = %+v", dashboard.ExecutionInstances)
+	}
+}
+
+func TestRuntimeSnapshotRestoresNestedFormulaExecution(t *testing.T) {
+	workflow := testFormulaWorkflow("demo", steps.FormulaCallStep{Base: steps.Base{Metadata: steps.Metadata{ID: "invoke", Kind: steps.KindFormula, Title: "Child"}}, Formula: "child"})
+	path := executionpath.RootStep("invoke").Formula("child").ChildStep("work")
+	snapshot := formularuntime.Snapshot{WorkflowID: "demo", Status: steps.StatusWaiting, Steps: map[ir.NodeID]formularuntime.StepState{
+		ir.NodeID(path.String()): {NodeID: ir.NodeID(path.String()), Path: path, Status: steps.StatusWaiting, UpdatedAt: time.Now()},
+	}}
+	dashboard := runtimeSnapshotToDashboardSnapshot(workflow, snapshot)
+	if len(dashboard.ExecutionInstances) != 1 {
+		t.Fatalf("instances = %+v", dashboard.ExecutionInstances)
+	}
+	instance := dashboard.ExecutionInstances[0]
+	if instance.Address != "invoke.formula(child).work" || len(instance.FormulaPath) != 1 || instance.FormulaPath[0] != "child" {
+		t.Fatalf("instance = %+v", instance)
 	}
 }
 

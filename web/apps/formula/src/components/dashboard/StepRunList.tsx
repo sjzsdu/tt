@@ -5,6 +5,7 @@ import { formatDuration, statusIcon, statusLabel, statusTone } from '../../utils
 import {
   compareExecutionRecency,
   executionAddressLabel,
+	executionFormulaLabel,
   executionInstances,
   executionInstanceStep,
   executionUpdatedAt,
@@ -32,8 +33,12 @@ function attentionOrder(instance: FormulaExecutionInstance) {
 }
 
 function groupLabel(instance: FormulaExecutionInstance) {
-  if (!instance.parent_loop_id) return 'Top-level steps';
-  return `${instance.parent_loop_id} · ${iterationLabel(instance.iteration_path) || 'loop'}`;
+	const formula = executionFormulaLabel(instance);
+	const loop = instance.parent_loop_id ? `${instance.parent_loop_id} · ${iterationLabel(instance.iteration_path) || 'loop'}` : '';
+	if (formula && loop) return `Formula · ${formula} · ${loop}`;
+	if (formula) return `Formula · ${formula}`;
+	if (loop) return loop;
+	return 'Top-level steps';
 }
 
 export function StepRunList({ snapshot, onSelectStep }: { snapshot: FormulaDashboardSnapshot; onSelectStep: (step: FormulaDashboardStep) => void }) {
@@ -119,6 +124,7 @@ export function StepRunList({ snapshot, onSelectStep }: { snapshot: FormulaDashb
                       </Flex>
                       <Flex gap={6} wrap="wrap" className="step-run-tags">
                         {duration ? <Tag>duration · {formatDuration(duration)}</Tag> : null}
+						{instance.formula_path?.length ? <Tag color="purple">formula · {executionFormulaLabel(instance)}</Tag> : null}
                         {(instance.attempt || 0) > 1 ? <Tag color="purple">attempt · {instance.attempt}</Tag> : null}
                         {instance.session ? <Tag color="geekblue">session</Tag> : null}
                         {executionUpdatedAt(instance) ? <Tag>{executionUpdatedAt(instance)}</Tag> : null}

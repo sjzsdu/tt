@@ -164,7 +164,7 @@ export function attentionCopy(step: FormulaDashboardStep | null, status: string)
   return { title: statusLabel(step.status), detail: step.title, tone: step.status };
 }
 
-export type StepExecutionKind = 'agent' | 'external_agent' | 'script' | 'loop' | 'tool' | 'human_input' | 'aggregate' | 'noop' | 'step';
+export type StepExecutionKind = 'agent' | 'external_agent' | 'script' | 'loop' | 'formula' | 'tool' | 'human_input' | 'aggregate' | 'noop' | 'step';
 
 export function stepExecutionKind(step: Pick<FormulaDashboardStep, 'agent' | 'execution' | 'loop' | 'type'>): StepExecutionKind {
   const execution = (step.execution || step.type || '').trim();
@@ -173,6 +173,7 @@ export function stepExecutionKind(step: Pick<FormulaDashboardStep, 'agent' | 'ex
   if (execution === 'tool') return 'tool';
   if (execution === 'human_input') return 'human_input';
   if (execution === 'aggregate') return 'aggregate';
+	if (execution === 'formula') return 'formula';
   if (execution === 'noop') return 'noop';
   if (execution === 'loop' || step.loop) return 'loop';
   if (step.agent) return 'agent';
@@ -189,6 +190,8 @@ export function stepExecutionLabel(kind: StepExecutionKind) {
       return 'Script';
     case 'loop':
       return 'Loop';
+	case 'formula':
+		return 'Formula';
     case 'tool':
       return 'Tool';
     case 'human_input':
@@ -212,6 +215,8 @@ export function stepExecutionTone(kind: StepExecutionKind) {
       return 'volcano';
     case 'loop':
       return 'purple';
+	case 'formula':
+		return 'purple';
     case 'tool':
       return 'cyan';
     case 'human_input':

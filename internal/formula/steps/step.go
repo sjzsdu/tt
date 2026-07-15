@@ -174,6 +174,7 @@ type AwaitRequest struct {
 	Type   string
 	Reason string
 	Form   any
+	StepID string
 }
 
 type StepError struct {

@@ -84,3 +84,25 @@ func TestExecutorRejectsRecursiveFormulaCalls(t *testing.T) {
 		t.Fatalf("root status = %q", snapshot.Status)
 	}
 }
+
+func TestExecutorFormulaCallTargetsNestedWaitingStep(t *testing.T) {
+	parentGraph := ir.NewGraph()
+	parentGraph.AddNode(&ir.Node{ID: "invoke", Step: steps.FormulaCallStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "invoke", Kind: steps.KindFormula}}, Formula: "child",
+	}})
+	childGraph := ir.NewGraph()
+	childGraph.AddNode(&ir.Node{ID: "approve", Step: steps.HumanInputStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "approve", Kind: steps.KindHumanInput}}, Reason: "Approve",
+	}})
+	child := &ir.Workflow{ID: "child", Name: "child", Graph: childGraph}
+	exec := NewExecutor(&ir.Workflow{ID: "parent", Name: "parent", Graph: parentGraph}, steps.Capabilities{})
+	exec.ResolveWorkflow = func(context.Context, string, map[string]steps.Value) (*ir.Workflow, error) { return child, nil }
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := result.Nodes["invoke"].Await
+	if wait == nil || wait.StepID != "invoke.formula(child).approve" {
+		t.Fatalf("await = %+v", wait)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,11 +59,67 @@ func runtimeSnapshotToDashboardSnapshot(workflow *ir.Workflow, snapshot formular
 		}
 		applyRuntimeStepStateToDashboardStep(&out.Steps[i], state)
 	}
+	for _, event := range snapshot.Events {
+		status := runtimeExecutionEventStatus(event.Type)
+		if status == "" || event.NodeID == "" {
+			continue
+		}
+		ui.RecordExecutionTransition(&out, ui.ExecutionTransition{
+			Address: string(event.NodeID), Title: event.Path.DefinitionStepID(), Status: status,
+			Detail: event.Type, Output: runtimeEventOutput(event.Payload), Error: runtimeEventError(event.Payload), At: event.Time,
+		})
+	}
+	stateIDs := make([]string, 0, len(snapshot.Steps))
+	for nodeID := range snapshot.Steps {
+		stateIDs = append(stateIDs, string(nodeID))
+	}
+	sort.Strings(stateIDs)
+	knownInstances := map[string]bool{}
+	for _, instance := range out.ExecutionInstances {
+		knownInstances[instance.Address] = true
+	}
+	for _, address := range stateIDs {
+		if knownInstances[address] {
+			continue
+		}
+		state := snapshot.Steps[ir.NodeID(address)]
+		output := ""
+		errorText := ""
+		if state.Result != nil {
+			output = runtimeEventOutput(state.Result)
+			errorText = runtimeEventError(state.Result)
+		}
+		durationMS := int64(0)
+		if !state.StartedAt.IsZero() && !state.CompletedAt.IsZero() {
+			durationMS = state.CompletedAt.Sub(state.StartedAt).Milliseconds()
+		}
+		ui.RecordExecutionTransition(&out, ui.ExecutionTransition{
+			Address: address, Title: state.Path.DefinitionStepID(), Status: runtimeStatusToDashboardStatus(state.Status),
+			Output: output, Error: errorText, DurationMS: durationMS, At: state.UpdatedAt,
+		})
+	}
 	out.Repairs = make([]ui.RepairRecord, 0, len(snapshot.Repairs))
 	for _, repair := range snapshot.Repairs {
 		out.Repairs = append(out.Repairs, runtimeRepairToDashboardRepair(repair))
 	}
 	return out
+}
+
+func runtimeExecutionEventStatus(eventType string) string {
+	switch eventType {
+	case "step.started":
+		return ui.StatusRunning
+	case "step.completed":
+		return ui.StatusCompleted
+	case "step.failed", "step.interrupted":
+		return ui.StatusFailed
+	case "step.skipped":
+		return ui.StatusSkipped
+	case "step.waiting":
+		return ui.StatusWaitingInput
+	default:
+		return ""
+	}
 }
 
 func applyRuntimeStepStateToDashboardStep(step *ui.Step, state formularuntime.StepState) {
@@ -637,7 +694,7 @@ func runtimeEventHumanInputRequest(payload any) *ui.HumanInputRequest {
 	if !ok || await == nil {
 		return nil
 	}
-	req := &ui.HumanInputRequest{Reason: await.Reason}
+	req := &ui.HumanInputRequest{Reason: await.Reason, StepID: await.StepID}
 	if form, ok := await.Form.(*spec.FormSpec); ok {
 		req.Form = form
 	} else if await.Form != nil {

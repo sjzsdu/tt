@@ -22,6 +22,7 @@ const KIND_MARKS: Record<string, string> = {
   external_agent: '◉',
   script: '⌁',
   loop: '↻',
+	formula: 'ƒ',
   tool: '◆',
   human_input: '?',
   aggregate: 'Σ',
@@ -34,6 +35,7 @@ const KIND_BG_DARK: Record<string, string> = {
   external_agent: 'rgba(235, 47, 150, 0.16)',
   script: 'rgba(250, 84, 28, 0.18)',
   loop: 'rgba(168, 85, 247, 0.20)',
+	formula: 'rgba(139, 92, 246, 0.24)',
   tool: 'rgba(19, 194, 194, 0.17)',
   human_input: 'rgba(250, 173, 20, 0.20)',
   aggregate: 'rgba(101, 163, 13, 0.17)',
@@ -46,6 +48,7 @@ const KIND_BG_LIGHT: Record<string, string> = {
   external_agent: 'rgba(253, 242, 248, 0.98)',
   script: 'rgba(255, 247, 237, 0.98)',
   loop: 'rgba(250, 245, 255, 0.98)',
+	formula: 'rgba(245, 243, 255, 0.98)',
   tool: 'rgba(236, 254, 255, 0.98)',
   human_input: 'rgba(255, 251, 235, 0.98)',
   aggregate: 'rgba(247, 254, 231, 0.98)',
@@ -54,7 +57,7 @@ const KIND_BG_LIGHT: Record<string, string> = {
 };
 
 const STATUS_LEGEND = ['pending', 'running', 'completed', 'failed', 'skipped'];
-const KIND_LEGEND = ['agent', 'script', 'tool', 'loop', 'human_input'];
+const KIND_LEGEND = ['agent', 'script', 'tool', 'loop', 'formula', 'human_input'];
 const HOVER_ACCENT = '#38bdf8';
 const HOVER_EDGE_ACCENT = 'rgba(56, 189, 248, 0.72)';
 const LOOP_TOGGLE_BADGE_SIZE = 26;
@@ -860,7 +863,7 @@ export function GraphPanel({ snapshot, onSelect, theme }: { snapshot: FormulaDas
               size="small"
               value={mode}
               onChange={value => setMode(value as 'overview' | 'live')}
-              options={[{ value: 'overview', label: 'Overview' }, { value: 'live', label: 'Live iterations' }]}
+				options={[{ value: 'overview', label: 'Overview' }, { value: 'live', label: 'Live runs' }]}
             />
             <GraphDisplayToggle
               showVariables={showVariables}

@@ -154,6 +154,10 @@ path segment 的 kind 为 `step` / `iteration` / `formula`。旧的
 loop body 的具体运行实例也会进入 StateStore，不再只存在于事件日志中。
 FormulaCall 使用同一 path 模型表达调用层级，例如
 `implementation.formula(coding).review`，父子状态因此可以在同一 run 中恢复和展示。
+Formula Web 会把该结构化地址渲染成 Formula 调用面包屑：Step runs 与 Execution
+timeline 按调用层级归组，Execution graph 的概览节点聚合子步骤状态，Live runs 模式
+展开具体子步骤。嵌套 `human_input` 会把真实等待地址传回 runtime，因此提交输入时只完成
+等待中的子节点，父 FormulaCall 随后从共享状态继续执行。
 
 ### 运行变量来源与默认 vars 文件
 

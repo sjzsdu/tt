@@ -175,6 +175,8 @@ project_context = "repo={{env.git.repo}}"
 - `report` 是约定的人类可读 Markdown 主输出。若子 Formula 有顶层 `final-report` 且没有显式声明，编译器会自动生成 `outputs.report`。
 - 子步骤状态写入父 run 的 StateStore，地址形如 `implementation.formula(coding-implementation).plan`。
 - 子 Formula 的 waiting、失败和取消会传播到 FormulaCall；恢复父 run 时，已经完成的子步骤会从同一状态存储中恢复。
+- Formula Web 在 Step runs、Execution timeline 与 Live runs graph 中展示这条调用层级；概览 graph 的 FormulaCall 节点聚合所有子运行状态。
+- 嵌套 `human_input` 的请求携带真实子步骤地址，输入不会误提交到 FormulaCall 父节点。
 - runtime 会拒绝直接或间接递归 Formula 调用，并限制最大嵌套深度。
 
 ### `loop` —— 嵌套 typed 步骤
