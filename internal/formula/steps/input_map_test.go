@@ -13,6 +13,24 @@ func TestInputMapResolvesNestedNamedInput(t *testing.T) {
 	}
 }
 
+func TestInputMapDoesNotPrefixMatchSimpleNames(t *testing.T) {
+	inputs := InputMap{
+		"result":  {Type: "json", Raw: json.RawMessage(`{"value":"short"}`)},
+		"results": {Type: "json", Raw: json.RawMessage(`{"value":"exact"}`)},
+	}
+	value, ok := inputs.Get("results")
+	if !ok || string(value.Raw) != `{"value":"exact"}` {
+		t.Fatalf("exact value=%s ok=%v", value.Raw, ok)
+	}
+	nested, ok := inputs.Get("results.value")
+	if !ok || string(nested.Raw) != `"exact"` {
+		t.Fatalf("nested value=%s ok=%v", nested.Raw, ok)
+	}
+	if _, ok := inputs.Get("resulting"); ok {
+		t.Fatal("simple name must not use prefix matching")
+	}
+}
+
 func TestRunResultNormalizesLegacyOutputToResultPort(t *testing.T) {
 	result := &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: json.RawMessage(`{"ok":true}`)}}
 	result.NormalizeOutputs()

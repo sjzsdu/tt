@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/run"
@@ -16,6 +17,7 @@ import (
 type FormulaRunStateStore struct {
 	Memory *MemoryStateStore
 	Store  *run.Store
+	mu     sync.Mutex
 }
 
 func NewFormulaRunStateStore(store *run.Store) *FormulaRunStateStore {
@@ -30,6 +32,8 @@ func (s *FormulaRunStateStore) memory() *MemoryStateStore {
 }
 
 func (s *FormulaRunStateStore) StartWorkflow(id ir.WorkflowID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.memory().StartWorkflow(id); err != nil {
 		return err
 	}
@@ -37,6 +41,8 @@ func (s *FormulaRunStateStore) StartWorkflow(id ir.WorkflowID) error {
 }
 
 func (s *FormulaRunStateStore) FinishWorkflow(id ir.WorkflowID, status steps.Status) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.memory().FinishWorkflow(id, status); err != nil {
 		return err
 	}
@@ -55,6 +61,8 @@ func (s *FormulaRunStateStore) FinishWorkflow(id ir.WorkflowID, status steps.Sta
 }
 
 func (s *FormulaRunStateStore) SaveStep(state StepState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.memory().SaveStep(state); err != nil {
 		return err
 	}
@@ -78,6 +86,8 @@ func (s *FormulaRunStateStore) SaveStep(state StepState) error {
 }
 
 func (s *FormulaRunStateStore) SaveRepair(workflowID ir.WorkflowID, record RepairRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.memory().SaveRepair(workflowID, record); err != nil {
 		return err
 	}
@@ -85,10 +95,14 @@ func (s *FormulaRunStateStore) SaveRepair(workflowID ir.WorkflowID, record Repai
 }
 
 func (s *FormulaRunStateStore) GetStep(workflowID ir.WorkflowID, nodeID ir.NodeID) (StepState, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.memory().GetStep(workflowID, nodeID)
 }
 
 func (s *FormulaRunStateStore) AppendEvent(event Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.memory().AppendEvent(event); err != nil {
 		return err
 	}
@@ -109,6 +123,8 @@ func (s *FormulaRunStateStore) AppendEvent(event Event) error {
 }
 
 func (s *FormulaRunStateStore) Snapshot(id ir.WorkflowID) (Snapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.memory().Snapshot(id)
 }
 
