@@ -38,9 +38,10 @@ submit_review = { description = "是否真实提交 GitHub review/comment；默�
 [[steps]]
 id = "fetch-pr"
 title = "使用 gh 获取 PR 全量信息"
-embed = "github-fetch-pr"
+execution = "formula"
+formula = "github-fetch-pr"
 
-[steps.embed_vars]
+[steps.with]
 pr_ref = "{{pr_ref}}"
 repo_hint = "{{repo_hint}}"
 review_focus = "{{review_focus}}"

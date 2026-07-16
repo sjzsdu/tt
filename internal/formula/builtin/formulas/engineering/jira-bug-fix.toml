@@ -43,7 +43,7 @@ Jira ticket {{ticket_key}} 的原始内容与最新评论如下。请先在 bug-
 id = "final-report"
 title = "输出 Jira 处理最终报告"
 depends_on = ["run-bug-fix"]
-input_context = ["fetch-ticket-data", "run-bug-fix.report"]
+input_context = ["fetch-ticket-data", "run-bug-fix.report", "run-bug-fix.issue_exists", "run-bug-fix.fix_summary"]
 description = """
 面向用户输出简明中文报告。
 

@@ -31,6 +31,12 @@ command = { description = "验证命令；为空或 - 时默认跳过。auto_det
 auto_detect = { description = "command 为空时是否根据项目标记自动选择轻量验证命令", default = "false", enum = ["true", "false"] }
 timeout_hint = { description = "给报告使用的超时提示；实际超时由 formula step 固定为 20m", default = "20m" }
 
+[outputs.validation]
+from = "validation"
+type = "json"
+required = true
+description = "验证请求、命令、仓库、执行状态及 stdout/stderr"
+
 [[steps]]
 id = "validation"
 title = "运行验证命令"
