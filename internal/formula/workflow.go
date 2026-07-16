@@ -18,7 +18,11 @@ func CompileWorkflowByName(_ context.Context, name string, searchPaths []string,
 	if err != nil {
 		return nil, err
 	}
-	return WorkflowFromFormula(f), nil
+	workflow := WorkflowFromFormula(f)
+	if err := linkFormulaCalls(workflow, name, searchPaths); err != nil {
+		return nil, err
+	}
+	return workflow, nil
 }
 
 // ResolveFormulaByName loads and resolves a workflow formula using the same
@@ -155,7 +159,7 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 	switch execution {
 	case "formula":
 		meta.Kind = steps.KindFormula
-		return steps.FormulaCallStep{Base: steps.Base{Metadata: meta}, Formula: step.Formula, With: step.With, OutputKey: step.OutputKey}
+		return steps.FormulaCallStep{Base: steps.Base{Metadata: meta}, Formula: step.Formula, With: step.With, AllowParallel: step.AllowParallel, OutputKey: step.OutputKey}
 	case "noop":
 		meta.Kind = steps.KindNoop
 		return steps.NoopStep{Base: steps.Base{Metadata: meta}}

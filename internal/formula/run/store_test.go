@@ -21,6 +21,7 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	workflow := testWorkflow("demo formula")
+	workflow.DefinitionHash = "definition-sha256"
 	store, err := New(filepath.Join(root, "runs"), workflow, map[string]string{"topic": "test"}, "coder", "model", "session", workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +57,9 @@ func TestStorePersistsRunArtifacts(t *testing.T) {
 	}
 	if record.Metadata.Formula != "demo formula" || record.Metadata.Status != StatusCompleted {
 		t.Fatalf("unexpected metadata: %+v", record.Metadata)
+	}
+	if record.Metadata.WorkflowHash != workflow.DefinitionHash {
+		t.Fatalf("workflow hash = %q, want %q", record.Metadata.WorkflowHash, workflow.DefinitionHash)
 	}
 	if record.ID != store.Meta.RunID {
 		t.Fatalf("record id = %q, want %q", record.ID, store.Meta.RunID)

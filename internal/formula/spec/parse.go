@@ -132,6 +132,7 @@ type stepTOMLAlias struct {
 	EmbedVars       map[string]string    `json:"embed_vars,omitempty"`
 	Formula         string               `json:"formula,omitempty"`
 	With            map[string]string    `json:"with,omitempty"`
+	AllowParallel   bool                 `json:"allow_parallel,omitempty"`
 	Condition       string               `json:"condition,omitempty"`
 	Idempotent      bool                 `json:"idempotent,omitempty"`
 	Children        []*stepTOMLAlias     `json:"children,omitempty"`
@@ -279,6 +280,7 @@ func (a stepTOMLAlias) toStep() (Step, error) {
 		EmbedVars:       a.EmbedVars,
 		Formula:         a.Formula,
 		With:            a.With,
+		AllowParallel:   a.AllowParallel,
 		Condition:       a.Condition,
 		Idempotent:      a.Idempotent,
 		Children:        children,

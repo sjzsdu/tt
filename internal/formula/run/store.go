@@ -46,6 +46,7 @@ type Metadata struct {
 	WorkspaceDir string            `json:"workspace_dir,omitempty"`
 	StatePath    string            `json:"state_path,omitempty"`
 	WorkflowPath string            `json:"workflow_path,omitempty"`
+	WorkflowHash string            `json:"workflow_hash,omitempty"`
 	LogsPath     string            `json:"logs_path,omitempty"`
 }
 
@@ -122,6 +123,7 @@ func NewWithMetadata(root string, workflow *ir.Workflow, vars map[string]string,
 		WorkspaceDir: workspace,
 		StatePath:    "state.json",
 		WorkflowPath: "workflow.json",
+		WorkflowHash: workflow.DefinitionHash,
 		LogsPath:     "logs.jsonl",
 	}
 	store := &Store{Root: root, Dir: dir, Meta: meta}

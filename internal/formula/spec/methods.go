@@ -13,6 +13,7 @@ import (
 // distinguish unresolved range variables from real Duration strings) and any
 // caller that wants to scan for the same shape.
 var rangeVarPattern = regexp.MustCompile(`\{(\w+)\}`)
+var formulaNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // RequiredVarNames returns the names of required variables, sorted
 // lexicographically.
@@ -68,6 +69,8 @@ func (f *Formula) Validate() error {
 
 	if f.Formula == "" {
 		errs = append(errs, "formula: name is required")
+	} else if !formulaNamePattern.MatchString(strings.TrimSpace(f.Formula)) {
+		errs = append(errs, "formula: name must contain only letters, numbers, dot, underscore, and hyphen")
 	}
 
 	if f.Version < 1 {
@@ -443,6 +446,8 @@ func validateFormulaCallStep(step *Step, errs *[]string, prefix string) {
 	}
 	if strings.TrimSpace(step.Formula) == "" {
 		*errs = append(*errs, fmt.Sprintf("%s (%s): execution=formula requires formula", prefix, step.ID))
+	} else if !formulaNamePattern.MatchString(strings.TrimSpace(step.Formula)) {
+		*errs = append(*errs, fmt.Sprintf("%s (%s): formula target must contain only letters, numbers, dot, underscore, and hyphen", prefix, step.ID))
 	}
 	if step.Embed != "" || step.Expand != "" || step.Loop != nil || len(step.Children) > 0 || step.Agent != nil || step.Script != nil || step.ExternalAgent != nil || step.Form != nil {
 		*errs = append(*errs, fmt.Sprintf("%s (%s): formula cannot be combined with embed/expand/loop/children/agent/script/external_agent/form", prefix, step.ID))

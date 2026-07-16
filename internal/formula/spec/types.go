@@ -87,6 +87,7 @@ type Step struct {
 	EmbedVars       map[string]string    `json:"embed_vars,omitempty" toml:"embed_vars,omitempty"`
 	Formula         string               `json:"formula,omitempty" toml:"formula,omitempty"`
 	With            map[string]string    `json:"with,omitempty" toml:"with,omitempty"`
+	AllowParallel   bool                 `json:"allow_parallel,omitempty" toml:"allow_parallel,omitempty"`
 	Condition       string               `json:"condition,omitempty" toml:"condition,omitempty"`
 	Idempotent      bool                 `json:"idempotent,omitempty" toml:"idempotent,omitempty"`
 	Children        []*Step              `json:"children,omitempty" toml:"children,omitempty"`

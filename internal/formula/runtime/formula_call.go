@@ -22,6 +22,20 @@ func (r executorWorkflowRunner) RunWorkflow(ctx context.Context, req steps.Workf
 		return nil, fmt.Errorf("formula workflow resolver is required")
 	}
 	formulaName := strings.TrimSpace(req.Formula)
+	if formulaName == "" {
+		return nil, fmt.Errorf("child formula name is required")
+	}
+	workflow, err := parent.ResolveWorkflow(ctx, formulaName, req.Inputs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve child formula %q: %w", formulaName, err)
+	}
+	canonicalName := strings.TrimSpace(workflow.Name)
+	if canonicalName == "" {
+		canonicalName = string(workflow.ID)
+	}
+	if canonicalName == "" {
+		return nil, fmt.Errorf("resolved child formula %q has no canonical name", formulaName)
+	}
 	stack := append([]string(nil), parent.CallStack...)
 	if len(stack) == 0 && parent.Workflow != nil {
 		name := strings.TrimSpace(parent.Workflow.Name)
@@ -31,17 +45,12 @@ func (r executorWorkflowRunner) RunWorkflow(ctx context.Context, req steps.Workf
 		stack = append(stack, name)
 	}
 	if len(stack) >= maxFormulaCallDepth {
-		return nil, fmt.Errorf("formula call depth exceeds %d: %s", maxFormulaCallDepth, strings.Join(append(stack, formulaName), " -> "))
+		return nil, fmt.Errorf("formula call depth exceeds %d: %s", maxFormulaCallDepth, strings.Join(append(stack, canonicalName), " -> "))
 	}
 	for _, ancestor := range stack {
-		if ancestor == formulaName {
-			return nil, fmt.Errorf("recursive formula call detected: %s", strings.Join(append(stack, formulaName), " -> "))
+		if ancestor == canonicalName {
+			return nil, fmt.Errorf("recursive formula call detected: %s", strings.Join(append(stack, canonicalName), " -> "))
 		}
-	}
-
-	workflow, err := parent.ResolveWorkflow(ctx, formulaName, req.Inputs)
-	if err != nil {
-		return nil, fmt.Errorf("resolve child formula %q: %w", formulaName, err)
 	}
 	capabilities := parent.Capabilities
 	capabilities.Workflows = nil
@@ -52,8 +61,8 @@ func (r executorWorkflowRunner) RunWorkflow(ctx context.Context, req steps.Workf
 	child.Events = parent.Events
 	child.Nested = true
 	child.StateWorkflowID = parent.stateWorkflowID()
-	child.AddressPrefix = parent.executionPath(ir.NodeID(req.NodeID)).Formula(formulaName)
-	child.CallStack = append(stack, formulaName)
+	child.AddressPrefix = parent.executionPath(ir.NodeID(req.NodeID)).Formula(canonicalName)
+	child.CallStack = append(stack, canonicalName)
 	child.runID = parent.runID
 	child.formulaRunDir = parent.formulaRunDir
 	child.SeedWorkflowVars(workflow)

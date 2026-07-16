@@ -159,6 +159,17 @@ timeline 按调用层级归组，Execution graph 的概览节点聚合子步骤�
 展开具体子步骤。嵌套 `human_input` 会把真实等待地址传回 runtime，因此提交输入时只完成
 等待中的子节点，父 FormulaCall 随后从共享状态继续执行。
 
+FormulaCall 的目标在编译期静态链接。链接器以 Formula 内声明的规范名称作为身份，
+检查目标存在、调用环、最大 16 层深度，以及父子 `vars map → outputs map` 契约。
+同一个规范名称若解析到不同定义会直接报错；运行时也使用解析后的规范名称重复检查，
+因此别名或搜索路径不能绕过递归保护。并行 loop 默认不允许 FormulaCall，只有在作者
+确认子流程资源隔离或只读后设置 `allow_parallel = true` 才可执行；子 Formula 的
+`workspace` 策略继续保持自治。
+
+编译器会为整条已链接调用图生成定义指纹并写入 run metadata。恢复运行时，当前指纹
+必须与原 run 一致；任一子 Formula 的有效定义变化都会要求创建新 run。旧版本没有指纹
+的 run 仍可恢复，以保持向后兼容。
+
 ### 运行变量来源与默认 vars 文件
 
 `tt formula run` 的变量合并顺序是：
