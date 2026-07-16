@@ -15,6 +15,7 @@ import (
 
 type Executor struct {
 	Workflow        *ir.Workflow
+	Mode            ExecutionMode
 	Context         *ContextStore
 	Capabilities    steps.Capabilities
 	Events          EventSink
@@ -26,6 +27,20 @@ type Executor struct {
 	Nested          bool
 	runID           string
 	formulaRunDir   string
+}
+
+// ExecutionMode separates normal execution from a side-effect-free preview.
+// Preview still traverses the runtime graph using dry-run capabilities, but
+// their synthetic outputs are not expected to satisfy business schemas.
+type ExecutionMode string
+
+const (
+	ExecutionModeRun     ExecutionMode = "run"
+	ExecutionModePreview ExecutionMode = "preview"
+)
+
+func (e *Executor) isPreview() bool {
+	return e != nil && e.Mode == ExecutionModePreview
 }
 
 type WorkflowResolver func(context.Context, string, map[string]steps.Value) (*ir.Workflow, error)
@@ -190,7 +205,11 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 			return out, nil
 		}
 		normalizeStepOutputForContext(node.Step, res)
-		if validationErr := validateStepOutput(node.Step, res.Output); validationErr != nil {
+		var validationErr error
+		if !e.isPreview() {
+			validationErr = validateStepOutput(node.Step, res.Output)
+		}
+		if validationErr != nil {
 			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, nil, validationErr); ok {
 				res, err = repairedRes, repairedErr
 				if res == nil {
@@ -264,7 +283,7 @@ func (e *Executor) resolveWorkflowOutputs(out *RunResult) error {
 		from := strings.TrimSpace(output.From)
 		value, ok := e.Context.Get(from)
 		if !ok {
-			if output.Required {
+			if output.Required && !e.isPreview() {
 				return fmt.Errorf("required workflow output %q was not produced from context path %q", name, from)
 			}
 			continue

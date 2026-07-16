@@ -46,6 +46,7 @@ func (r executorWorkflowRunner) RunWorkflow(ctx context.Context, req steps.Workf
 	capabilities := parent.Capabilities
 	capabilities.Workflows = nil
 	child := NewExecutor(workflow, capabilities)
+	child.Mode = parent.Mode
 	child.ResolveWorkflow = parent.ResolveWorkflow
 	child.Store = parent.Store
 	child.Events = parent.Events

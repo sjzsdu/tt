@@ -176,10 +176,17 @@ func TestNewFormulaRuntimeExecutorBuildsWorkflowExecutor(t *testing.T) {
 	if exec.Capabilities.Agents == nil || exec.Capabilities.Scripts == nil {
 		t.Fatalf("missing dry-run capabilities: %+v", exec.Capabilities)
 	}
+	if exec.Mode != formularuntime.ExecutionModePreview {
+		t.Fatalf("executor mode = %q, want preview", exec.Mode)
+	}
 }
 
 func TestExecuteFormulaRecipeRuntimeDryRun(t *testing.T) {
-	workflow := testFormulaWorkflow("demo", steps.NoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.start", Kind: steps.KindNoop, Title: "start"}}})
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{
+		Base:       steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent, Title: "Plan"}},
+		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"answer"}},
+	})
+	workflow.Outputs = map[string]ir.OutputSchema{"report": {From: "never-produced", Required: true}}
 	var out bytes.Buffer
 	err := executeFormulaRecipeRuntime(context.Background(), executeFormulaRuntimeOptions{Workflow: workflow, DryRun: true, AllowScripts: true, Out: &out})
 	if err != nil {

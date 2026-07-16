@@ -307,6 +307,9 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 		capabilities.ExternalAgents = formularuntime.ExternalAgentCapability{Driver: opt.ExternalAgentDriver}
 	}
 	exec := formularuntime.NewExecutor(workflow, capabilities)
+	if opt.DryRun {
+		exec.Mode = formularuntime.ExecutionModePreview
+	}
 	exec.ResolveWorkflow = func(ctx context.Context, name string, inputs map[string]steps.Value) (*ir.Workflow, error) {
 		return formula.CompileWorkflowByName(ctx, name, getSearchPaths(), formulaInputStrings(inputs))
 	}
