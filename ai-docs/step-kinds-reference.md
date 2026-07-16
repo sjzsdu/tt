@@ -396,4 +396,7 @@ env.git.remote_url
 
 - 每次 step 的 `prompt` / `output` / `error` 都会写到 `~/.local/share/tt/formularuns/<run-id>/steps/<node-id>.*`。
 - run store 的 `state.json` 包含每个 node 的 `status` / `attempts` / `lastError` / `outputKey`，dashboard 通过 `formula/ui.Snapshot` 读取。
-- `--dry-run` 会用 `DryRunAgentCapability` / `DryRunScriptCapability` 替代真实执行，只打印请求不调用 LLM / 进程。
+- `--dry-run` 会把 runtime 切换到 `preview` 模式，并用 DryRun Agent / Script /
+  ExternalAgent capabilities 生成占位输出，不调用 LLM 或外部进程。预览模式会递归传给
+  FormulaCall 子执行器；占位输出不会执行业务 output schema 或 required workflow output
+  校验，真实运行仍保持严格校验。

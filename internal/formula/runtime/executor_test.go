@@ -168,6 +168,31 @@ func TestExecutorFailsWhenRequiredWorkflowOutputIsMissing(t *testing.T) {
 	}
 }
 
+func TestExecutorPreviewBypassesSyntheticOutputValidation(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{
+		Base:       steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}},
+		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"answer"}},
+	}})
+	wf := &ir.Workflow{
+		ID:      "preview-output",
+		Graph:   g,
+		Outputs: map[string]ir.OutputSchema{"report": {From: "never-produced", Required: true}},
+	}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: fixedOutputAgent{raw: `{"dry_run":true}`}})
+	exec.Mode = ExecutionModePreview
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted || result.Nodes["plan"].Status != steps.StatusCompleted {
+		t.Fatalf("preview result = %+v", result)
+	}
+	if len(result.Outputs) != 0 {
+		t.Fatalf("preview should omit unavailable workflow outputs, got %#v", result.Outputs)
+	}
+}
+
 func TestExecutorPersistsLoopChildExecutionState(t *testing.T) {
 	g := ir.NewGraph()
 	g.AddNode(&ir.Node{ID: "review", Step: steps.LoopStep{

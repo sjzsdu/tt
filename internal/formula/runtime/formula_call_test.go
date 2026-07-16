@@ -59,6 +59,43 @@ func TestExecutorRunsFormulaCallWithHierarchicalState(t *testing.T) {
 	}
 }
 
+func TestExecutorPreviewPropagatesThroughFormulaCall(t *testing.T) {
+	parentGraph := ir.NewGraph()
+	parentGraph.AddNode(&ir.Node{ID: "invoke", Step: steps.FormulaCallStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "invoke", Kind: steps.KindFormula}}, Formula: "child",
+	}})
+	parent := &ir.Workflow{
+		ID: "parent", Name: "parent", Graph: parentGraph,
+		Outputs: map[string]ir.OutputSchema{"report": {From: "invoke.report", Required: true}},
+	}
+	childGraph := ir.NewGraph()
+	childGraph.AddNode(&ir.Node{ID: "plan", Step: steps.AgentStep{
+		Base:       steps.Base{Metadata: steps.Metadata{ID: "plan", Kind: steps.KindAgent}},
+		Validation: &steps.OutputValidationSpec{Format: "json", Required: []string{"answer"}},
+	}})
+	child := &ir.Workflow{
+		ID: "child", Name: "child", Graph: childGraph,
+		Outputs: map[string]ir.OutputSchema{"report": {From: "never-produced", Required: true}},
+	}
+	exec := NewExecutor(parent, steps.Capabilities{Agents: fixedOutputAgent{raw: `{"dry_run":true}`}})
+	exec.Mode = ExecutionModePreview
+	exec.ResolveWorkflow = func(context.Context, string, map[string]steps.Value) (*ir.Workflow, error) { return child, nil }
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted || result.Nodes["invoke"].Status != steps.StatusCompleted {
+		t.Fatalf("preview FormulaCall result = %+v", result)
+	}
+	snapshot, err := exec.Store.Snapshot("parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Steps["invoke.formula(child).plan"].Status; got != steps.StatusCompleted {
+		t.Fatalf("nested preview status = %q", got)
+	}
+}
+
 func TestExecutorRejectsRecursiveFormulaCalls(t *testing.T) {
 	workflow := func(name, child string) *ir.Workflow {
 		graph := ir.NewGraph()
