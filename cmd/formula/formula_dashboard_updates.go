@@ -320,12 +320,12 @@ func (s *formulaDashboardServer) markLoopActivityLocked(stepID, title, status, s
 			s.state.Steps[i].Status = "running"
 			s.state.Steps[i].StartedAt = time.Now().Format(time.RFC3339)
 		}
-		if status == "failed" || status == "interrupted" || status == "waiting_input" {
+		if status == "failed" || status == "interrupted" || status == "waiting_input" || status == "completed" {
 			s.state.Steps[i].Status = status
 			if errMsg != "" {
 				s.state.Steps[i].Error = errMsg
 			}
-			if status == "failed" || status == "interrupted" {
+			if status == "failed" || status == "interrupted" || status == "completed" {
 				s.state.Steps[i].FinishedAt = time.Now().Format(time.RFC3339)
 				if s.state.Steps[i].StartedAt != "" {
 					if started, err := time.Parse(time.RFC3339, s.state.Steps[i].StartedAt); err == nil {

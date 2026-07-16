@@ -51,6 +51,33 @@ func TestDashboardStepUpdatesPopulateStructuredExecutionHistory(t *testing.T) {
 	}
 }
 
+func TestDashboardLoopStepStatusUpdates(t *testing.T) {
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	workflow.Graph.AddNode(&ir.Node{ID: "cycle", Step: steps.LoopStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "cycle", Kind: steps.KindLoop, Title: "Cycle"}},
+		Body: []steps.Step{steps.NoopStep{Base: steps.Base{Metadata: steps.Metadata{ID: "script", Kind: steps.KindNoop, Title: "Script"}}}},
+	}})
+	dashboard := newFormulaDashboardServer(workflow)
+	dashboard.state.Steps = append(dashboard.state.Steps, structStepForTest("cycle", "Cycle"))
+
+	dashboard.markStepRunning("cycle.iter1.script", "Script", "", "", "session-1")
+	dashboard.markStepCompleted("cycle.iter1.script", "ok")
+
+	var cycleStep *ui.Step
+	for i := range dashboard.state.Steps {
+		if dashboard.state.Steps[i].ID == "cycle" {
+			cycleStep = &dashboard.state.Steps[i]
+			break
+		}
+	}
+	if cycleStep == nil {
+		t.Fatalf("cycle step not found")
+	}
+	if cycleStep.Status != "completed" {
+		t.Fatalf("cycle step status = %q, want %q", cycleStep.Status, "completed")
+	}
+}
+
 func TestDashboardFinalReportChatLifecycle(t *testing.T) {
 	dashboard := newFormulaDashboardServer(nil)
 	dashboard.state.RunID = "run-123"
