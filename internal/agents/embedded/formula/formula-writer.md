@@ -32,6 +32,8 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 - `tt formula run` 直接执行 Workflow IR typed runtime。不要推荐 `--legacy-engine` 或 `--runtime-engine`。
 - canonical 文件名是 `.tt/formulas/<name>.toml`。不要创建 `.formula.toml`。
 - step 输出默认保存到 local step id。新 formula 应直接用 step id 作为上下文 key。
+- 所有 step 统一遵循 `inputs map -> step -> outputs map`。计划被复用的 formula 必须用根级 `[outputs.<name>]` 声明精简、稳定的公共输出；`report` 是面向人的 Markdown 约定端口。
+- 稳定 workflow 复用默认使用运行时 `execution = "formula"`、静态 `formula = "child-name"` 和显式 `[steps.with]`。只有调用方必须把子图并入自身图，或读取未公开的内部 step 时才使用编译期 `embed`。
 - runtime 自动注入全局 `env`：`env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`。
 - script step 失败且 runtime 有 agent capability 时，会触发一次 agent-assisted repair：agent 产出临时 `fixed_command`，runtime 重跑一次，并写入 `formula_repairs.<step-id>` 作为用户提示。这个能力只用于临时恢复体验，不能替代正确维护 formula。最终报告若包含可能失败的 script/tool step，应把对应 `formula_repairs.<step-id>` 加入 `input_context`，提醒用户把修复同步回 formula 文档。
 - **step `idempotent` 旗标**：决定失败时是否走 `StepFixer` 自修（最多 3 次 attempt）。`agent` / `external_agent` 默认 `true`；`script` 默认 `false`，必须**显式**写 `idempotent = true` 才会自修。写 formula 时按命令性质判断：只读或可重复的命令（`gh …` / `curl GET` / `jq` / `git status` / `go test` 等）写 `idempotent = true`；有副作用的命令（`git push` / `gh pr create` / 写文件 / 删资源）保留默认不写。修复报告落盘到 `patches/<run-id>.json`，由 dashboard Repairs 面板 + 人工 `Confirm reviewed` 闭环，**runtime 不会替作者 patch formula 文件**。
@@ -46,15 +48,16 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 必须满足：
 
 1. root 包含 `formula`, `description`, `version`, `type = "workflow"`。
-2. step id 是稳定短 local id，例如 `fetch-pr`, `classify`, `run-tests`, `report`。
-3. `depends_on` 引用同一 formula 内存在的 local step id。
-4. 下游 agent 消费数据时用 `input_context = ["producer-step"]`，但只传 agent 真正需要的数据。
-5. 优先使用 `execution = "tool"`、`execution = "aggregate"`、`execution = "script"` 表达确定性步骤。
-6. 只有判断、综合、代码推理、报告等才用 agent step。
-7. `condition` / `loop.until` / `aggregate` / tool 依赖的结构化输出必须配置 `[steps.validate]`。
-8. 对 CLI/env/git/path 等运行前置条件，使用顶层 `[preflight]`，不要为了检查 CLI 是否存在而创建 workflow step。
-9. formula 要面向用户任务保持简单；内部安全约束写在 step instruction，不要默认写进最终报告。
-10. 完成前运行 `tt formula validate`、`tt formula compile`、必要时 `tt formula run --dry-run`。
+2. 计划被复用的 formula 声明稳定、精简的 `[outputs]`；有最终用户报告时显式公开 `outputs.report`，不要把内部调研/计划 step 直接当公共接口。
+3. step id 是稳定短 local id，例如 `fetch-pr`, `classify`, `run-tests`, `report`。
+4. `depends_on` 引用同一 formula 内存在的 local step id。
+5. 下游 agent 消费数据时用 `input_context = ["producer-step"]`，但只传 agent 真正需要的数据。
+6. 优先使用 `execution = "tool"`、`execution = "aggregate"`、`execution = "script"` 表达确定性步骤。
+7. 只有判断、综合、代码推理、报告等才用 agent step。
+8. `condition` / `loop.until` / `aggregate` / tool 依赖的结构化输出必须配置 `[steps.validate]`。
+9. 对 CLI/env/git/path 等运行前置条件，使用顶层 `[preflight]`，不要为了检查 CLI 是否存在而创建 workflow step。
+10. formula 要面向用户任务保持简单；内部安全约束写在 step instruction，不要默认写进最终报告。
+11. 完成前运行 `tt formula validate`、`tt formula compile`、必要时 `tt formula run --dry-run`。
 
 ## 方法论：先设计 SOP，再写 TOML
 
@@ -85,7 +88,8 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 | 需要调用已安装的外部 agent CLI，而不是内置 Picoclaw agent | `execution = "external_agent"` + `[steps.external_agent]` |
 | 需要判断、取舍、综合、实现推理、报告 | agent step，省略 `execution` |
 | 运行时重复直到条件满足或遍历数组 | `[steps.loop]` |
-| 稳定子流程复用 | `embed = "child-formula"` |
+| 有明确公共输入/输出契约的稳定 workflow 复用 | `execution = "formula"` + `formula = "child-formula"` |
+| 必须内联子图或读取子 formula 未公开的内部 step | `embed = "child-formula"` |
 
 ### 3. 画数据流
 
@@ -564,7 +568,54 @@ depends_on = ["draft-brief"]
 
 规则：必须设置 `max`，`until` 引用 loop body 中的 step id 输出。
 
-### 8. Embed：复用稳定子流程
+### 8. 公共 `[outputs]` 与运行时 FormulaCall
+
+计划被其他 formula 调用时，应先声明小而稳定的公共输出。`from` 是 runtime context path；优先从 `report-data` 这类精选摘要导出，不要直接暴露内部 research/plan/implementation step。
+
+```toml
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "面向用户的最终报告"
+
+[outputs.summary]
+from = "report-data.summary"
+type = "string"
+required = true
+description = "稳定的机器可读结果摘要"
+```
+
+父 formula 把它作为普通 step 调用：
+
+```toml
+[[steps]]
+id = "run-child"
+title = "运行子工作流"
+execution = "formula"
+formula = "child-workflow"
+
+[steps.with]
+request = "{{request}}"          # 完整模板保留 JSON/object/array 类型
+label = "ticket={{ticket_key}}" # 混合模板得到字符串
+
+[[steps]]
+id = "report"
+title = "汇总子流程结果"
+depends_on = ["run-child"]
+input_context = ["run-child.report", "run-child.summary"]
+description = "汇总子流程公开结果。"
+```
+
+FormulaCall 规则：
+
+- `[steps.with]` 是显式输入 map。完整模板 `{{payload}}` 保留原始类型；混合文本模板得到字符串；不含模板的文本是字面量，不会隐式按上下文 key 查找。
+- 子流程只通过 `[outputs.<name>]` 暴露结果，父流程使用 `<call-step-id>.<output-name>`；不要依赖子流程内部 step id。
+- 目标 formula 名称必须静态。`validate` / `compile` 会链接完整调用图并检查目标、必填/未知输入、未声明输出引用、直接/间接循环和嵌套深度。
+- 顶层存在 `final-report` 时，兼容层仍可推断 `report`；但可复用 formula 必须显式声明，便于审查接口。
+- parallel loop 内默认禁止 FormulaCall。只有确认子流程副作用和 workspace 隔离或只读时，才设置 `allow_parallel = true`。
+
+### 9. Embed：仅用于有意的子图内联
 
 ```toml
 [[steps]]
@@ -576,9 +627,13 @@ embed = "bug-fix"
 issue_summary = "{{triage.issue_summary}}"
 ```
 
-`embed` 不要和 loop/script/tool/agent/form/children 混用。
+规则：
 
-### 9. Noop：真实图结构
+- 只有调用方必须把子节点合并进自己的图、依赖子流程内部节点，或复用刻意不提供公共接口的 atomic 实现片段时，才使用 embed。
+- 如果调用方只需要子流程声明的公共结果，使用 FormulaCall。
+- `embed` 不要和 loop/script/tool/agent/form/children 混用。
+
+### 10. Noop：真实图结构
 
 ```toml
 [[steps]]
@@ -655,6 +710,8 @@ tt formula compile <name> --dir .tt/formulas
 tt formula run <name> --dir .tt/formulas --dry-run
 ```
 
+`validate` 和 `compile` 也会解析 FormulaCall 目标并检查公共输入/输出契约。修改 `[vars]`、`[outputs]` 或 `[steps.with]` 后，要同时验证可复用子 formula 和至少一条父调用链。
+
 Saved run：
 
 ```bash
@@ -670,6 +727,8 @@ tt formula run input latest <step-id> --field key=value
 
 - 文件名是 `<name>.toml`。
 - root fields 完整。
+- 可复用 formula 显式声明稳定公共输出；有最终报告时包含 `report`，调用方只消费公共端口。
+- FormulaCall 使用显式 `[steps.with]`；embed 只用于有意内联。
 - 每个 step id 唯一、短、local。
 - 依赖引用存在的 step id。
 - 确定性操作用 `tool` / `aggregate` / `script`，不是 agent prompt。

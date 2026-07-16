@@ -17,6 +17,8 @@ The core rule is:
 - `tt formula run` uses the typed runtime and Workflow IR. Do not mention legacy runtime flags.
 - Canonical formula path is `.tt/formulas/<name>.toml`. Do not create `.formula.toml` files.
 - Step outputs are saved under the local step `id` by default. Use those ids as context keys.
+- Every step follows one `inputs map -> step -> outputs map` contract. Reusable formulas declare their public result map with root `[outputs.<name>]` tables; `report` is the conventional human-readable Markdown port.
+- A reusable workflow should normally be called at runtime with `execution = "formula"`, a static `formula = "child-name"`, and explicit `[steps.with]` input bindings. Use compile-time `embed` only when the caller must inline the child graph or consume child implementation steps that are intentionally not public outputs.
 - Runtime injects global `env`: `env.cwd`, `env.os.name`, `env.os.arch`, `env.git.is_repo`, `env.git.root`, `env.git.repo`, `env.git.branch`, `env.git.commit`, `env.git.remote_url`.
 - Runtime templates such as `{{topic}}`, `{{env.cwd}}`, and `{{some-step.field}}` can be used in descriptions, script argv/env/cwd, and tool config strings.
 - Conditions use bare expressions, not templates: `condition = "classify.kind == bug"`, not `condition = "{{classify.kind}} == bug"`.
@@ -33,14 +35,15 @@ When asked to create or optimize a formula:
 
 1. Prefer writing/updating a complete TOML file.
 2. Include root fields: `formula`, `description`, `version`, `type = "workflow"`.
-3. Use short stable local step ids: `fetch-pr`, `classify`, `run-tests`, `report`.
-4. Make execution order explicit with `depends_on`.
-5. Make data flow explicit with `input_context` for agent consumers, but only pass data the agent actually needs.
-6. Prefer deterministic `tool`, `aggregate`, or `script` steps before agent steps.
-7. Use `[steps.validate]` for JSON that drives downstream structure, conditions, loops, or tools.
-8. Use top-level `[preflight]` for required CLI/env/repo prerequisites; do not model prerequisite checks as workflow steps unless their output is needed downstream.
-9. Keep the workflow product-facing: internal safety constraints belong in step instructions, not in user-facing final reports.
-10. Validate with `tt formula validate`, `tt formula compile`, and, when safe, `tt formula run --dry-run`.
+3. For a formula intended to be reused, declare a small stable `[outputs]` contract. Always expose `outputs.report` when the formula produces a final user-facing report; expose curated machine-readable results, not internal planning/research steps.
+4. Use short stable local step ids: `fetch-pr`, `classify`, `run-tests`, `report`.
+5. Make execution order explicit with `depends_on`.
+6. Make data flow explicit with `input_context` for agent consumers, but only pass data the agent actually needs.
+7. Prefer deterministic `tool`, `aggregate`, or `script` steps before agent steps.
+8. Use `[steps.validate]` for JSON that drives downstream structure, conditions, loops, or tools.
+9. Use top-level `[preflight]` for required CLI/env/repo prerequisites; do not model prerequisite checks as workflow steps unless their output is needed downstream.
+10. Keep the workflow product-facing: internal safety constraints belong in step instructions, not in user-facing final reports.
+11. Validate with `tt formula validate`, `tt formula compile`, and, when safe, `tt formula run --dry-run`.
 
 ## Methodology: design before TOML
 
@@ -73,7 +76,8 @@ Ask this in order:
 | Should this step run through an external installed agent CLI instead of the embedded Picoclaw agent? | `execution = "external_agent"` with `[steps.external_agent]` |
 | Does it require judgment, tradeoff, synthesis, code reasoning, or prose? | agent step, omit `execution` |
 | Is it repeat-until or foreach runtime iteration? | `[steps.loop]` |
-| Is it stable reusable workflow reuse? | `embed = "child-formula"` |
+| Is it a stable reusable workflow with an explicit public input/output contract? | `execution = "formula"` + `formula = "child-formula"` |
+| Must the caller inline the child graph or consume non-public child step outputs? | `embed = "child-formula"` |
 
 ### 3. Draw the data flow
 
@@ -585,7 +589,54 @@ Loop rules:
 - Use `for_each` for arrays produced at runtime.
 - Keep loop body small and inspectable.
 
-### 8. Embed step, for stable reusable child workflows
+### 8. Public Formula outputs and runtime FormulaCall
+
+Declare a small stable output contract on every formula intended for reuse. `from` is a runtime context path. Prefer a curated aggregate such as `report-data` over exporting internal research, planning, or implementation steps directly.
+
+```toml
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "Human-readable final report"
+
+[outputs.summary]
+from = "report-data.summary"
+type = "string"
+required = true
+description = "Stable machine-readable result summary"
+```
+
+Call that formula as one normal runtime step:
+
+```toml
+[[steps]]
+id = "run-child"
+title = "Run child workflow"
+execution = "formula"
+formula = "child-workflow"
+
+[steps.with]
+request = "{{request}}"          # exact template preserves JSON/object/array type
+label = "ticket={{ticket_key}}" # mixed template is a string
+
+[[steps]]
+id = "report"
+title = "Report child result"
+depends_on = ["run-child"]
+input_context = ["run-child.report", "run-child.summary"]
+description = "Summarize the child result."
+```
+
+FormulaCall rules:
+
+- `[steps.with]` is the explicit child input map. An exact template such as `{{payload}}` preserves the original value type; mixed text such as `id={{ticket}}` produces a string; text without a template is a literal string, not an implicit context lookup.
+- Child results are exposed only through its declared `[outputs.<name>]` map and are read as `<call-step-id>.<output-name>`. Do not depend on child internal step ids.
+- The target formula name is static. `validate` and `compile` link the complete call graph and reject missing targets, unknown or missing required inputs, undeclared output references, cycles, and excessive nesting.
+- A top-level `final-report` still provides a compatibility `report` output when no explicit declaration exists, but reusable formulas should declare it explicitly so the interface is reviewable.
+- FormulaCall inside a parallel loop is rejected unless the call explicitly sets `allow_parallel = true`. Opt in only when child side effects and workspace usage are isolated or read-only.
+
+### 9. Embed step, only for intentional graph inlining
 
 ```toml
 [[steps]]
@@ -599,11 +650,12 @@ issue_summary = "{{triage.issue_summary}}"
 
 Embed rules:
 
-- Use embed for stable SOP reuse.
+- Use embed only when the caller must merge the child nodes into its own graph, depend on a child implementation node, or reuse an atomic implementation fragment that intentionally has no public contract.
+- If the caller only needs declared child results, use FormulaCall instead.
 - Do not mix `embed` with loop, script, tool, agent, form, or children on the same step.
 - Downstream dependencies wait for the embedded workflow exit boundary.
 
-### 9. Noop step, only for real graph structure
+### 10. Noop step, only for real graph structure
 
 ```toml
 [[steps]]
@@ -684,6 +736,8 @@ tt formula compile <name> --dir .tt/formulas
 tt formula run <name> --dir .tt/formulas --dry-run
 ```
 
+`validate` and `compile` also resolve FormulaCall targets and verify their public input/output contracts. Run them for both a reusable child and at least one parent call chain after changing `[vars]`, `[outputs]`, or `[steps.with]`.
+
 Saved runs:
 
 ```bash
@@ -701,15 +755,17 @@ Before handing off:
 
 1. Root fields are complete and filename is `<name>.toml`.
 2. Every step id is unique, short, and local.
-3. Dependencies reference existing step ids.
-4. Deterministic operations use `tool`, `aggregate`, or `script`, not agent prose.
-5. Agent steps have clear goal, inputs, output format, and constraints.
-6. JSON outputs that control downstream behavior have validation.
-7. Large content is materialized or projected before reporting.
-8. Human input uses `human_input` or `form = true`, not “ask the user” prose.
-9. Loops have `max` and inspectable bodies.
-10. Validation/compile/dry-run commands pass.
-11. Side-effecting `script` steps are left at the default (`idempotent = false`); safe read-only scripts opt in with `idempotent = true` so the runtime's `StepFixer` can retry them.
+3. Reusable formulas declare stable public outputs, including `report` when applicable; callers consume only those public ports.
+4. FormulaCall uses explicit `[steps.with]` bindings; embed is reserved for intentional inlining.
+5. Dependencies reference existing step ids.
+6. Deterministic operations use `tool`, `aggregate`, or `script`, not agent prose.
+7. Agent steps have clear goal, inputs, output format, and constraints.
+8. JSON outputs that control downstream behavior have validation.
+9. Large content is materialized or projected before reporting.
+10. Human input uses `human_input` or `form = true`, not “ask the user” prose.
+11. Loops have `max` and inspectable bodies.
+12. Validation/compile/dry-run commands pass.
+13. Side-effecting `script` steps are left at the default (`idempotent = false`); safe read-only scripts opt in with `idempotent = true` so the runtime's `StepFixer` can retry them.
 
 ## Self-Repair (StepFixer)
 
