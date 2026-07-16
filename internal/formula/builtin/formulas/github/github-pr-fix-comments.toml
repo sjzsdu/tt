@@ -203,10 +203,31 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "report-data"
+title = "整理 PR 评论处理报告数据"
+depends_on = ["cleanup-worktree"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+pr_title = "fetch-pr-metadata.pr.stdout.title"
+pr_url = "fetch-pr-metadata.pr.stdout.url"
+head_branch = "fetch-pr-metadata.pr.stdout.headRefName"
+workspace_mode = "prepare-fix-worktree.stdout.mode"
+workspace_path = "prepare-fix-worktree.stdout.workspace_path"
+worktree_error = "prepare-fix-worktree.stdout.error"
+total_comments = "normalize-comment-items.stdout.total"
+should_process = "normalize-comment-items.stdout.should_process"
+comment_items = "normalize-comment-items.stdout.items"
+fix_results = "fix-each-comment"
+resolved_threads = "resolve-review-threads.stdout"
+commit_and_push = "commit-and-push.stdout"
+cleanup = "cleanup-worktree.stdout"
+
+[[steps]]
 id = "final-report"
 title = "输出 PR 评论处理总报告"
-depends_on = ["cleanup-worktree"]
-input_context = ["fetch-pr-metadata.pr.stdout", "prepare-fix-worktree.stdout", "fetch-review-comments.stdout", "normalize-comment-items.stdout", "fix-each-comment", "resolve-review-threads.stdout", "commit-and-push.stdout", "cleanup-worktree.stdout"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 输出最终中文总结，必须是 Markdown。严禁输出 JSON、代码块 JSON 或被引号包裹的 JSON 字符串。
 

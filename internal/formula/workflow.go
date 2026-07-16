@@ -214,7 +214,7 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 		if agg == nil {
 			agg = &spec.AggregateSpec{}
 		}
-		return steps.AggregateStep{Base: steps.Base{Metadata: meta}, Source: agg.Source, As: agg.As, Require: append([]string(nil), agg.Require...), Include: append([]string(nil), agg.Include...), Exclude: append([]string(nil), agg.Exclude...), Flatten: agg.Flatten, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
+		return steps.AggregateStep{Base: steps.Base{Metadata: meta}, Source: agg.Source, Fields: cloneStringMap(agg.Fields), As: agg.As, Require: append([]string(nil), agg.Require...), Include: append([]string(nil), agg.Include...), Exclude: append([]string(nil), agg.Exclude...), Flatten: agg.Flatten, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	case "tool":
 		meta.Kind = steps.KindTool
 		tool := step.Tool
@@ -244,6 +244,17 @@ func typedStepFromFormulaStep(step *spec.Step, sourceDir string) steps.Step {
 		}
 		return steps.AgentStep{Base: steps.Base{Metadata: meta}, Agent: agentName, Model: model, Cwd: cwd, Prompt: step.Description, InputCtx: append([]string(nil), step.InputCtx...), DynamicForm: step.DynamicForm, OutputKey: step.OutputKey, Validation: outputValidationSpec(step)}
 	}
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func writeFilesToolStep(spec *spec.WriteFilesSpec) *steps.WriteFilesStep {

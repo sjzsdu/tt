@@ -683,6 +683,34 @@ func TestAggregateStepCollectsAndProjectsObjects(t *testing.T) {
 	}
 }
 
+func TestAggregateStepCollectsNamedContextFields(t *testing.T) {
+	step := AggregateStep{
+		Base: Base{Metadata: Metadata{ID: "report-data", Kind: KindAggregate}},
+		Fields: map[string]string{
+			"summary": "implementation.change_summary",
+			"tests":   "validation.commands",
+			"missing": "optional.value",
+		},
+	}
+	res, err := step.Run(context.Background(), RunRequest{Context: mapContextView{
+		"implementation": {Raw: []byte(`{"change_summary":"added preview"}`)},
+		"validation":     {Raw: []byte(`{"commands":["go test ./..."]}`)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(res.Output.Raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["summary"] != "added preview" || len(got["tests"].([]any)) != 1 {
+		t.Fatalf("report data = %#v", got)
+	}
+	if _, ok := got["missing"]; ok {
+		t.Fatalf("missing optional field should be omitted: %#v", got)
+	}
+}
+
 func TestWriteFilesStepCreatesFilesAndManifest(t *testing.T) {
 	tmp := t.TempDir()
 	step := WriteFilesStep{

@@ -232,9 +232,33 @@ on_exhausted = "fail"          # fail | ignore
 
 要点：内部失败的 child 会被重跑；`on_exhausted` 控制耗尽后整体是失败还是忽略。
 
-### `aggregate` —— 数据投影
+### `aggregate` —— 数据投影与确定性 fan-in
 
-从已有 step 输出中抽 JSON 数组，做字段筛选/重命名/包壳。
+支持两种模式：从一个 JSON 数组做投影，或从多个 context path 汇聚一个命名 map。
+
+复杂工作流推荐在最终 reporter 前增加 `report-data`，只把用户报告需要的字段汇聚成一个 map，避免把 diff、日志和完整子报告重复塞进最终 prompt：
+
+```toml
+[[steps]]
+id = "report-data"
+execution = "aggregate"
+depends_on = ["implement", "validate"]
+
+[steps.aggregate.fields]
+change_summary = "implement.change_summary"
+files_changed = "implement.files_changed"
+safe_to_ship = "validate.safe_to_ship"
+
+[[steps]]
+id = "final-report"
+depends_on = ["report-data"]
+input_context = ["report-data"]
+agent.name = "reporter"
+```
+
+`fields` 的 key 是输出字段名，value 是 context path。缺失路径会被省略，已有 JSON 值会保留对象、数组、数字和布尔类型；输出字段按名称稳定排序后编码。
+
+数组投影模式如下：
 
 ```toml
 [[steps]]
@@ -252,6 +276,7 @@ flatten = false                 # true 且结果只有 1 个元素时取首个
 
 要点：
 
+- `fields` 与 `source` 二选一；存在非空 `fields` 时使用命名 map fan-in 模式。
 - `source` 必须是 JSON 数组；若上游输出是字符串，runtime 会尝试从 fenced JSON 块解析。
 - `include` 留空表示保留全部 key，再由 `exclude` 减除。
 

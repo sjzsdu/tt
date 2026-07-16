@@ -168,6 +168,7 @@ Generate a slide-based video from a centralized script file. The script owns nar
 ```bash
 tt video doctor --script examples/videos/video-showcase-talk.md
 tt video lint examples/videos/video-showcase-talk.md
+tt video preview examples/videos/video-showcase-talk.md
 tt video generate examples/videos/video-showcase-talk.md
 ```
 
@@ -199,6 +200,8 @@ Script front matter can override visual defaults for a specific video, for examp
 Run `tt video lint` before expensive generation to catch issues that hurt publishability: thin narration, repetitive talk tracks, generic wording, poor pacing, and render-mode risks.
 
 `tt video generate` also runs a quality preflight before expensive work. Structural errors stop the generation. Non-blocking quality warnings are surfaced in progress output so the script can still render while giving the author actionable feedback.
+
+Use `tt video preview <script>` for a section-by-section plan, duration, slide mapping, and quality findings without calling TTS or rendering. Failed static/segment renders can continue with `tt video generate <script> --resume`; cached audio, screenshots, and completed segments are reused. To force only selected sections to regenerate, pass ranges such as `--sections 2,4-6` (sectional regeneration requires `render_mode: segments`; browser-continuous rendering remains an all-or-nothing quality path).
 
 `render_mode` defaults to `auto`, which keeps the final output at the requested `fps` and uses a quality-first strategy. Static decks use the concurrent per-section renderer and then compose sections through a timeline with video fade transitions, while keeping narration audio sequential so adjacent voice clips do not overlap. Decks with animation cues such as fragments or auto-animate switch to browser continuous recording so motion is not lost. Browser rendering failures in quality-sensitive modes are reported instead of silently falling back to a lower-quality static video. `browser` forces the continuous Reveal.js playback timeline. `segments` uses the stable per-section renderer. Continuous animation can increase final MP4 size compared with static frames because there is more visual motion, but the encoder still controls size through H.264 CRF. Intermediate browser frames live under `.tt/video/<script-name>/work/`.
 

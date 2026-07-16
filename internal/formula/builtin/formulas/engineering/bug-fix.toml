@@ -204,10 +204,31 @@ format = "json"
 required = ["decision", "reason", "recommended_next_steps"]
 
 [[steps]]
+id = "report-data"
+title = "整理 bug 处理摘要"
+depends_on = ["execute-fix", "no-bug-report"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+issue_summary = "analyze-issue.issue_summary"
+expected_behavior = "analyze-issue.expected_behavior"
+issue_exists = "code-research.issue_exists"
+root_cause = "code-research.root_cause"
+evidence = "code-research.evidence"
+fix_summary = "execute-fix.change_summary"
+files_changed = "execute-fix.files_changed"
+validation_result = "execute-fix.validation_result"
+fully_resolved = "execute-fix.fully_resolved"
+remaining_risks = "execute-fix.remaining_risks"
+no_change_decision = "no-bug-report.decision"
+no_change_reason = "no-bug-report.reason"
+recommended_next_steps = "no-bug-report.recommended_next_steps"
+
+[[steps]]
 id = "final-report"
 title = "输出最终 bug 处理结论"
-depends_on = ["execute-fix", "no-bug-report"]
-input_context = ["analyze-issue", "prepare-research-brief", "code-research", "execute-fix", "no-bug-report"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 面向用户输出最终结论，整合 analyze-issue、research_brief、bug_verification、fix_plan、fix_result 与 no_bug_resolution。
 

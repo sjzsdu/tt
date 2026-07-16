@@ -337,10 +337,33 @@ format = "json"
 required = ["mode", "backlog_integration", "created_beads", "updated_beads", "bead_id_map", "dependency_links", "skipped_candidates", "notes"]
 
 [[steps]]
+id = "report-data"
+title = "整理需求与 backlog 摘要"
+depends_on = ["create-or-plan-beads"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+requirement_summary = "understand-requirement.requirement_summary"
+user_goal = "understand-requirement.user_goal"
+acceptance_signals = "understand-requirement.acceptance_signals"
+project_positioning = "project-research.project_positioning"
+existing_backlog_context = "project-research.existing_backlog_context"
+risk_or_unknowns = "project-research.risk_or_unknowns"
+backlog_goal = "design-bead-backlog.backlog_goal"
+existing_backlog_integration = "design-bead-backlog.existing_backlog_integration"
+candidate_beads = "design-bead-backlog.candidate_beads"
+mode = "create-or-plan-beads.mode"
+created_beads = "create-or-plan-beads.created_beads"
+updated_beads = "create-or-plan-beads.updated_beads"
+dependency_links = "create-or-plan-beads.dependency_links"
+skipped_candidates = "create-or-plan-beads.skipped_candidates"
+notes = "create-or-plan-beads.notes"
+
+[[steps]]
 id = "final-grooming-report"
 title = "输出需求整理报告"
-depends_on = ["create-or-plan-beads"]
-input_context = ["understand-requirement", "load-existing-beads.stdout", "project-research", "design-bead-backlog", "ensure-beads-workspace.stdout", "create-or-plan-beads"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 基于全部上下文，输出面向用户的需求整理报告。不要再创建或修改 beads。
 

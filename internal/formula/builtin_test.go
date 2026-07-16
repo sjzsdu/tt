@@ -453,6 +453,53 @@ func TestAllBuiltinFormulasCompile(t *testing.T) {
 	}
 }
 
+func TestComplexBuiltinReportsUseCuratedSummaryPayload(t *testing.T) {
+	tests := []struct {
+		formula string
+		finalID string
+	}{
+		{formula: "feature", finalID: "final-report"},
+		{formula: "bug-fix", finalID: "final-report"},
+		{formula: "gongbu", finalID: "final-report"},
+		{formula: "requirement-grooming", finalID: "final-grooming-report"},
+		{formula: "github-pr-review", finalID: "final-report"},
+		{formula: "github-pr-fix-comments", finalID: "final-report"},
+		{formula: "github-pr-rebase-main", finalID: "final-report"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.formula, func(t *testing.T) {
+			workflow, err := CompileWorkflowByName(context.Background(), tt.formula, nil, builtinCompileSmokeVars(tt.formula))
+			if err != nil {
+				t.Fatalf("CompileWorkflowByName(%q) error = %v", tt.formula, err)
+			}
+			reportData := workflow.Graph.Nodes[ir.NodeID("report-data")]
+			if reportData == nil {
+				t.Fatal("missing report-data step")
+			}
+			aggregate, ok := reportData.Step.(steps.AggregateStep)
+			if !ok {
+				t.Fatalf("report-data step = %T, want steps.AggregateStep", reportData.Step)
+			}
+			if len(aggregate.Fields) == 0 {
+				t.Fatal("report-data must select at least one named field")
+			}
+
+			final := workflow.Graph.Nodes[ir.NodeID(tt.finalID)]
+			if final == nil {
+				t.Fatalf("missing %s step", tt.finalID)
+			}
+			reporter, ok := final.Step.(steps.AgentStep)
+			if !ok {
+				t.Fatalf("%s step = %T, want steps.AgentStep", tt.finalID, final.Step)
+			}
+			if got, want := reporter.InputCtx, []string{"report-data"}; !slices.Equal(got, want) {
+				t.Fatalf("%s input_context = %v, want %v", tt.finalID, got, want)
+			}
+		})
+	}
+}
+
 func TestKeepCodingWorkflowHasStableCycleNode(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "keep-coding", nil, map[string]string{"goal": "smoke goal"})
 	if err != nil {
