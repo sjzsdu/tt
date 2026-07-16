@@ -47,7 +47,7 @@ validation_command = "{{validation_command}}"
 id = "final-report"
 title = "输出 Jira feature 交付报告"
 depends_on = ["run-feature"]
-input_context = ["fetch-ticket-data", "run-feature.report"]
+input_context = ["fetch-ticket-data", "run-feature.report", "run-feature.implemented", "run-feature.safe_to_ship", "run-feature.change_summary"]
 description = """
 面向用户输出简明中文 Markdown 报告。
 

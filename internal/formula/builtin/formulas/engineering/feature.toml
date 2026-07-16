@@ -8,6 +8,30 @@ feature_request = { description = "本次 feature 的目标、背景、验收标
 workspace_path = { description = "可选执行工作区路径；为空时使用 formula 运行目录", default = "" }
 validation_command = { description = "可选验证命令；为空则自动检测轻量验证命令", default = "" }
 
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "Feature 交付的人类可读最终报告"
+
+[outputs.implemented]
+from = "report-data.implemented"
+type = "boolean"
+required = true
+description = "Feature 是否完成实现"
+
+[outputs.safe_to_ship]
+from = "report-data.safe_to_ship"
+type = "boolean"
+required = true
+description = "结合实现、验证与影响评估得到的可交付判断"
+
+[outputs.change_summary]
+from = "report-data.change_summary"
+type = "string"
+required = true
+description = "本次 Feature 的改动摘要"
+
 [[steps]]
 id = "understand-requirement"
 title = "理解 feature 需求，必要时动态澄清"
@@ -186,9 +210,10 @@ required = ["implemented", "files_changed", "change_summary", "blocked_items"]
 id = "run-validation"
 title = "执行测试与基础验证"
 depends_on = ["implement-feature"]
-embed = "run-validation"
+execution = "formula"
+formula = "run-validation"
 
-[steps.embed_vars]
+[steps.with]
 command = "{{validation_command}}"
 auto_detect = "true"
 

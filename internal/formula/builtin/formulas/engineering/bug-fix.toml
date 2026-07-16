@@ -7,6 +7,23 @@ type = "workflow"
 issue_summary = { description = "用户反馈的 bug 摘要或问题描述", required = true }
 workspace_path = { description = "可选执行工作区路径；为空时使用公式运行目录", default = "" }
 
+[outputs.report]
+from = "final-report"
+type = "markdown"
+required = true
+description = "Bug 处理的人类可读最终报告"
+
+[outputs.issue_exists]
+from = "report-data.issue_exists"
+type = "boolean"
+required = true
+description = "代码调研是否确认问题存在"
+
+[outputs.fix_summary]
+from = "report-data.fix_summary"
+type = "string"
+description = "已确认问题的修复摘要；未执行修复时为空"
+
 [[steps]]
 id = "analyze-issue"
 title = "理解 bug 线索，必要时动态澄清"

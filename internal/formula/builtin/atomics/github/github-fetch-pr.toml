@@ -31,6 +31,12 @@ repo_hint = { description = "可选 owner/repo；为空则使用当前仓库 gh 
 review_focus = { description = "审阅关注点；用于派生 focus_areas", default = "正确性、风险与可维护性" }
 submit_review = { description = "父流程是否计划提交 review；仅作为上下文字段输出", default = "true", enum = ["true", "false"] }
 
+[outputs.pr]
+from = "pr"
+type = "json"
+required = true
+description = "PR metadata、文件列表、patch diff 与 review 上下文"
+
 [[steps]]
 id = "pr"
 title = "获取 PR 全量信息"
