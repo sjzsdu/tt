@@ -158,4 +158,14 @@ func TestExecutorFormulaCallTargetsNestedWaitingStep(t *testing.T) {
 	if wait == nil || wait.StepID != "invoke.formula(child).approve" {
 		t.Fatalf("await = %+v", wait)
 	}
+	snapshot, err := exec.Store.Snapshot("parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snapshot.Steps["invoke"]; !ok {
+		t.Fatal("parent FormulaCall state is missing")
+	}
+	if _, ok := snapshot.Steps["invoke.formula(child).approve"]; !ok {
+		t.Fatal("prefixed child state is missing")
+	}
 }

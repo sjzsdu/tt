@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
@@ -90,6 +92,46 @@ func TestFormulaRunStateStoreMirrorsWaitingInput(t *testing.T) {
 	}
 	if got.Reason != "need input" {
 		t.Fatalf("await reason = %q", got.Reason)
+	}
+}
+
+func TestFormulaRunStateStoreSerializesConcurrentPersistence(t *testing.T) {
+	root := t.TempDir()
+	workflow := &ir.Workflow{ID: "demo", Name: "demo", Graph: ir.NewGraph()}
+	store, err := run.New(root, workflow, nil, "main", "", "session", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := NewFormulaRunStateStore(store)
+	if err := bridge.StartWorkflow("demo"); err != nil {
+		t.Fatal(err)
+	}
+
+	const count = 16
+	errs := make(chan error, count)
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			nodeID := ir.NodeID(fmt.Sprintf("call.formula(child).step-%d", index))
+			errs <- bridge.SaveStep(StepState{WorkflowID: "demo", NodeID: nodeID, Status: steps.StatusCompleted})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var snapshot Snapshot
+	if err := run.LoadState(store.Dir, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Steps) != count {
+		t.Fatalf("persisted steps = %d, want %d", len(snapshot.Steps), count)
 	}
 }
 

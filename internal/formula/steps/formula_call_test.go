@@ -40,12 +40,33 @@ func TestFormulaCallStepPreservesTypedInputAndCollectsOutputs(t *testing.T) {
 	if got := string(runner.request.Inputs["payload"].Raw); got != `{"items":[1,2]}` {
 		t.Fatalf("typed payload = %s", got)
 	}
+	if got := runner.request.Inputs["payload"].Type; got != "json" {
+		t.Fatalf("typed payload type = %q", got)
+	}
 	var label string
 	if err := json.Unmarshal(runner.request.Inputs["label"].Raw, &label); err != nil || label != "item=demo" {
 		t.Fatalf("label = %q, err = %v", label, err)
 	}
 	if got := string(result.Outputs["summary"].Raw); got != `{"ok":true}` {
 		t.Fatalf("summary output = %s", got)
+	}
+}
+
+func TestFormulaCallStepTreatsPlainBindingAsLiteralString(t *testing.T) {
+	runner := &recordingWorkflowRunner{result: &WorkflowResult{Status: StatusCompleted}}
+	step := FormulaCallStep{
+		Base:    Base{Metadata: Metadata{ID: "call", Kind: KindFormula}},
+		Formula: "child",
+		With:    map[string]string{"label": "source"},
+	}
+	ctx := mapContextView{"source": {Type: "json", Raw: json.RawMessage(`{"unexpected":true}`)}}
+	_, err := step.Run(context.Background(), RunRequest{Context: ctx, Capabilities: Capabilities{Workflows: runner}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var label string
+	if err := json.Unmarshal(runner.request.Inputs["label"].Raw, &label); err != nil || label != "source" {
+		t.Fatalf("label = %q, err = %v", label, err)
 	}
 }
 

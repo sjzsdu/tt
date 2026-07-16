@@ -37,3 +37,20 @@ func TestBuildFormulaAndLoopPath(t *testing.T) {
 		t.Fatalf("round trip = %+v, want %+v", roundTrip.Segments, path.Segments)
 	}
 }
+
+func TestPathStringCanonicalizesEmptyAndDanglingSegments(t *testing.T) {
+	path := Path{Segments: []Segment{
+		{Kind: SegmentFormula, ID: "orphan"},
+		{Kind: SegmentStep, ID: " root "},
+		{Kind: SegmentStep},
+		{Kind: SegmentFormula},
+		{Kind: SegmentStep, ID: "child"},
+		{Kind: SegmentIteration, Index: 2},
+	}}
+	if got := path.String(); got != "root.child" {
+		t.Fatalf("canonical path = %q", got)
+	}
+	if got := Parse(path.String()).String(); got != path.String() {
+		t.Fatalf("parse/string is not stable: %q", got)
+	}
+}

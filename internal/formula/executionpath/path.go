@@ -136,22 +136,68 @@ func (p Path) FormulaPath() []string {
 // String preserves the existing loop address spelling. Formula segments use
 // an explicit marker so a future FormulaCall path remains unambiguous.
 func (p Path) String() string {
+	segments := canonicalStringSegments(p.Segments)
 	var b strings.Builder
-	for i, segment := range p.Segments {
+	for i, segment := range segments {
+		if i > 0 {
+			b.WriteByte('.')
+		}
 		switch segment.Kind {
 		case SegmentIteration:
-			fmt.Fprintf(&b, ".iter%d.", segment.Index)
+			fmt.Fprintf(&b, "iter%d", segment.Index)
 		case SegmentFormula:
-			if b.Len() > 0 && !strings.HasSuffix(b.String(), ".") {
-				b.WriteByte('.')
-			}
-			fmt.Fprintf(&b, "formula(%s).", segment.ID)
+			fmt.Fprintf(&b, "formula(%s)", segment.ID)
 		case SegmentStep:
-			if i > 0 && b.Len() > 0 && !strings.HasSuffix(b.String(), ".") {
-				b.WriteByte('.')
-			}
 			b.WriteString(segment.ID)
 		}
 	}
-	return strings.TrimSuffix(b.String(), ".")
+	return b.String()
+}
+
+// canonicalStringSegments removes malformed empty or dangling boundaries and
+// merges adjacent step segments into the legacy dotted step spelling. Valid
+// runtime paths already have the shape step.(formula|iteration).step.
+func canonicalStringSegments(segments []Segment) []Segment {
+	out := make([]Segment, 0, len(segments))
+	for i, segment := range segments {
+		segment.ID = strings.TrimSpace(segment.ID)
+		switch segment.Kind {
+		case SegmentStep:
+			if segment.ID == "" {
+				continue
+			}
+			if len(out) > 0 && out[len(out)-1].Kind == SegmentStep {
+				out[len(out)-1].ID += "." + segment.ID
+				continue
+			}
+			out = append(out, segment)
+		case SegmentFormula, SegmentIteration:
+			if segment.Kind == SegmentFormula && segment.ID == "" {
+				continue
+			}
+			if len(out) == 0 || out[len(out)-1].Kind != SegmentStep || !nextNonEmptyStep(segments[i+1:]) {
+				continue
+			}
+			out = append(out, segment)
+		}
+	}
+	return out
+}
+
+func nextNonEmptyStep(segments []Segment) bool {
+	for _, segment := range segments {
+		switch segment.Kind {
+		case SegmentStep:
+			if strings.TrimSpace(segment.ID) != "" {
+				return true
+			}
+		case SegmentFormula:
+			if strings.TrimSpace(segment.ID) != "" {
+				return false
+			}
+		case SegmentIteration:
+			return false
+		}
+	}
+	return false
 }
