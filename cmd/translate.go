@@ -128,6 +128,13 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("picoclaw-config") {
 		merged.Picoclaw.Config = translateConfig
 	}
+	workspace, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+	if err != nil {
+		return err
+	}
+	defer restoreStorage()
+	merged.Picoclaw.Home = resolvedHome
+	merged.Picoclaw.Config = resolvedConfig
 	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
 		return err
 	}
@@ -144,7 +151,7 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 
 	results := make([]translateResult, 0, len(inputs))
 	for _, input := range inputs {
-		result, err := translateSingle(rt, input, target, glossary)
+		result, err := translateSingle(rt, input, target, glossary, workspace)
 		if err != nil {
 			return fmt.Errorf("translate %q failed: %w", input.Source, err)
 		}
@@ -153,6 +160,7 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 
 	return outputTranslateResults(cmd, results)
 }
+
 
 type translateInput struct {
 	Text     string
@@ -382,7 +390,7 @@ func loadGlossary(path string) (map[string]string, error) {
 	return glossary, nil
 }
 
-func translateSingle(rt *pcwrap.Runtime, input translateInput, target string, glossary map[string]string) (*translateResult, error) {
+func translateSingle(rt *pcwrap.Runtime, input translateInput, target string, glossary map[string]string, workspace string) (*translateResult, error) {
 	text := input.Text
 
 	if glossary != nil {
@@ -406,6 +414,7 @@ func translateSingle(rt *pcwrap.Runtime, input translateInput, target string, gl
 		Model:          translateModel,
 		Debug:          translateDebug,
 		Quiet:          !translateDebug,
+		Workspace:      workspace,
 		EmbeddedAgents: []pcwrap.EmbeddedAgent{translateMaster},
 		BeforeOutput:   loading.Stop,
 	})
@@ -415,8 +424,9 @@ func translateSingle(rt *pcwrap.Runtime, input translateInput, target string, gl
 	defer dr.Close()
 
 	translated, err := dr.ProcessDirect(pcwrap.RunOptions{
-		Message: message,
-		Session: translateSession,
+		Message:   message,
+		Session:   translateSession,
+		Workspace: workspace,
 	})
 	if err != nil {
 		return nil, err
@@ -428,6 +438,7 @@ func translateSingle(rt *pcwrap.Runtime, input translateInput, target string, gl
 		Translated: translated,
 	}, nil
 }
+
 
 func applyGlossary(text string, glossary map[string]string) string {
 	for term, translation := range glossary {
