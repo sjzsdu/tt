@@ -69,9 +69,14 @@ function removeFullCanvasBackground(svg: SVGSVGElement, size: SvgSize) {
   svg.style.backgroundColor = 'transparent';
   svg.style.background = 'transparent';
 
+  // For D2 SVGs, find and make transparent only the full-canvas background rects
+  // without removing them (removing can break edge rendering)
   const classFills = readClassFills(svg);
-  const fullCanvasRects = Array.from(svg.querySelectorAll<SVGRectElement>('rect')).filter(rect => {
-    if (!isPlainBackgroundFill(readFill(rect, classFills))) return false;
+  const rects = Array.from(svg.querySelectorAll<SVGRectElement>('rect'));
+  
+  for (const rect of rects) {
+    const fill = readFill(rect, classFills);
+    if (!isPlainBackgroundFill(fill)) continue;
 
     const canvas = rectCanvas(rect, size);
     const x = numberAttr(rect, 'x', canvas.minX);
@@ -79,28 +84,17 @@ function removeFullCanvasBackground(svg: SVGSVGElement, size: SvgSize) {
     const width = lengthAttr(rect, 'width', canvas.width);
     const height = lengthAttr(rect, 'height', canvas.height);
 
-    return (
+    if (
       nearlyEqual(x, canvas.minX) &&
       nearlyEqual(y, canvas.minY) &&
       width >= canvas.width - 1 &&
       height >= canvas.height - 1
-    );
-  });
-
-  fullCanvasRects.forEach(rect => rect.remove());
-
-  const style = svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'style');
-  style.setAttribute('data-tt-d2-transparent-background', 'true');
-  style.textContent = `
-    svg.d2-svg > rect:first-child[stroke-width="0"],
-    svg.d2-svg > rect[fill="white"],
-    svg.d2-svg > rect[fill="#fff"],
-    svg.d2-svg > rect[fill="#ffffff"],
-    svg.d2-svg > rect.fill-N7[stroke-width="0"] {
-      fill: transparent !important;
+    ) {
+      // Instead of removing, make transparent via inline style
+      rect.style.fill = 'transparent';
+      rect.setAttribute('fill', 'transparent');
     }
-  `;
-  svg.appendChild(style);
+  }
 }
 
 function readClassFills(svg: SVGSVGElement) {
