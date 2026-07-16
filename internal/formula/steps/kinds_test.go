@@ -1003,6 +1003,27 @@ func TestLoopStepForEachSetsVarAndAggregatesOutputs(t *testing.T) {
 	}
 }
 
+func TestLoopStepForEachParallelRequiresFormulaOptIn(t *testing.T) {
+	ctx := mapContextStore{"items": {Raw: []byte(`[1]`)}}
+	loop := LoopStep{
+		Base:     Base{Metadata: Metadata{ID: "loop", Kind: KindLoop}},
+		ForEach:  "items",
+		Var:      "item",
+		Parallel: true,
+		Body: []Step{
+			FormulaCallStep{
+				Base:    Base{Metadata: Metadata{ID: "child", Kind: KindFormula}},
+				Formula: "child-formula",
+			},
+		},
+	}
+
+	_, err := loop.Run(context.Background(), RunRequest{NodeID: "loop", Context: ctx, Outputs: ctx})
+	if err == nil || !strings.Contains(err.Error(), "allow_parallel=true") {
+		t.Fatalf("error = %v, want allow_parallel opt-in error", err)
+	}
+}
+
 func TestLoopStepForEachAcceptsJSONStringArray(t *testing.T) {
 	encodedPlan, err := json.Marshal(`[
 		{"filename":"01.md","content":"# One"},

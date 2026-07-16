@@ -122,6 +122,22 @@ func TestExecutorRejectsRecursiveFormulaCalls(t *testing.T) {
 	}
 }
 
+func TestExecutorRejectsRecursiveFormulaCallThroughAlternateLookupName(t *testing.T) {
+	graph := ir.NewGraph()
+	graph.AddNode(&ir.Node{ID: "call", Step: steps.FormulaCallStep{
+		Base: steps.Base{Metadata: steps.Metadata{ID: "call", Kind: steps.KindFormula}}, Formula: "alternate-name",
+	}})
+	workflow := &ir.Workflow{ID: "canonical", Name: "canonical", Graph: graph}
+	exec := NewExecutor(workflow, steps.Capabilities{})
+	exec.ResolveWorkflow = func(context.Context, string, map[string]steps.Value) (*ir.Workflow, error) {
+		return workflow, nil
+	}
+	_, err := exec.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "recursive formula call detected: canonical -> canonical") {
+		t.Fatalf("err = %v, want canonical recursive call error", err)
+	}
+}
+
 func TestExecutorFormulaCallTargetsNestedWaitingStep(t *testing.T) {
 	parentGraph := ir.NewGraph()
 	parentGraph.AddNode(&ir.Node{ID: "invoke", Step: steps.FormulaCallStep{

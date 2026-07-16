@@ -209,6 +209,9 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 	if err != nil {
 		return err
 	}
+	if err := run.ValidateWorkflowDefinition(runStore.Meta, workflow); err != nil {
+		return err
+	}
 	if err := validateFormulaAgentConfiguration(rt, workflow, defaultAgent, runStore.Meta.Model, runStore.Meta.Session); err != nil {
 		return err
 	}

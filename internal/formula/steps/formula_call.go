@@ -14,9 +14,10 @@ import (
 // outputs are returned as one JSON object.
 type FormulaCallStep struct {
 	Base
-	Formula   string            `json:"formula"`
-	With      map[string]string `json:"with,omitempty"`
-	OutputKey string            `json:"output_key,omitempty"`
+	Formula       string            `json:"formula"`
+	With          map[string]string `json:"with,omitempty"`
+	AllowParallel bool              `json:"allow_parallel,omitempty"`
+	OutputKey     string            `json:"output_key,omitempty"`
 }
 
 type FormulaCallDecoder struct{}

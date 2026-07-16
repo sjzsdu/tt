@@ -1483,6 +1483,9 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 		return failedRun(fmt.Errorf("loop var is required when for_each is set"))
 	}
 	if s.Parallel {
+		if err := validateParallelFormulaCalls(s.Body); err != nil {
+			return failedRun(err)
+		}
 		return s.runForEachParallel(ctx, req, items, varName)
 	}
 	outputs := make([]any, 0, len(items))
@@ -1512,6 +1515,44 @@ func (s LoopStep) runForEach(ctx context.Context, req RunRequest) (*RunResult, e
 		return failedRun(err)
 	}
 	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func validateParallelFormulaCalls(body []Step) error {
+	for _, child := range body {
+		switch call := child.(type) {
+		case FormulaCallStep:
+			if !call.AllowParallel {
+				return fmt.Errorf("formula step %q requires allow_parallel=true inside a parallel loop", call.Meta().ID)
+			}
+		case *FormulaCallStep:
+			if call != nil && !call.AllowParallel {
+				return fmt.Errorf("formula step %q requires allow_parallel=true inside a parallel loop", call.Meta().ID)
+			}
+		case LoopStep:
+			if err := validateParallelFormulaCalls(call.Body); err != nil {
+				return err
+			}
+		case *LoopStep:
+			if call != nil {
+				if err := validateParallelFormulaCalls(call.Body); err != nil {
+					return err
+				}
+			}
+		case RetryStep:
+			if call.Child != nil {
+				if err := validateParallelFormulaCalls([]Step{call.Child}); err != nil {
+					return err
+				}
+			}
+		case *RetryStep:
+			if call != nil && call.Child != nil {
+				if err := validateParallelFormulaCalls([]Step{call.Child}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type loopIterationResult struct {

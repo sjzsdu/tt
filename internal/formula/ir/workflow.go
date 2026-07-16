@@ -6,13 +6,14 @@ type WorkflowID string
 type NodeID string
 
 type Workflow struct {
-	ID          WorkflowID
-	Name        string
-	Description string
-	Vars        map[string]VarSchema
-	Outputs     map[string]OutputSchema
-	Workspace   *WorkspacePolicy
-	Graph       Graph
+	ID             WorkflowID
+	Name           string
+	Description    string
+	DefinitionHash string
+	Vars           map[string]VarSchema
+	Outputs        map[string]OutputSchema
+	Workspace      *WorkspacePolicy
+	Graph          Graph
 }
 
 type OutputSchema struct {

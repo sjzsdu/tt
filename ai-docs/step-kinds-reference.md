@@ -162,6 +162,8 @@ id = "implementation"
 title = "执行实现流程"
 execution = "formula"
 formula = "coding-implementation"
+# 并行 loop 内默认禁止 FormulaCall；确认子流程资源隔离后才显式开启：
+# allow_parallel = true
 
 [steps.with]
 requirement = "{{requirement}}"      # 完整模板会保留对象/数组等 JSON 类型
@@ -177,7 +179,11 @@ project_context = "repo={{env.git.repo}}"
 - 子 Formula 的 waiting、失败和取消会传播到 FormulaCall；恢复父 run 时，已经完成的子步骤会从同一状态存储中恢复。
 - Formula Web 在 Step runs、Execution timeline 与 Live runs graph 中展示这条调用层级；概览 graph 的 FormulaCall 节点聚合所有子运行状态。
 - 嵌套 `human_input` 的请求携带真实子步骤地址，输入不会误提交到 FormulaCall 父节点。
-- runtime 会拒绝直接或间接递归 Formula 调用，并限制最大嵌套深度。
+- `formula` 名称只允许字母、数字、点、下划线和连字符，且必须以字母或数字开头；调用目标是静态名称，不支持运行时模板切换。
+- `compile` 和 `validate` 会链接完整调用图：检查目标存在、直接/间接循环、最大 16 层深度、必填/未知输入、引用的公开输出，以及明确声明类型的完整变量绑定。
+- runtime 仍按子 Formula 的规范名称检查递归和深度，避免同一 Formula 通过不同查找名绕过静态防线。
+- 并行 loop 中的 FormulaCall 默认被拒绝；只有作者确认子 Formula 使用隔离或只读资源时才能设置 `allow_parallel = true`。子 Formula 的 `workspace` 策略仍由子 Formula 自己决定。
+- 编译结果记录整条调用图的定义指纹。恢复 run 时若任一已链接 Formula 的有效定义变化，runtime 会拒绝原地恢复并要求创建新 run；没有指纹的历史 run 保持兼容。
 
 ### `loop` —— 嵌套 typed 步骤
 

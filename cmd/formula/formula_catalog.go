@@ -271,6 +271,10 @@ func runFormulaValidate(cmd *cobra.Command, args []string) error {
 	if err := f.Validate(); err != nil {
 		return err
 	}
+	searchPaths := append([]string{filepath.Dir(path)}, getSearchPaths()...)
+	if err := formula.ValidateFormulaCallGraph(f, searchPaths); err != nil {
+		return err
+	}
 
 	fmt.Printf("Formula %q is valid.\n", f.Formula)
 	return nil
