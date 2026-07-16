@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -10,7 +12,9 @@ import (
 var completionCmd = &cobra.Command{
 	Use:   "completion [bash|zsh|fish|powershell]",
 	Short: "Generate completion script",
-	Long: `Generate completion script for the specified shell.
+	Long: `Generate completion script for the current shell or the shell you specify.
+
+If no shell is provided, tt tries to detect it from your environment.
 
 To load completions:
 
@@ -53,24 +57,68 @@ PowerShell:
 `,
 	DisableFlagsInUseLine: true,
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
-	Args:                  cobra.ExactValidArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		switch args[0] {
-		case "bash":
-			cmd.Root().GenBashCompletion(os.Stdout)
-		case "zsh":
-			cmd.Root().GenZshCompletion(os.Stdout)
-		case "fish":
-			cmd.Root().GenFishCompletion(os.Stdout, true)
-		case "powershell":
-			cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
-		default:
-			fmt.Fprintf(os.Stderr, "Unsupported shell type %q\n", args[0])
-			os.Exit(1)
+	Args:                  cobra.RangeArgs(0, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		shell := ""
+		if len(args) > 0 {
+			shell = args[0]
+		} else {
+			shell = detectCompletionShell()
 		}
+		shell = normalizeCompletionShell(shell)
+		if shell == "" {
+			return fmt.Errorf("unable to detect current shell; run 'tt completion bash|zsh|fish|powershell' explicitly")
+		}
+		return runCompletionScript(cmd, shell)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(completionCmd)
 }
+
+func runCompletionScript(cmd *cobra.Command, shell string) error {
+	switch shell {
+	case "bash":
+		cmd.Root().GenBashCompletion(os.Stdout)
+	case "zsh":
+		cmd.Root().GenZshCompletion(os.Stdout)
+	case "fish":
+		cmd.Root().GenFishCompletion(os.Stdout, true)
+	case "powershell":
+		cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+	default:
+		return fmt.Errorf("unsupported shell type %q", shell)
+	}
+	return nil
+}
+
+func detectCompletionShell() string {
+	for _, key := range []string{"TT_COMPLETION_SHELL", "SHELL", "COMSPEC"} {
+		if shell := normalizeCompletionShell(os.Getenv(key)); shell != "" {
+			return shell
+		}
+	}
+	return ""
+}
+
+
+func normalizeCompletionShell(shell string) string {
+	shell = strings.TrimSpace(shell)
+	if shell == "" {
+		return ""
+	}
+	base := strings.ToLower(filepath.Base(shell))
+	base = strings.TrimSuffix(base, ".exe")
+	switch base {
+	case "bash", "zsh", "fish", "powershell", "pwsh":
+		if base == "pwsh" {
+			return "powershell"
+		}
+		return base
+	default:
+		return ""
+	}
+}
+
+
