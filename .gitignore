@@ -59,3 +59,4 @@ go.work.sum
 *.db
 .beads-credential-key
 .codex
+.sqlhistory
