@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -583,6 +584,7 @@ func (s HumanInputStep) Run(context.Context, RunRequest) (*RunResult, error) {
 type AggregateStep struct {
 	Base
 	Source     string
+	Fields     map[string]string
 	As         string
 	Require    []string
 	Include    []string
@@ -596,6 +598,9 @@ func (s AggregateStep) Run(_ context.Context, req RunRequest) (*RunResult, error
 	if req.Context == nil {
 		err := fmt.Errorf("aggregate context is required")
 		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+	if len(s.Fields) > 0 {
+		return s.collectFields(req)
 	}
 	source := strings.TrimSpace(s.Source)
 	if source == "" {
@@ -623,6 +628,35 @@ func (s AggregateStep) Run(_ context.Context, req RunRequest) (*RunResult, error
 		out = map[string]any{as: projected}
 	} else if s.Flatten && len(projected) == 1 {
 		out = projected[0]
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return &RunResult{Status: StatusFailed, Error: &StepError{Message: err.Error(), Cause: err}}, err
+	}
+	return &RunResult{Status: StatusCompleted, Output: Value{Type: "json", Raw: raw}}, nil
+}
+
+func (s AggregateStep) collectFields(req RunRequest) (*RunResult, error) {
+	names := make([]string, 0, len(s.Fields))
+	for name := range s.Fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make(map[string]any, len(names))
+	for _, name := range names {
+		path := strings.TrimSpace(s.Fields[name])
+		if path == "" {
+			continue
+		}
+		value, ok := req.Context.Get(path)
+		if !ok {
+			continue
+		}
+		var decoded any
+		if err := json.Unmarshal(value.Raw, &decoded); err != nil {
+			decoded = strings.TrimSpace(string(value.Raw))
+		}
+		out[name] = decoded
 	}
 	raw, err := json.Marshal(out)
 	if err != nil {

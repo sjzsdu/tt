@@ -186,10 +186,39 @@ description = """
 name = "coder"
 
 [[steps]]
+id = "report-data"
+title = "整理 PR 审查报告数据"
+depends_on = ["fetch-pr", "submit-review-comments", "submit-inline-comments", "draft-review-comments"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+ready = "fetch-pr.pr.stdout.ready"
+fetch_error = "fetch-pr.pr.stdout.error"
+title = "fetch-pr.pr.stdout.title"
+url = "fetch-pr.pr.stdout.url"
+changed_files_count = "fetch-pr.pr.stdout.changed_files_count"
+files_and_modules = "analyze-review-findings.files_and_modules"
+behavior_changes = "analyze-review-findings.behavior_changes"
+impact_scope = "analyze-review-findings.impact_scope"
+major_risks = "analyze-review-findings.major_risks"
+has_findings = "analyze-review-findings.has_findings"
+table_rows = "prepare-review-summary.table_rows"
+summary_comment = "prepare-review-summary.summary_comment"
+submit_review = "prepare-review-summary.submit_review"
+submitted = "submit-review-comments.stdout.submitted"
+submitted_comments = "submit-review-comments.stdout.submitted_comments"
+failed_comments = "submit-review-comments.stdout.failed_comments"
+review_error = "submit-review-comments.stdout.review_error"
+inline_results = "submit-inline-comments"
+draft = "draft-review-comments"
+repair_submit_comments = "formula_repairs.submit-review-comments"
+repair_inline_comment = "formula_repairs.submit-inline-comment"
+
+[[steps]]
 id = "final-report"
 title = "输出最终 PR 审查报告"
-depends_on = ["fetch-pr", "submit-review-comments", "submit-inline-comments", "draft-review-comments"]
-input_context = ["fetch-pr.pr.stdout.ready", "fetch-pr.pr.stdout.error", "fetch-pr.pr.stdout.title", "fetch-pr.pr.stdout.url", "fetch-pr.pr.stdout.changed_files_count", "fetch-pr.pr.stdout.diff_overview", "analyze-review-findings.has_findings", "analyze-review-findings.files_and_modules", "analyze-review-findings.behavior_changes", "analyze-review-findings.impact_scope", "analyze-review-findings.major_risks", "prepare-review-summary.submit_review", "prepare-review-summary.table_rows", "prepare-review-summary.summary_comment", "submit-review-comments.stdout.submitted", "submit-review-comments.stdout.submitted_comments", "submit-review-comments.stdout.failed_comments", "submit-review-comments.stdout.review_error", "submit-inline-comments", "formula_repairs.submit-review-comments", "formula_repairs.submit-inline-comment", "draft-review-comments"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 请面向用户输出最终 PR 审查报告，使用清晰 Markdown。
 

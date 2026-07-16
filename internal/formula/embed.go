@@ -505,6 +505,13 @@ func rewriteEmbeddedStepTemplates(step *spec.Step, mapping map[string]string, pr
 		if rewritten, ok := rewriteContextRef(aggregate.Source, mapping); ok {
 			aggregate.Source = rewritten
 		}
+		aggregate.Fields = make(map[string]string, len(step.Aggregate.Fields))
+		for name, path := range step.Aggregate.Fields {
+			if rewritten, ok := rewriteContextRef(path, mapping); ok {
+				path = rewritten
+			}
+			aggregate.Fields[name] = path
+		}
 		step.Aggregate = &aggregate
 	}
 }

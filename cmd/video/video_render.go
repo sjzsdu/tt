@@ -19,6 +19,7 @@ type videoRenderOptions struct {
 	SRTPath  string
 	Progress *videoProgress
 	Mode     string
+	Reuse    videoReusePolicy
 }
 
 func defaultVideoArtifactDir(scriptPath, root string) string {
@@ -95,6 +96,9 @@ func renderVideoPlan(ctx context.Context, plan *Plan, opts videoRenderOptions) e
 		mode = "browser"
 	}
 	if mode == "browser" {
+		if len(opts.Reuse.Regenerate) > 0 {
+			return fmt.Errorf("--sections is not supported by browser continuous rendering; use render_mode=segments for sectional regeneration")
+		}
 		opts.Progress.Step("正在尝试浏览器连续播放录制")
 		if err := renderVideoPlanBrowserContinuous(ctx, baseURL, plan, workDir, opts); err == nil {
 			return nil
@@ -111,10 +115,10 @@ func renderVideoPlan(ctx context.Context, plan *Plan, opts videoRenderOptions) e
 	} else {
 		opts.Progress.Step("正在启动 slide 捕获服务")
 	}
-	if err := captureVideoSlidesConcurrent(ctx, baseURL, plan, workDir, opts.Progress); err != nil {
+	if err := captureVideoSlidesConcurrent(ctx, baseURL, plan, workDir, opts.Progress, opts.Reuse); err != nil {
 		return err
 	}
-	segments, err := renderVideoSegmentsConcurrent(ctx, plan, workDir, opts.Progress)
+	segments, err := renderVideoSegmentsConcurrent(ctx, plan, workDir, opts.Progress, opts.Reuse)
 	if err != nil {
 		return err
 	}
@@ -144,7 +148,7 @@ func shouldRefuseStaticFallback(originalMode string, animatedSlides bool) bool {
 	return strings.EqualFold(strings.TrimSpace(originalMode), "browser") || animatedSlides
 }
 
-func captureVideoSlidesConcurrent(ctx context.Context, baseURL string, plan *Plan, workDir string, progress *videoProgress) error {
+func captureVideoSlidesConcurrent(ctx context.Context, baseURL string, plan *Plan, workDir string, progress *videoProgress, reuse videoReusePolicy) error {
 	workers := videoRenderWorkerCount(len(plan.Sections))
 	jobs := make(chan PlanSection)
 	errCh := make(chan error, workers)
@@ -163,6 +167,11 @@ func captureVideoSlidesConcurrent(ctx context.Context, baseURL string, plan *Pla
 			browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithLogf(nil))
 			defer cancelBrowser()
 			for section := range jobs {
+				shotPath := filepath.Join(workDir, fmt.Sprintf("slide-%03d.png", section.Index))
+				if reuse.shouldReuse(section.Index, shotPath) {
+					progress.Step("复用第 %d/%d 页截图", section.Index, len(plan.Sections))
+					continue
+				}
 				progress.Step("正在并发截图第 %d/%d 页 slide", section.Index, len(plan.Sections))
 				if err := captureVideoSlide(ctx, browserCtx, baseURL, plan, workDir, section); err != nil {
 					errCh <- err
@@ -287,7 +296,7 @@ func renderVideoSegments(ctx context.Context, plan *Plan, workDir string, progre
 	return segments, nil
 }
 
-func renderVideoSegmentsConcurrent(ctx context.Context, plan *Plan, workDir string, progress *videoProgress) ([]string, error) {
+func renderVideoSegmentsConcurrent(ctx context.Context, plan *Plan, workDir string, progress *videoProgress, reuse videoReusePolicy) ([]string, error) {
 	segments := make([]string, len(plan.Sections))
 	workers := videoRenderWorkerCount(len(plan.Sections))
 	jobs := make(chan PlanSection)
@@ -298,6 +307,12 @@ func renderVideoSegmentsConcurrent(ctx context.Context, plan *Plan, workDir stri
 		go func() {
 			defer wg.Done()
 			for section := range jobs {
+				segmentPath := filepath.Join(workDir, fmt.Sprintf("segment-%03d.mp4", section.Index))
+				if reuse.shouldReuse(section.Index, segmentPath) {
+					progress.Step("复用第 %d/%d 个视频片段", section.Index, len(plan.Sections))
+					segments[section.Index-1] = segmentPath
+					continue
+				}
 				progress.Step("正在并发渲染第 %d/%d 个视频片段", section.Index, len(plan.Sections))
 				segment, err := renderVideoSegment(ctx, plan, workDir, section)
 				if err != nil {

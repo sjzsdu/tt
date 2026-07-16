@@ -290,10 +290,33 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "report-data"
+title = "整理工程交付摘要"
+depends_on = ["commit-changes", "final-check"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+feature_summary = "analyze-feature.feature_summary"
+business_goal = "analyze-feature.business_goal"
+implementation_goal = "plan-feature.implementation_goal"
+implemented = "implement-feature.implemented"
+files_changed = "implement-feature.files_changed"
+change_summary = "implement-feature.change_summary"
+test_summary = "review-quality.test_summary"
+quality_summary = "review-quality.summary"
+docs = "write-docs.summary"
+changelog = "update-changelog.summary"
+ready_to_commit = "final-check.ready_to_commit"
+final_gaps = "final-check.final_gaps"
+release_notes = "final-check.release_notes"
+delivery_summary = "final-check.summary"
+commit = "commit-changes.stdout"
+
+[[steps]]
 id = "final-report"
 title = "输出最终结论与报告"
-depends_on = ["commit-changes", "final-check"]
-input_context = ["inspect-repo.stdout", "analyze-feature", "code-research", "plan-feature", "choose-strategy", "implement-feature", "run-tests.validation.stdout", "review-quality", "write-docs", "update-changelog", "final-check", "commit-changes"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 面向用户输出最终报告。结论先行，说明 feature 目标、实现内容、测试结果、文档/changelog、是否 commit、实际 branch_name、工作区路径以及未完成事项。
 

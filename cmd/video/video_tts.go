@@ -136,6 +136,13 @@ func applyVideoTTSProvider(ctx context.Context, provider videoTTSProvider, plan 
 	var cursor int64
 	for i := range plan.Sections {
 		section := &plan.Sections[i]
+		if section.Audio != "" {
+			progress.Step("复用第 %d/%d 段缓存语音: %s", i+1, len(plan.Sections), section.Title)
+			section.StartMillis = DurationMillis(cursor)
+			cursor += int64(section.DurationMillis)
+			section.EndMillis = DurationMillis(cursor)
+			continue
+		}
 		progress.Step("正在合成第 %d/%d 段语音: %s", i+1, len(plan.Sections), section.Title)
 		result, err := provider.Synthesize(ctx, videoTTSRequest{
 			Index: section.Index,

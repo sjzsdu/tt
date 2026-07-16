@@ -263,10 +263,32 @@ format = "json"
 required = ["stdout"]
 
 [[steps]]
+id = "report-data"
+title = "整理 PR rebase 报告数据"
+depends_on = ["fetch-pr-metadata", "check-current-pr-worktree", "prepare-rebase-worktree", "summarize-rebase-state", "run-validation", "push-rebased-branch", "cleanup-worktree"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+pr_number = "fetch-pr-metadata.pr.stdout.number"
+pr_title = "fetch-pr-metadata.pr.stdout.title"
+pr_url = "fetch-pr-metadata.pr.stdout.url"
+head_branch = "fetch-pr-metadata.pr.stdout.headRefName"
+base_branch = "fetch-pr-metadata.pr.stdout.baseRefName"
+already_on_pr_branch = "check-current-pr-worktree.stdout.already_on_pr_branch"
+existing_worktree_path = "check-current-pr-worktree.stdout.worktree_path"
+workspace = "prepare-rebase-worktree.stdout"
+rebase = "summarize-rebase-state.stdout"
+conflict_resolution = "resolve-conflicts"
+validation_exit_code = "run-validation.validation.exit_code"
+validation_summary = "run-validation.validation.stdout"
+push_result = "push-rebased-branch.stdout"
+cleanup = "cleanup-worktree.stdout"
+
+[[steps]]
 id = "final-report"
 title = "输出 PR rebase 结果报告"
-depends_on = ["fetch-pr-metadata", "check-current-pr-worktree", "prepare-rebase-worktree", "attempt-rebase", "resolve-conflicts", "continue-rebase", "summarize-rebase-state", "run-validation", "push-rebased-branch", "cleanup-worktree"]
-input_context = ["fetch-pr-metadata.pr.stdout", "check-current-pr-worktree.stdout", "prepare-rebase-worktree.stdout", "attempt-rebase.stdout", "resolve-conflicts", "continue-rebase.stdout", "summarize-rebase-state.stdout", "run-validation.validation.stdout", "push-rebased-branch.stdout", "cleanup-worktree.stdout"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 输出中文最终报告，结论先行。
 

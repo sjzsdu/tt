@@ -487,6 +487,65 @@ func TestApplyVideoTTSProviderUpdatesAudioAndTiming(t *testing.T) {
 	}
 }
 
+func TestParseVideoSectionSelection(t *testing.T) {
+	selected, err := parseVideoSectionSelection("2,4-6", 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []int{2, 4, 5, 6} {
+		if !selected[index] {
+			t.Fatalf("section %d was not selected: %#v", index, selected)
+		}
+	}
+	if selected[1] || selected[3] {
+		t.Fatalf("unexpected section selected: %#v", selected)
+	}
+	if _, err := parseVideoSectionSelection("3-7", 6); err == nil {
+		t.Fatal("out-of-range selection should fail")
+	}
+}
+
+func TestVideoReusePolicyReusesOnlyHealthyUnselectedArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "segment-001.mp4")
+	empty := filepath.Join(dir, "segment-002.mp4")
+	if err := os.WriteFile(ready, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policy := videoReusePolicy{Enabled: true, Regenerate: map[int]bool{3: true}}
+	if !policy.shouldReuse(1, ready) {
+		t.Fatal("healthy cached artifact should be reused")
+	}
+	if policy.shouldReuse(2, empty) {
+		t.Fatal("empty cached artifact must not be reused")
+	}
+	if policy.shouldReuse(3, ready) {
+		t.Fatal("selected section must be regenerated")
+	}
+}
+
+func TestApplyVideoTTSProviderKeepsResumedAudio(t *testing.T) {
+	plan := Plan{Sections: []PlanSection{
+		{Index: 1, Title: "cached", Audio: "audio/001.wav", DurationMillis: 1200},
+		{Index: 2, Title: "new", DurationMillis: 1500},
+	}}
+	if err := applyVideoTTSProvider(context.Background(), fixedVideoTTSProvider{}, &plan, nil); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Sections[0].Audio != "audio/001.wav" || plan.Sections[0].DurationMillis != 1200 {
+		t.Fatalf("cached audio was replaced: %+v", plan.Sections[0])
+	}
+	if plan.Sections[1].Audio != filepath.Join("audio", "new.wav") {
+		t.Fatalf("uncached audio was not synthesized: %+v", plan.Sections[1])
+	}
+	if plan.Sections[1].StartMillis != 1200 || plan.TotalDuration != 3200 {
+		t.Fatalf("resumed timing was not recomputed: %+v total=%d", plan.Sections, plan.TotalDuration)
+	}
+}
+
 func TestRunVideoDoctorValidatesScriptAndTTS(t *testing.T) {
 	tmp := t.TempDir()
 	slide := filepath.Join(tmp, "deck.slide")

@@ -154,12 +154,13 @@ type ScriptSpec struct {
 
 // AggregateSpec describes a deterministic projection/collection over JSON context.
 type AggregateSpec struct {
-	Source  string   `json:"source" toml:"source"`
-	As      string   `json:"as,omitempty" toml:"as,omitempty"`
-	Require []string `json:"require,omitempty" toml:"require,omitempty"`
-	Include []string `json:"include,omitempty" toml:"include,omitempty"`
-	Exclude []string `json:"exclude,omitempty" toml:"exclude,omitempty"`
-	Flatten bool     `json:"flatten,omitempty" toml:"flatten,omitempty"`
+	Source  string            `json:"source" toml:"source"`
+	Fields  map[string]string `json:"fields,omitempty" toml:"fields,omitempty"`
+	As      string            `json:"as,omitempty" toml:"as,omitempty"`
+	Require []string          `json:"require,omitempty" toml:"require,omitempty"`
+	Include []string          `json:"include,omitempty" toml:"include,omitempty"`
+	Exclude []string          `json:"exclude,omitempty" toml:"exclude,omitempty"`
+	Flatten bool              `json:"flatten,omitempty" toml:"flatten,omitempty"`
 }
 
 // ToolSpec selects and configures a deterministic built-in local tool.

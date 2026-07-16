@@ -253,10 +253,32 @@ format = "json"
 required = ["executed_validations", "manual_test_steps", "automated_test_commands", "expected_results"]
 
 [[steps]]
+id = "report-data"
+title = "整理 feature 交付摘要"
+depends_on = ["test-instructions"]
+execution = "aggregate"
+
+[steps.aggregate.fields]
+feature_summary = "understand-requirement.feature_summary"
+acceptance_criteria = "understand-requirement.acceptance_criteria"
+existing_behavior = "code-research.existing_behavior"
+implementation_goal = "implementation-plan.implementation_goal"
+implemented = "implement-feature.implemented"
+files_changed = "implement-feature.files_changed"
+change_summary = "implement-feature.change_summary"
+blocked_items = "implement-feature.blocked_items"
+impact_level = "impact-assessment.impact_level"
+safe_to_ship = "impact-assessment.safe_to_ship"
+regression_risks = "impact-assessment.regression_risks"
+executed_validations = "test-instructions.executed_validations"
+manual_test_steps = "test-instructions.manual_test_steps"
+expected_results = "test-instructions.expected_results"
+
+[[steps]]
 id = "final-report"
 title = "输出 feature 交付报告"
-depends_on = ["test-instructions"]
-input_context = ["understand-requirement", "code-research", "implementation-plan", "implement-feature", "run-validation.validation.stdout", "impact-assessment", "test-instructions"]
+depends_on = ["report-data"]
+input_context = ["report-data"]
 description = """
 面向用户输出最终 feature 交付报告。
 

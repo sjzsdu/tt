@@ -20,6 +20,8 @@ var (
 	videoTTSCommand   string
 	videoDoctorScript string
 	videoRender       bool
+	videoResume       bool
+	videoSections     string
 )
 
 var videoCmd = &cobra.Command{
@@ -97,37 +99,63 @@ consume the plan in a follow-up step.`,
 			return fmt.Errorf("create video artifact directory failed: %w", err)
 		}
 		internalDir := defaultVideoInternalDir(plan.Script, cfg.InternalDir)
-		progress.Step("正在初始化 TTS provider: %s", cfg.TTSMode)
-		provider, err := newVideoTTSProvider(videoTTSOptions{
-			Mode:                        cfg.TTSMode,
-			AudioDir:                    cfg.AudioDir,
-			Command:                     cfg.TTSCommand,
-			WorkDir:                     filepath.Join(internalDir, "audio"),
-			BailianAPIKeyEnv:            cfg.BailianAPIKeyEnv,
-			BailianBaseURL:              cfg.BailianBaseURL,
-			BailianModel:                cfg.BailianModel,
-			BailianVoice:                cfg.BailianVoice,
-			BailianLanguageType:         cfg.BailianLanguageType,
-			BailianInstructions:         cfg.BailianInstructions,
-			BailianOptimizeInstructions: cfg.BailianOptimizeInstructions,
-		})
-		if err != nil {
-			progress.Clear()
-			return err
-		}
-		if err := applyVideoTTSProvider(cmd.Context(), provider, &plan, progress); err != nil {
-			progress.Clear()
-			return err
-		}
 		if videoPlanPath == "" {
 			videoPlanPath = filepath.Join(artifactDir, "plan.json")
 		}
 		if videoSRTPath == "" {
 			videoSRTPath = filepath.Join(artifactDir, "subtitles.srt")
 		}
+		selection, err := parseVideoSectionSelection(videoSections, len(plan.Sections))
+		if err != nil {
+			progress.Clear()
+			return err
+		}
+		reuse := videoReusePolicy{Enabled: videoResume || len(selection) > 0, Regenerate: selection}
+		audioWorkDir := filepath.Join(internalDir, "audio")
+		if reuse.Enabled {
+			reused := reuseVideoAudioCache(cmd.Context(), &plan, audioWorkDir, reuse)
+			progress.Step("续跑模式已复用 %d 段缓存语音", reused)
+		}
+		var provider videoTTSProvider
+		if allVideoSectionsHaveAudio(plan) {
+			progress.Step("所有语音均已从缓存恢复，跳过 TTS provider")
+			provider = videoNoopTTSProvider{}
+		} else {
+			progress.Step("正在初始化 TTS provider: %s", cfg.TTSMode)
+			provider, err = newVideoTTSProvider(videoTTSOptions{
+				Mode:                        cfg.TTSMode,
+				AudioDir:                    cfg.AudioDir,
+				Command:                     cfg.TTSCommand,
+				WorkDir:                     audioWorkDir,
+				BailianAPIKeyEnv:            cfg.BailianAPIKeyEnv,
+				BailianBaseURL:              cfg.BailianBaseURL,
+				BailianModel:                cfg.BailianModel,
+				BailianVoice:                cfg.BailianVoice,
+				BailianLanguageType:         cfg.BailianLanguageType,
+				BailianInstructions:         cfg.BailianInstructions,
+				BailianOptimizeInstructions: cfg.BailianOptimizeInstructions,
+			})
+			if err != nil {
+				progress.Clear()
+				return err
+			}
+		}
+		if err := applyVideoTTSProvider(cmd.Context(), provider, &plan, progress); err != nil {
+			progress.Clear()
+			return err
+		}
+		// Persist resumable metadata before rendering so a failed render can continue.
+		if err := writeVideoPlan(videoPlanPath, plan); err != nil {
+			progress.Clear()
+			return err
+		}
+		if err := os.WriteFile(videoSRTPath, []byte(renderVideoSRT(plan)), 0o644); err != nil {
+			progress.Clear()
+			return fmt.Errorf("write SRT failed: %w", err)
+		}
 		renderMode := firstNonEmpty(plan.Meta.RenderMode, cfg.RenderMode)
 		if cfg.Render || strings.EqualFold(filepath.Ext(plan.Output), ".mp4") {
-			if err := renderVideoPlan(cmd.Context(), &plan, videoRenderOptions{WorkDir: filepath.Join(internalDir, "work"), SRTPath: videoSRTPath, Progress: progress, Mode: renderMode}); err != nil {
+			if err := renderVideoPlan(cmd.Context(), &plan, videoRenderOptions{WorkDir: filepath.Join(internalDir, "work"), SRTPath: videoSRTPath, Progress: progress, Mode: renderMode, Reuse: reuse}); err != nil {
 				progress.Clear()
 				return err
 			}
@@ -230,6 +258,28 @@ slide pacing, and render-mode risk. It does not call TTS and does not render MP4
 	},
 }
 
+var videoPreviewCmd = &cobra.Command{
+	Use:   "preview <script.md|deck.slide>",
+	Short: "Preview the production plan and quality findings without TTS or rendering",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := resolveVideoCommandConfig(cmd)
+		if err != nil {
+			return err
+		}
+		scriptPath, err := resolveVideoGenerateScriptPath(args[0])
+		if err != nil {
+			return err
+		}
+		plan, err := buildVideoPlanFromFile(scriptPath, cfg.WPM)
+		if err != nil {
+			return err
+		}
+		applyVideoConfigDefaults(&plan, cfg)
+		return writeVideoPreview(cmd.OutOrStdout(), plan, lintVideoPlan(plan, firstNonEmpty(plan.Meta.RenderMode, cfg.RenderMode)), videoJSON)
+	},
+}
+
 func resolveVideoGenerateScriptPath(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -259,6 +309,7 @@ func New(deps Dependencies) *cobra.Command {
 	videoCmd.AddCommand(videoGenerateCmd)
 	videoCmd.AddCommand(videoDoctorCmd)
 	videoCmd.AddCommand(videoLintCmd)
+	videoCmd.AddCommand(videoPreviewCmd)
 	videoGenerateCmd.Flags().StringVarP(&videoOutPath, "out", "o", "", "target mp4 path; also sets default .plan.json and .srt paths")
 	videoGenerateCmd.Flags().StringVar(&videoPlanPath, "plan", "", "write production plan JSON to this path")
 	videoGenerateCmd.Flags().StringVar(&videoSRTPath, "srt", "", "write subtitles as SRT to this path")
@@ -268,6 +319,9 @@ func New(deps Dependencies) *cobra.Command {
 	videoGenerateCmd.Flags().StringVar(&videoAudioDir, "audio-dir", "", "directory containing existing narration audio for --tts audio-dir")
 	videoGenerateCmd.Flags().StringVar(&videoTTSCommand, "tts-command", "", "shell command template for --tts command; supports {{.Text}}, {{.Output}}, {{.Voice}}, {{.Index}}, {{.Title}}")
 	videoGenerateCmd.Flags().BoolVar(&videoRender, "render", false, "render an mp4 using Chrome screenshots and ffmpeg")
+	videoGenerateCmd.Flags().BoolVar(&videoResume, "resume", false, "resume from cached audio, screenshots, and segments in the internal work directory")
+	videoGenerateCmd.Flags().StringVar(&videoSections, "sections", "", "force regeneration of selected sections, for example 2,4-6; other cached sections are reused")
+	videoPreviewCmd.Flags().BoolVar(&videoJSON, "json", false, "print the preview as JSON")
 	videoDoctorCmd.Flags().StringVar(&videoDoctorScript, "script", "", "optional video script to validate")
 	videoDoctorCmd.Flags().StringVar(&videoTTSMode, "tts", "none", "TTS provider to validate: none, audio-dir, command, bailian")
 	videoDoctorCmd.Flags().StringVar(&videoAudioDir, "audio-dir", "", "directory containing existing narration audio for --tts audio-dir")
