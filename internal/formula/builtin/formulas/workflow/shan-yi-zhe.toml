@@ -138,8 +138,17 @@ description = """
 6. 推导变卦/之卦，并说明它是趋势，不是宿命。
 7. 尊重 advice_confidence 与 conclusion_mode，信息不足时只给条件性卦象框架。
 
-输出 ONLY compact JSON：
-{"hexagram":{"number":"第 X 卦","name":"...","upper_trigram":"☰ 乾/...","lower_trigram":"☷ 坤/...","image_keywords":["..."],"six_lines_bottom_up":["初爻...","二爻...","三爻...","四爻...","五爻...","上爻..."]},"shi_wei_basis":{"shi":"...","wei":"...","why_this_hexagram":"..."},"judgment_text":"卦辞原文或义理概述；不确定则标注需核对","ten_wings":{"tuan":"彖传原文或义理概述","da_xiang":"大象传原文或义理概述，以及君子以何种行动","xiao_xiang":"关键爻小象传原文或义理概述","xici":"系辞传相关义理如何解释时位与变通","shuogua":"说卦取象如何支持上下卦判断","wenyan":"仅乾坤或德性修养相关时填写，否则说明不强用"},"key_line":{"line":"初九/六二/...","role":"用户此刻所站之爻/动爻/重点爻","line_text":"可确信爻辞原文；不确定则写义理概述并标注需核对","position_meaning":"此爻位的时位含义","real_world_mapping":"此爻如何照见用户处境"},"supporting_line":{"line":"可选","reason":"..."},"changed_hexagram":{"number":"第 X 卦","name":"...","meaning":"..."},"core_axes":["时机","进退","刚柔","应与不应","风险","转机","修身功夫"],"confidence_boundary":"..."}
+	输出 ONLY compact JSON，不要 Markdown，不要代码块，不要把 JSON 再包成字符串。
+	
+	硬性校验规则：
+	- 顶层必须且只能围绕这些字段输出：hexagram, shi_wei_basis, judgment_text, ten_wings, key_line, supporting_line, changed_hexagram, core_axes, confidence_boundary。
+	- ten_wings 必须是顶层字段，不能放进 hexagram、shi_wei_basis 或正文段落里。
+	- key_line、changed_hexagram、core_axes 也必须是顶层字段。
+	- 所有字符串里的换行必须写成 JSON 转义的 \\n；不要在字符串内部直接换行。
+	- 返回前自检：JSON 能被解析，且顶层包含 hexagram / shi_wei_basis / judgment_text / ten_wings / key_line / changed_hexagram / core_axes。
+	
+	严格按这个形状输出：
+	{"hexagram":{"number":"第 X 卦","name":"...","upper_trigram":"☰ 乾/...","lower_trigram":"☷ 坤/...","image_keywords":["..."],"six_lines_bottom_up":["初爻...","二爻...","三爻...","四爻...","五爻...","上爻..."]},"shi_wei_basis":{"shi":"...","wei":"...","why_this_hexagram":"..."},"judgment_text":"卦辞原文或义理概述；不确定则标注需核对","ten_wings":{"tuan":"彖传原文或义理概述","da_xiang":"大象传原文或义理概述，以及君子以何种行动","xiao_xiang":"关键爻小象传原文或义理概述","xici":"系辞传相关义理如何解释时位与变通","shuogua":"说卦取象如何支持上下卦判断","wenyan":"仅乾坤或德性修养相关时填写，否则说明不强用"},"key_line":{"line":"初九/六二/...","role":"用户此刻所站之爻/动爻/重点爻","line_text":"可确信爻辞原文；不确定则写义理概述并标注需核对","position_meaning":"此爻位的时位含义","real_world_mapping":"此爻如何照见用户处境"},"supporting_line":{"line":"可选","reason":"..."},"changed_hexagram":{"number":"第 X 卦","name":"...","meaning":"..."},"core_axes":["时机","进退","刚柔","应与不应","风险","转机","修身功夫"],"confidence_boundary":"..."}
 """
 agent.name = "yi-jing"
 
