@@ -433,7 +433,7 @@ Constraints:
 - Max {{max_requirements}} final_requirements
 - existing_overlaps lists requirements overlapping with existing beads and their bead ids
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

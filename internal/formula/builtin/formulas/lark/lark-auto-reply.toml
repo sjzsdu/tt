@@ -177,7 +177,7 @@ Lark 消息（可能是同一 chat 内短时间连续消息组成的一组；mes
 - 如果个人画像或项目上下文缺失，要更保守。
 - must_avoid 必须包含“不要说作为AI/我是AI/无法访问”等 AI 味表达。
 """
-agent.name = "coder"
+agent.name = "assistant"
 
 [steps.loop.body.validate]
 format = "json"
@@ -222,7 +222,7 @@ description = """
 - 如果已有上下文足够回答，或消息不涉及需要代码确认的问题，输出“无需代码调研”，并简要说明原因。
 - 如果判断需要调研但暂时定位不到相关代码，明确说明“需要继续确认相关代码”，不要凭印象回答。
 """
-agent.name = "coder"
+agent.name = "assistant"
 
 [[steps.loop.body]]
 id = "draft-reply"
@@ -258,7 +258,7 @@ Lark 消息信息（可能是一组连续消息，回复将发送到 message_id 
 - 口吻要像真实同事本人在飞书里回复，避免“很高兴为你服务”“以下是我的建议”“作为AI”等 AI 味或客服味表达。
 - 严格遵守 reply-gate.must_include 和 reply-gate.must_avoid。
 """
-agent.name = "coder"
+agent.name = "assistant"
 
 [[steps.loop.body]]
 id = "send-or-preview"

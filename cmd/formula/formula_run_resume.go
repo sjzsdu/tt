@@ -326,7 +326,7 @@ func runFormulaRunChat(cmd *cobra.Command, args []string) error {
 		if step.ID == resolvedStepID {
 			stepOutput = step.Output
 			stepStatus = step.Status
-			if step.Status == ui.StatusWaitingInput && step.HumanInputRequest != nil && step.HumanInputRequest.Reason != "" && strings.Contains(step.HumanInputRequest.Reason, "chat_with_coder") {
+			if step.Status == ui.StatusWaitingInput && step.HumanInputRequest != nil && step.HumanInputRequest.Reason != "" && (strings.Contains(step.HumanInputRequest.Reason, "chat_with_agent") || strings.Contains(step.HumanInputRequest.Reason, "chat_with_coder")) {
 				isReviewWaiting = true
 			}
 			break

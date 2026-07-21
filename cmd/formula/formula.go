@@ -287,7 +287,7 @@ func applyFormulaRunPositionalVars(f *spec.Formula, values []string, vars map[st
 
 func defaultFormulaAgent(agent string) string {
 	if strings.TrimSpace(agent) == "" {
-		return pcwrap.DefaultAgentID
+		return agents.AssistantID
 	}
 	return agent
 }

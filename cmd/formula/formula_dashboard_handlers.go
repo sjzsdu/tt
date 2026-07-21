@@ -22,7 +22,7 @@ import (
 	"nhooyr.io/websocket"
 )
 
-const finalReportChatAgent = "coder"
+const finalReportChatAgent = agents.ReporterID
 const maxAgentSessionBytes = 256 * 1024
 
 func (s *formulaDashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {

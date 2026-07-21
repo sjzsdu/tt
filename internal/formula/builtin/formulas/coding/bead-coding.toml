@@ -270,7 +270,7 @@ description = """
 - ready_to_close=false 时，gaps 必须是下一轮 agent 可以继续处理的具体事项；不要只写“人工复核”这类不可自动推进的泛化理由；
 - commit_message 必须简短，建议包含 bead id，例如 `feat: implement <bead-id> ...`。
 """
-agent.name = "tester"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

@@ -217,13 +217,13 @@ Requirements:
 - Set formula = %q exactly.
 - Use version = 1 and type = "workflow".
 - Prefer script steps for deterministic context collection or validation.
-- Prefer agent steps for reasoning, planning, implementation, review, and reporting.
+- Prefer agent steps for reasoning, planning, implementation, review, and reporting. Use assistant for reasoning/planning/implementation/review steps; use reporter for report/final-summary steps.
 - Use safe argv-style script commands; avoid shell.
 - Do not add output_key. Step id is the output key by default, and normal authoring should not use output_key.
 - Use step ids consistently for data consumed downstream.
 - Add depends_on and input_context where data flows between steps.
 - If a condition or loop depends on agent output, make that step output ONLY compact JSON.
-- Use embedded agents where appropriate: coder, code-research, planner, tester, reporter, writer, docs-analyst, merge-conflict-resolver, formula-writer.
+- Use embedded agent assistant for normal problem-solving agent steps. Use reporter only for report/final-summary steps. Keep specialized agents only when a formula explicitly depends on that specialist behavior.
 `, name, userPrompt, name)
 }
 
@@ -245,10 +245,10 @@ Requirements:
 - Preserve the user's existing intent unless the suggestion explicitly changes it.
 - Improve step boundaries, data flow, step-id context, input_context, conditions, loops, script safety, descriptions, and agent choices where useful.
 - Prefer script steps for deterministic context collection or validation.
-- Prefer agent steps for reasoning, planning, implementation, review, and reporting.
+- Prefer agent steps for reasoning, planning, implementation, review, and reporting. Use assistant for reasoning/planning/implementation/review steps; use reporter for report/final-summary steps.
 - Use safe argv-style script commands; avoid shell.
 - Do not add output_key unless the user explicitly asks for a legacy alias. Step id is the output key by default.
-- For agent config, use exactly one TOML style per step: either agent.name = "coder" OR [steps.agent] name = "coder", never both in the same [[steps]].
+- For agent config, use exactly one TOML style per step: either agent.name = "assistant" OR [steps.agent] name = "assistant", never both in the same [[steps]].
 - Prefer preserving the current file's style. If the current formula uses agent.name = "...", keep using dotted agent.name and do not add [steps.agent] tables.
 - Do not remove important variables or steps unless the suggestion asks for simplification.
 - Ensure all depends_on references point to existing local step ids.
