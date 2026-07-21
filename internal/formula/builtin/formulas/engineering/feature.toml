@@ -58,7 +58,7 @@ description = """
 - acceptance_criteria 必须可验证；
 - assumptions 只记录不阻塞调研的假设。
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -88,7 +88,7 @@ description = """
 - search_targets 优先放模块名、功能点、命令名、API、UI 页面、配置名、测试名或关键词；
 - acceptance_criteria 用于后续制定实施计划和验收。
 """
-agent.name = "coder"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -127,7 +127,7 @@ description = """
 - 不要直接开始修代码，先给出研究结论；
 - 如果代码上下文不足，要明确指出缺失信息和下一步。
 """
-agent.name = "code-research"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -161,7 +161,7 @@ description = """
 - test_plan 必须具体到命令、测试文件或手动验证路径；
 - impact_assessment_plan 要说明对现有功能如何评估影响。
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -199,7 +199,7 @@ description = """
 - implemented 必须是布尔值；
 - 如果无法完整实现，implemented=false 并明确 blocked_items。
 """
-agent.name = "coder"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -241,7 +241,7 @@ description = """
 - safe_to_ship 必须基于实现完整度与验证结果判断；
 - 如果验证未运行或失败，要明确降低 safe_to_ship。
 """
-agent.name = "tester"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -270,7 +270,7 @@ description = """
 - manual_test_steps 要让用户能一步步复现；
 - expected_results 要能判断 feature 是否生效。
 """
-agent.name = "tester"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

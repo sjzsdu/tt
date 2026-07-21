@@ -68,7 +68,7 @@ description = """
 """
 
 [steps.agent]
-name = "docs-analyst"
+name = "assistant"
 cwd = "{{prepare-repo.stdout.repo_path}}"
 
 [steps.validate]
@@ -156,7 +156,7 @@ description = """
 """
 
 [steps.agent]
-name = "docs-analyst"
+name = "assistant"
 cwd = "{{prepare-repo.stdout.repo_path}}"
 
 [steps.validate]
@@ -205,7 +205,7 @@ depends_on = ["arch-plan", "repo-map", "arch-map"]
 """
 
   [steps.loop.body.agent]
-  name = "docs-analyst"
+  name = "assistant"
   cwd = "{{prepare-repo.stdout.repo_path}}"
 
   [steps.loop.body.validate]
@@ -259,7 +259,7 @@ description = """
 """
 
 [steps.agent]
-name = "docs-analyst"
+name = "reporter"
 cwd = "{{prepare-repo.stdout.repo_path}}"
 
 [steps.validate]

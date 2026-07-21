@@ -69,7 +69,7 @@ agent 应该做：需求理解、策略判断、代码推理、实现方案、�
 输入 PR 编号。
 用 gh 获取 PR 元数据。
 用 git/env 获取当前仓库状态。
-让 coder agent 分析风险。
+让 assistant agent 分析风险。
 用 go test 运行测试。
 让 reporter 输出结论。
 ```
@@ -136,6 +136,10 @@ input_context = ["summarize-result.stdout", "run-validation.stdout"]
 
 而不是所有原始上游 step。
 
+## Agent 选择规则
+
+一般情况下，所有内置 agent step 都使用 `assistant` 来直面并解决用户问题，包括调研、计划、实现、审查、判断和综合。只有报告、最终总结、面向用户交付说明、README/report 这类 step 使用 `reporter`。不要再把普通步骤默认分配给 `coder`、`planner`、`tester`、`writer` 或 `docs-analyst`，除非用户明确要求该专门角色或公式的目标依赖专门角色。
+
 ## 外部 agent step
 
 只有在用户明确希望用外部 agent CLI，或流程依赖该 CLI 的 session/模型行为时，才使用 `external_agent`。普通判断/综合优先使用内置 agent step。
@@ -189,7 +193,7 @@ title = "Analyze {{topic}}"
 description = "Analyze the topic and output concise findings."
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 ```
 
 ## Preflight 前置检查
@@ -250,7 +254,7 @@ Output ONLY compact JSON:
 """
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 
 [steps.validate]
 format = "json"
@@ -259,13 +263,11 @@ required = ["kind", "confidence", "reason"]
 
 规则：
 
-- `planner`：需求收敛、拆解、策略、流程设计。
-- `coder`：代码分析、实现推理、debug。
-- `tester`：测试和验证策略。
-- `writer` / `reporter`：面向用户的文档和报告。
+- `assistant`：需求收敛、拆解、策略、流程设计、代码分析、实现推理、debug、测试和验证策略。
+- `reporter`：面向用户的文档、报告、最终总结和交付说明。
 - 驱动分支/循环/tool 的输出必须 compact JSON + validate。
 - 不要在同一步同时输出长 Markdown 和控制 JSON。
-- reporter/writer step 必须明确禁止重复粘贴上游原始 JSON、stdout/stderr、diff、日志或完整子报告；只要求输出每个上游 step 独有的结论、状态变化、文件/URL/commit、风险和下一步。
+- reporter step 必须明确禁止重复粘贴上游原始 JSON、stdout/stderr、diff、日志或完整子报告；只要求输出每个上游 step 独有的结论、状态变化、文件/URL/commit、风险和下一步。
 
 ### 2. Tool step：内置确定性工具
 
@@ -524,7 +526,7 @@ Otherwise output ONLY compact JSON:
 """
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 
 [steps.validate]
 format = "json"
@@ -549,7 +551,7 @@ depends_on = ["draft-brief"]
   description = "Create or improve the draft."
 
   [steps.loop.body.agent]
-  name = "writer"
+  name = "reporter"
 
   [[steps.loop.body]]
   id = "review"
@@ -559,7 +561,7 @@ depends_on = ["draft-brief"]
   description = "Output ONLY compact JSON: {\"approved\":true,\"reason\":\"...\"}."
 
   [steps.loop.body.agent]
-  name = "tester"
+  name = "assistant"
 
   [steps.loop.body.validate]
   format = "json"
@@ -693,13 +695,13 @@ tool/script collect facts -> aggregate/project -> agent judgment -> tool/script 
 大内容生成：
 
 ```text
-agent generate content -> tool write_files -> aggregate manifest -> agent README/report
+assistant generate content -> tool write_files -> aggregate manifest -> reporter README/report
 ```
 
 git 自动化：
 
 ```text
-git_fetch tool -> git_checkout tool -> agent implement/review -> script test -> git_push tool -> report
+git_fetch tool -> git_checkout tool -> assistant implement/review -> script test -> git_push tool -> reporter report
 ```
 
 ## 验证命令

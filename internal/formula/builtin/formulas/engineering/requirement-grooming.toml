@@ -49,7 +49,7 @@ description = """
 - suspected_workstreams 可以包含 product/backend/frontend/docs/tests/infra/agent/formula 等方向；
 - acceptance_signals 是需求整理阶段能识别出的成功信号，不要求已经完整。
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -215,7 +215,7 @@ description = """
 - 明确项目现有能力与用户需求之间的差距；
 - existing_backlog_context 必须说明现有 beads 中哪些主题、ready/blocked 状态、依赖或缺口会影响本次需求整理。
 """
-agent.name = "code-research"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -272,7 +272,7 @@ description = """
 - dedupe_queries 给 bead-manager 用于检查已有相似 beads；
 - 如果已有 bead 已经覆盖某项工作，优先在 existing_backlog_integration.reuse_or_update 中说明复用或更新，而不是重复创建。
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

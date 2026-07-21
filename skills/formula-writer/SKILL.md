@@ -55,7 +55,7 @@ Example:
 Input: PR number.
 Fetch PR metadata deterministically.
 Fetch current git branch deterministically from env.
-Ask coder agent to review risk.
+Ask assistant agent to review risk.
 Run tests deterministically.
 Report findings.
 ```
@@ -199,7 +199,7 @@ title = "Analyze {{topic}}"
 description = "Analyze the topic and output concise findings."
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 ```
 
 ## Preflight checks
@@ -262,7 +262,7 @@ Output ONLY compact JSON:
 """
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 
 [steps.validate]
 format = "json"
@@ -271,13 +271,11 @@ required = ["kind", "confidence", "reason"]
 
 Agent guidance:
 
-- Use `planner` for decomposition/strategy.
-- Use `coder` for code investigation/implementation reasoning.
-- Use `tester` for validation strategy.
-- Use `writer` or `reporter` for user-facing prose.
+- Use `assistant` for decomposition, strategy, investigation, implementation reasoning, review, and validation strategy.
+- Use `reporter` for user-facing reports, final summaries, README/report generation, and delivery prose.
 - If output drives `condition`, `loop.until`, `aggregate`, or tools, require compact JSON and validate it.
 - Do not mix long Markdown and control JSON in one step. Split them.
-- For reporter/writer steps, explicitly forbid repeating raw upstream JSON, stdout/stderr, diffs, logs, or full child reports. Ask for only each upstream step's unique conclusion, state change, files/URLs/commits, risks, and next action.
+- For reporter steps, explicitly forbid repeating raw upstream JSON, stdout/stderr, diffs, logs, or full child reports. Ask for only each upstream step's unique conclusion, state change, files/URLs/commits, risks, and next action.
 
 ### 2. Tool step, for built-in deterministic operations
 
@@ -537,7 +535,7 @@ Otherwise output ONLY compact JSON:
 """
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 
 [steps.validate]
 format = "json"
@@ -565,7 +563,7 @@ depends_on = ["draft-brief"]
   description = "Create or improve the draft."
 
   [steps.loop.body.agent]
-  name = "writer"
+  name = "reporter"
 
   [[steps.loop.body]]
   id = "review"
@@ -575,7 +573,7 @@ depends_on = ["draft-brief"]
   description = "Output ONLY compact JSON: {\"approved\":true,\"reason\":\"...\"}."
 
   [steps.loop.body.agent]
-  name = "tester"
+  name = "assistant"
 
   [steps.loop.body.validate]
   format = "json"

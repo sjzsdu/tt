@@ -43,7 +43,7 @@ description = """
 """
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 
 [steps.validate]
 format = "json"
@@ -101,7 +101,7 @@ scope-analysis 的输出结构由上一步自主决定，本步骤只需要遵�
 """
 
 [steps.agent]
-name = "planner"
+name = "assistant"
 
 [steps.validate]
 format = "json"

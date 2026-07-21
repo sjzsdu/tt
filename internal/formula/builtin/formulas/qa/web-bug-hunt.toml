@@ -58,7 +58,7 @@ description = """
 - bug_categories 保持低侵入，不包含爆破、绕过、攻击性扫描；
 - fixed_mode 来自 '{{fixed}}'，resume_enabled 来自 '{{resume}}'，screenshot_mode 来自 '{{screenshot_mode}}'。
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

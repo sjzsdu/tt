@@ -157,7 +157,7 @@ condition = "normalize-comment-items.stdout.should_process == true"
     "next_action": "..."
   }
   """
-  agent.name = "coder"
+  agent.name = "assistant"
   agent.cwd = "{{normalize-comment-items.stdout.workspace_path}}"
 
 [[steps]]

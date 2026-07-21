@@ -174,4 +174,4 @@ description = """
 
 不要重复粘贴上游完整 JSON、stdout/stderr 或 git 输出，只提炼关键状态和文件列表。
 """
-agent.name = "planner"
+agent.name = "assistant"

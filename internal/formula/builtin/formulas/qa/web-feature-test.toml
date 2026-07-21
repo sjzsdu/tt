@@ -87,7 +87,7 @@ description = """
   "only_failed":false
 }
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]
@@ -231,7 +231,7 @@ description = """
 - id 应稳定，按功能点排序 TC-001、TC-002；
 - 不要泄露密码、token、cookie。
 """
-agent.name = "planner"
+agent.name = "assistant"
 agent.cwd = "{{workspace_path}}"
 
 [steps.validate]

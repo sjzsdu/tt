@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
+	"github.com/sjzsdu/tt/internal/agents"
 )
 
 const formulaLong = `Formula is a typed workflow system for turning repeatable work into
@@ -49,7 +49,7 @@ Minimal TOML shape:
   id = "analyze"
   title = "Analyze request"
   description = "Use repo {{env.git.repo}} on branch {{env.git.branch}}. Output ONLY compact JSON: {\"kind\":\"frontend\"}."
-  agent.name = "coder"
+  agent.name = "assistant"
 
   [[steps]]
   id = "frontend-plan"
@@ -128,7 +128,7 @@ block. Pass --web to keep the normal dashboard behavior for each run.`,
 	cmd.Flags().BoolVar(&a.opts.ScheduleRunNow, "run-now", false, "run once immediately before waiting for the first scheduled tick")
 	cmd.Flags().BoolVar(&a.opts.ScheduleStopOnError, "stop-on-error", false, "stop the scheduler after a failed formula run")
 	cmd.Flags().BoolVar(&a.opts.ScheduleWeb, "web", false, "enable the live dashboard for each scheduled run")
-	cmd.Flags().StringVar(&a.opts.Agent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
+	cmd.Flags().StringVar(&a.opts.Agent, "agent", agents.AssistantID, "default agent for steps without explicit agent config")
 	cmd.Flags().StringVar(&a.opts.Model, "model", "", "default model override")
 	cmd.Flags().StringVar(&a.opts.ExternalDriver, "ext-driver", "", "default external_agent driver (jcode|codex|opencode|forge|bl); empty falls back to jcode")
 	cmd.Flags().StringVar(&a.opts.Session, "session", "cli:formula", "session key prefix")
@@ -247,7 +247,7 @@ func (a *App) newFormulaRunCmd() *cobra.Command {
 Steps are executed in dependency order, with parallel steps running concurrently.
 
 Runtime control notes:
-  - Steps without explicit agent config use picoclaw agent "main" by default.
+  - Steps without explicit agent config use embedded agent "assistant" by default.
   - condition expressions are evaluated at runtime against saved step-id output data.
   - loop.until expressions are evaluated after each loop iteration.
   - start/end boundary steps are real recipe steps; generated boundaries are noop.`,
@@ -260,7 +260,7 @@ Runtime control notes:
 		RunE: runFormulaRun,
 	}
 	cmd.Flags().StringVar(&a.opts.File, "file", "", "TOML file containing formula and [vars] for this run")
-	cmd.Flags().StringVar(&a.opts.Agent, "agent", pcwrap.DefaultAgentID, "default agent for steps without explicit agent config")
+	cmd.Flags().StringVar(&a.opts.Agent, "agent", agents.AssistantID, "default agent for steps without explicit agent config")
 	cmd.Flags().StringVar(&a.opts.Model, "model", "", "default model override")
 	cmd.Flags().StringVar(&a.opts.ExternalDriver, "ext-driver", "", "default external_agent driver (jcode|codex|opencode|forge|bl); empty falls back to jcode")
 	cmd.Flags().StringVar(&a.opts.Session, "session", "cli:formula", "session key prefix")

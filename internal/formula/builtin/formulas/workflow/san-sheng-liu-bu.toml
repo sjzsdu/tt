@@ -23,7 +23,7 @@ description = """
 - 结合现有项目上下文，但不要做任务拆分。
 - 信息不足时列入“待确认问题”，不要在此 step 发起固定表单。
 """
-agent.name = "planner"
+agent.name = "assistant"
 
 [[steps]]
 id = "review-loop"
@@ -53,7 +53,7 @@ depends_on = ["zhongshu-draft"]
 {"approved":false,"summary":"...","issues":["..."],"suggestions":["..."]}
 issues 和 suggestions 必须具体、可操作。
 """
-  agent.name = "planner"
+  agent.name = "assistant"
 
   [steps.loop.body.validate]
   format = "json"
@@ -75,7 +75,7 @@ issues 和 suggestions 必须具体、可操作。
 
 输出 Markdown，沿用原需求方案结构，并新增“修订说明”章节。不要做执行拆分。
 """
-  agent.name = "planner"
+  agent.name = "assistant"
 
 [[steps]]
 id = "shangshu-assign"
@@ -105,7 +105,7 @@ description = """
 - depends_on 只能引用数组中存在的任务 id；可并行任务 depends_on 为空或只依赖共同前置。
 - context 控制在 80-160 字，足够各部执行，不要塞完整需求正文。
 """
-agent.name = "planner"
+agent.name = "assistant"
 
 [steps.validate]
 format = "json"
@@ -138,7 +138,7 @@ depends_on = ["shangshu-assign"]
 brief_markdown 是 Markdown，包含：任务编号与名称、部门职责、目标、上下文边界、输入、首批动作、依赖与协作接口、交付物、验收标准、风险提示。
 不要声称任务已经完成；这里只是进入执行阶段的启动文稿。只针对当前 assignment，不展开其他任务。
 """
-  agent.name = "planner"
+  agent.name = "assistant"
 
   [steps.loop.body.validate]
   format = "json"
@@ -175,7 +175,7 @@ description = """
 输出 Markdown，包含：总体启动结论、任务-部门总表、并行推进分组、跨部门协调点、下一轮检查节点、主要风险。
 不要声称任务已经完成，只说明已完成分派和启动文稿生成。不要复述所有 brief_markdown 正文。
 """
-agent.name = "planner"
+agent.name = "assistant"
 
 [[steps]]
 id = "gongbu-feature-request"
@@ -195,7 +195,7 @@ description = """
 输出格式：
 {"feature_request":"...","execution_scope":["..."],"acceptance":["..."],"coordination_notes":["..."],"risks":["..."]}
 """
-agent.name = "planner"
+agent.name = "assistant"
 
 [steps.validate]
 format = "json"
