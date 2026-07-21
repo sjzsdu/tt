@@ -27,10 +27,10 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Core() error = %v", err)
 	}
-	if len(core) != 4 {
-		t.Fatalf("Core len = %d, want 4", len(core))
+	if len(core) != 5 {
+		t.Fatalf("Core len = %d, want 5", len(core))
 	}
-	wantCoreIDs := []string{CoderID, CodeResearchID, PlannerID, TesterID}
+	wantCoreIDs := []string{AssistantID, CoderID, CodeResearchID, PlannerID, TesterID}
 	for i, want := range wantCoreIDs {
 		if core[i].ID != want {
 			t.Fatalf("Core[%d] ID = %q, want %q", i, core[i].ID, want)
@@ -331,6 +331,7 @@ You are an overridden writer agent.
 
 func TestCoreAgentMetadataContract(t *testing.T) {
 	wantIDs := map[string]struct{}{
+		AssistantID:    {},
 		CoderID:        {},
 		PlannerID:      {},
 		TesterID:       {},
@@ -350,6 +351,13 @@ func TestCoreAgentMetadataContract(t *testing.T) {
 		if strings.TrimSpace(agent.Description) == "" {
 			t.Fatalf("%s missing description", agent.ID)
 		}
+		if agent.ID == AssistantID {
+			for _, tool := range []string{"skills", "find_skills", "web_search", "web_fetch", "exec"} {
+				if !containsString(agent.Tools, tool) {
+					t.Fatalf("%s should include %s tool, got %v", agent.ID, tool, agent.Tools)
+				}
+			}
+		}
 		if agent.ID == CoderID && !containsString(agent.Tools, "exec") {
 			t.Fatalf("%s should include exec tool, got %v", agent.ID, agent.Tools)
 		}
@@ -368,6 +376,7 @@ func TestAgentIDsAreUniqueAndPromptsReasonable(t *testing.T) {
 	}
 	seen := map[string]struct{}{}
 	coreMetadataAgents := map[string]struct{}{
+		AssistantID:    {},
 		CoderID:        {},
 		PlannerID:      {},
 		TesterID:       {},
