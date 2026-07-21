@@ -16,6 +16,7 @@ import (
 
 const (
 	AgentOptimizerID        = "agent-optimizer"
+	AssistantID             = "assistant"
 	TranslateMasterID       = "translate-master"
 	CoderID                 = "coder"
 	ReporterID              = "reporter"
@@ -52,6 +53,10 @@ type definition struct {
 	Skills      []string `yaml:"skills"`
 	Tools       []string `yaml:"tools"`
 	NoHistory   bool     `yaml:"no_history"`
+}
+
+func Assistant() (pcwrap.EmbeddedAgent, error) {
+	return Get(AssistantID)
 }
 
 func TranslateMaster() (pcwrap.EmbeddedAgent, error) {
@@ -91,7 +96,7 @@ func AgentOptimizer() (pcwrap.EmbeddedAgent, error) {
 }
 
 func Core() ([]pcwrap.EmbeddedAgent, error) {
-	return getMany(CoderID, CodeResearchID, PlannerID, TesterID)
+	return getMany(AssistantID, CoderID, CodeResearchID, PlannerID, TesterID)
 }
 
 func All() ([]pcwrap.EmbeddedAgent, error) {
