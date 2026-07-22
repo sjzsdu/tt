@@ -200,6 +200,7 @@ func (s *agentWebServer) start(port int) error {
 		port = 9710
 	}
 	mux := http.NewServeMux()
+	mux.Handle("/favicon.svg", webui.AgentFaviconHandler())
 	mux.Handle("/assets/", webui.AgentAssetsHandler())
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)

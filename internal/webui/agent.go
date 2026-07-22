@@ -2,13 +2,13 @@ package webui
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
-// agentDist embeds the built React app for tt agent web UI.
-//
-//go:embed agent/dist
+//go:embed all:agent/dist
 var agentDist embed.FS
 
 func AgentIndex() []byte {
@@ -25,4 +25,25 @@ func AgentAssetsHandler() http.Handler {
 		return http.NotFoundHandler()
 	}
 	return http.StripPrefix("/assets/", http.FileServer(http.FS(sub)))
+}
+
+func AgentFaviconHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" || path == "favicon.ico" {
+			path = "favicon.svg"
+		}
+		f, err := agentDist.Open("agent/dist/" + path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		stat, err := f.Stat()
+		if err != nil || stat.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(io.ReadSeeker))
+	})
 }

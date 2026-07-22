@@ -270,6 +270,7 @@ func runMarkdownServer() error {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/favicon.svg", webui.MarkdownFaviconHandler())
 	mux.Handle("/assets/", webui.MarkdownAssetsHandler())
 	mux.HandleFunc("/", handleApp)
 	mux.HandleFunc("/list", handleApp)

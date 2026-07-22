@@ -2,13 +2,13 @@ package webui
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
-// formulaDist embeds the built React app for tt formula dashboard.
-//
-//go:embed formula/dist
+//go:embed all:formula/dist
 var formulaDist embed.FS
 
 func FormulaIndex() []byte {
@@ -25,4 +25,25 @@ func FormulaAssetsHandler() http.Handler {
 		return http.NotFoundHandler()
 	}
 	return http.StripPrefix("/assets/", http.FileServer(http.FS(sub)))
+}
+
+func FormulaFaviconHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" || path == "favicon.ico" {
+			path = "favicon.svg"
+		}
+		f, err := formulaDist.Open("formula/dist/" + path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		stat, err := f.Stat()
+		if err != nil || stat.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(io.ReadSeeker))
+	})
 }
