@@ -64,6 +64,10 @@ type formulaOptions struct {
 	ScheduleRunNow        bool
 	ScheduleWeb           bool
 	ScheduleStopOnError   bool
+	RunFromStep           string
+	RunRerunStep          string
+	RunInject             []string
+	RunID                 string
 }
 
 var (
@@ -110,6 +114,10 @@ var (
 	formulaScheduleWeb           bool
 	formulaScheduleStopOnError   bool
 	formulaRunSessionSeq         uint64
+	formulaRunFromStep           string
+	formulaRunRerunStep          string
+	formulaRunInject             []string
+	formulaRunID                 string
 )
 
 func (a *App) installOptions() {
@@ -155,6 +163,10 @@ func (a *App) installOptions() {
 	formulaScheduleRunNow = a.opts.ScheduleRunNow
 	formulaScheduleWeb = a.opts.ScheduleWeb
 	formulaScheduleStopOnError = a.opts.ScheduleStopOnError
+	formulaRunFromStep = a.opts.RunFromStep
+	formulaRunRerunStep = a.opts.RunRerunStep
+	formulaRunInject = a.opts.RunInject
+	formulaRunID = a.opts.RunID
 }
 
 func getSearchPaths() []string {

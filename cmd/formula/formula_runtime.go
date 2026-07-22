@@ -287,6 +287,10 @@ type formulaRuntimeRunOptions struct {
 	DryRun              bool
 	AllowScripts        bool
 	RunID               string
+	ResumeFromRun       *run.Record
+	StartFromStep       ir.NodeID
+	RerunSteps          map[ir.NodeID]bool
+	InjectContext       map[string]steps.Value
 }
 
 func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Executor, error) {
@@ -323,6 +327,25 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 	if opt.RunStore != nil {
 		exec.Store = formularuntime.NewFormulaRunStateStore(opt.RunStore)
 	}
+
+	if opt.ResumeFromRun != nil {
+		if err := seedExecutorFromPreviousRun(exec, opt.ResumeFromRun); err != nil {
+			return nil, err
+		}
+	}
+
+	if opt.StartFromStep != "" {
+		exec.StartFromStep = opt.StartFromStep
+	}
+
+	if len(opt.RerunSteps) > 0 {
+		exec.RerunSteps = opt.RerunSteps
+	}
+
+	if len(opt.InjectContext) > 0 {
+		exec.SeedValues(opt.InjectContext)
+	}
+
 	return exec, nil
 }
 
@@ -354,6 +377,10 @@ type executeFormulaRuntimeOptions struct {
 	AllowScripts        bool
 	Dashboard           *formulaDashboardServer
 	Out                 io.Writer
+	ResumeFromRun       *run.Record
+	StartFromStep       ir.NodeID
+	RerunSteps          map[ir.NodeID]bool
+	InjectContext       map[string]steps.Value
 }
 
 func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeOptions) error {
@@ -381,6 +408,10 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 			}
 			return ""
 		}(),
+		ResumeFromRun: opt.ResumeFromRun,
+		StartFromStep: opt.StartFromStep,
+		RerunSteps:    opt.RerunSteps,
+		InjectContext: opt.InjectContext,
 	})
 	if err != nil {
 		return err

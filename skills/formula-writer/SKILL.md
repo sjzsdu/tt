@@ -747,6 +747,29 @@ tt formula run resume latest
 tt formula run input latest <step-id> --field key=value
 ```
 
+## Debugging commands
+
+When developing formulas with many steps, use these flags to speed up iteration:
+
+```bash
+# Start execution from a specific step, loading prior outputs from the latest run
+tt formula run <name> --from-step <step-id>
+
+# Force rerun a specific step and all its downstream steps
+tt formula run <name> --rerun-step <step-id>
+
+# Inject mock output for a step from a file
+tt formula run <name> --inject <step-id>=<file-path>
+
+# Specify which run instance to load prior state from (default: latest)
+tt formula run <name> --from-step <step-id> --run-id <run-id>
+```
+
+- `--from-step`: Skips all upstream steps and starts execution from the specified step. Uses saved outputs from the most recent run as context for downstream steps.
+- `--rerun-step`: Marks the specified step and all its downstream dependencies as pending, forcing them to re-execute. Useful when you've modified a step's prompt or configuration.
+- `--inject`: Loads content from a file and uses it as the output for a step, allowing you to test downstream steps without running upstream ones. The file can contain raw JSON or plain text.
+- `--run-id`: Specifies which run instance to load prior state from. When not specified, the most recent completed run is used. This is useful when you have multiple run instances and want to resume from a specific one.
+
 ## Final self-check
 
 Before handing off:

@@ -1021,6 +1021,144 @@ print(json.dumps({"branch": subprocess.check_output(["git", "branch", "--show-cu
 	runGitCmd(t, repo, "worktree", "remove", "--force", occupied)
 }
 
+func TestExecutorStartFromStepSkipsUpstreamSteps(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "a", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "a", Kind: steps.KindAgent}}}})
+	g.AddNode(&ir.Node{ID: "b", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "b", Kind: steps.KindAgent}}}})
+	g.AddNode(&ir.Node{ID: "c", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "c", Kind: steps.KindAgent}}}})
+	g.AddEdge("a", "b", "blocks")
+	g.AddEdge("b", "c", "blocks")
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+
+	agentA := &countingAgent{}
+	agentB := &countingAgent{}
+	agentC := &countingAgent{}
+
+	capabilities := steps.Capabilities{
+		Agents: &multiAgent{agents: map[string]steps.AgentRunner{
+			"a": agentA,
+			"b": agentB,
+			"c": agentC,
+		}},
+	}
+
+	exec := NewExecutor(wf, capabilities)
+	rawA, _ := json.Marshal("output-a")
+	if err := exec.Store.SaveStep(StepState{WorkflowID: wf.ID, NodeID: "a", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: rawA}}}); err != nil {
+		t.Fatal(err)
+	}
+	exec.StartFromStep = "b"
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+
+	if agentA.calls != 0 {
+		t.Fatalf("agent a calls = %d, want 0 (should be skipped)", agentA.calls)
+	}
+	if agentB.calls != 1 {
+		t.Fatalf("agent b calls = %d, want 1", agentB.calls)
+	}
+	if agentC.calls != 1 {
+		t.Fatalf("agent c calls = %d, want 1", agentC.calls)
+	}
+}
+
+func TestExecutorRerunStepExecutesDownstreamSteps(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "a", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "a", Kind: steps.KindAgent}}}})
+	g.AddNode(&ir.Node{ID: "b", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "b", Kind: steps.KindAgent}}}})
+	g.AddNode(&ir.Node{ID: "c", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "c", Kind: steps.KindAgent}}}})
+	g.AddEdge("a", "b", "blocks")
+	g.AddEdge("b", "c", "blocks")
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+
+	agentA := &countingAgent{}
+	agentB := &countingAgent{}
+	agentC := &countingAgent{}
+
+	capabilities := steps.Capabilities{
+		Agents: &multiAgent{agents: map[string]steps.AgentRunner{
+			"a": agentA,
+			"b": agentB,
+			"c": agentC,
+		}},
+	}
+
+	exec := NewExecutor(wf, capabilities)
+	rawA, _ := json.Marshal("output-a")
+	rawB, _ := json.Marshal("output-b")
+	rawC, _ := json.Marshal("output-c")
+	if err := exec.Store.SaveStep(StepState{WorkflowID: wf.ID, NodeID: "a", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: rawA}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Store.SaveStep(StepState{WorkflowID: wf.ID, NodeID: "b", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: rawB}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Store.SaveStep(StepState{WorkflowID: wf.ID, NodeID: "c", Status: steps.StatusCompleted, Result: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: rawC}}}); err != nil {
+		t.Fatal(err)
+	}
+	exec.RerunSteps = map[ir.NodeID]bool{"b": true}
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+
+	if agentA.calls != 0 {
+		t.Fatalf("agent a calls = %d, want 0 (should be skipped)", agentA.calls)
+	}
+	if agentB.calls != 1 {
+		t.Fatalf("agent b calls = %d, want 1 (should be rerun)", agentB.calls)
+	}
+	if agentC.calls != 1 {
+		t.Fatalf("agent c calls = %d, want 1 (should be rerun as downstream)", agentC.calls)
+	}
+}
+
+func TestExecutorStartFromStepWithNoPriorState(t *testing.T) {
+	g := ir.NewGraph()
+	g.AddNode(&ir.Node{ID: "a", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "a", Kind: steps.KindAgent}}}})
+	g.AddNode(&ir.Node{ID: "b", Step: steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "b", Kind: steps.KindAgent}}}})
+	g.AddEdge("a", "b", "blocks")
+	wf := &ir.Workflow{ID: "demo", Graph: g}
+
+	agent := &countingAgent{}
+	exec := NewExecutor(wf, steps.Capabilities{Agents: agent})
+	exec.StartFromStep = "b"
+
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != steps.StatusCompleted {
+		t.Fatalf("status = %s", result.Status)
+	}
+
+	if agent.calls != 1 {
+		t.Fatalf("agent calls = %d, want 1 (only step b)", agent.calls)
+	}
+}
+
+type multiAgent struct {
+	agents map[string]steps.AgentRunner
+}
+
+func (m *multiAgent) RunAgent(ctx context.Context, req steps.AgentRequest) (steps.Value, error) {
+	agent, ok := m.agents[req.NodeID]
+	if !ok {
+		return steps.Value{}, fmt.Errorf("no agent for step %s", req.NodeID)
+	}
+	return agent.RunAgent(ctx, req)
+}
+
 func runGitCmd(t *testing.T, cwd string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)

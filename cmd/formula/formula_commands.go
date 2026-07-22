@@ -273,6 +273,10 @@ Runtime control notes:
 	cmd.Flags().BoolVar(&a.opts.NoSave, "no-save", false, "do not save formula run state under .tt/runs/formula")
 	cmd.Flags().BoolVar(&a.opts.NoScript, "no-script", false, "disable formula script steps for this run")
 	cmd.Flags().BoolVar(&a.opts.AllowShell, "allow-shell-script", false, "allow script steps to run through an explicit shell")
+	cmd.Flags().StringVar(&a.opts.RunFromStep, "from-step", "", "start execution from the specified step id, loading prior step outputs from the latest run state")
+	cmd.Flags().StringVar(&a.opts.RunRerunStep, "rerun-step", "", "force rerun the specified step and its downstream steps, starting from the latest run state")
+	cmd.Flags().StringArrayVar(&a.opts.RunInject, "inject", nil, "inject step output from a file (step-id=file-path), repeatable")
+	cmd.Flags().StringVar(&a.opts.RunID, "run-id", "", "specify the source run id to load prior state from; defaults to the most recent completed run")
 
 	cmd.AddCommand(a.newFormulaRunOpenCmd())
 	cmd.AddCommand(a.newFormulaRunShowCmd())

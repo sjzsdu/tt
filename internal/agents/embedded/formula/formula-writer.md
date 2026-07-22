@@ -725,6 +725,29 @@ tt formula run resume latest
 tt formula run input latest <step-id> --field key=value
 ```
 
+## 调试命令
+
+当 formula step 较多时，使用以下旗标加速迭代：
+
+```bash
+# 从指定 step 开始执行，加载最近一次运行的上游输出
+tt formula run <name> --from-step <step-id>
+
+# 强制重跑指定 step 及其所有下游 step
+tt formula run <name> --rerun-step <step-id>
+
+# 从文件注入某个 step 的 mock 输出
+tt formula run <name> --inject <step-id>=<file-path>
+
+# 指定从哪个 run 实例加载状态（默认使用最新的）
+tt formula run <name> --from-step <step-id> --run-id <run-id>
+```
+
+- `--from-step`: 跳过所有上游 step，从指定 step 开始执行。使用最近一次运行保存的输出作为下游 step 的上下文。
+- `--rerun-step`: 将指定 step 及其所有下游依赖标记为待执行状态，强制重新执行。当修改了某个 step 的 prompt 或配置时特别有用。
+- `--inject`: 从文件加载内容并将其用作某个 step 的输出，允许在不运行上游 step 的情况下测试下游 step。文件可以包含原始 JSON 或纯文本。
+- `--run-id`: 指定从哪个 run 实例加载状态。未指定时，默认使用最近一次完成的 run。当有多个 run 实例时，可以使用此选项指定从特定实例恢复。
+
 ## 最终自检
 
 - 文件名是 `<name>.toml`。
