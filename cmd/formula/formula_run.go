@@ -2,16 +2,21 @@ package formulacmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/agents"
 	"github.com/sjzsdu/tt/internal/formula"
+	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/run"
+	"github.com/sjzsdu/tt/internal/formula/runtime"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formula/ui"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 )
@@ -148,6 +153,52 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 
 	runCtx, stopRunSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopRunSignals()
+
+	var resumeFromRun *run.Record
+	var startFromStep ir.NodeID
+	var rerunSteps map[ir.NodeID]bool
+	var injectContext map[string]steps.Value
+
+	if formulaRunFromStep != "" && formulaRunRerunStep != "" {
+		return fmt.Errorf("--from-step and --rerun-step cannot be used together")
+	}
+
+	if formulaRunFromStep != "" || formulaRunRerunStep != "" {
+		if formulaRunID != "" {
+			resumeFromRun, err = findRunByID(projectRoot, formulaRunID)
+			if err != nil {
+				return fmt.Errorf("cannot find run %q: %w", formulaRunID, err)
+			}
+			if resumeFromRun == nil {
+				return fmt.Errorf("run %q not found", formulaRunID)
+			}
+		} else {
+			resumeFromRun, err = findLatestRunForFormula(projectRoot, workflow.Name)
+			if err != nil {
+				return fmt.Errorf("cannot find previous run for --from-step or --rerun-step: %w", err)
+			}
+			if resumeFromRun == nil {
+				return fmt.Errorf("no previous run found for formula %q; --from-step and --rerun-step require a prior completed run", workflow.Name)
+			}
+		}
+		fmt.Fprintf(out, "Loading prior state from run: %s (status: %s)\n", resumeFromRun.ID, resumeFromRun.Metadata.Status)
+	}
+
+	if formulaRunFromStep != "" {
+		startFromStep = ir.NodeID(formulaRunFromStep)
+	}
+
+	if formulaRunRerunStep != "" {
+		rerunSteps = map[ir.NodeID]bool{ir.NodeID(formulaRunRerunStep): true}
+	}
+
+	if len(formulaRunInject) > 0 {
+		injectContext, err = parseInjectOptions(formulaRunInject)
+		if err != nil {
+			return fmt.Errorf("invalid --inject option: %w", err)
+		}
+	}
+
 	err = executeFormulaRecipeRuntime(runCtx, executeFormulaRuntimeOptions{
 		Workflow:            workflow,
 		RunStore:            runStore,
@@ -163,6 +214,10 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		AllowScripts:        !formulaNoScript,
 		Dashboard:           dashboard,
 		Out:                 out,
+		ResumeFromRun:       resumeFromRun,
+		StartFromStep:       startFromStep,
+		RerunSteps:          rerunSteps,
+		InjectContext:       injectContext,
 	})
 	if showWeb {
 		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
@@ -172,6 +227,85 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return err
+}
+
+func findLatestRunForFormula(projectRoot, formulaName string) (*run.Record, error) {
+	root := run.DefaultRoot(projectRoot)
+	records, err := run.List(root)
+	if err != nil {
+		return nil, err
+	}
+	var candidates []run.Record
+	for _, record := range records {
+		if record.Metadata.Formula == formulaName && record.Metadata.Status != run.StatusRunning {
+			candidates = append(candidates, record)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].Metadata.StartedAt > candidates[j].Metadata.StartedAt
+	})
+	return &candidates[0], nil
+}
+
+func findRunByID(projectRoot, runID string) (*run.Record, error) {
+	root := run.DefaultRoot(projectRoot)
+	records, err := run.List(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		if record.ID == runID {
+			return &record, nil
+		}
+	}
+	return nil, nil
+}
+
+func parseInjectOptions(inject []string) (map[string]steps.Value, error) {
+	result := map[string]steps.Value{}
+	for _, item := range inject {
+		stepID, filePath, ok := strings.Cut(item, "=")
+		if !ok || strings.TrimSpace(stepID) == "" || strings.TrimSpace(filePath) == "" {
+			return nil, fmt.Errorf("invalid inject format: %q, expected step-id=file-path", item)
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read inject file %q: %w", filePath, err)
+		}
+		if json.Valid(data) {
+			result[stepID] = steps.Value{Type: "json", Raw: data}
+		} else {
+			result[stepID] = steps.Value{Type: "text", Raw: data}
+		}
+	}
+	return result, nil
+}
+
+func seedExecutorFromPreviousRun(exec *runtime.Executor, prevRun *run.Record) error {
+	var snapshot runtime.Snapshot
+	if err := run.LoadState(prevRun.Dir, &snapshot); err != nil {
+		return fmt.Errorf("cannot load previous run state: %w", err)
+	}
+	for nodeID, state := range snapshot.Steps {
+		if state.Status != steps.StatusCompleted || state.Result == nil {
+			continue
+		}
+		state.Result.NormalizeOutputs()
+		if err := exec.Store.SaveStep(state); err != nil {
+			return fmt.Errorf("cannot save step state for %q: %w", nodeID, err)
+		}
+		if exec.Context != nil && state.Result != nil {
+			if primary, ok := state.Result.PrimaryOutput(); ok {
+				if err := exec.Context.Set(string(nodeID), primary); err != nil {
+					return fmt.Errorf("cannot set context for %q: %w", nodeID, err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func executeFormulaResume(cmd *cobra.Command, workflowName string, runStore *run.Store, dashboard *formulaDashboardServer, vars map[string]string, initialResults []ui.ResumeStepResult, initialContext map[string]string) error {

@@ -27,6 +27,8 @@ type Executor struct {
 	Nested          bool
 	runID           string
 	formulaRunDir   string
+	StartFromStep   ir.NodeID
+	RerunSteps      map[ir.NodeID]bool
 }
 
 // ExecutionMode separates normal execution from a side-effect-free preview.
@@ -118,7 +120,17 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	if workspace != nil && strings.TrimSpace(workspace.path) != "" {
 		e.emit("", "workflow.workspace.ready", map[string]string{"path": workspace.path, "invocation_cwd": workspace.invocationWD})
 	}
-	for _, nodeID := range order {
+
+	rerunDownstream := e.collectRerunDownstreamSteps(order)
+	startIndex, err := e.findStartIndex(order)
+	if err != nil {
+		out.Status = steps.StatusFailed
+		e.finishWorkflow(steps.StatusFailed)
+		return out, err
+	}
+
+	for i := startIndex; i < len(order); i++ {
+		nodeID := order[i]
 		if err := ctx.Err(); err != nil {
 			out.Status = steps.StatusFailed
 			e.emit(nodeID, "step.interrupted", map[string]string{"error": err.Error()})
@@ -131,7 +143,7 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		}
 		if state, ok, err := e.Store.GetStep(e.stateWorkflowID(), e.runtimeNodeID(nodeID)); err != nil {
 			return out, err
-		} else if ok && state.Status == steps.StatusCompleted {
+		} else if ok && state.Status == steps.StatusCompleted && !rerunDownstream[nodeID] {
 			if state.Result != nil {
 				state.Result.NormalizeOutputs()
 			}
@@ -961,6 +973,48 @@ func childTransitionStatus(typ string) steps.Status {
 		return steps.StatusSkipped
 	default:
 		return steps.StatusFailed
+	}
+}
+
+func (e *Executor) findStartIndex(order []ir.NodeID) (int, error) {
+	if e.StartFromStep == "" {
+		return 0, nil
+	}
+	for i, nodeID := range order {
+		if nodeID == e.StartFromStep {
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("step %q not found in workflow", e.StartFromStep)
+}
+
+func (e *Executor) collectRerunDownstreamSteps(order []ir.NodeID) map[ir.NodeID]bool {
+	if len(e.RerunSteps) == 0 {
+		return nil
+	}
+	result := map[ir.NodeID]bool{}
+	for nodeID := range e.RerunSteps {
+		result[nodeID] = true
+	}
+	downstream := map[ir.NodeID]bool{}
+	for nodeID := range e.RerunSteps {
+		e.markDownstream(nodeID, downstream)
+	}
+	for nodeID := range downstream {
+		result[nodeID] = true
+	}
+	return result
+}
+
+func (e *Executor) markDownstream(nodeID ir.NodeID, downstream map[ir.NodeID]bool) {
+	if downstream[nodeID] {
+		return
+	}
+	downstream[nodeID] = true
+	for _, edge := range e.Workflow.Graph.Edges {
+		if edge.From == nodeID {
+			e.markDownstream(edge.To, downstream)
+		}
 	}
 }
 
