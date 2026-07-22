@@ -1,4 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#1a1a2e"/>
-  <text x="16" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">tt</text>
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#g)"/>
+  <circle cx="8" cy="10" r="4" fill="white" stroke="white" stroke-width="2"/>
+  <circle cx="24" cy="10" r="4" fill="none" stroke="white" stroke-width="2"/>
+  <circle cx="8" cy="22" r="4" fill="none" stroke="white" stroke-width="2"/>
+  <circle cx="24" cy="22" r="4" fill="none" stroke="white" stroke-width="2"/>
+  <path d="M12 10 L20 10" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 22 L20 22" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <path d="M8 14 L8 18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <path d="M24 14 L24 18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <path d="M12 18 L12 22" stroke="white" stroke-width="2" stroke-linecap="round"/>
 </svg>

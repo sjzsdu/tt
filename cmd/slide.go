@@ -470,6 +470,7 @@ func runSlideServer() error {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/favicon.svg", webui.SlideFaviconHandler())
 	mux.Handle("/assets/", webui.SlideAssetsHandler())
 	mux.HandleFunc("/", handleSlideApp)
 	mux.HandleFunc("/raw-content", handleSlideRawContent)

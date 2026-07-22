@@ -2,7 +2,7 @@ APP := tt
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide install install-system clean run fmt tidy help
+.PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide install install-force install-system clean run fmt tidy help
 
 build: web-build
 	go build -o $(APP) .
@@ -41,6 +41,12 @@ install: build
 	install -m 755 $(APP) $(BINDIR)/$(APP)
 	@printf "Installed to $(BINDIR)/$(APP)\n"
 
+install-force: web-build-force
+	go build -o $(APP) .
+	mkdir -p $(BINDIR)
+	install -m 755 $(APP) $(BINDIR)/$(APP)
+	@printf "Installed to $(BINDIR)/$(APP)\n"
+
 install-system: build
 	mkdir -p /usr/local/bin
 	install -m 755 $(APP) /usr/local/bin/$(APP)
@@ -64,8 +70,9 @@ help:
 	@printf "  make web-build       Incrementally build React web UIs into internal/webui\n"
 	@printf "  make web-build-force Force rebuild all React web UIs into internal/webui\n"
 	@printf "  make install         Install to $(BINDIR)/$(APP)\n"
+	@printf "  make install-force   Force rebuild + install to $(BINDIR)/$(APP)\n"
 	@printf "  make install-system  Install to /usr/local/bin/$(APP)\n"
 	@printf "  make clean           Remove local binary\n"
 	@printf "  make run             Run with go run\n"
 	@printf "  make fmt             Format Go files\n"
-	@printf "  make tidy            Tidy go modules\n"
+	@printf "  make tidy            Tidy Go modules\n"

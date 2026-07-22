@@ -106,6 +106,7 @@ func (s *formulaDashboardServer) start(port int) error {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/favicon.svg", webui.FormulaFaviconHandler())
 	mux.Handle("/assets/", webui.FormulaAssetsHandler())
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)

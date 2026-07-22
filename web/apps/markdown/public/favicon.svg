@@ -1,4 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#1a1a2e"/>
-  <text x="16" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">tt</text>
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#g)"/>
+  <rect x="6" y="8" width="20" height="16" rx="2" fill="white"/>
+  <line x1="10" y1="13" x2="22" y2="13" stroke="#f97316" stroke-width="2"/>
+  <line x1="10" y1="17" x2="22" y2="17" stroke="#f97316" stroke-width="2"/>
+  <line x1="10" y1="21" x2="18" y2="21" stroke="#f97316" stroke-width="2"/>
+  <polygon points="6,8 12,14 6,14" fill="white"/>
 </svg>
