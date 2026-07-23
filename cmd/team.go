@@ -26,6 +26,8 @@ var (
 	teamConfig         string
 	teamNoMemory       bool
 	teamShowDiscussion bool
+	teamWeb            bool
+	teamWebPort        int
 )
 
 var teamCmd = &cobra.Command{
@@ -68,6 +70,13 @@ var teamShowCmd = &cobra.Command{
 	RunE:  runTeamShow,
 }
 
+var teamOpenCmd = &cobra.Command{
+	Use:   "open [thread]",
+	Short: "Open a persisted team thread in the web dashboard",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runTeamOpen,
+}
+
 var teamListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available team definitions and persisted threads",
@@ -88,6 +97,7 @@ func init() {
 	teamCmd.AddCommand(teamAskCmd)
 	teamCmd.AddCommand(teamResumeCmd)
 	teamCmd.AddCommand(teamShowCmd)
+	teamCmd.AddCommand(teamOpenCmd)
 	teamCmd.AddCommand(teamListCmd)
 	teamCmd.AddCommand(teamInitCmd)
 
@@ -98,6 +108,8 @@ func init() {
 	teamCmd.PersistentFlags().StringVar(&teamConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
 	teamCmd.PersistentFlags().BoolVar(&teamNoMemory, "no-memory", false, "do not read or update team memory for this invocation")
 	teamCmd.PersistentFlags().BoolVar(&teamShowDiscussion, "show-discussion", true, "stream public team discussion before the final answer")
+	teamCmd.PersistentFlags().BoolVar(&teamWeb, "web", false, "open and keep a live team web dashboard")
+	teamCmd.PersistentFlags().IntVar(&teamWebPort, "web-port", 9715, "preferred team dashboard web server port")
 }
 
 func runTeamRun(cmd *cobra.Command, args []string) error {
@@ -212,6 +224,15 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 			return err
 		}
 	}
+	var dashboard *teamDashboardServer
+	if teamWeb {
+		dashboard = newTeamDashboardServer(store, definition)
+		if err := dashboard.start(teamWebPort, true); err != nil {
+			return err
+		}
+		defer dashboard.close()
+		fmt.Fprintf(cmd.ErrOrStderr(), "Team dashboard: %s\n", dashboard.url())
+	}
 
 	engine := &teamruntime.Engine{
 		Definition:    definition,
@@ -253,6 +274,41 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 	} else if definition.MemoryEnabled() && !teamNoMemory {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Team memory: %s (version %d)\n", result.Memory.Path, result.Memory.Version)
 	}
+	if dashboard != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Press Ctrl-C to stop the team dashboard.")
+		dashboard.wait(runCtx)
+	}
+	return nil
+}
+
+func runTeamOpen(cmd *cobra.Command, args []string) error {
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return err
+	}
+	id := "latest"
+	if len(args) == 1 {
+		id = args[0]
+	}
+	store, err := teamruntime.ResolveStore(projectRootFromConfig(loaded), id)
+	if err != nil {
+		return err
+	}
+	definition, err := store.LoadDefinition()
+	if err != nil {
+		return err
+	}
+	dashboard := newTeamDashboardServer(store, definition)
+	if err := dashboard.start(teamWebPort, true); err != nil {
+		return err
+	}
+	defer dashboard.close()
+	fmt.Fprintf(cmd.OutOrStdout(), "Opened team thread: %s\n", store.Thread.ID)
+	fmt.Fprintf(cmd.OutOrStdout(), "Team dashboard: %s\n", dashboard.url())
+	fmt.Fprintln(cmd.OutOrStdout(), "Press Ctrl-C to stop the dashboard.")
+	waitCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+	dashboard.wait(waitCtx)
 	return nil
 }
 

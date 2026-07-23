@@ -12,6 +12,7 @@ func TestTeamCommandRegistersMVPSubcommands(t *testing.T) {
 		"ask":    false,
 		"resume": false,
 		"show":   false,
+		"open":   false,
 		"list":   false,
 		"init":   false,
 	}
