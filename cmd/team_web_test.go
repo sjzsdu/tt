@@ -90,11 +90,34 @@ func TestTeamDashboardIndexHandler(t *testing.T) {
 		t.Fatalf("status = %d", response.Code)
 	}
 	body := response.Body.String()
-	for _, text := range []string{"tt collaborative runtime", "Public room", "Durable memory", "/api/state"} {
+	for _, text := range []string{`<div id="root"></div>`, "/assets/"} {
 		if !strings.Contains(body, text) {
 			t.Fatalf("dashboard index missing %q", text)
 		}
 	}
+	if cache := response.Header().Get("Cache-Control"); cache != "no-store" {
+		t.Fatalf("cache-control = %q", cache)
+	}
+
+	assetRequest := httptest.NewRequest(http.MethodGet, firstTeamAssetPath(t, body), nil)
+	assetResponse := httptest.NewRecorder()
+	dashboard.routes().ServeHTTP(assetResponse, assetRequest)
+	if assetResponse.Code != http.StatusOK {
+		t.Fatalf("asset status = %d", assetResponse.Code)
+	}
+}
+
+func firstTeamAssetPath(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, "/assets/")
+	if start < 0 {
+		t.Fatal("dashboard index has no asset path")
+	}
+	end := strings.IndexAny(body[start:], `"'`)
+	if end < 0 {
+		t.Fatal("dashboard asset path is unterminated")
+	}
+	return body[start : start+end]
 }
 
 func TestTeamDashboardStartsOnLoopback(t *testing.T) {

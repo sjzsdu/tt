@@ -658,7 +658,8 @@ When `cmd/version.go` changes on `main`, GitHub Actions builds Linux, macOS, and
 
 Frontend theme implementation notes:
 
-- `web/apps/formula` and `web/apps/markdown` both use the same minimal theme pattern: root-level light/dark state, `document.documentElement.dataset.theme`, and browser `localStorage` persistence.
+- `web/apps/formula`, `web/apps/markdown`, and `web/apps/team` use the same minimal theme pattern: root-level light/dark state, `document.documentElement.dataset.theme`, and browser `localStorage` persistence.
+- Team dashboard source lives in `web/apps/team`; `make web-build-team` builds it and copies the production assets into `internal/webui/team/dist` for Go embedding.
 - Ant Design theme algorithms are switched from the same theme state used by app-level CSS variables, instead of maintaining a separate component-library theme source.
 - Mermaid rendering is re-initialized from the active app theme so diagrams match the surrounding UI.
 - The current implementation intentionally favors CSS variables and targeted overrides over a full design-system migration.
@@ -669,6 +670,7 @@ Common targets:
 
 ```bash
 make build          # Build ./tt
+make web-build-team # Build and embed the Team dashboard
 make install        # Install to $(PREFIX)/bin/tt, default ~/.local/bin/tt
 make install-system # Install to /usr/local/bin/tt
 make clean          # Remove local binary
