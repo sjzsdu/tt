@@ -1,27 +1,49 @@
 package webui
 
 import (
-	_ "embed"
+	"embed"
+	"io"
+	"io/fs"
 	"net/http"
+	"strings"
 )
 
-//go:embed team/index.html
-var teamIndex []byte
+//go:embed all:team/dist
+var teamDist embed.FS
 
 func TeamIndex() []byte {
-	return append([]byte(nil), teamIndex...)
+	b, err := teamDist.ReadFile("team/dist/index.html")
+	if err != nil {
+		return []byte("<!doctype html><title>tt team dashboard</title><p>team dashboard web UI is not built. Run <code>make web-build-team</code>.</p>")
+	}
+	return b
 }
 
-func TeamIndexHandler() http.Handler {
+func TeamAssetsHandler() http.Handler {
+	sub, err := fs.Sub(teamDist, "team/dist/assets")
+	if err != nil {
+		return http.NotFoundHandler()
+	}
+	return http.StripPrefix("/assets/", http.FileServer(http.FS(sub)))
+}
+
+func TeamFaviconHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" || path == "favicon.ico" {
+			path = "favicon.svg"
+		}
+		f, err := teamDist.Open("team/dist/" + path)
+		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
-		_, _ = w.Write(teamIndex)
+		defer f.Close()
+		stat, err := f.Stat()
+		if err != nil || stat.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(io.ReadSeeker))
 	})
 }

@@ -7,17 +7,24 @@ import (
 	"testing"
 )
 
-func TestTeamIndexHandler(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
+func TestTeamIndex(t *testing.T) {
+	body := string(TeamIndex())
+	if !strings.Contains(body, `<div id="root"></div>`) {
+		t.Fatal("team dashboard root missing")
+	}
+	if !strings.Contains(body, "/assets/") {
+		t.Fatal("team dashboard asset reference missing")
+	}
+}
+
+func TestTeamFaviconHandler(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/favicon.svg", nil)
 	response := httptest.NewRecorder()
-	TeamIndexHandler().ServeHTTP(response, request)
+	TeamFaviconHandler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}
-	if contentType := response.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+	if contentType := response.Header().Get("Content-Type"); !strings.Contains(contentType, "image/svg+xml") {
 		t.Fatalf("content-type = %q", contentType)
-	}
-	if !strings.Contains(response.Body.String(), "Team members") {
-		t.Fatal("team dashboard content missing")
 	}
 }

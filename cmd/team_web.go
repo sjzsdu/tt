@@ -137,9 +137,22 @@ func (s *teamDashboardServer) wait(ctx context.Context) {
 
 func (s *teamDashboardServer) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/", webui.TeamIndexHandler())
+	mux.Handle("/favicon.svg", webui.TeamFaviconHandler())
+	mux.Handle("/assets/", webui.TeamAssetsHandler())
+	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
 	return mux
+}
+
+func (s *teamDashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(webui.TeamIndex())
 }
 
 func (s *teamDashboardServer) handleState(w http.ResponseWriter, r *http.Request) {
