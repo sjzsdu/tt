@@ -403,6 +403,25 @@ func (s *Store) Events() ([]Event, error) {
 	return loadEvents(filepath.Join(s.Dir, "events.jsonl"))
 }
 
+func (s *Store) Snapshot() (Thread, State, []Event, error) {
+	if s == nil {
+		return Thread{}, State{}, nil, fmt.Errorf("team store is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	thread := s.Thread
+	state := s.State
+	if s.State.Current != nil {
+		current := *s.State.Current
+		state.Current = &current
+	}
+	events, err := loadEvents(filepath.Join(s.Dir, "events.jsonl"))
+	if err != nil {
+		return Thread{}, State{}, nil, err
+	}
+	return thread, state, events, nil
+}
+
 func (s *Store) saveDefinition(definition *Definition) error {
 	return writeJSONAtomic(filepath.Join(s.Dir, "team.json"), definition)
 }
