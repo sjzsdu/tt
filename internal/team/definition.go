@@ -239,6 +239,14 @@ func Load(name string, searchPaths ...string) (*Definition, error) {
 			}
 		}
 	}
+	if data, ok, err := BuiltinTeamContent(name); err == nil && ok {
+		definition, err := Parse(data)
+		if err != nil {
+			return nil, fmt.Errorf("parse builtin team %q: %w", name, err)
+		}
+		definition.Source = "builtin:" + name
+		return definition, nil
+	}
 	return nil, fmt.Errorf("team %q not found in search paths: %s", name, strings.Join(searchPaths, ", "))
 }
 

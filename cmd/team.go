@@ -43,7 +43,7 @@ var teamRunCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(2),
 	Example: `tt team init product-review
 tt team run product-review "评估这个需求的产品和技术风险"
-tt team run .tt/teams/product-review/team.toml "给出 MVP 方案"`,
+tt team run .tt/teams/product-review.toml "给出 MVP 方案"`,
 	RunE: runTeamRun,
 }
 
@@ -76,6 +76,11 @@ var teamOpenCmd = &cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTeamOpen,
 }
+
+var (
+	teamListBuiltin bool
+	teamListUser    bool
+)
 
 var teamListCmd = &cobra.Command{
 	Use:   "list",
@@ -110,6 +115,9 @@ func init() {
 	teamCmd.PersistentFlags().BoolVar(&teamShowDiscussion, "show-discussion", true, "stream public team discussion before the final answer")
 	teamCmd.PersistentFlags().BoolVar(&teamWeb, "web", false, "open and keep a live team web dashboard")
 	teamCmd.PersistentFlags().IntVar(&teamWebPort, "web-port", 9715, "preferred team dashboard web server port")
+
+	teamListCmd.Flags().BoolVar(&teamListBuiltin, "builtin", false, "show only builtin teams")
+	teamListCmd.Flags().BoolVar(&teamListUser, "user", false, "show only user teams from search paths")
 }
 
 func runTeamRun(cmd *cobra.Command, args []string) error {
@@ -365,25 +373,51 @@ func runTeamList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	projectRoot := projectRootFromConfig(loaded)
-	definitions, err := teamruntime.List(teamruntime.DefaultSearchPaths(projectRoot)...)
-	if err != nil {
-		return err
+	out := cmd.OutOrStdout()
+	showBuiltin := !teamListUser
+	showUser := !teamListBuiltin
+
+	if showBuiltin {
+		builtinEntries, err := teamruntime.BuiltinTeams()
+		if err != nil {
+			return err
+		}
+		if len(builtinEntries) > 0 {
+			fmt.Fprintln(out, "BUILTIN")
+			for _, entry := range builtinEntries {
+				title := entry.Title
+				if title == "" {
+					title = entry.Name
+				}
+				fmt.Fprintf(out, "  %-24s %2d agents  %s\n", entry.Name, entry.Agents, title)
+			}
+			if showUser {
+				fmt.Fprintln(out)
+			}
+		}
 	}
+
+	if showUser {
+		definitions, err := teamruntime.List(teamruntime.DefaultSearchPaths(projectRoot)...)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "USER")
+		if len(definitions) == 0 {
+			fmt.Fprintln(out, "  (none; run `tt team init <name>`)")
+		}
+		for _, record := range definitions {
+			title := record.Title
+			if title == "" {
+				title = record.Name
+			}
+			fmt.Fprintf(out, "  %-24s %2d agents  %s\n", record.Name, record.Agents, title)
+		}
+	}
+
 	threads, err := teamruntime.ListThreads(projectRoot)
 	if err != nil {
 		return err
-	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, "Teams:")
-	if len(definitions) == 0 {
-		fmt.Fprintln(out, "  (none; run `tt team init <name>`)")
-	}
-	for _, record := range definitions {
-		title := record.Title
-		if title == "" {
-			title = record.Name
-		}
-		fmt.Fprintf(out, "  %-24s %2d agents  %s\n", record.Name, record.Agents, title)
 	}
 	fmt.Fprintln(out, "\nThreads:")
 	if len(threads) == 0 {
@@ -409,8 +443,9 @@ func runTeamInit(cmd *cobra.Command, args []string) error {
 	if name == "" {
 		return fmt.Errorf("team name must contain at least one letter or number")
 	}
-	dir := filepath.Join(projectRootFromConfig(loaded), ".tt", "teams", name)
-	path := filepath.Join(dir, teamruntime.DefinitionFilename)
+	projectRoot := projectRootFromConfig(loaded)
+	dir := filepath.Join(projectRoot, ".tt", "teams")
+	path := filepath.Join(dir, name+".toml")
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("team definition already exists: %s", path)
 	} else if !os.IsNotExist(err) {
@@ -419,19 +454,26 @@ func runTeamInit(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create team definition directory: %w", err)
 	}
-	content := starterTeamDefinition(name)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("create team definition: %w", err)
+	if data, ok, err := teamruntime.BuiltinTeamContent(name); err == nil && ok {
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return fmt.Errorf("write team definition: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Copied builtin team %q to %s\n", name, path)
+	} else {
+		content := starterTeamDefinition(name)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			return fmt.Errorf("create team definition: %w", err)
+		}
+		if _, err := file.WriteString(content); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("write team definition: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("close team definition: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Created team definition: %s\n", path)
 	}
-	if _, err := file.WriteString(content); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("write team definition: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close team definition: %w", err)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Created team definition: %s\n", path)
 	fmt.Fprintf(cmd.OutOrStdout(), "Run it with: tt team run %s \"your question\"\n", name)
 	return nil
 }

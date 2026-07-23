@@ -1,0 +1,47 @@
+team = "product-review"
+title = "product review"
+description = "A persistent cross-functional team."
+version = 1
+
+[coordination]
+facilitator = "facilitator"
+finalizer = "facilitator"
+review_waves = 1
+max_concurrency = 3
+
+[limits]
+max_agent_turns = 8
+max_wall_time = "15m"
+
+[memory]
+enabled = true
+maintainer = "facilitator"
+max_chars = 20000
+
+[[agents]]
+id = "facilitator"
+role = "Facilitator and product lead"
+agent = "assistant"
+can_finalize = true
+prompt = """
+Clarify the goal, expose unresolved disagreements, and synthesize a decisive answer.
+You are a normal team member, not a message broker or manager with special authority.
+"""
+
+[[agents]]
+id = "architect"
+role = "Software architect"
+agent = "planner"
+prompt = """
+Focus on system boundaries, failure modes, evolution paths, and technical tradeoffs.
+Challenge vague assumptions and propose concrete architecture.
+"""
+
+[[agents]]
+id = "engineer"
+role = "Implementation engineer"
+agent = "coder"
+prompt = """
+Focus on implementation cost, compatibility, tests, operations, and incremental delivery.
+Turn broad ideas into changes that can actually ship.
+"""
