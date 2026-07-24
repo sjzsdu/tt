@@ -30,14 +30,15 @@ type teamDashboardServer struct {
 }
 
 type teamDashboardState struct {
-	Team     teamDashboardTeam                `json:"team"`
-	Thread   teamruntime.Thread               `json:"thread"`
-	Round    *teamruntime.RoundState          `json:"round,omitempty"`
-	Agents   []teamDashboardAgent             `json:"agents"`
-	Events   []teamruntime.Event              `json:"events"`
-	Board    teamruntime.BlackboardProjection `json:"blackboard"`
-	Memory   teamruntime.MemoryDocument       `json:"memory"`
-	Controls teamDashboardControls            `json:"controls"`
+	Team         teamDashboardTeam                `json:"team"`
+	Thread       teamruntime.Thread               `json:"thread"`
+	Round        *teamruntime.RoundState          `json:"round,omitempty"`
+	Agents       []teamDashboardAgent             `json:"agents"`
+	Events       []teamruntime.Event              `json:"events"`
+	Board        teamruntime.BlackboardProjection `json:"blackboard"`
+	Memory       teamruntime.MemoryDocument       `json:"memory"`
+	MemoryReview teamruntime.MemoryReview         `json:"memory_review"`
+	Controls     teamDashboardControls            `json:"controls"`
 }
 
 type teamDashboardTeam struct {
@@ -159,6 +160,8 @@ func (s *teamDashboardServer) routes() http.Handler {
 	mux.HandleFunc("/api/follow-up", s.handleFollowUp)
 	mux.HandleFunc("/api/resume", s.handleResume)
 	mux.HandleFunc("/api/stop", s.handleStop)
+	mux.HandleFunc("/api/memory/retry", s.handleMemoryRetry)
+	mux.HandleFunc("/api/memory/rollback", s.handleMemoryRollback)
 	return mux
 }
 
@@ -257,6 +260,42 @@ func (s *teamDashboardServer) handleStop(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := actions.Stop(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.notifyState()
+	writeAccepted(w)
+}
+
+func (s *teamDashboardServer) handleMemoryRetry(w http.ResponseWriter, r *http.Request) {
+	actions, ok := s.prepareMutation(w, r)
+	if !ok {
+		return
+	}
+	if err := actions.RetryMemory(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.notifyState()
+	writeAccepted(w)
+}
+
+func (s *teamDashboardServer) handleMemoryRollback(w http.ResponseWriter, r *http.Request) {
+	actions, ok := s.prepareMutation(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Version int `json:"version"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	decoder := json.NewDecoder(bufio.NewReader(r.Body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || input.Version < 1 {
+		http.Error(w, "invalid memory version", http.StatusBadRequest)
+		return
+	}
+	if err := actions.RollbackMemory(input.Version); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -392,6 +431,10 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 	if err != nil {
 		return teamDashboardState{}, err
 	}
+	memoryReview, err := teamruntime.LoadMemoryReview(thread.MemoryPath, thread.Team)
+	if err != nil {
+		return teamDashboardState{}, err
+	}
 	agents := make([]teamDashboardAgent, 0, len(s.definition.Agents))
 	for _, member := range s.definition.Agents {
 		agents = append(agents, teamDashboardAgent{
@@ -417,12 +460,13 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 			Title:       s.definition.Title,
 			Description: s.definition.Description,
 		},
-		Thread:   thread,
-		Round:    state.Current,
-		Agents:   agents,
-		Events:   events,
-		Board:    teamruntime.ProjectBlackboard(events, thread.CurrentRound),
-		Memory:   memory,
-		Controls: controls,
+		Thread:       thread,
+		Round:        state.Current,
+		Agents:       agents,
+		Events:       events,
+		Board:        teamruntime.ProjectBlackboard(events, thread.CurrentRound),
+		Memory:       memory,
+		MemoryReview: memoryReview,
+		Controls:     controls,
 	}, nil
 }

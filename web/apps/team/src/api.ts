@@ -70,6 +70,11 @@ export function useTeamState() {
   );
   const resume = useCallback(() => mutate('resume', '/api/resume'), [mutate]);
   const stop = useCallback(() => mutate('stop', '/api/stop'), [mutate]);
+  const retryMemory = useCallback(() => mutate('memory-retry', '/api/memory/retry'), [mutate]);
+  const rollbackMemory = useCallback(
+    (version: number) => mutate(`memory-rollback-${version}`, '/api/memory/rollback', { version }),
+    [mutate],
+  );
 
-  return { state, error, actionError, pendingAction, followUp, resume, stop };
+  return { state, error, actionError, pendingAction, followUp, resume, stop, retryMemory, rollbackMemory };
 }

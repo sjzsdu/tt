@@ -10,16 +10,20 @@ import (
 )
 
 type teamDashboardControls struct {
-	Busy        bool `json:"busy"`
-	CanFollowUp bool `json:"can_follow_up"`
-	CanResume   bool `json:"can_resume"`
-	CanStop     bool `json:"can_stop"`
+	Busy              bool `json:"busy"`
+	CanFollowUp       bool `json:"can_follow_up"`
+	CanResume         bool `json:"can_resume"`
+	CanStop           bool `json:"can_stop"`
+	CanRetryMemory    bool `json:"can_retry_memory"`
+	CanRollbackMemory bool `json:"can_rollback_memory"`
 }
 
 type teamDashboardActions interface {
 	FollowUp(string) error
 	Resume() error
 	Stop() error
+	RetryMemory() error
+	RollbackMemory(int) error
 	Controls() teamDashboardControls
 }
 
@@ -96,6 +100,40 @@ func (c *teamRunController) Stop() error {
 	return nil
 }
 
+func (c *teamRunController) RetryMemory() error {
+	runCtx, err := c.beginMaintenance(c.parent)
+	if err != nil {
+		return err
+	}
+	go func() {
+		_, _ = c.engine.RetryMemory(runCtx)
+		c.finish()
+	}()
+	return nil
+}
+
+func (c *teamRunController) RollbackMemory(version int) error {
+	if version < 1 {
+		return fmt.Errorf("memory version must be greater than zero")
+	}
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
+		return fmt.Errorf("team already has an active run")
+	}
+	c.mu.Unlock()
+	if _, err := c.engine.RollbackMemory(version); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	onChange := c.onChange
+	c.mu.Unlock()
+	if onChange != nil {
+		onChange()
+	}
+	return nil
+}
+
 func (c *teamRunController) Wait() {
 	c.mu.Lock()
 	done := c.done
@@ -123,12 +161,54 @@ func (c *teamRunController) Controls() teamDashboardControls {
 	if running {
 		return controls
 	}
+	review, memoryErr := teamruntime.LoadMemoryReview(c.engine.Store.Thread.MemoryPath, c.engine.Store.Thread.Team)
+	if memoryErr == nil {
+		controls.CanRollbackMemory = len(review.Versions) > 0
+	}
 	if state.Current == nil || state.Current.Status == teamruntime.RoundStatusCompleted {
 		controls.CanFollowUp = true
+		if state.Current != nil {
+			events, eventErr := c.engine.Store.Events()
+			if eventErr == nil {
+				for i := len(events) - 1; i >= 0; i-- {
+					if events[i].Round != state.Current.Number {
+						continue
+					}
+					if events[i].Type == "memory_update_failed" {
+						controls.CanRetryMemory = true
+					}
+					if events[i].Type == "memory_updated" {
+						break
+					}
+				}
+			}
+		}
 		return controls
 	}
 	controls.CanResume = true
 	return controls
+}
+
+func (c *teamRunController) beginMaintenance(parent context.Context) (context.Context, error) {
+	if c == nil || c.engine == nil || c.engine.Store == nil {
+		return nil, fmt.Errorf("team runtime is unavailable")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.running {
+		return nil, fmt.Errorf("team already has an active run")
+	}
+	if parent == nil {
+		parent = c.parent
+	}
+	runCtx, cancel := context.WithCancel(parent)
+	c.running = true
+	c.cancel = cancel
+	c.done = make(chan struct{})
+	if c.onChange != nil {
+		go c.onChange()
+	}
+	return runCtx, nil
 }
 
 func (c *teamRunController) begin(parent context.Context, resume bool) (context.Context, error) {
@@ -179,6 +259,11 @@ func (c *teamRunController) runStarted(ctx context.Context, question string, res
 	} else {
 		result, err = c.engine.RunRound(ctx, question)
 	}
+	c.finish()
+	return result, err
+}
+
+func (c *teamRunController) finish() {
 	c.mu.Lock()
 	if c.cancel != nil {
 		c.cancel()
@@ -195,5 +280,4 @@ func (c *teamRunController) runStarted(ctx context.Context, question string, res
 	if onChange != nil {
 		onChange()
 	}
-	return result, err
 }

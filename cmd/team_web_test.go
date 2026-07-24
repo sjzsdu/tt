@@ -22,6 +22,8 @@ type fakeTeamDashboardActions struct {
 	followUps []string
 	resumes   int
 	stops     int
+	retries   int
+	rollbacks []int
 	err       error
 	controls  teamDashboardControls
 }
@@ -53,6 +55,26 @@ func (f *fakeTeamDashboardActions) Stop() error {
 		return f.err
 	}
 	f.stops++
+	return nil
+}
+
+func (f *fakeTeamDashboardActions) RetryMemory() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.retries++
+	return nil
+}
+
+func (f *fakeTeamDashboardActions) RollbackMemory(version int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.rollbacks = append(f.rollbacks, version)
 	return nil
 }
 
@@ -175,7 +197,17 @@ func TestTeamDashboardMutationHandlers(t *testing.T) {
 			t.Fatalf("%s status = %d, body = %s", path, response.Code, response.Body.String())
 		}
 	}
-	if actions.resumes != 1 || actions.stops != 1 {
+	response = httptest.NewRecorder()
+	dashboard.routes().ServeHTTP(response, localMutationRequest(http.MethodPost, "/api/memory/retry", ""))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("retry status = %d, body = %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	dashboard.routes().ServeHTTP(response, localMutationRequest(http.MethodPost, "/api/memory/rollback", `{"version":1}`))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("rollback status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if actions.resumes != 1 || actions.stops != 1 || actions.retries != 1 || len(actions.rollbacks) != 1 || actions.rollbacks[0] != 1 {
 		t.Fatalf("resume/stop actions = %+v", actions)
 	}
 }

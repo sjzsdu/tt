@@ -80,8 +80,18 @@ export type TeamEvent = {
   signal?: string;
   ref?: number;
   blackboard?: TeamBlackboardOperation;
+  memory_proposal?: string;
+  metrics?: TeamEventMetrics;
   content?: string;
   error?: string;
+};
+
+export type TeamEventMetrics = {
+  duration_ms?: number;
+  turn?: number;
+  model?: string;
+  input_chars?: number;
+  output_chars?: number;
 };
 
 export type TeamBlackboardOperation = {
@@ -123,8 +133,31 @@ export type TeamMemory = {
   updated_at?: string;
   source_thread?: string;
   source_round?: number;
+  source_events?: number[];
+  restored_from?: number;
   content: string;
   path?: string;
+};
+
+export type TeamMemoryProposal = {
+  id: string;
+  base_version: number;
+  proposed_version: number;
+  created_at: string;
+  source_thread: string;
+  source_round: number;
+  source_events?: number[];
+  maintainer?: string;
+  content: string;
+  diff: string;
+  status: string;
+  error?: string;
+};
+
+export type TeamMemoryReview = {
+  current: TeamMemory;
+  versions: TeamMemory[];
+  proposals: TeamMemoryProposal[];
 };
 
 export type TeamDashboardState = {
@@ -135,10 +168,13 @@ export type TeamDashboardState = {
   events: TeamEvent[];
   blackboard: TeamBlackboard;
   memory: TeamMemory;
+  memory_review: TeamMemoryReview;
   controls: {
     busy: boolean;
     can_follow_up: boolean;
     can_resume: boolean;
     can_stop: boolean;
+    can_retry_memory: boolean;
+    can_rollback_memory: boolean;
   };
 };

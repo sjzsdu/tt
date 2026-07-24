@@ -9,9 +9,10 @@ import (
 )
 
 type fakeProcessor struct {
-	mu            sync.Mutex
-	calls         []AgentCall
-	failFinalOnce bool
+	mu             sync.Mutex
+	calls          []AgentCall
+	failFinalOnce  bool
+	failMemoryOnce bool
 }
 
 func (f *fakeProcessor) Process(_ context.Context, call AgentCall) (string, error) {
@@ -20,6 +21,10 @@ func (f *fakeProcessor) Process(_ context.Context, call AgentCall) (string, erro
 	f.calls = append(f.calls, call)
 	switch {
 	case strings.HasSuffix(call.Session, ":memory"):
+		if f.failMemoryOnce {
+			f.failMemoryOnce = false
+			return "", errors.New("temporary memory failure")
+		}
 		return "# Team Memory\n\n- The team prefers incremental delivery.\n- Decisions should remain auditable.", nil
 	case strings.Contains(call.Prompt, promptMarkerFinal):
 		if f.failFinalOnce {
@@ -47,6 +52,7 @@ func TestEngineRunsRoundAndUpgradesMemory(t *testing.T) {
 		Store:         store,
 		Processor:     processor,
 		SessionPrefix: "test:team",
+		Model:         "test-model",
 	}
 	result, err := engine.RunRound(context.Background(), "How should team work?")
 	if err != nil {
@@ -65,6 +71,10 @@ func TestEngineRunsRoundAndUpgradesMemory(t *testing.T) {
 	counts := map[string]int{}
 	for _, event := range events {
 		counts[event.Type]++
+		if (event.Type == "agent_message" || event.Type == "final_answer") &&
+			(event.Metrics == nil || event.Metrics.Model == "" || event.Metrics.InputChars == 0 || event.Metrics.OutputChars == 0) {
+			t.Fatalf("missing non-secret execution metrics: %+v", event)
+		}
 	}
 	if counts["agent_message"] != 2 || counts["agent_yield"] != 1 || counts["final_answer"] != 1 || counts["memory_updated"] != 1 {
 		t.Fatalf("event counts = %+v, events = %+v", counts, events)
@@ -79,6 +89,47 @@ func TestEngineRunsRoundAndUpgradesMemory(t *testing.T) {
 	processor.mu.Unlock()
 	if len(sessions) < 2 {
 		t.Fatalf("sessions = %+v", sessions)
+	}
+}
+
+func TestEngineRetriesMemoryWithoutRerunningCollaboration(t *testing.T) {
+	workspace := t.TempDir()
+	definition := testDefinition(t)
+	store, err := NewStore(workspace, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processor := &fakeProcessor{failMemoryOnce: true}
+	engine := &Engine{Definition: definition, Store: store, Processor: processor, Model: "test-model"}
+	result, err := engine.RunRound(context.Background(), "Remember this.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.MemoryWarning == nil || result.Memory.Version != 0 {
+		t.Fatalf("expected isolated memory failure: %+v", result)
+	}
+	processor.mu.Lock()
+	before := len(processor.calls)
+	processor.mu.Unlock()
+	updated, err := engine.RetryMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != 1 || len(updated.SourceEvents) == 0 {
+		t.Fatalf("updated memory = %+v", updated)
+	}
+	processor.mu.Lock()
+	afterCalls := append([]AgentCall(nil), processor.calls[before:]...)
+	processor.mu.Unlock()
+	if len(afterCalls) != 1 || !strings.HasSuffix(afterCalls[0].Session, ":memory") {
+		t.Fatalf("retry reran collaboration: %+v", afterCalls)
+	}
+	events, err := store.Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countPhaseMessages(events, PhaseInitial) != 2 {
+		t.Fatalf("initial collaboration repeated: %+v", events)
 	}
 }
 

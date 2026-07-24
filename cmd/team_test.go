@@ -21,6 +21,7 @@ func TestTeamCommandRegistersMVPSubcommands(t *testing.T) {
 		"open":   false,
 		"list":   false,
 		"init":   false,
+		"memory": false,
 	}
 	for _, command := range teamCmd.Commands() {
 		if _, ok := want[command.Name()]; ok {
