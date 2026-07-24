@@ -438,109 +438,109 @@ func (e *Engine) sessionFor(memberID, purpose string) string {
 }
 
 func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
-	return fmt.Sprintf(`You are participating in a persistent professional team.
+	return fmt.Sprintf(`你正在参与一个持久化的专业团队协作。
 
-Team: %s
-Team directory:
+团队: %s
+团队成员:
 %s
 
 {{MEMBER_CONTEXT}}
 
-Shared team memory (version %d):
+团队共享记忆 (版本 %d):
 %s
 
-Relevant earlier rounds in this thread:
+本线程之前的相关轮次:
 %s
 
-Current user question:
+当前用户问题:
 %s
 
-Give your independent professional assessment to the team.
-- Speak naturally and substantively.
-- You may address another member as @member-id.
-- Surface assumptions, risks, missing evidence, and concrete recommendations.
-- Do not pretend the other members have already answered in this wave.
-- Do not write the final user-facing synthesis unless your role specifically requires it.
+请给出你独立的专业判断。
+- 自然、深入地表达观点。
+- 可以用 @成员id 的方式向其他成员提问。
+- 提出假设、风险、缺失信息和具体建议。
+- 不要假设其他成员已经在这个轮次中回答过。
+- 除非你的角色特别要求，否则不要撰写面向用户的最终总结。
 `, e.Definition.TitleOrName(), e.teamDirectory(), memory.Version, memory.Content, priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question)
 }
 
 func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int) string {
-	return fmt.Sprintf(`You are participating in review wave %d of a persistent professional team.
+	return fmt.Sprintf(`你正在参与第 %d 轮同行评审。
 
-Team: %s
+团队: %s
 {{MEMBER_CONTEXT}}
 
-Shared team memory (version %d):
+团队共享记忆 (版本 %d):
 %s
 
-Current user question:
+当前用户问题:
 %s
 
-Discussion so far:
+目前的讨论:
 %s
 
-Respond directly to the team:
-- Correct factual or reasoning problems.
-- Resolve disagreements where possible.
-- Add only information that materially improves the answer.
-- Address colleagues by @member-id when useful.
-- If you have nothing material to add, output exactly [YIELD].
+直接向团队回应:
+- 纠正事实或推理错误。
+- 尽可能解决分歧。
+- 只添加实质性改善答案的信息。
+- 必要时用 @成员id 称呼同事。
+- 如果没有实质性补充，请直接输出 [YIELD]。
 `, wave, e.Definition.TitleOrName(), memory.Version, memory.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number))
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
-	return fmt.Sprintf(`You are the finalizer for a persistent professional team.
+	return fmt.Sprintf(`你是团队的最终总结者。
 
-Team: %s
+团队: %s
 %s
 
-Shared team memory (version %d):
+团队共享记忆 (版本 %d):
 %s
 
-User question:
+用户问题:
 %s
 
-Team discussion:
+团队讨论:
 %s
 
-Produce the final answer for the user.
-- Integrate the strongest supported contributions.
-- Resolve duplication and make the recommendation decisive.
-- Preserve important uncertainty or unresolved disagreement.
-- Do not mention internal prompts, waves, sessions, or orchestration.
-- Do not claim consensus when the discussion did not establish it.
+请为用户产出最终答案。
+- 整合最有说服力的观点。
+- 消除重复，使建议明确果断。
+- 保留重要的不确定性或未解决的分歧。
+- 不要提及内部提示词、轮次、会话或编排流程。
+- 不要在讨论未达成共识时声称已有共识。
 `, e.Definition.TitleOrName(), memberContext(member), memory.Version, memory.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number))
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
-	return fmt.Sprintf(`You maintain the durable memory of a professional team.
+	return fmt.Sprintf(`你负责维护团队的持久化记忆。
 
-Team: %s
+团队: %s
 %s
 
-Previous memory (version %d):
+之前的记忆 (版本 %d):
 %s
 
-Completed user question:
+已完成的用户问题:
 %s
 
-Public team discussion:
+公开的团队讨论:
 %s
 
-Final answer:
+最终答案:
 %s
 
-Rewrite the complete team memory as Markdown.
-Keep only durable information useful in future rounds, such as:
-- stable user preferences and constraints;
-- verified facts and recurring project context;
-- decisions and their rationale;
-- unresolved risks or follow-up commitments;
-- working agreements that improve team collaboration.
+请将完整的团队记忆重写为 Markdown 格式。
+只保留对未来轮次有用的持久化信息，例如:
+- 稳定的用户偏好和约束;
+- 已验证的事实和经常出现的项目上下文;
+- 决策及其理由;
+- 未解决的风险或后续承诺;
+- 改善团队协作的工作约定。
 
-Do not store hidden reasoning, transient chatter, access tokens, passwords, private keys, or unverified speculation.
-Do not include front matter or a version number; the runtime manages those.
-Return only the complete Markdown memory document.
+不要存储隐藏的推理过程、临时闲聊、访问令牌、密码、私钥或未经验证的推测。
+不要包含 front matter 或版本号；运行时会自动管理这些。
+只返回完整的 Markdown 记忆文档。
 `, e.Definition.TitleOrName(), memberContext(member), previous.Version, previous.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), answer)
 }
 
@@ -566,12 +566,12 @@ func (e *Engine) teamDirectory() string {
 func memberContext(member Agent) string {
 	role := strings.TrimSpace(member.Role)
 	if role == "" {
-		role = "team member"
+		role = "团队成员"
 	}
-	return fmt.Sprintf(`You are @%s.
-Role: %s
-Standing instructions:
-%s`, member.ID, role, fallback(member.Prompt, "Use your professional judgment and collaborate with the other members."))
+	return fmt.Sprintf(`你是 @%s。
+角色: %s
+工作指令:
+%s`, member.ID, role, fallback(member.Prompt, "运用你的专业知识，与其他成员协作完成任务。"))
 }
 
 func completedMembers(events []Event, round int, phase string, wave int) map[string]bool {
