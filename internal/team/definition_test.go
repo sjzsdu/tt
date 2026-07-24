@@ -10,6 +10,7 @@ import (
 const validTeamTOML = `team = "review"
 title = "Review Team"
 version = 1
+default_model = " team-default "
 
 [coordination]
 facilitator = "lead"
@@ -30,6 +31,7 @@ max_chars = 5000
 id = "lead"
 role = "Lead"
 agent = "assistant"
+model = " lead-model "
 
 [[agents]]
 id = "expert"
@@ -53,6 +55,9 @@ func TestParseDefinition(t *testing.T) {
 	}
 	if definition.Coordination.ReviewWaves != 1 {
 		t.Fatalf("review waves = %d", definition.Coordination.ReviewWaves)
+	}
+	if definition.DefaultModel != "team-default" || definition.Agents[0].Model != "lead-model" {
+		t.Fatalf("models were not normalized: default=%q lead=%q", definition.DefaultModel, definition.Agents[0].Model)
 	}
 }
 

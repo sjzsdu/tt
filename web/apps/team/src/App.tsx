@@ -69,7 +69,7 @@ function agentLabel(agent: TeamAgent) {
   return { label: '成员', color: 'default', icon: <TeamOutlined /> };
 }
 
-function MemberCard({ agent }: { agent: TeamAgent }) {
+function MemberCard({ agent, defaultModel }: { agent: TeamAgent; defaultModel?: string }) {
   const badge = agentLabel(agent);
   return (
     <div className="member-row">
@@ -77,7 +77,9 @@ function MemberCard({ agent }: { agent: TeamAgent }) {
       <div className="member-copy">
         <Text strong>@{agent.id}</Text>
         <Text type="secondary" ellipsis>{agent.role || agent.agent || '团队成员'}</Text>
-        {agent.model && <Text className="member-model" type="secondary" ellipsis>{agent.model}</Text>}
+        <Text className="member-model" type="secondary" ellipsis>
+          {agent.model || (defaultModel ? `${defaultModel} · 默认` : '默认模型')}
+        </Text>
       </div>
       <Tag icon={badge.icon} color={badge.color}>{badge.label}</Tag>
     </div>
@@ -467,7 +469,9 @@ export function App({ theme, onThemeChange }: Props) {
               extra={<Tag>{state.agents.length}</Tag>}
             >
               <div className="member-list">
-                {state.agents.map(agent => <MemberCard key={agent.id} agent={agent} />)}
+                {state.agents.map(agent => (
+                  <MemberCard key={agent.id} agent={agent} defaultModel={state.team.default_model} />
+                ))}
               </div>
             </Card>
             <BlackboardPanel state={state} />

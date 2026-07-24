@@ -42,9 +42,10 @@ type teamDashboardState struct {
 }
 
 type teamDashboardTeam struct {
-	Team        string `json:"team"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
+	Team         string `json:"team"`
+	Title        string `json:"title,omitempty"`
+	Description  string `json:"description,omitempty"`
+	DefaultModel string `json:"default_model,omitempty"`
 }
 
 type teamDashboardAgent struct {
@@ -456,9 +457,10 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 	}
 	return teamDashboardState{
 		Team: teamDashboardTeam{
-			Team:        s.definition.Team,
-			Title:       s.definition.Title,
-			Description: s.definition.Description,
+			Team:         s.definition.Team,
+			Title:        s.definition.Title,
+			Description:  s.definition.Description,
+			DefaultModel: s.definition.DefaultModel,
 		},
 		Thread:       thread,
 		Round:        state.Current,

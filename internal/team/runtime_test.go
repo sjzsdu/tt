@@ -207,6 +207,56 @@ func TestEngineFollowupReusesThreadAndUpgradesMemory(t *testing.T) {
 	}
 }
 
+func TestEngineResolvesAgentAndDefaultModels(t *testing.T) {
+	definition := testDefinition(t)
+	definition.DefaultModel = "team-default"
+	definition.Agents[0].Model = "lead-specific"
+	definition.Agents[1].Model = ""
+	definition.DefinitionHash = ""
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processor := &fakeProcessor{}
+	engine := &Engine{Definition: definition, Store: store, Processor: processor}
+	if _, err := engine.RunRound(context.Background(), "Verify model routing."); err != nil {
+		t.Fatal(err)
+	}
+	processor.mu.Lock()
+	defer processor.mu.Unlock()
+	seenLead := false
+	seenExpert := false
+	seenMemory := false
+	for _, call := range processor.calls {
+		switch call.MemberID {
+		case "lead":
+			seenLead = true
+			if call.Model != "lead-specific" {
+				t.Fatalf("lead model = %q", call.Model)
+			}
+			if strings.HasSuffix(call.Session, ":memory") {
+				seenMemory = true
+			}
+		case "expert":
+			seenExpert = true
+			if call.Model != "team-default" {
+				t.Fatalf("expert model = %q", call.Model)
+			}
+		}
+	}
+	if !seenLead || !seenExpert || !seenMemory {
+		t.Fatalf("model-routed calls incomplete: %+v", processor.calls)
+	}
+
+	engine.Model = "cli-fallback"
+	if got := engine.modelFor(definition.Agents[0]); got != "lead-specific" {
+		t.Fatalf("agent model should beat CLI fallback, got %q", got)
+	}
+	if got := engine.modelFor(definition.Agents[1]); got != "cli-fallback" {
+		t.Fatalf("CLI fallback should beat team default, got %q", got)
+	}
+}
+
 func countPhaseMessages(events []Event, phase string) int {
 	count := 0
 	for _, event := range events {
