@@ -94,10 +94,33 @@ type Objection struct {
 }
 
 type State struct {
-	SchemaVersion int         `json:"schema_version"`
-	NextEventID   int64       `json:"next_event_id"`
-	LastEventID   int64       `json:"last_event_id,omitempty"`
-	Current       *RoundState `json:"current_round,omitempty"`
+	SchemaVersion    int               `json:"schema_version"`
+	NextEventID      int64             `json:"next_event_id"`
+	LastEventID      int64             `json:"last_event_id,omitempty"`
+	Current          *RoundState       `json:"current_round,omitempty"`
+	ExternalSessions map[string]string `json:"external_sessions,omitempty"`
+}
+
+func (s *Store) ExternalSession(key string) string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.State.ExternalSessions[strings.ToLower(strings.TrimSpace(key))]
+}
+
+func (s *Store) SetExternalSession(key, sessionID string) error {
+	if s == nil || strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.State.ExternalSessions == nil {
+		s.State.ExternalSessions = map[string]string{}
+	}
+	s.State.ExternalSessions[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(sessionID)
+	return writeJSONAtomic(filepath.Join(s.Dir, "state.json"), s.State)
 }
 
 type Event struct {

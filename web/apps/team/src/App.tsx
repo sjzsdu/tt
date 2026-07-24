@@ -78,6 +78,7 @@ function MemberCard({ agent, defaultModel }: { agent: TeamAgent; defaultModel?: 
         <Text strong>@{agent.id}</Text>
         <Text type="secondary" ellipsis>{agent.role || agent.agent || '团队成员'}</Text>
         <Text className="member-model" type="secondary" ellipsis>
+          {agent.external_driver ? `${agent.external_driver} · ` : ''}
           {agent.model || (defaultModel ? `${defaultModel} · 默认` : '默认模型')}
         </Text>
       </div>

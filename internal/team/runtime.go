@@ -13,12 +13,20 @@ type Processor interface {
 	Process(context.Context, AgentCall) (string, error)
 }
 
+type ExternalSessionStore interface {
+	ExternalSession(key string) string
+	SetExternalSession(key, sessionID string) error
+}
+
 type AgentCall struct {
-	MemberID string
-	Agent    string
-	Model    string
-	Session  string
-	Prompt   string
+	MemberID         string
+	Agent            string
+	Model            string
+	Session          string
+	Prompt           string
+	External         *ExternalAgentConfig
+	ExternalSessions ExternalSessionStore
+	Workspace        string
 }
 
 type Engine struct {
@@ -321,11 +329,14 @@ func (e *Engine) runMemoryMaintenance(ctx context.Context, previous MemoryDocume
 	model := e.modelFor(member)
 	prompt := e.memoryPrompt(previous, events, answer, member)
 	response, err := e.Processor.Process(ctx, AgentCall{
-		MemberID: member.ID,
-		Agent:    member.Agent,
-		Model:    model,
-		Session:  e.sessionFor(member.ID, "memory"),
-		Prompt:   prompt,
+		MemberID:         member.ID,
+		Agent:            member.Agent,
+		Model:            model,
+		Session:          e.sessionFor(member.ID, "memory"),
+		Prompt:           prompt,
+		External:         member.External,
+		ExternalSessions: e.Store,
+		Workspace:        e.Store.Thread.Workspace,
 	})
 	if err != nil {
 		return MemoryDocument{}, fmt.Errorf("team memory maintainer %s failed: %w", member.ID, err)
@@ -497,11 +508,14 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 	model := e.modelFor(member)
 	started := time.Now()
 	content, err := e.Processor.Process(ctx, AgentCall{
-		MemberID: member.ID,
-		Agent:    member.Agent,
-		Model:    model,
-		Session:  session,
-		Prompt:   prompt,
+		MemberID:         member.ID,
+		Agent:            member.Agent,
+		Model:            model,
+		Session:          session,
+		Prompt:           prompt,
+		External:         member.External,
+		ExternalSessions: e.Store,
+		Workspace:        e.Store.Thread.Workspace,
 	})
 	cleanContent, blackboard := parseBlackboardOperations(content)
 	cleanContent, signal, targets := parseCollaborationResponse(cleanContent, e.Definition)

@@ -63,6 +63,7 @@ export type TeamAgent = {
   role?: string;
   agent?: string;
   model?: string;
+  external_driver?: string;
   facilitator?: boolean;
   finalizer?: boolean;
   memory_maintainer?: boolean;

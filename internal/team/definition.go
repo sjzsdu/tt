@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/sjzsdu/tt/internal/formula/steps"
 )
 
 const DefinitionFilename = "team.toml"
@@ -49,12 +51,25 @@ type MemoryConfig struct {
 }
 
 type Agent struct {
-	ID          string `json:"id" toml:"id"`
-	Role        string `json:"role,omitempty" toml:"role,omitempty"`
-	Agent       string `json:"agent,omitempty" toml:"agent,omitempty"`
-	Model       string `json:"model,omitempty" toml:"model,omitempty"`
-	Prompt      string `json:"prompt,omitempty" toml:"prompt,omitempty"`
-	CanFinalize bool   `json:"can_finalize,omitempty" toml:"can_finalize,omitempty"`
+	ID          string               `json:"id" toml:"id"`
+	Role        string               `json:"role,omitempty" toml:"role,omitempty"`
+	Agent       string               `json:"agent,omitempty" toml:"agent,omitempty"`
+	Model       string               `json:"model,omitempty" toml:"model,omitempty"`
+	Prompt      string               `json:"prompt,omitempty" toml:"prompt,omitempty"`
+	CanFinalize bool                 `json:"can_finalize,omitempty" toml:"can_finalize,omitempty"`
+	External    *ExternalAgentConfig `json:"external,omitempty" toml:"external,omitempty"`
+}
+
+// ExternalAgentConfig routes a team member through a Formula-compatible
+// external agent CLI instead of the embedded Picoclaw runtime.
+type ExternalAgentConfig struct {
+	Driver    string   `json:"driver" toml:"driver"`
+	Provider  string   `json:"provider,omitempty" toml:"provider,omitempty"`
+	Mode      string   `json:"mode,omitempty" toml:"mode,omitempty"`
+	Resume    string   `json:"resume,omitempty" toml:"resume,omitempty"`
+	Cwd       string   `json:"cwd,omitempty" toml:"cwd,omitempty"`
+	Timeout   string   `json:"timeout,omitempty" toml:"timeout,omitempty"`
+	ExtraArgs []string `json:"extra_args,omitempty" toml:"extra_args,omitempty"`
 }
 
 func (d *Definition) Normalize() {
@@ -89,6 +104,14 @@ func (d *Definition) Normalize() {
 		d.Agents[i].Agent = strings.TrimSpace(d.Agents[i].Agent)
 		d.Agents[i].Model = strings.TrimSpace(d.Agents[i].Model)
 		d.Agents[i].Prompt = strings.TrimSpace(d.Agents[i].Prompt)
+		if external := d.Agents[i].External; external != nil {
+			external.Driver = strings.ToLower(strings.TrimSpace(external.Driver))
+			external.Provider = strings.TrimSpace(external.Provider)
+			external.Mode = strings.TrimSpace(external.Mode)
+			external.Resume = strings.TrimSpace(external.Resume)
+			external.Cwd = strings.TrimSpace(external.Cwd)
+			external.Timeout = strings.TrimSpace(external.Timeout)
+		}
 	}
 	if strings.TrimSpace(d.Coordination.Facilitator) == "" && len(d.Agents) > 0 {
 		d.Coordination.Facilitator = d.Agents[0].ID
@@ -138,6 +161,23 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("duplicate team agent id %q", member.ID)
 		}
 		seen[key] = true
+		if member.External != nil {
+			if member.Agent != "" {
+				return fmt.Errorf("agents[%d] %q cannot configure both agent and external", i, member.ID)
+			}
+			if member.External.Driver == "" {
+				return fmt.Errorf("agents[%d].external.driver is required", i)
+			}
+			if !steps.SupportedExternalAgentDrivers[member.External.Driver] {
+				return fmt.Errorf("agents[%d].external.driver %q is not supported", i, member.External.Driver)
+			}
+			if member.External.Timeout != "" {
+				timeout, err := time.ParseDuration(member.External.Timeout)
+				if err != nil || timeout <= 0 {
+					return fmt.Errorf("agents[%d].external.timeout must be a positive duration", i)
+				}
+			}
+		}
 	}
 	for label, id := range map[string]string{
 		"coordination.facilitator": d.Coordination.Facilitator,
