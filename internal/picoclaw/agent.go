@@ -57,7 +57,7 @@ func (rt *Runtime) Run(opt RunOptions) error {
 	}
 
 	if text := str(resolved.Message); text != "" {
-		resp, err := processDirect(loop, text, resolved.Session, resolved.Agent, DefaultAgent(cfg))
+		resp, err := processDirect(context.Background(), loop, text, resolved.Session, resolved.Agent, DefaultAgent(cfg))
 		if err != nil {
 			return err
 		}
@@ -84,15 +84,18 @@ func newAgentLoop(cfg *pcconfig.Config, provider pcproviders.LLMProvider) *pcage
 	return pcagent.NewAgentLoop(cfg, msgBus, provider)
 }
 
-func processDirect(loop *pcagent.AgentLoop, text, session, agentID, defaultAgent string) (string, error) {
+func processDirect(ctx context.Context, loop directResponseProcessor, text, session, agentID, defaultAgent string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var (
 		resp string
 		err  error
 	)
 	if str(agentID) != "" && !strings.EqualFold(str(agentID), defaultAgent) {
-		resp, err = loop.ProcessDirectForAgent(context.Background(), text, session, agentID)
+		resp, err = loop.ProcessDirectForAgent(ctx, text, session, agentID)
 	} else {
-		resp, err = loop.ProcessDirect(context.Background(), text, session)
+		resp, err = loop.ProcessDirect(ctx, text, session)
 	}
 	if err != nil {
 		return "", fmt.Errorf("process picoclaw message failed: %w", err)
@@ -100,7 +103,7 @@ func processDirect(loop *pcagent.AgentLoop, text, session, agentID, defaultAgent
 	resp, err = normalizeDirectResponse(resp, nil)
 	if err != nil {
 		if isEmptyDirectResponseError(err) {
-			resp, err = recoverEmptyDirectResponse(loop, session, agentID, defaultAgent)
+			resp, err = recoverEmptyDirectResponse(ctx, loop, session, agentID, defaultAgent)
 			if err == nil {
 				return resp, nil
 			}
@@ -257,7 +260,7 @@ func runInteractive(loop *pcagent.AgentLoop, sessionKey string) error {
 		resp, err = normalizeDirectResponse(resp, nil)
 		if err != nil {
 			if isEmptyDirectResponseError(err) {
-				resp, err = recoverEmptyDirectResponse(loop, sessionKey, "", "")
+				resp, err = recoverEmptyDirectResponse(context.Background(), loop, sessionKey, "", "")
 				if err == nil {
 					fmt.Fprintln(os.Stdout, resp)
 					continue

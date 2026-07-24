@@ -151,7 +151,7 @@ func (dr *DirectRunner) ProcessDirectContext(ctx context.Context, opt RunOptions
 		return "", err
 	}
 
-	return processDirect(dr.loop, resolved.Message, resolved.Session, resolved.Agent, dr.defaultAgent)
+	return processDirect(ctx, dr.loop, resolved.Message, resolved.Session, resolved.Agent, dr.defaultAgent)
 }
 
 func newAgentLoopWithStream(cfg *pcconfig.Config, provider pcproviders.LLMProvider, onDelta func(string)) *pcagent.AgentLoop {
