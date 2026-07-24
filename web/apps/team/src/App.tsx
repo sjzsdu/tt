@@ -28,6 +28,8 @@ const VISIBLE_EVENT_TYPES = new Set([
   'agent_error',
   'final_answer',
   'memory_updated',
+  'memory_proposed',
+  'memory_rolled_back',
   'memory_update_failed',
   'round_started',
   'round_resumed',
@@ -136,6 +138,9 @@ function EventCard({ event }: { event: TeamEvent }) {
   const meta = [
     event.phase,
     event.wave ? `第${event.wave}轮` : '',
+    event.metrics?.turn ? `turn ${event.metrics.turn}` : '',
+    event.metrics?.model || '',
+    event.metrics?.duration_ms !== undefined ? `${event.metrics.duration_ms}ms` : '',
     formatTime(event.at),
   ].filter(Boolean);
   const content = eventText(event);
@@ -260,7 +265,19 @@ function TeamControls({ state, pendingAction, onFollowUp, onResume, onStop }: Te
   );
 }
 
-function MemoryPanel({ state }: { state: TeamDashboardState }) {
+function MemoryPanel({
+  state,
+  pendingAction,
+  onRetry,
+  onRollback,
+}: {
+  state: TeamDashboardState;
+  pendingAction: string;
+  onRetry: () => Promise<boolean>;
+  onRollback: (version: number) => Promise<boolean>;
+}) {
+  const versions = state.memory_review?.versions || [];
+  const proposal = state.memory_review?.proposals?.[0];
   return (
     <Card
       className="side-card memory-card"
@@ -274,10 +291,42 @@ function MemoryPanel({ state }: { state: TeamDashboardState }) {
             : '暂无持久化更新'}
         </Text>
         {state.memory.source_round
-          ? <Text type="secondary">来源: 第 {state.memory.source_round} 轮</Text>
+          ? <Text type="secondary">来源: 第 {state.memory.source_round} 轮 · events {state.memory.source_events?.join(', ') || '—'}</Text>
           : null}
       </div>
       <pre className="memory-content">{state.memory.content || '暂无团队记忆。'}</pre>
+      {proposal && (
+        <details className="memory-review">
+          <summary>最近提案 · {proposal.status} · v{proposal.base_version} → v{proposal.proposed_version}</summary>
+          <pre className="memory-diff">{proposal.diff}</pre>
+          {proposal.error && <Text type="danger">{proposal.error}</Text>}
+        </details>
+      )}
+      <Space wrap className="memory-actions">
+        {state.controls.can_retry_memory && (
+          <Button
+            size="small"
+            icon={<SyncOutlined />}
+            loading={pendingAction === 'memory-retry'}
+            onClick={() => void onRetry()}
+          >
+            重试记忆更新
+          </Button>
+        )}
+        {state.controls.can_rollback_memory && versions
+          .filter(version => version.version !== state.memory.version)
+          .slice(0, 3)
+          .map(version => (
+            <Button
+              key={version.version}
+              size="small"
+              loading={pendingAction === `memory-rollback-${version.version}`}
+              onClick={() => void onRollback(version.version)}
+            >
+              回滚到 v{version.version}
+            </Button>
+          ))}
+      </Space>
     </Card>
   );
 }
@@ -323,7 +372,7 @@ function BlackboardPanel({ state }: { state: TeamDashboardState }) {
 }
 
 export function App({ theme, onThemeChange }: Props) {
-  const { state, error, actionError, pendingAction, followUp, resume, stop } = useTeamState();
+  const { state, error, actionError, pendingAction, followUp, resume, stop, retryMemory, rollbackMemory } = useTeamState();
   const runtimeError = state?.round?.error || state?.thread.error || '';
   const status = state?.thread.status || 'loading';
   const running = status === 'running';
@@ -422,7 +471,12 @@ export function App({ theme, onThemeChange }: Props) {
               </div>
             </Card>
             <BlackboardPanel state={state} />
-            <MemoryPanel state={state} />
+            <MemoryPanel
+              state={state}
+              pendingAction={pendingAction}
+              onRetry={retryMemory}
+              onRollback={rollbackMemory}
+            />
           </aside>
         </div>
       )}

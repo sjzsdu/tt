@@ -458,6 +458,28 @@ textarea {
   white-space: pre-wrap;
 }
 
+.memory-review {
+  margin-top: 12px;
+}
+
+.memory-review summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.memory-diff {
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  white-space: pre-wrap;
+}
+
+.memory-actions {
+  margin-top: 12px;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     padding: 20px;

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -96,6 +97,32 @@ var teamInitCmd = &cobra.Command{
 	RunE:  runTeamInit,
 }
 
+var teamMemoryCmd = &cobra.Command{
+	Use:   "memory",
+	Short: "Inspect, retry, and roll back durable team memory",
+}
+
+var teamMemoryShowCmd = &cobra.Command{
+	Use:   "show [thread]",
+	Short: "Show memory provenance, versions, and proposal diffs",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runTeamMemoryShow,
+}
+
+var teamMemoryRollbackCmd = &cobra.Command{
+	Use:   "rollback <thread> <version>",
+	Short: "Restore a prior memory version as a new auditable version",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runTeamMemoryRollback,
+}
+
+var teamMemoryRetryCmd = &cobra.Command{
+	Use:   "retry [thread]",
+	Short: "Retry memory maintenance without rerunning team collaboration",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runTeamMemoryRetry,
+}
+
 func init() {
 	rootCmd.AddCommand(teamCmd)
 	teamCmd.AddCommand(teamRunCmd)
@@ -105,6 +132,8 @@ func init() {
 	teamCmd.AddCommand(teamOpenCmd)
 	teamCmd.AddCommand(teamListCmd)
 	teamCmd.AddCommand(teamInitCmd)
+	teamCmd.AddCommand(teamMemoryCmd)
+	teamMemoryCmd.AddCommand(teamMemoryShowCmd, teamMemoryRollbackCmd, teamMemoryRetryCmd)
 
 	teamCmd.PersistentFlags().StringVarP(&teamSession, "session", "s", "cli:team", "session key prefix for team agents")
 	teamCmd.PersistentFlags().StringVar(&teamModel, "model", "", "model override for all team agents")
@@ -118,6 +147,102 @@ func init() {
 
 	teamListCmd.Flags().BoolVar(&teamListBuiltin, "builtin", false, "show only builtin teams")
 	teamListCmd.Flags().BoolVar(&teamListUser, "user", false, "show only user teams from search paths")
+}
+
+func resolveTeamStore(_ *cobra.Command, args []string) (ttconfig.Loaded, string, *teamruntime.Store, error) {
+	loaded, err := loadTTConfig()
+	if err != nil {
+		return ttconfig.Loaded{}, "", nil, err
+	}
+	id := "latest"
+	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
+		id = args[0]
+	}
+	projectRoot := projectRootFromConfig(loaded)
+	store, err := teamruntime.ResolveStore(projectRoot, id)
+	return loaded, projectRoot, store, err
+}
+
+func runTeamMemoryShow(cmd *cobra.Command, args []string) error {
+	_, _, store, err := resolveTeamStore(cmd, args)
+	if err != nil {
+		return err
+	}
+	review, err := teamruntime.LoadMemoryReview(store.Thread.MemoryPath, store.Thread.Team)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Memory: %s\nCurrent: v%d", store.Thread.MemoryPath, review.Current.Version)
+	if review.Current.SourceRound > 0 {
+		fmt.Fprintf(out, " from %s round %d events %v", review.Current.SourceThread, review.Current.SourceRound, review.Current.SourceEvents)
+	}
+	fmt.Fprintln(out)
+	for _, proposal := range review.Proposals {
+		fmt.Fprintf(out, "\nProposal %s | %s | v%d -> v%d | round %d events %v\n%s",
+			proposal.ID, proposal.Status, proposal.BaseVersion, proposal.ProposedVersion,
+			proposal.SourceRound, proposal.SourceEvents, proposal.Diff)
+		if proposal.Error != "" {
+			fmt.Fprintf(out, "Rejected: %s\n", proposal.Error)
+		}
+	}
+	fmt.Fprintln(out, "\nVersions:")
+	for _, version := range review.Versions {
+		fmt.Fprintf(out, "  v%-4d %s round %-3d", version.Version, version.UpdatedAt, version.SourceRound)
+		if version.RestoredFrom > 0 {
+			fmt.Fprintf(out, " restored from v%d", version.RestoredFrom)
+		}
+		fmt.Fprintln(out)
+	}
+	return nil
+}
+
+func runTeamMemoryRollback(cmd *cobra.Command, args []string) error {
+	version, err := strconv.Atoi(args[1])
+	if err != nil || version < 1 {
+		return fmt.Errorf("invalid memory version %q", args[1])
+	}
+	_, _, store, err := resolveTeamStore(cmd, args[:1])
+	if err != nil {
+		return err
+	}
+	definition, err := store.LoadDefinition()
+	if err != nil {
+		return err
+	}
+	engine := &teamruntime.Engine{Definition: definition, Store: store}
+	updated, err := engine.RollbackMemory(version)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Restored memory v%d as v%d: %s\n", version, updated.Version, updated.Path)
+	return nil
+}
+
+func runTeamMemoryRetry(cmd *cobra.Command, args []string) error {
+	loaded, projectRoot, store, err := resolveTeamStore(cmd, args)
+	if err != nil {
+		return err
+	}
+	definition, err := store.LoadDefinition()
+	if err != nil {
+		return err
+	}
+	processor, model, _, cleanup, err := prepareTeamExecution(cmd, loaded, projectRoot, definition)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	engine := &teamruntime.Engine{
+		Definition: definition, Store: store, Processor: processor,
+		SessionPrefix: teamSession, Model: model,
+	}
+	updated, err := engine.RetryMemory(cmd.Context())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Team memory retry succeeded: v%d %s\n", updated.Version, updated.Path)
+	return nil
 }
 
 func runTeamRun(cmd *cobra.Command, args []string) error {
@@ -410,6 +535,11 @@ func runTeamShow(cmd *cobra.Command, args []string) error {
 			}
 			if event.Signal != "" {
 				fmt.Fprintf(out, " | %s", event.Signal)
+			}
+			if event.Metrics != nil {
+				fmt.Fprintf(out, " | turn %d | %s | %dms | %d→%d chars",
+					event.Metrics.Turn, event.Metrics.Model, event.Metrics.DurationMS,
+					event.Metrics.InputChars, event.Metrics.OutputChars)
 			}
 			fmt.Fprintf(out, "\n%s\n", event.Content)
 		case "agent_yield":

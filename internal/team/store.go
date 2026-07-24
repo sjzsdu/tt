@@ -1,7 +1,7 @@
 package team
 
 import (
-	"bufio"
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +15,8 @@ import (
 )
 
 const (
+	CurrentStoreSchemaVersion = 2
+
 	ThreadStatusIdle        = "idle"
 	ThreadStatusRunning     = "running"
 	ThreadStatusInterrupted = "interrupted"
@@ -33,19 +35,21 @@ const (
 )
 
 type Thread struct {
-	ID             string `json:"id"`
-	Team           string `json:"team"`
-	Title          string `json:"title,omitempty"`
-	Status         string `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-	Workspace      string `json:"workspace"`
-	DefinitionHash string `json:"definition_hash"`
-	DefinitionPath string `json:"definition_path,omitempty"`
-	CurrentRound   int    `json:"current_round"`
-	MemoryPath     string `json:"memory_path"`
-	LastAnswer     string `json:"last_answer,omitempty"`
-	Error          string `json:"error,omitempty"`
+	SchemaVersion     int    `json:"schema_version"`
+	ID                string `json:"id"`
+	Team              string `json:"team"`
+	Title             string `json:"title,omitempty"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
+	Workspace         string `json:"workspace"`
+	DefinitionHash    string `json:"definition_hash"`
+	DefinitionVersion int    `json:"definition_version"`
+	DefinitionPath    string `json:"definition_path,omitempty"`
+	CurrentRound      int    `json:"current_round"`
+	MemoryPath        string `json:"memory_path"`
+	LastAnswer        string `json:"last_answer,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 type RoundState struct {
@@ -90,26 +94,39 @@ type Objection struct {
 }
 
 type State struct {
-	NextEventID int64       `json:"next_event_id"`
-	Current     *RoundState `json:"current_round,omitempty"`
+	SchemaVersion int         `json:"schema_version"`
+	NextEventID   int64       `json:"next_event_id"`
+	LastEventID   int64       `json:"last_event_id,omitempty"`
+	Current       *RoundState `json:"current_round,omitempty"`
 }
 
 type Event struct {
-	ID         int64                `json:"id"`
-	Type       string               `json:"type"`
-	At         string               `json:"at"`
-	ThreadID   string               `json:"thread_id"`
-	Round      int                  `json:"round"`
-	Phase      string               `json:"phase,omitempty"`
-	Wave       int                  `json:"wave,omitempty"`
-	From       string               `json:"from,omitempty"`
-	To         []string             `json:"to,omitempty"`
-	Session    string               `json:"session,omitempty"`
-	Signal     string               `json:"signal,omitempty"`
-	Ref        int64                `json:"ref,omitempty"`
-	Blackboard *BlackboardOperation `json:"blackboard,omitempty"`
-	Content    string               `json:"content,omitempty"`
-	Error      string               `json:"error,omitempty"`
+	SchemaVersion  int                  `json:"schema_version"`
+	ID             int64                `json:"id"`
+	Type           string               `json:"type"`
+	At             string               `json:"at"`
+	ThreadID       string               `json:"thread_id"`
+	Round          int                  `json:"round"`
+	Phase          string               `json:"phase,omitempty"`
+	Wave           int                  `json:"wave,omitempty"`
+	From           string               `json:"from,omitempty"`
+	To             []string             `json:"to,omitempty"`
+	Session        string               `json:"session,omitempty"`
+	Signal         string               `json:"signal,omitempty"`
+	Ref            int64                `json:"ref,omitempty"`
+	Blackboard     *BlackboardOperation `json:"blackboard,omitempty"`
+	MemoryProposal string               `json:"memory_proposal,omitempty"`
+	Metrics        *EventMetrics        `json:"metrics,omitempty"`
+	Content        string               `json:"content,omitempty"`
+	Error          string               `json:"error,omitempty"`
+}
+
+type EventMetrics struct {
+	DurationMS  int64  `json:"duration_ms,omitempty"`
+	Turn        int    `json:"turn,omitempty"`
+	Model       string `json:"model,omitempty"`
+	InputChars  int    `json:"input_chars,omitempty"`
+	OutputChars int    `json:"output_chars,omitempty"`
 }
 
 type Store struct {
@@ -148,18 +165,20 @@ func NewStore(workspace string, definition *Definition) (*Store, error) {
 		Root: root,
 		Dir:  dir,
 		Thread: Thread{
-			ID:             filepath.ToSlash(filepath.Join(teamSlug, idPart)),
-			Team:           definition.Team,
-			Title:          definition.Title,
-			Status:         ThreadStatusIdle,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			Workspace:      workspace,
-			DefinitionHash: definition.DefinitionHash,
-			DefinitionPath: definition.Source,
-			MemoryPath:     ResolveMemoryPath(workspace, definition),
+			SchemaVersion:     CurrentStoreSchemaVersion,
+			ID:                filepath.ToSlash(filepath.Join(teamSlug, idPart)),
+			Team:              definition.Team,
+			Title:             definition.Title,
+			Status:            ThreadStatusIdle,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+			Workspace:         workspace,
+			DefinitionHash:    definition.DefinitionHash,
+			DefinitionVersion: definition.Version,
+			DefinitionPath:    definition.Source,
+			MemoryPath:        ResolveMemoryPath(workspace, definition),
 		},
-		State: State{NextEventID: 1},
+		State: State{SchemaVersion: CurrentStoreSchemaVersion, NextEventID: 1},
 	}
 	if err := store.saveDefinition(definition); err != nil {
 		return nil, err
@@ -183,19 +202,48 @@ func OpenStore(dir string) (*Store, error) {
 	if err := readJSON(filepath.Join(dir, "state.json"), &state); err != nil {
 		return nil, fmt.Errorf("load team thread state: %w", err)
 	}
-	if state.NextEventID <= 0 {
-		state.NextEventID = 1
-		events, loadErr := loadEvents(filepath.Join(dir, "events.jsonl"))
-		if loadErr == nil && len(events) > 0 {
-			state.NextEventID = events[len(events)-1].ID + 1
-		}
+	if thread.SchemaVersion > CurrentStoreSchemaVersion || state.SchemaVersion > CurrentStoreSchemaVersion {
+		return nil, fmt.Errorf("team thread schema is newer than this tt version (thread=%d state=%d supported=%d)", thread.SchemaVersion, state.SchemaVersion, CurrentStoreSchemaVersion)
 	}
-	return &Store{
+	store := &Store{
 		Root:   filepath.Dir(filepath.Dir(dir)),
 		Dir:    dir,
 		Thread: thread,
 		State:  state,
-	}, nil
+	}
+	changed := false
+	if store.State.LastEventID == 0 && store.State.NextEventID > 1 {
+		store.State.LastEventID = store.State.NextEventID - 1
+		changed = true
+	}
+	if store.Thread.SchemaVersion < CurrentStoreSchemaVersion {
+		store.Thread.SchemaVersion = CurrentStoreSchemaVersion
+		changed = true
+	}
+	if store.State.SchemaVersion < CurrentStoreSchemaVersion {
+		store.State.SchemaVersion = CurrentStoreSchemaVersion
+		changed = true
+	}
+	if store.Thread.DefinitionVersion == 0 {
+		var definition Definition
+		if readErr := readJSON(filepath.Join(dir, "team.json"), &definition); readErr == nil {
+			store.Thread.DefinitionVersion = definition.Version
+			changed = true
+		}
+	}
+	events, repaired, err := loadEventsRecover(filepath.Join(dir, "events.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	if reconcileStore(store, events) {
+		changed = true
+	}
+	if (repaired || changed) && !liveThreadLease(dir) {
+		if err := store.saveLocked(); err != nil {
+			return nil, fmt.Errorf("save recovered team thread: %w", err)
+		}
+	}
+	return store, nil
 }
 
 func ResolveStore(workspace, id string) (*Store, error) {
@@ -276,6 +324,12 @@ func (s *Store) LoadDefinition() (*Definition, error) {
 	}
 	if err := definition.Validate(); err != nil {
 		return nil, fmt.Errorf("validate pinned team definition: %w", err)
+	}
+	if s.Thread.DefinitionVersion != 0 && definition.Version != s.Thread.DefinitionVersion {
+		return nil, fmt.Errorf("pinned team definition version changed (thread=%d file=%d)", s.Thread.DefinitionVersion, definition.Version)
+	}
+	if s.Thread.DefinitionHash != "" && definition.DefinitionHash != "" && definition.DefinitionHash != s.Thread.DefinitionHash {
+		return nil, fmt.Errorf("pinned team definition hash changed")
 	}
 	return &definition, nil
 }
@@ -402,6 +456,20 @@ func (s *Store) CompleteRound(answer string, memoryVersion int) error {
 	})
 }
 
+func (s *Store) SetMemoryVersion(version int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.State.Current == nil {
+		return fmt.Errorf("team thread has no current round")
+	}
+	s.State.Current.MemoryVersion = version
+	if s.State.Current.Status == RoundStatusCompleted {
+		s.State.Current.Phase = PhaseComplete
+	}
+	s.Thread.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return s.saveLocked()
+}
+
 func (s *Store) MarkInterrupted(err error) error {
 	return s.markStopped(RoundStatusInterrupted, ThreadStatusInterrupted, err)
 }
@@ -522,12 +590,16 @@ func (s *Store) appendEventLocked(event Event) error {
 	if strings.TrimSpace(event.Type) == "" {
 		return fmt.Errorf("team event type is required")
 	}
+	if event.SchemaVersion == 0 {
+		event.SchemaVersion = CurrentStoreSchemaVersion
+	}
 	if event.ID == 0 {
 		event.ID = s.State.NextEventID
 		s.State.NextEventID++
 	} else if event.ID >= s.State.NextEventID {
 		s.State.NextEventID = event.ID + 1
 	}
+	s.State.LastEventID = event.ID
 	if event.At == "" {
 		event.At = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -553,6 +625,10 @@ func (s *Store) appendEventLocked(event Event) error {
 		_ = file.Close()
 		return fmt.Errorf("append team event: %w", err)
 	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync team event log: %w", err)
+	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close team event log: %w", err)
 	}
@@ -560,29 +636,129 @@ func (s *Store) appendEventLocked(event Event) error {
 }
 
 func loadEvents(path string) ([]Event, error) {
-	file, err := os.Open(path)
+	events, _, err := readEventLog(path, false)
+	return events, err
+}
+
+func loadEventsRecover(path string) ([]Event, bool, error) {
+	return readEventLog(path, !liveThreadLease(filepath.Dir(path)))
+}
+
+func readEventLog(path string, repairTrailing bool) ([]Event, bool, error) {
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("open team event log: %w", err)
+		return nil, false, fmt.Errorf("open team event log: %w", err)
 	}
-	defer file.Close()
 	var events []Event
-	scanner := bufio.NewScanner(file)
-	buffer := make([]byte, 64*1024)
-	scanner.Buffer(buffer, 4*1024*1024)
-	for scanner.Scan() {
-		var event Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return nil, fmt.Errorf("parse team event log: %w", err)
+	var valid bytes.Buffer
+	repaired := false
+	lines := bytes.Split(data, []byte{'\n'})
+	for index, line := range lines {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
 		}
+		var event Event
+		if err := json.Unmarshal(line, &event); err != nil {
+			if index == len(lines)-1 {
+				if repairTrailing {
+					repaired = true
+				}
+				break
+			}
+			return nil, false, fmt.Errorf("parse team event log before final record: %w", err)
+		}
+		valid.Write(line)
+		valid.WriteByte('\n')
 		events = append(events, event)
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read team event log: %w", err)
+	if repaired {
+		if err := atomicWriteFile(path, valid.Bytes(), 0o644); err != nil {
+			return nil, false, fmt.Errorf("repair team event log: %w", err)
+		}
 	}
-	return events, nil
+	return events, repaired, nil
+}
+
+func reconcileStore(store *Store, events []Event) bool {
+	changed := false
+	nextID := int64(1)
+	for _, event := range events {
+		if event.ID >= nextID {
+			nextID = event.ID + 1
+		}
+	}
+	if store.State.NextEventID != nextID {
+		store.State.NextEventID = nextID
+		changed = true
+	}
+	if len(events) == 0 {
+		return changed
+	}
+	last := events[len(events)-1]
+	eventAhead := last.ID > store.State.LastEventID
+	if eventAhead {
+		store.State.LastEventID = last.ID
+		changed = true
+	}
+	if last.Round > store.Thread.CurrentRound {
+		store.Thread.CurrentRound = last.Round
+		changed = true
+	}
+	if store.State.Current == nil || store.State.Current.Number != last.Round {
+		question := ""
+		for _, event := range events {
+			if event.Round == last.Round && event.Type == "user_message" {
+				question = event.Content
+				break
+			}
+		}
+		store.State.Current = &RoundState{Number: last.Round, Status: RoundStatusRunning, Phase: last.Phase, Question: question}
+		changed = true
+	}
+	current := store.State.Current
+	switch last.Type {
+	case "round_completed":
+		if current.Status != RoundStatusCompleted || current.FinalAnswer != last.Content || current.Phase != PhaseComplete {
+			current.Status = RoundStatusCompleted
+			current.Phase = PhaseComplete
+			current.FinalAnswer = last.Content
+			current.FinishedAt = last.At
+			current.Error = ""
+			store.Thread.Status = ThreadStatusIdle
+			store.Thread.LastAnswer = last.Content
+			store.Thread.Error = ""
+			changed = true
+		}
+	case "round_interrupted":
+		if current.Status != RoundStatusInterrupted || current.Error != last.Error {
+			current.Status = RoundStatusInterrupted
+			current.Phase = last.Phase
+			current.Error = last.Error
+			current.FinishedAt = last.At
+			store.Thread.Status = ThreadStatusInterrupted
+			store.Thread.Error = last.Error
+			changed = true
+		}
+	case "round_failed":
+		if current.Status != RoundStatusFailed || current.Error != last.Error {
+			current.Status = RoundStatusFailed
+			current.Phase = last.Phase
+			current.Error = last.Error
+			current.FinishedAt = last.At
+			store.Thread.Status = ThreadStatusFailed
+			store.Thread.Error = last.Error
+			changed = true
+		}
+	default:
+		if eventAhead && current.Status != RoundStatusCompleted && last.Phase != "" && current.Phase != last.Phase {
+			current.Phase = last.Phase
+			changed = true
+		}
+	}
+	return changed
 }
 
 func writeJSONAtomic(path string, value any) error {

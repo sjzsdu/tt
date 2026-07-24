@@ -46,6 +46,7 @@ type agentResponse struct {
 	Signal     CollaborationSignal
 	Targets    []string
 	Blackboard []BlackboardOperation
+	Metrics    EventMetrics
 	Err        error
 }
 
@@ -60,6 +61,11 @@ func (e *Engine) RunRound(ctx context.Context, question string) (RunResult, erro
 	if err := e.validate(); err != nil {
 		return RunResult{}, err
 	}
+	lease, err := e.Store.AcquireLease()
+	if err != nil {
+		return RunResult{}, err
+	}
+	defer lease.Release()
 	if _, err := e.Store.StartRound(question); err != nil {
 		return RunResult{}, err
 	}
@@ -70,6 +76,11 @@ func (e *Engine) Resume(ctx context.Context) (RunResult, error) {
 	if err := e.validate(); err != nil {
 		return RunResult{}, err
 	}
+	lease, err := e.Store.AcquireLease()
+	if err != nil {
+		return RunResult{}, err
+	}
+	defer lease.Release()
 	if err := e.Store.PrepareResume(); err != nil {
 		return RunResult{}, err
 	}
@@ -265,6 +276,7 @@ func (e *Engine) runFinalization(ctx context.Context, memory MemoryDocument) (st
 			From:    member.ID,
 			Session: e.sessionFor(member.ID, ""),
 			Error:   err.Error(),
+			Metrics: &response.Metrics,
 		})
 		return "", fmt.Errorf("team finalizer %s failed: %w", member.ID, err)
 	}
@@ -280,6 +292,7 @@ func (e *Engine) runFinalization(ctx context.Context, memory MemoryDocument) (st
 		To:      []string{"user"},
 		Session: response.Session,
 		Content: answer,
+		Metrics: &response.Metrics,
 	}
 	if err := e.appendEvent(event); err != nil {
 		return "", err
@@ -304,21 +317,32 @@ func (e *Engine) runMemoryMaintenance(ctx context.Context, previous MemoryDocume
 	if !ok {
 		return MemoryDocument{}, fmt.Errorf("memory maintainer %q not found", e.Definition.Memory.Maintainer)
 	}
+	started := time.Now()
+	model := firstNonEmpty(member.Model, e.Model)
+	prompt := e.memoryPrompt(previous, events, answer, member)
 	response, err := e.Processor.Process(ctx, AgentCall{
 		MemberID: member.ID,
 		Agent:    member.Agent,
-		Model:    firstNonEmpty(member.Model, e.Model),
+		Model:    model,
 		Session:  e.sessionFor(member.ID, "memory"),
-		Prompt:   e.memoryPrompt(previous, events, answer, member),
+		Prompt:   prompt,
 	})
 	if err != nil {
 		return MemoryDocument{}, fmt.Errorf("team memory maintainer %s failed: %w", member.ID, err)
 	}
-	updated, err := UpgradeMemory(
+	var sourceEvents []int64
+	for _, event := range events {
+		if event.Round == e.Store.State.Current.Number {
+			sourceEvents = append(sourceEvents, event.ID)
+		}
+	}
+	proposal, err := ProposeMemory(
 		e.Store.Thread.MemoryPath,
 		e.Definition.Team,
 		e.Store.Thread.ID,
 		e.Store.State.Current.Number,
+		sourceEvents,
+		member.ID,
 		response,
 		e.Definition.Memory.MaxChars,
 	)
@@ -326,12 +350,112 @@ func (e *Engine) runMemoryMaintenance(ctx context.Context, previous MemoryDocume
 		return MemoryDocument{}, err
 	}
 	if err := e.appendEvent(Event{
-		Type:    "memory_updated",
-		Round:   e.Store.State.Current.Number,
+		Type:           "memory_proposed",
+		Round:          e.Store.State.Current.Number,
+		Phase:          PhaseMemory,
+		From:           member.ID,
+		Session:        e.sessionFor(member.ID, "memory"),
+		MemoryProposal: proposal.ID,
+		Content:        proposal.Diff,
+		Metrics: &EventMetrics{
+			DurationMS:  time.Since(started).Milliseconds(),
+			Turn:        e.currentTurn(),
+			Model:       model,
+			InputChars:  len([]rune(prompt)),
+			OutputChars: len([]rune(response)),
+		},
+	}); err != nil {
+		return MemoryDocument{}, err
+	}
+	updated, err := PromoteMemory(e.Store.Thread.MemoryPath, proposal)
+	if err != nil {
+		return MemoryDocument{}, err
+	}
+	if err := e.appendEvent(Event{
+		Type:           "memory_updated",
+		Round:          e.Store.State.Current.Number,
+		Phase:          PhaseMemory,
+		From:           member.ID,
+		Session:        e.sessionFor(member.ID, "memory"),
+		MemoryProposal: proposal.ID,
+		Content:        fmt.Sprintf("team memory upgraded to version %d", updated.Version),
+	}); err != nil {
+		return MemoryDocument{}, err
+	}
+	return updated, nil
+}
+
+func (e *Engine) RetryMemory(ctx context.Context) (MemoryDocument, error) {
+	if err := e.validate(); err != nil {
+		return MemoryDocument{}, err
+	}
+	lease, err := e.Store.AcquireLease()
+	if err != nil {
+		return MemoryDocument{}, err
+	}
+	defer lease.Release()
+	round := e.Store.State.Current
+	if round == nil || round.Status != RoundStatusCompleted || strings.TrimSpace(round.FinalAnswer) == "" {
+		return MemoryDocument{}, fmt.Errorf("memory retry requires a completed team round")
+	}
+	events, err := e.Store.Events()
+	if err != nil {
+		return MemoryDocument{}, err
+	}
+	for _, event := range events {
+		if event.Round == round.Number && event.Type == "memory_updated" {
+			return MemoryDocument{}, fmt.Errorf("team memory was already updated for round %d", round.Number)
+		}
+	}
+	previous, err := LoadMemory(e.Store.Thread.MemoryPath, e.Definition.Team)
+	if err != nil {
+		return MemoryDocument{}, err
+	}
+	updated, err := e.runMemoryMaintenance(ctx, previous, round.FinalAnswer)
+	if err != nil {
+		_ = e.appendEvent(Event{
+			Type:  "memory_update_failed",
+			Round: round.Number,
+			Phase: PhaseMemory,
+			From:  e.Definition.Memory.Maintainer,
+			Error: err.Error(),
+		})
+		return MemoryDocument{}, err
+	}
+	if err := e.Store.SetMemoryVersion(updated.Version); err != nil {
+		return MemoryDocument{}, err
+	}
+	return updated, nil
+}
+
+func (e *Engine) RollbackMemory(version int) (MemoryDocument, error) {
+	if e == nil || e.Store == nil || e.Definition == nil {
+		return MemoryDocument{}, fmt.Errorf("team runtime is unavailable")
+	}
+	lease, err := e.Store.AcquireLease()
+	if err != nil {
+		return MemoryDocument{}, err
+	}
+	defer lease.Release()
+	round := 0
+	if e.Store.State.Current != nil {
+		round = e.Store.State.Current.Number
+	}
+	updated, err := RollbackMemory(e.Store.Thread.MemoryPath, e.Definition.Team, e.Store.Thread.ID, round, version)
+	if err != nil {
+		return MemoryDocument{}, err
+	}
+	if round > 0 {
+		if err := e.Store.SetMemoryVersion(updated.Version); err != nil {
+			return MemoryDocument{}, err
+		}
+	}
+	if err := e.appendEvent(Event{
+		Type:    "memory_rolled_back",
+		Round:   round,
 		Phase:   PhaseMemory,
-		From:    member.ID,
-		Session: e.sessionFor(member.ID, "memory"),
-		Content: fmt.Sprintf("team memory upgraded to version %d", updated.Version),
+		From:    "user",
+		Content: fmt.Sprintf("team memory restored from version %d as version %d", version, updated.Version),
 	}); err != nil {
 		return MemoryDocument{}, err
 	}
@@ -370,10 +494,12 @@ func (e *Engine) callMembers(ctx context.Context, members []Agent, prompt func(A
 
 func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (agentResponse, error) {
 	session := e.sessionFor(member.ID, "")
+	model := firstNonEmpty(member.Model, e.Model)
+	started := time.Now()
 	content, err := e.Processor.Process(ctx, AgentCall{
 		MemberID: member.ID,
 		Agent:    member.Agent,
-		Model:    firstNonEmpty(member.Model, e.Model),
+		Model:    model,
 		Session:  session,
 		Prompt:   prompt,
 	})
@@ -386,7 +512,14 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		Signal:     signal,
 		Targets:    targets,
 		Blackboard: blackboard,
-		Err:        err,
+		Metrics: EventMetrics{
+			DurationMS:  time.Since(started).Milliseconds(),
+			Turn:        e.currentTurn(),
+			Model:       model,
+			InputChars:  len([]rune(prompt)),
+			OutputChars: len([]rune(content)),
+		},
+		Err: err,
 	}
 	return response, err
 }
@@ -404,6 +537,7 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 				From:    response.Member.ID,
 				Session: response.Session,
 				Error:   response.Err.Error(),
+				Metrics: &response.Metrics,
 			}
 			_ = e.appendEvent(event)
 			if firstErr == nil {
@@ -421,6 +555,7 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 				From:    response.Member.ID,
 				Session: response.Session,
 				Error:   emptyErr.Error(),
+				Metrics: &response.Metrics,
 			})
 			if firstErr == nil {
 				firstErr = emptyErr
@@ -454,6 +589,7 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 			Session: response.Session,
 			Signal:  string(response.Signal),
 			Content: content,
+			Metrics: &response.Metrics,
 		})
 		if err != nil {
 			if firstErr == nil {
@@ -479,6 +615,13 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 		}
 	}
 	return firstErr
+}
+
+func (e *Engine) currentTurn() int {
+	if e == nil || e.Store == nil || e.Store.State.Current == nil || e.Store.State.Current.Collaboration == nil {
+		return 0
+	}
+	return e.Store.State.Current.Collaboration.TurnCount
 }
 
 func (e *Engine) appendEvent(event Event) error {
