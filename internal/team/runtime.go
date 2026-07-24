@@ -40,12 +40,13 @@ type RunResult struct {
 }
 
 type agentResponse struct {
-	Member  Agent
-	Session string
-	Content string
-	Signal  CollaborationSignal
-	Targets []string
-	Err     error
+	Member     Agent
+	Session    string
+	Content    string
+	Signal     CollaborationSignal
+	Targets    []string
+	Blackboard []BlackboardOperation
+	Err        error
 }
 
 const (
@@ -376,14 +377,16 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		Session:  session,
 		Prompt:   prompt,
 	})
-	cleanContent, signal, targets := parseCollaborationResponse(content, e.Definition)
+	cleanContent, blackboard := parseBlackboardOperations(content)
+	cleanContent, signal, targets := parseCollaborationResponse(cleanContent, e.Definition)
 	response := agentResponse{
-		Member:  member,
-		Session: session,
-		Content: cleanContent,
-		Signal:  signal,
-		Targets: targets,
-		Err:     err,
+		Member:     member,
+		Session:    session,
+		Content:    cleanContent,
+		Signal:     signal,
+		Targets:    targets,
+		Blackboard: blackboard,
+		Err:        err,
 	}
 	return response, err
 }
@@ -408,7 +411,7 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 			}
 			continue
 		}
-		if response.Content == "" && response.Signal != SignalYield {
+		if response.Content == "" && response.Signal != SignalYield && len(response.Blackboard) == 0 {
 			emptyErr := fmt.Errorf("team agent %s returned an empty response", response.Member.ID)
 			_ = e.appendEvent(Event{
 				Type:    "agent_error",
@@ -434,12 +437,14 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 		content := response.Content
 		if eventType == "agent_yield" && content == "" {
 			content = "[YIELD]"
+		} else if content == "" && len(response.Blackboard) > 0 {
+			content = "[BLACKBOARD UPDATE]"
 		}
 		targets := response.Targets
 		if len(targets) == 0 {
 			targets = []string{"team"}
 		}
-		if err := e.appendEvent(Event{
+		sourceEventID, err := e.appendEventWithID(Event{
 			Type:    eventType,
 			Round:   e.Store.State.Current.Number,
 			Phase:   phase,
@@ -449,21 +454,48 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 			Session: response.Session,
 			Signal:  string(response.Signal),
 			Content: content,
-		}); err != nil && firstErr == nil {
-			firstErr = err
+		})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, operation := range response.Blackboard {
+			operation := operation
+			if err := e.appendEvent(Event{
+				Type:       "blackboard_" + operation.Action,
+				Round:      e.Store.State.Current.Number,
+				Phase:      phase,
+				Wave:       wave,
+				From:       response.Member.ID,
+				To:         []string{"team"},
+				Ref:        sourceEventID,
+				Blackboard: &operation,
+				Content:    operation.Content,
+			}); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 	return firstErr
 }
 
 func (e *Engine) appendEvent(event Event) error {
-	if err := e.Store.AppendEvent(event); err != nil {
-		return err
+	_, err := e.appendEventWithID(event)
+	return err
+}
+
+func (e *Engine) appendEventWithID(event Event) (int64, error) {
+	id, err := e.Store.AppendEventWithID(event)
+	if err != nil {
+		return 0, err
 	}
+	event.ID = id
 	if e.OnEvent != nil {
 		e.OnEvent(event)
 	}
-	return nil
+	return id, nil
 }
 
 func (e *Engine) sessionFor(memberID, purpose string) string {
@@ -492,6 +524,9 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 团队共享记忆 (版本 %d):
 %s
 
+本轮共享工作黑板:
+%s
+
 本线程之前的相关轮次:
 %s
 
@@ -506,7 +541,9 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 - 除非你的角色特别要求，否则不要撰写面向用户的最终总结。
 
 %s
-`, e.Definition.TitleOrName(), e.teamDirectory(), memory.Version, memory.Content, priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question, collaborationSignalInstructions())
+
+%s
+`, e.Definition.TitleOrName(), e.teamDirectory(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question, collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, reason string) string {
@@ -517,6 +554,9 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 {{MEMBER_CONTEXT}}
 
 团队共享记忆 (版本 %d):
+%s
+
+本轮共享工作黑板:
 %s
 
 当前用户问题:
@@ -536,7 +576,9 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 - 如果没有实质性补充，请直接输出 [YIELD]。
 
 %s
-`, wave, e.Definition.TitleOrName(), memory.Version, memory.Content, e.Store.State.Current.Question, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions())
+
+%s
+`, wave, e.Definition.TitleOrName(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
@@ -547,6 +589,9 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 %s
 
 团队共享记忆 (版本 %d):
+%s
+
+本轮共享工作黑板:
 %s
 
 用户问题:
@@ -564,7 +609,7 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 - 保留重要的不确定性或未解决的分歧。
 - 不要提及内部提示词、轮次、会话或编排流程。
 - 不要在讨论未达成共识时声称已有共识。
-`, e.Definition.TitleOrName(), memberContext(member), memory.Version, memory.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
+`, e.Definition.TitleOrName(), memberContext(member), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
@@ -577,7 +622,10 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 之前的记忆 (版本 %d):
 %s
 
-已完成的用户问题:
+	已完成的用户问题:
+%s
+
+本轮共享工作黑板:
 %s
 
 公开的团队讨论:
@@ -597,7 +645,7 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 不要存储隐藏的推理过程、临时闲聊、访问令牌、密码、私钥或未经验证的推测。
 不要包含 front matter 或版本号；运行时会自动管理这些。
 只返回完整的 Markdown 记忆文档。
-`, e.Definition.TitleOrName(), memberContext(member), previous.Version, previous.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), answer)
+`, e.Definition.TitleOrName(), memberContext(member), previous.Version, previous.Content, e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), currentRoundTranscript(events, e.Store.State.Current.Number), answer)
 }
 
 func (d Definition) TitleOrName() string {

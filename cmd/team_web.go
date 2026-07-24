@@ -26,12 +26,13 @@ type teamDashboardServer struct {
 }
 
 type teamDashboardState struct {
-	Team   teamDashboardTeam          `json:"team"`
-	Thread teamruntime.Thread         `json:"thread"`
-	Round  *teamruntime.RoundState    `json:"round,omitempty"`
-	Agents []teamDashboardAgent       `json:"agents"`
-	Events []teamruntime.Event        `json:"events"`
-	Memory teamruntime.MemoryDocument `json:"memory"`
+	Team   teamDashboardTeam                `json:"team"`
+	Thread teamruntime.Thread               `json:"thread"`
+	Round  *teamruntime.RoundState          `json:"round,omitempty"`
+	Agents []teamDashboardAgent             `json:"agents"`
+	Events []teamruntime.Event              `json:"events"`
+	Board  teamruntime.BlackboardProjection `json:"blackboard"`
+	Memory teamruntime.MemoryDocument       `json:"memory"`
 }
 
 type teamDashboardTeam struct {
@@ -206,6 +207,7 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 		Round:  state.Current,
 		Agents: agents,
 		Events: events,
+		Board:  teamruntime.ProjectBlackboard(events, thread.CurrentRound),
 		Memory: memory,
 	}, nil
 }

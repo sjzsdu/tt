@@ -95,20 +95,21 @@ type State struct {
 }
 
 type Event struct {
-	ID       int64    `json:"id"`
-	Type     string   `json:"type"`
-	At       string   `json:"at"`
-	ThreadID string   `json:"thread_id"`
-	Round    int      `json:"round"`
-	Phase    string   `json:"phase,omitempty"`
-	Wave     int      `json:"wave,omitempty"`
-	From     string   `json:"from,omitempty"`
-	To       []string `json:"to,omitempty"`
-	Session  string   `json:"session,omitempty"`
-	Signal   string   `json:"signal,omitempty"`
-	Ref      int64    `json:"ref,omitempty"`
-	Content  string   `json:"content,omitempty"`
-	Error    string   `json:"error,omitempty"`
+	ID         int64                `json:"id"`
+	Type       string               `json:"type"`
+	At         string               `json:"at"`
+	ThreadID   string               `json:"thread_id"`
+	Round      int                  `json:"round"`
+	Phase      string               `json:"phase,omitempty"`
+	Wave       int                  `json:"wave,omitempty"`
+	From       string               `json:"from,omitempty"`
+	To         []string             `json:"to,omitempty"`
+	Session    string               `json:"session,omitempty"`
+	Signal     string               `json:"signal,omitempty"`
+	Ref        int64                `json:"ref,omitempty"`
+	Blackboard *BlackboardOperation `json:"blackboard,omitempty"`
+	Content    string               `json:"content,omitempty"`
+	Error      string               `json:"error,omitempty"`
 }
 
 type Store struct {
@@ -353,9 +354,20 @@ func (s *Store) Collaboration() (*CollaborationState, error) {
 }
 
 func (s *Store) AppendEvent(event Event) error {
+	_, err := s.AppendEventWithID(event)
+	return err
+}
+
+func (s *Store) AppendEventWithID(event Event) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.appendEventLocked(event)
+	if event.ID == 0 {
+		event.ID = s.State.NextEventID
+	}
+	if err := s.appendEventLocked(event); err != nil {
+		return 0, err
+	}
+	return event.ID, nil
 }
 
 func (s *Store) CompleteRound(answer string, memoryVersion int) error {
@@ -513,6 +525,8 @@ func (s *Store) appendEventLocked(event Event) error {
 	if event.ID == 0 {
 		event.ID = s.State.NextEventID
 		s.State.NextEventID++
+	} else if event.ID >= s.State.NextEventID {
+		s.State.NextEventID = event.ID + 1
 	}
 	if event.At == "" {
 		event.At = time.Now().UTC().Format(time.RFC3339)

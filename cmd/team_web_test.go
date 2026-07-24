@@ -32,6 +32,20 @@ func newTestTeamDashboard(t *testing.T) (*teamDashboardServer, *teamruntime.Stor
 	}); err != nil {
 		t.Fatal(err)
 	}
+	operation := teamruntime.BlackboardOperation{
+		Action:  teamruntime.BlackboardActionUpsert,
+		Kind:    teamruntime.BlackboardFact,
+		Key:     "dashboard-source",
+		Content: "The event stream is authoritative.",
+	}
+	if err := store.AppendEvent(teamruntime.Event{
+		Type:       "blackboard_upsert",
+		Phase:      teamruntime.PhaseInitial,
+		From:       "architect",
+		Blackboard: &operation,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return newTeamDashboardServer(store, definition), store
 }
 
@@ -50,8 +64,11 @@ func TestTeamDashboardStateHandler(t *testing.T) {
 	if state.Thread.ID != store.Thread.ID || state.Round == nil || state.Round.Phase != teamruntime.PhaseInitial {
 		t.Fatalf("state = %+v", state)
 	}
-	if len(state.Agents) != 3 || len(state.Events) < 3 {
+	if len(state.Agents) != 3 || len(state.Events) < 4 {
 		t.Fatalf("agents/events = %+v %+v", state.Agents, state.Events)
+	}
+	if len(state.Board.Entries) != 1 || state.Board.Entries[0].Key != "dashboard-source" {
+		t.Fatalf("blackboard = %+v", state.Board)
 	}
 	for _, event := range state.Events {
 		if event.Session != "" {

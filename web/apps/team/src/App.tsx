@@ -1,9 +1,11 @@
 import {
   BulbOutlined,
+  CheckCircleOutlined,
   CrownOutlined,
   DatabaseOutlined,
   MoonOutlined,
   SafetyCertificateOutlined,
+  SnippetsOutlined,
   SunOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
@@ -12,7 +14,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useTeamState } from './api';
 import { renderSafeMarkdown } from './markdown';
 import type { AppTheme } from './main';
-import type { TeamAgent, TeamDashboardState, TeamEvent } from './types';
+import type { TeamAgent, TeamBlackboardEntry, TeamDashboardState, TeamEvent } from './types';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -206,6 +208,46 @@ function MemoryPanel({ state }: { state: TeamDashboardState }) {
   );
 }
 
+const blackboardKindLabel: Record<TeamBlackboardEntry['kind'], string> = {
+  fact: '事实',
+  proposal: '提案',
+  question: '问题',
+  decision: '决策',
+  objection: '异议',
+  artifact: '产物',
+};
+
+function BlackboardPanel({ state }: { state: TeamDashboardState }) {
+  const entries = state.blackboard?.entries || [];
+  return (
+    <Card
+      className="side-card blackboard-card"
+      title={<Space><SnippetsOutlined />工作黑板</Space>}
+      extra={<Tag>{entries.length}</Tag>}
+    >
+      {entries.length ? (
+        <div className="blackboard-list">
+          {entries.map(entry => (
+            <div className={`blackboard-entry blackboard-${entry.status}`} key={`${entry.kind}:${entry.key}`}>
+              <Space size={5} wrap>
+                <Tag color={entry.status === 'resolved' ? 'default' : 'blue'}>
+                  {blackboardKindLabel[entry.kind]}
+                </Tag>
+                <Text code>{entry.key}</Text>
+                {entry.status === 'resolved' && <CheckCircleOutlined className="blackboard-resolved-icon" />}
+              </Space>
+              <div className="blackboard-content">{entry.content || '已解决'}</div>
+              <Text type="secondary" className="blackboard-provenance">
+                @{entry.updated_by || 'runtime'} · event {entry.updated_at_event_id} · {entry.revisions.length} 次修订
+              </Text>
+            </div>
+          ))}
+        </div>
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本轮暂无结构化条目" />}
+    </Card>
+  );
+}
+
 export function App({ theme, onThemeChange }: Props) {
   const { state, error } = useTeamState();
   const runtimeError = state?.round?.error || state?.thread.error || '';
@@ -290,6 +332,7 @@ export function App({ theme, onThemeChange }: Props) {
                 {state.agents.map(agent => <MemberCard key={agent.id} agent={agent} />)}
               </div>
             </Card>
+            <BlackboardPanel state={state} />
             <MemoryPanel state={state} />
           </aside>
         </div>
