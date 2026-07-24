@@ -28,6 +28,33 @@ export type TeamRound = {
   final_answer?: string;
   memory_version?: number;
   error?: string;
+  collaboration?: TeamCollaboration;
+};
+
+export type TeamActivation = {
+  member_id: string;
+  reason: string;
+  source_event_id?: number;
+};
+
+export type TeamObjection = {
+  event_id: number;
+  from: string;
+  targets?: string[];
+  content?: string;
+  resolved?: boolean;
+  resolved_by_event_id?: number;
+};
+
+export type TeamCollaboration = {
+  turn_count: number;
+  cycle: number;
+  broad_review_waves: number;
+  pending?: TeamActivation[];
+  objections?: TeamObjection[];
+  proposal_by?: string;
+  converged?: boolean;
+  stop_reason?: string;
 };
 
 export type TeamAgent = {
@@ -50,6 +77,8 @@ export type TeamEvent = {
   wave?: number;
   from?: string;
   to?: string[];
+  signal?: string;
+  ref?: number;
   content?: string;
   error?: string;
 };

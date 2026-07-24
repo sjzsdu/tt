@@ -29,6 +29,8 @@ const VISIBLE_EVENT_TYPES = new Set([
   'round_interrupted',
   'round_failed',
   'round_completed',
+  'convergence_reached',
+  'forced_stop',
 ]);
 
 type Props = {
@@ -77,7 +79,8 @@ function MemberCard({ agent }: { agent: TeamAgent }) {
 
 function eventKind(event: TeamEvent) {
   if (event.type === 'user_message') return 'user';
-  if (event.type === 'final_answer') return 'final';
+  if (event.type === 'final_answer' || event.type === 'convergence_reached') return 'final';
+  if (event.type === 'forced_stop') return 'error';
   if (event.type.includes('failed') || event.type === 'agent_error') return 'error';
   if (event.type === 'agent_message' || event.type === 'agent_yield') return 'agent';
   return 'system';
@@ -88,6 +91,33 @@ function speakerLabel(event: TeamEvent, kind: string) {
   if (speaker === 'user') return '你';
   if (speaker === 'tt') return '运行时';
   return `@${speaker}`;
+}
+
+function signalTag(signal?: string) {
+  switch (signal) {
+    case 'agree':
+      return <Tag color="green">同意</Tag>;
+    case 'object':
+      return <Tag color="red">异议</Tag>;
+    case 'yield':
+      return <Tag>让出</Tag>;
+    case 'propose_final':
+      return <Tag color="blue">建议总结</Tag>;
+    case 'resolved':
+      return <Tag color="cyan">异议已解决</Tag>;
+    default:
+      return null;
+  }
+}
+
+function eventText(event: TeamEvent) {
+  if (event.type === 'convergence_reached') return '团队已达到收敛条件，准备生成最终答案。';
+  if (event.type === 'forced_stop') {
+    if (event.content === 'max_agent_turns') return '已达到 Agent turn 上限，运行时将保留未解决分歧并强制总结。';
+    if (event.content === 'max_wall_time') return '已达到最大运行时间，本轮已中断并保存，可稍后恢复。';
+    if (event.content === 'unresolved_objections_no_progress') return '仍有未解决异议，但当前没有可继续激活的成员，运行时将强制总结。';
+  }
+  return event.content || event.error || event.type.replaceAll('_', ' ');
 }
 
 function MarkdownContent({ content }: { content: string }) {
@@ -103,7 +133,7 @@ function EventCard({ event }: { event: TeamEvent }) {
     event.wave ? `第${event.wave}轮` : '',
     formatTime(event.at),
   ].filter(Boolean);
-  const content = event.content || event.error || event.type.replaceAll('_', ' ');
+  const content = eventText(event);
 
   return (
     <article className={`event event-${kind}`}>
@@ -112,6 +142,7 @@ function EventCard({ event }: { event: TeamEvent }) {
         <Space size={8} wrap className="event-heading">
           <Text strong>{speakerLabel(event, kind)}</Text>
           {event.type === 'final_answer' && <Tag color="green">最终答案</Tag>}
+          {signalTag(event.signal)}
           <Text className="event-meta" type="secondary">{meta.join(' · ')}</Text>
         </Space>
         {kind === 'agent' || kind === 'final'
@@ -180,6 +211,8 @@ export function App({ theme, onThemeChange }: Props) {
   const runtimeError = state?.round?.error || state?.thread.error || '';
   const status = state?.thread.status || 'loading';
   const running = status === 'running';
+  const collaboration = state?.round?.collaboration;
+  const openObjections = collaboration?.objections?.filter(objection => !objection.resolved).length || 0;
 
   const statusLabel: Record<string, string> = {
     loading: '连接中',
@@ -235,9 +268,13 @@ export function App({ theme, onThemeChange }: Props) {
             className="room-card"
             title={<Space><TeamOutlined />公共讨论区</Space>}
             extra={
-              <Text type="secondary">
-                {state.round ? `第 ${state.round.number} 轮 · ${state.round.phase || state.round.status}` : '无活跃轮次'}
-              </Text>
+              <Space size={6} wrap>
+                {collaboration && <Tag>turn {collaboration.turn_count}</Tag>}
+                {openObjections > 0 && <Tag color="red">{openObjections} 个未解决异议</Tag>}
+                <Text type="secondary">
+                  {state.round ? `第 ${state.round.number} 轮 · ${state.round.phase || state.round.status}` : '无活跃轮次'}
+                </Text>
+              </Space>
             }
           >
             <Discussion state={state} />

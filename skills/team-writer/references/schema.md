@@ -15,14 +15,14 @@
 |---|---|---|---|---|
 | `facilitator` | string | no | first agent id | Agent id that coordinates the discussion |
 | `finalizer` | string | no | same as facilitator | Agent id that produces the final answer |
-| `review_waves` | int | no | 0 | Number of peer review rounds (0 or 1 typical) |
+| `review_waves` | int | no | 0 | Number of baseline broad peer-review windows; directed adaptive turns may run in addition |
 | `max_concurrency` | int | no | 4 | Max parallel agent slots |
 
 ## `[limits]`
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `max_agent_turns` | int | no | 24 | Max total agent turns in a round |
+| `max_agent_turns` | int | no | 24 | Hard cap on initial, adaptively activated, and finalization turns in a round |
 | `max_wall_time` | string | no | "15m" | Max wall-clock time per round (e.g. "5m", "30m", "1h") |
 
 ## `[memory]`

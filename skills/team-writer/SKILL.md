@@ -82,11 +82,13 @@ See [references/patterns.md](references/patterns.md) for common team patterns:
 
 ## Coordination tips
 
-- `review_waves = 0` — no peer review, facilitator finalizes directly
-- `review_waves = 1` — one round of peer review before finalization (most common)
+- `review_waves = 0` — no baseline broad review; directed mentions and objections can still activate members
+- `review_waves = 1` — schedule one broad peer-review window, plus any adaptive turns needed to resolve directed questions or objections
 - `max_concurrency` — parallel agent slots; match to agent count for max parallelism
 - `can_finalize = true` — only ONE agent should finalize (the facilitator)
-- `max_agent_turns` — minimum = agents + review_waves * (agents - 1) + 1; increase for multi-round discussions
+- `max_agent_turns` — hard runtime budget including initial assessments, adaptive review turns, and finalization; increase it when roles are expected to challenge each other
+
+The runtime appends collaboration-signal instructions automatically. Agent prompts should encourage natural, substantive discussion and explicit `@member-id` addressing rather than hard-coding orchestration steps.
 
 ## Memory
 

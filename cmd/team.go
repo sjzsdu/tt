@@ -254,9 +254,17 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 		engine.OnEvent = func(event teamruntime.Event) {
 			switch event.Type {
 			case "agent_message":
-				fmt.Fprintf(cmd.OutOrStdout(), "\n@%s:\n%s\n", event.From, strings.TrimSpace(event.Content))
+				signal := ""
+				if event.Signal != "" {
+					signal = " [" + event.Signal + "]"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "\n@%s%s:\n%s\n", event.From, signal, strings.TrimSpace(event.Content))
 			case "agent_yield":
 				fmt.Fprintf(cmd.OutOrStdout(), "\n@%s: [YIELD]\n", event.From)
+			case "convergence_reached":
+				fmt.Fprintln(cmd.OutOrStdout(), "\n[team converged]")
+			case "forced_stop":
+				fmt.Fprintf(cmd.OutOrStdout(), "\n[team forced stop: %s]\n", event.Content)
 			}
 		}
 	}
@@ -355,6 +363,9 @@ func runTeamShow(cmd *cobra.Command, args []string) error {
 			if event.Wave > 0 {
 				fmt.Fprintf(out, " %d", event.Wave)
 			}
+			if event.Signal != "" {
+				fmt.Fprintf(out, " | %s", event.Signal)
+			}
 			fmt.Fprintf(out, "\n%s\n", event.Content)
 		case "agent_yield":
 			fmt.Fprintf(out, "\nRound %d | @%s | %s %d\n[YIELD]\n", event.Round, event.From, event.Phase, event.Wave)
@@ -362,6 +373,8 @@ func runTeamShow(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(out, "\nRound %d | final answer by @%s\n%s\n", event.Round, event.From, event.Content)
 		case "memory_updated":
 			fmt.Fprintf(out, "\nRound %d | %s\n", event.Round, event.Content)
+		case "convergence_reached", "forced_stop":
+			fmt.Fprintf(out, "\nRound %d | %s | %s\n", event.Round, event.Type, event.Content)
 		}
 	}
 	return nil
