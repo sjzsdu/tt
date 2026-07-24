@@ -375,6 +375,22 @@ func runTeamShow(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(out, "\nRound %d | %s\n", event.Round, event.Content)
 		case "convergence_reached", "forced_stop":
 			fmt.Fprintf(out, "\nRound %d | %s | %s\n", event.Round, event.Type, event.Content)
+		case "blackboard_upsert", "blackboard_resolve":
+			if event.Blackboard != nil {
+				fmt.Fprintf(
+					out,
+					"\nRound %d | blackboard %s/%s | %s by @%s | source event %d\n",
+					event.Round,
+					event.Blackboard.Kind,
+					event.Blackboard.Key,
+					event.Blackboard.Action,
+					event.From,
+					event.Ref,
+				)
+				if event.Blackboard.Content != "" {
+					fmt.Fprintln(out, event.Blackboard.Content)
+				}
+			}
 		}
 	}
 	return nil

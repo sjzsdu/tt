@@ -394,6 +394,40 @@ textarea {
   font-size: 11px;
 }
 
+.blackboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.blackboard-entry {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel-solid);
+}
+
+.blackboard-resolved {
+  opacity: 0.66;
+}
+
+.blackboard-resolved-icon {
+  color: var(--accent);
+}
+
+.blackboard-content {
+  margin: 8px 0 5px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.blackboard-provenance {
+  font-size: 10px;
+}
+
 .memory-content {
   max-height: 340px;
   margin: 0;

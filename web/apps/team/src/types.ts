@@ -79,8 +79,42 @@ export type TeamEvent = {
   to?: string[];
   signal?: string;
   ref?: number;
+  blackboard?: TeamBlackboardOperation;
   content?: string;
   error?: string;
+};
+
+export type TeamBlackboardOperation = {
+  action: 'upsert' | 'resolve';
+  kind: TeamBlackboardKind;
+  key: string;
+  content?: string;
+};
+
+export type TeamBlackboardKind = 'fact' | 'proposal' | 'question' | 'decision' | 'objection' | 'artifact';
+
+export type TeamBlackboardRevision = {
+  event_id: number;
+  ref?: number;
+  action: 'upsert' | 'resolve';
+  by?: string;
+  at?: string;
+  content?: string;
+};
+
+export type TeamBlackboardEntry = {
+  kind: TeamBlackboardKind;
+  key: string;
+  content?: string;
+  status: 'active' | 'resolved';
+  updated_by?: string;
+  updated_at_event_id: number;
+  revisions: TeamBlackboardRevision[];
+};
+
+export type TeamBlackboard = {
+  round: number;
+  entries: TeamBlackboardEntry[];
 };
 
 export type TeamMemory = {
@@ -99,5 +133,6 @@ export type TeamDashboardState = {
   round?: TeamRound;
   agents: TeamAgent[];
   events: TeamEvent[];
+  blackboard: TeamBlackboard;
   memory: TeamMemory;
 };
