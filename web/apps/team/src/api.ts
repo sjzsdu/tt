@@ -1,48 +1,75 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { connectTeamStateStream } from './team-stream';
 import type { TeamDashboardState } from './types';
-
-const POLL_INTERVAL_MS = 800;
 
 export function useTeamState() {
   const [state, setState] = useState<TeamDashboardState | null>(null);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [pendingAction, setPendingAction] = useState('');
 
   useEffect(() => {
     let stopped = false;
-    let timer: number | undefined;
-    let controller: AbortController | undefined;
-
-    const refresh = async () => {
-      controller?.abort();
-      controller = new AbortController();
+    let receivedStreamState = false;
+    const loadInitial = async () => {
       try {
-        const response = await fetch('/api/state', {
-          cache: 'no-store',
-          signal: controller.signal,
-        });
+        const response = await fetch('/api/state', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const next = await response.json() as TeamDashboardState;
-        if (!stopped) {
+        if (!stopped && !receivedStreamState) {
           setState(next);
-          setError('');
           document.title = `${next.team.team || 'team'} · tt`;
         }
       } catch (cause) {
-        if (!stopped && !(cause instanceof DOMException && cause.name === 'AbortError')) {
+        if (!stopped) {
           setError(cause instanceof Error ? cause.message : String(cause));
         }
-      } finally {
-        if (!stopped) timer = window.setTimeout(refresh, POLL_INTERVAL_MS);
       }
     };
-
-    void refresh();
+    void loadInitial();
+    const disconnect = connectTeamStateStream(next => {
+      if (stopped) return;
+      receivedStreamState = true;
+      setState(next);
+      setError('');
+      document.title = `${next.team.team || 'team'} · tt`;
+    }, message => {
+      if (!stopped) setError(message);
+    });
     return () => {
       stopped = true;
-      controller?.abort();
-      if (timer !== undefined) window.clearTimeout(timer);
+      disconnect();
     };
   }, []);
 
-  return { state, error };
+  const mutate = useCallback(async (action: string, path: string, body?: unknown) => {
+    setPendingAction(action);
+    setActionError('');
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const message = (await response.text()).trim();
+        throw new Error(message || `HTTP ${response.status}`);
+      }
+      return true;
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+      return false;
+    } finally {
+      setPendingAction('');
+    }
+  }, []);
+
+  const followUp = useCallback(
+    (message: string) => mutate('follow-up', '/api/follow-up', { message }),
+    [mutate],
+  );
+  const resume = useCallback(() => mutate('resume', '/api/resume'), [mutate]);
+  const stop = useCallback(() => mutate('stop', '/api/stop'), [mutate]);
+
+  return { state, error, actionError, pendingAction, followUp, resume, stop };
 }

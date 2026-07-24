@@ -135,4 +135,10 @@ export type TeamDashboardState = {
   events: TeamEvent[];
   blackboard: TeamBlackboard;
   memory: TeamMemory;
+  controls: {
+    busy: boolean;
+    can_follow_up: boolean;
+    can_resume: boolean;
+    can_stop: boolean;
+  };
 };

@@ -7,5 +7,5 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["src/markdown.ts"]
+  "include": ["src/markdown.ts", "src/team-stream.ts", "src/types.ts"]
 }
