@@ -9,6 +9,7 @@
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
 - Formula dashboard final report view with a dedicated follow-up coder chat.
+- Persistent multi-agent teams with shared discussion, blackboard, memory, and a live dashboard.
 - Light/dark theme switching for the formula dashboard and markdown web UI, with local preference persistence.
 - Embedded Picoclaw agent runtime command.
 - Embedded professional stock research discussion command with streamed turns and JSON archive.
@@ -68,6 +69,7 @@ Available commands:
 | --- | --- |
 | `agent` | Run the embedded Picoclaw agent runtime and optimize embedded agents for a target repository. |
 | `formula` | Author, validate, schedule, run, and inspect graph-first formula workflows in CLI and local dashboard flows. |
+| `team` | Run persistent TOML-defined agent teams that collaborate, implement, review, test, and retain memory. |
 | `cmd2skill` | Convert CLI commands into skill files. |
 | `repo2skill` | Convert repositories into agent-oriented library skills. |
 | `config` | Inspect and initialize `tt` configuration. |
@@ -90,6 +92,33 @@ tt <command> --help
 ```
 
 ## Commands
+
+### `tt team`
+
+Run a persistent team from a built-in or project TOML definition. The built-in
+`software-development` team turns a broad engineering request into a repository-aware
+delivery: read-only requirements and architecture exploration, single-writer implementation,
+independent code review, test verification, and an evidence-backed final result.
+
+```bash
+tt team list --builtin
+tt team run software-development "给这个项目增加一个支持断点续传的上传命令"
+tt team run software-development "修复偶发的数据竞争，并补充回归测试" --web
+
+# Continue the same persistent thread.
+tt team ask latest "再补充 Windows 兼容性"
+
+# Inspect the public discussion, durable memory, or open the live dashboard.
+tt team show latest
+tt team memory show latest
+tt team open latest
+```
+
+The development team deliberately keeps the initial parallel wave read-only. Its handoff is
+`architect → implementer → code-reviewer → test-engineer → delivery-lead`, so only one member
+mutates the working tree and failed review or tests return to implementation before delivery.
+The final answer must report actual changed files and verification evidence; unverified work is
+reported as blocked rather than presented as complete.
 
 ### `tt markdown`
 
