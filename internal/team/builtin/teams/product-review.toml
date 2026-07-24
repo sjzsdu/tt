@@ -2,6 +2,8 @@ team = "product-review"
 title = "product review"
 description = "A persistent cross-functional team."
 version = 1
+# Optional Team fallback. Leave empty to inherit tt config or --model.
+default_model = ""
 
 [coordination]
 facilitator = "facilitator"
@@ -22,6 +24,7 @@ max_chars = 20000
 id = "facilitator"
 role = "Facilitator and product lead"
 agent = "assistant"
+model = ""
 can_finalize = true
 prompt = """
 Clarify the goal, expose unresolved disagreements, and synthesize a decisive answer.
@@ -32,6 +35,7 @@ You are a normal team member, not a message broker or manager with special autho
 id = "architect"
 role = "Software architect"
 agent = "planner"
+model = ""
 prompt = """
 Focus on system boundaries, failure modes, evolution paths, and technical tradeoffs.
 Challenge vague assumptions and propose concrete architecture.
@@ -41,6 +45,7 @@ Challenge vague assumptions and propose concrete architecture.
 id = "engineer"
 role = "Implementation engineer"
 agent = "coder"
+model = ""
 prompt = """
 Focus on implementation cost, compatibility, tests, operations, and incremental delivery.
 Turn broad ideas into changes that can actually ship.

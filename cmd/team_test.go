@@ -48,6 +48,29 @@ func TestStarterTeamDefinitionParses(t *testing.T) {
 	}
 }
 
+func TestResolveTeamDefaultModelPrecedence(t *testing.T) {
+	tests := []struct {
+		name          string
+		cliChanged    bool
+		cliModel      string
+		teamDefault   string
+		globalDefault string
+		want          string
+	}{
+		{name: "explicit CLI", cliChanged: true, cliModel: "cli", teamDefault: "team", globalDefault: "global", want: "cli"},
+		{name: "team default", teamDefault: "team", globalDefault: "global", want: "team"},
+		{name: "global default", globalDefault: "global", want: "global"},
+		{name: "empty explicit CLI falls back", cliChanged: true, teamDefault: "team", globalDefault: "global", want: "team"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resolveTeamDefaultModel(test.cliChanged, test.cliModel, test.teamDefault, test.globalDefault); got != test.want {
+				t.Fatalf("model = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestTeamInitCopiesBuiltinDefinition(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("TT_CONFIG", filepath.Join(root, "global-config.json"))

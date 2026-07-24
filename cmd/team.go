@@ -136,7 +136,7 @@ func init() {
 	teamMemoryCmd.AddCommand(teamMemoryShowCmd, teamMemoryRollbackCmd, teamMemoryRetryCmd)
 
 	teamCmd.PersistentFlags().StringVarP(&teamSession, "session", "s", "cli:team", "session key prefix for team agents")
-	teamCmd.PersistentFlags().StringVar(&teamModel, "model", "", "model override for all team agents")
+	teamCmd.PersistentFlags().StringVar(&teamModel, "model", "", "fallback model for team agents without agents.model")
 	teamCmd.PersistentFlags().BoolVarP(&teamDebug, "debug", "d", false, "enable agent runtime debug logging")
 	teamCmd.PersistentFlags().StringVar(&teamHome, "picoclaw-home", "", "override PICOCLAW_HOME for this run")
 	teamCmd.PersistentFlags().StringVar(&teamConfig, "picoclaw-config", "", "override PICOCLAW_CONFIG for this run")
@@ -423,10 +423,12 @@ func prepareTeamExecution(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoo
 		cleanup()
 		return nil, "", false, nil, fmt.Errorf("load embedded agents for team: %w", err)
 	}
-	model := strings.TrimSpace(teamModel)
-	if model == "" {
-		model = strings.TrimSpace(merged.Agent.Model)
-	}
+	model := resolveTeamDefaultModel(
+		cmd.Flags().Changed("model") || teamCmd.PersistentFlags().Changed("model"),
+		teamModel,
+		definition.DefaultModel,
+		merged.Agent.Model,
+	)
 	debug := teamDebug
 	if merged.Agent.Debug != nil {
 		debug = *merged.Agent.Debug
@@ -441,6 +443,13 @@ func prepareTeamExecution(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoo
 		processor.Close()
 		cleanup()
 	}, nil
+}
+
+func resolveTeamDefaultModel(cliChanged bool, cliModel, teamDefault, globalDefault string) string {
+	if cliChanged && strings.TrimSpace(cliModel) != "" {
+		return strings.TrimSpace(cliModel)
+	}
+	return firstTeamValue(teamDefault, globalDefault)
 }
 
 func runTeamOpen(cmd *cobra.Command, args []string) error {
@@ -813,6 +822,8 @@ func starterTeamDefinition(name string) string {
 title = %q
 description = "A persistent cross-functional team."
 version = 1
+# Optional Team fallback. Per-agent model values take precedence.
+default_model = ""
 
 [coordination]
 facilitator = "facilitator"
@@ -833,6 +844,7 @@ max_chars = 20000
 id = "facilitator"
 role = "Facilitator and product lead"
 agent = "assistant"
+model = ""
 can_finalize = true
 prompt = """
 Clarify the goal, expose unresolved disagreements, and synthesize a decisive answer.
@@ -843,6 +855,7 @@ You are a normal team member, not a message broker or manager with special autho
 id = "architect"
 role = "Software architect"
 agent = "planner"
+model = ""
 prompt = """
 Focus on system boundaries, failure modes, evolution paths, and technical tradeoffs.
 Challenge vague assumptions and propose concrete architecture.
@@ -852,6 +865,7 @@ Challenge vague assumptions and propose concrete architecture.
 id = "engineer"
 role = "Implementation engineer"
 agent = "coder"
+model = ""
 prompt = """
 Focus on implementation cost, compatibility, tests, operations, and incremental delivery.
 Turn broad ideas into changes that can actually ship.

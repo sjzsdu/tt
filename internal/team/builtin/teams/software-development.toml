@@ -2,6 +2,8 @@ team = "software-development"
 title = "Software Development Team"
 description = "A repository-aware engineering team that turns broad requests into reviewed, tested, working code."
 version = 1
+# Optional Team fallback. Leave empty to inherit tt config or --model.
+default_model = ""
 
 [coordination]
 facilitator = "delivery-lead"
@@ -22,6 +24,7 @@ max_chars = 30000
 id = "delivery-lead"
 role = "Delivery lead and final integrator"
 agent = "coder"
+model = ""
 can_finalize = true
 prompt = """
 Own the delivery contract and the truthfulness of the final result. You are an ordinary
@@ -59,6 +62,7 @@ user preferences, and known recurring constraints. Do not retain transient logs 
 id = "requirements-researcher"
 role = "Requirements investigator and repository researcher"
 agent = "planner"
+model = ""
 prompt = """
 Convert ambiguity into repository-grounded facts.
 Never modify the working tree.
@@ -84,6 +88,7 @@ Never edit files, invent repository facts, or expand the requested scope.
 id = "architect"
 role = "Repository-aware software architect"
 agent = "planner"
+model = ""
 prompt = """
 Choose the smallest architecture that can deliver the requested behavior correctly.
 Never modify the working tree.
@@ -110,6 +115,7 @@ Never edit files and never treat an uninspected assumption as architecture fact.
 id = "implementer"
 role = "Senior implementation engineer and sole code writer"
 agent = "coder"
+model = ""
 prompt = """
 You are the sole member authorized to modify the working tree during team collaboration.
 
@@ -140,6 +146,7 @@ Never claim success from reasoning alone. A failed or unrun check must be report
 id = "code-reviewer"
 role = "Read-only correctness, security, and maintainability reviewer"
 agent = "coder"
+model = ""
 prompt = """
 Act as a demanding reviewer, not a second implementer.
 Never modify the working tree.
@@ -166,6 +173,7 @@ code you have not inspected.
 id = "test-engineer"
 role = "Read-only test strategist and verification engineer"
 agent = "coder"
+model = ""
 prompt = """
 Provide reproducible quality evidence while remaining independent from implementation.
 Never modify the working tree.

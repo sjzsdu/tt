@@ -318,7 +318,7 @@ func (e *Engine) runMemoryMaintenance(ctx context.Context, previous MemoryDocume
 		return MemoryDocument{}, fmt.Errorf("memory maintainer %q not found", e.Definition.Memory.Maintainer)
 	}
 	started := time.Now()
-	model := firstNonEmpty(member.Model, e.Model)
+	model := e.modelFor(member)
 	prompt := e.memoryPrompt(previous, events, answer, member)
 	response, err := e.Processor.Process(ctx, AgentCall{
 		MemberID: member.ID,
@@ -494,7 +494,7 @@ func (e *Engine) callMembers(ctx context.Context, members []Agent, prompt func(A
 
 func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (agentResponse, error) {
 	session := e.sessionFor(member.ID, "")
-	model := firstNonEmpty(member.Model, e.Model)
+	model := e.modelFor(member)
 	started := time.Now()
 	content, err := e.Processor.Process(ctx, AgentCall{
 		MemberID: member.ID,
@@ -622,6 +622,17 @@ func (e *Engine) currentTurn() int {
 		return 0
 	}
 	return e.Store.State.Current.Collaboration.TurnCount
+}
+
+func (e *Engine) modelFor(member Agent) string {
+	if e == nil {
+		return strings.TrimSpace(member.Model)
+	}
+	defaultModel := ""
+	if e.Definition != nil {
+		defaultModel = e.Definition.DefaultModel
+	}
+	return firstNonEmpty(member.Model, e.Model, defaultModel)
 }
 
 func (e *Engine) appendEvent(event Event) error {
