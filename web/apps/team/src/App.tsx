@@ -467,7 +467,10 @@ export function App({ theme, onThemeChange }: Props) {
             <Card
               className="side-card"
               title={<Space><TeamOutlined />团队成员</Space>}
-              extra={<Tag>{state.agents.length}</Tag>}
+              extra={<Space size={4}>
+                {state.team.language && <Tag color="blue">{state.team.language}</Tag>}
+                <Tag>{state.agents.length}</Tag>
+              </Space>}
             >
               <div className="member-list">
                 {state.agents.map(agent => (

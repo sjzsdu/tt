@@ -89,6 +89,7 @@ func newTestTeamDashboard(t *testing.T) (*teamDashboardServer, *teamruntime.Stor
 		t.Fatal(err)
 	}
 	definition.DefaultModel = "dashboard-default"
+	definition.Language = "简体中文"
 	definition.Agents[0].Model = "lead-specific"
 	store, err := teamruntime.NewStore(t.TempDir(), definition)
 	if err != nil {
@@ -147,6 +148,9 @@ func TestTeamDashboardStateHandler(t *testing.T) {
 	}
 	if state.Team.DefaultModel != "dashboard-default" || state.Agents[0].Model != "lead-specific" {
 		t.Fatalf("dashboard model configuration = %+v %+v", state.Team, state.Agents[0])
+	}
+	if state.Team.Language != "简体中文" {
+		t.Fatalf("dashboard language = %q", state.Team.Language)
 	}
 	if len(state.Board.Entries) != 1 || state.Board.Entries[0].Key != "dashboard-source" {
 		t.Fatalf("blackboard = %+v", state.Board)

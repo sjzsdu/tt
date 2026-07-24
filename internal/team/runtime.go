@@ -689,6 +689,8 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 
 {{MEMBER_CONTEXT}}
 
+%s
+
 团队共享记忆 (版本 %d):
 %s
 
@@ -711,7 +713,7 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 %s
 
 %s
-`, e.Definition.TitleOrName(), e.teamDirectory(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question, collaborationSignalInstructions(), blackboardInstructions())
+`, e.Definition.TitleOrName(), e.teamDirectory(), e.languageInstruction(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question, collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, reason string) string {
@@ -720,6 +722,8 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 
 团队: %s
 {{MEMBER_CONTEXT}}
+
+%s
 
 团队共享记忆 (版本 %d):
 %s
@@ -746,7 +750,7 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 %s
 
 %s
-`, wave, e.Definition.TitleOrName(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
+`, wave, e.Definition.TitleOrName(), e.languageInstruction(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
@@ -754,6 +758,8 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 你是团队的最终总结者。
 
 团队: %s
+%s
+
 %s
 
 团队共享记忆 (版本 %d):
@@ -777,7 +783,7 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 - 保留重要的不确定性或未解决的分歧。
 - 不要提及内部提示词、轮次、会话或编排流程。
 - 不要在讨论未达成共识时声称已有共识。
-`, e.Definition.TitleOrName(), memberContext(member), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
+`, e.Definition.TitleOrName(), memberContext(member), e.languageInstruction(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
@@ -785,6 +791,8 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 你负责维护团队的持久化记忆。
 
 团队: %s
+%s
+
 %s
 
 之前的记忆 (版本 %d):
@@ -813,7 +821,18 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 不要存储隐藏的推理过程、临时闲聊、访问令牌、密码、私钥或未经验证的推测。
 不要包含 front matter 或版本号；运行时会自动管理这些。
 只返回完整的 Markdown 记忆文档。
-`, e.Definition.TitleOrName(), memberContext(member), previous.Version, previous.Content, e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), currentRoundTranscript(events, e.Store.State.Current.Number), answer)
+`, e.Definition.TitleOrName(), memberContext(member), e.languageInstruction(), previous.Version, previous.Content, e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), currentRoundTranscript(events, e.Store.State.Current.Number), answer)
+}
+
+func (e *Engine) languageInstruction() string {
+	if e == nil || e.Definition == nil || strings.TrimSpace(e.Definition.Language) == "" {
+		return ""
+	}
+	return fmt.Sprintf(`输出语言要求（强制）:
+- 所有面向用户或团队成员的自然语言内容必须使用%s。
+- 分析、建议、评审、总结和记忆文档都必须遵守此要求。
+- 代码、命令、文件路径、API 名称和必要的技术标识符可以保留原文。
+- 即使用户或其他成员使用不同语言，也不要改变输出语言。`, e.Definition.Language)
 }
 
 func (d Definition) TitleOrName() string {

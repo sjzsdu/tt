@@ -22,6 +22,7 @@ type Definition struct {
 	Title          string             `json:"title,omitempty" toml:"title,omitempty"`
 	Description    string             `json:"description,omitempty" toml:"description,omitempty"`
 	Version        int                `json:"version" toml:"version"`
+	Language       string             `json:"language,omitempty" toml:"language,omitempty"`
 	DefaultModel   string             `json:"default_model,omitempty" toml:"default_model,omitempty"`
 	Coordination   CoordinationConfig `json:"coordination" toml:"coordination"`
 	Limits         LimitsConfig       `json:"limits" toml:"limits"`
@@ -79,6 +80,7 @@ func (d *Definition) Normalize() {
 	d.Team = strings.TrimSpace(d.Team)
 	d.Title = strings.TrimSpace(d.Title)
 	d.Description = strings.TrimSpace(d.Description)
+	d.Language = strings.TrimSpace(d.Language)
 	d.DefaultModel = strings.TrimSpace(d.DefaultModel)
 	if d.Version == 0 {
 		d.Version = 1

@@ -257,6 +257,34 @@ func TestEngineResolvesAgentAndDefaultModels(t *testing.T) {
 	}
 }
 
+func TestEngineInjectsConfiguredLanguageIntoEveryPhase(t *testing.T) {
+	definition := testDefinition(t)
+	definition.Language = "简体中文"
+	definition.DefinitionHash = ""
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartRound("Explain the change."); err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Definition: definition, Store: store}
+	member := definition.Agents[0]
+	prompts := map[string]string{
+		"initial": engine.initialPrompt(MemoryDocument{}, nil),
+		"review":  engine.reviewPrompt(MemoryDocument{}, nil, 1, "review"),
+		"final":   engine.finalPrompt(MemoryDocument{}, nil, member),
+		"memory":  engine.memoryPrompt(MemoryDocument{}, nil, "answer", member),
+	}
+	for phase, prompt := range prompts {
+		if !strings.Contains(prompt, "输出语言要求（强制）") ||
+			!strings.Contains(prompt, "必须使用简体中文") ||
+			!strings.Contains(prompt, "不要改变输出语言") {
+			t.Fatalf("%s prompt lacks language contract:\n%s", phase, prompt)
+		}
+	}
+}
+
 func countPhaseMessages(events []Event, phase string) int {
 	count := 0
 	for _, event := range events {

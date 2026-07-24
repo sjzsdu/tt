@@ -45,6 +45,7 @@ type teamDashboardTeam struct {
 	Team         string `json:"team"`
 	Title        string `json:"title,omitempty"`
 	Description  string `json:"description,omitempty"`
+	Language     string `json:"language,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
 }
 
@@ -466,6 +467,7 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 			Team:         s.definition.Team,
 			Title:        s.definition.Title,
 			Description:  s.definition.Description,
+			Language:     s.definition.Language,
 			DefaultModel: s.definition.DefaultModel,
 		},
 		Thread:       thread,

@@ -2,6 +2,7 @@ export type TeamInfo = {
   team: string;
   title?: string;
   description?: string;
+  language?: string;
   default_model?: string;
 };
 
