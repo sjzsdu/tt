@@ -53,6 +53,7 @@ type teamDashboardAgent struct {
 	Role             string `json:"role,omitempty"`
 	Agent            string `json:"agent,omitempty"`
 	Model            string `json:"model,omitempty"`
+	ExternalDriver   string `json:"external_driver,omitempty"`
 	Facilitator      bool   `json:"facilitator,omitempty"`
 	Finalizer        bool   `json:"finalizer,omitempty"`
 	MemoryMaintainer bool   `json:"memory_maintainer,omitempty"`
@@ -438,11 +439,16 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 	}
 	agents := make([]teamDashboardAgent, 0, len(s.definition.Agents))
 	for _, member := range s.definition.Agents {
+		externalDriver := ""
+		if member.External != nil {
+			externalDriver = member.External.Driver
+		}
 		agents = append(agents, teamDashboardAgent{
 			ID:               member.ID,
 			Role:             member.Role,
 			Agent:            member.Agent,
 			Model:            member.Model,
+			ExternalDriver:   externalDriver,
 			Facilitator:      strings.EqualFold(member.ID, s.definition.Coordination.Facilitator),
 			Finalizer:        strings.EqualFold(member.ID, s.definition.Coordination.Finalizer),
 			MemoryMaintainer: strings.EqualFold(member.ID, s.definition.Memory.Maintainer),

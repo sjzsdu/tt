@@ -2,18 +2,23 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sjzsdu/tt/internal/agents"
+	formularuntime "github.com/sjzsdu/tt/internal/formula/runtime"
+	formulasteps "github.com/sjzsdu/tt/internal/formula/steps"
 	pcwrap "github.com/sjzsdu/tt/internal/picoclaw"
 	teamruntime "github.com/sjzsdu/tt/internal/team"
 	ttconfig "github.com/sjzsdu/tt/internal/ttconfig"
@@ -397,31 +402,43 @@ func prepareTeamExecution(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoo
 	}
 	merged = ttconfig.Merge(merged, cli)
 
-	_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
-	if err != nil {
-		return nil, "", false, nil, err
+	var rt *pcwrap.Runtime
+	var embedded []pcwrap.EmbeddedAgent
+	cleanup := func() {}
+	needsEmbeddedRuntime := false
+	for _, member := range definition.Agents {
+		if member.External == nil {
+			needsEmbeddedRuntime = true
+			break
+		}
 	}
-	cleanup := restoreStorage
-	merged.Picoclaw.Home = resolvedHome
-	merged.Picoclaw.Config = resolvedConfig
-	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		cleanup()
-		return nil, "", false, nil, err
-	}
-	rt, err := pcwrap.Load(pcwrap.Options{
-		Home:      merged.Picoclaw.Home,
-		Config:    merged.Picoclaw.Config,
-		TTConfig:  merged,
-		TTSources: loaded.Sources,
-	})
-	if err != nil {
-		cleanup()
-		return nil, "", false, nil, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
-	}
-	embedded, err := agents.All()
-	if err != nil {
-		cleanup()
-		return nil, "", false, nil, fmt.Errorf("load embedded agents for team: %w", err)
+	if needsEmbeddedRuntime {
+		_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
+		if err != nil {
+			return nil, "", false, nil, err
+		}
+		cleanup = restoreStorage
+		merged.Picoclaw.Home = resolvedHome
+		merged.Picoclaw.Config = resolvedConfig
+		if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
+			cleanup()
+			return nil, "", false, nil, err
+		}
+		rt, err = pcwrap.Load(pcwrap.Options{
+			Home:      merged.Picoclaw.Home,
+			Config:    merged.Picoclaw.Config,
+			TTConfig:  merged,
+			TTSources: loaded.Sources,
+		})
+		if err != nil {
+			cleanup()
+			return nil, "", false, nil, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		}
+		embedded, err = agents.All()
+		if err != nil {
+			cleanup()
+			return nil, "", false, nil, fmt.Errorf("load embedded agents for team: %w", err)
+		}
 	}
 	model := resolveTeamDefaultModel(
 		cmd.Flags().Changed("model") || teamCmd.PersistentFlags().Changed("model"),
@@ -437,7 +454,7 @@ func prepareTeamExecution(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoo
 	if err := processor.ValidateDefinition(definition); err != nil {
 		processor.Close()
 		cleanup()
-		return nil, "", false, nil, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		return nil, "", false, nil, err
 	}
 	return processor, model, debug, func() {
 		processor.Close()
@@ -692,33 +709,49 @@ func runTeamInit(cmd *cobra.Command, args []string) error {
 }
 
 type teamPicoclawProcessor struct {
-	runtime      *pcwrap.Runtime
-	embedded     []pcwrap.EmbeddedAgent
-	workspace    string
-	defaultAgent string
-	defaultModel string
-	debug        bool
-	mu           sync.Mutex
-	runners      map[string]*pcwrap.DirectRunner
-	runnerLocks  map[string]*sync.Mutex
+	runtime          *pcwrap.Runtime
+	embedded         []pcwrap.EmbeddedAgent
+	workspace        string
+	defaultAgent     string
+	defaultModel     string
+	debug            bool
+	mu               sync.Mutex
+	runners          map[string]*pcwrap.DirectRunner
+	runnerLocks      map[string]*sync.Mutex
+	externalRunner   formulasteps.ExternalAgentRunner
+	externalSessions map[string]string
+	externalLocks    map[string]*sync.Mutex
 }
 
 func newTeamPicoclawProcessor(rt *pcwrap.Runtime, embedded []pcwrap.EmbeddedAgent, workspace, defaultAgent, defaultModel string, debug bool) *teamPicoclawProcessor {
 	return &teamPicoclawProcessor{
-		runtime:      rt,
-		embedded:     embedded,
-		workspace:    workspace,
-		defaultAgent: defaultAgent,
-		defaultModel: defaultModel,
-		debug:        debug,
-		runners:      map[string]*pcwrap.DirectRunner{},
-		runnerLocks:  map[string]*sync.Mutex{},
+		runtime:          rt,
+		embedded:         embedded,
+		workspace:        workspace,
+		defaultAgent:     defaultAgent,
+		defaultModel:     defaultModel,
+		debug:            debug,
+		runners:          map[string]*pcwrap.DirectRunner{},
+		runnerLocks:      map[string]*sync.Mutex{},
+		externalRunner:   formularuntime.ExternalAgentCapability{},
+		externalSessions: map[string]string{},
+		externalLocks:    map[string]*sync.Mutex{},
 	}
 }
 
 func (p *teamPicoclawProcessor) ValidateDefinition(definition *teamruntime.Definition) error {
 	var failures []string
 	for _, member := range definition.Agents {
+		if member.External != nil {
+			binary := member.External.Driver
+			if binary == "bl" {
+				binary = "jcode"
+			}
+			if _, err := exec.LookPath(binary); err != nil {
+				failures = append(failures, fmt.Sprintf("@%s (%s): external agent executable not found on PATH", member.ID, binary))
+			}
+			continue
+		}
 		agentName := firstTeamValue(member.Agent, p.defaultAgent)
 		model := firstTeamValue(member.Model, p.defaultModel)
 		if _, err := p.runtime.ResolveRunOptions(pcwrap.RunOptions{
@@ -738,6 +771,9 @@ func (p *teamPicoclawProcessor) ValidateDefinition(definition *teamruntime.Defin
 }
 
 func (p *teamPicoclawProcessor) Process(ctx context.Context, call teamruntime.AgentCall) (string, error) {
+	if call.External != nil {
+		return p.processExternal(ctx, call)
+	}
 	key := strings.ToLower(call.MemberID + "|" + firstTeamValue(call.Model, p.defaultModel))
 	runner, lock, err := p.runner(key, call)
 	if err != nil {
@@ -755,6 +791,79 @@ func (p *teamPicoclawProcessor) Process(ctx context.Context, call teamruntime.Ag
 		Quiet:          !p.debug,
 		EmbeddedAgents: p.embedded,
 	})
+}
+
+type teamExternalAgentOutput struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+	Stderr    string `json:"stderr"`
+}
+
+func (p *teamPicoclawProcessor) processExternal(ctx context.Context, call teamruntime.AgentCall) (string, error) {
+	external := call.External
+	key := strings.ToLower(firstTeamValue(call.Session, call.MemberID))
+	p.mu.Lock()
+	lock := p.externalLocks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		p.externalLocks[key] = lock
+	}
+	p.mu.Unlock()
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	p.mu.Lock()
+	resume := p.externalSessions[key]
+	p.mu.Unlock()
+	if resume == "" && call.ExternalSessions != nil {
+		resume = call.ExternalSessions.ExternalSession(key)
+	}
+	resume = firstTeamValue(resume, external.Resume)
+	timeout := time.Duration(0)
+	if external.Timeout != "" {
+		timeout, _ = time.ParseDuration(external.Timeout)
+	}
+	workspace := firstTeamValue(external.Cwd, call.Workspace, p.workspace)
+	if workspace != "" && !filepath.IsAbs(workspace) {
+		workspace = filepath.Join(firstTeamValue(call.Workspace, p.workspace), workspace)
+	}
+	value, runErr := p.externalRunner.RunExternalAgent(ctx, formulasteps.ExternalAgentRequest{
+		NodeID:    call.MemberID,
+		Driver:    external.Driver,
+		Provider:  external.Provider,
+		Model:     firstTeamValue(call.Model, p.defaultModel),
+		Mode:      external.Mode,
+		Resume:    resume,
+		Workspace: workspace,
+		Prompt:    call.Prompt,
+		ExtraArgs: append([]string(nil), external.ExtraArgs...),
+		Timeout:   timeout,
+	})
+	var output teamExternalAgentOutput
+	if err := json.Unmarshal(value.Raw, &output); err != nil {
+		if runErr != nil {
+			return "", runErr
+		}
+		return "", fmt.Errorf("decode external agent %s output: %w", external.Driver, err)
+	}
+	if output.SessionID != "" {
+		p.mu.Lock()
+		p.externalSessions[key] = output.SessionID
+		p.mu.Unlock()
+		if call.ExternalSessions != nil {
+			if err := call.ExternalSessions.SetExternalSession(key, output.SessionID); err != nil {
+				return output.Text, fmt.Errorf("persist external agent %s session: %w", external.Driver, err)
+			}
+		}
+	}
+	if runErr != nil {
+		if stderr := strings.TrimSpace(output.Stderr); stderr != "" {
+			return output.Text, fmt.Errorf("%w: %s", runErr, stderr)
+		}
+		return output.Text, runErr
+	}
+	return output.Text, nil
 }
 
 func (p *teamPicoclawProcessor) runner(key string, call teamruntime.AgentCall) (*pcwrap.DirectRunner, *sync.Mutex, error) {

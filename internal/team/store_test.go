@@ -215,3 +215,20 @@ func TestOpenStoreRejectsFutureSchema(t *testing.T) {
 		t.Fatalf("expected future schema error, got %v", err)
 	}
 }
+
+func TestExternalSessionsPersist(t *testing.T) {
+	store, err := NewStore(t.TempDir(), testDefinition(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetExternalSession(" Implementer ", "session-123"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(store.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.ExternalSession("implementer"); got != "session-123" {
+		t.Fatalf("external session = %q", got)
+	}
+}

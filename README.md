@@ -141,6 +141,26 @@ Model precedence is `agents.model` → explicit `tt team --model` fallback →
 `default_model` → the global `agent.model` configuration. The finalizer and memory
 maintainer use the same rule.
 
+A member can use the same external-agent adapters as Formula instead of an embedded
+agent. Supported drivers are `codex`, `jcode`, `opencode`, `forge`, and `bl`:
+
+```toml
+[[agents]]
+id = "implementer"
+role = "Senior implementation engineer"
+model = "gpt-5-codex"
+
+[agents.external]
+driver = "codex"
+mode = "normal"
+timeout = "30m"
+extra_args = ["--full-auto"]
+```
+
+Do not set `agent` and `[agents.external]` on the same member. `agents.model` is
+passed to the external CLI. `cwd` may be absolute or relative to the Team workspace;
+`provider`, `resume`, and `extra_args` follow Formula's external-agent semantics.
+
 ### `tt markdown`
 
 Start a local web service for browsing Markdown files in the current working tree. The UI is a React/Vite single-page app embedded into the Go binary at build time, while Go owns the local file APIs and websocket reloads.
