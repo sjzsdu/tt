@@ -39,6 +39,7 @@ web/apps/team/node_modules/
 
 # Frontend build output
 web/apps/*/dist/
+web/apps/*/.test-dist/
 internal/*/dist/
 internal/webui/*/dist/
 

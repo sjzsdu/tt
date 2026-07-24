@@ -1,7 +1,13 @@
 package cmd
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	teamruntime "github.com/sjzsdu/tt/internal/team"
 )
@@ -38,5 +44,34 @@ func TestStarterTeamDefinitionParses(t *testing.T) {
 	}
 	if !definition.MemoryEnabled() {
 		t.Fatal("starter team memory should be enabled")
+	}
+}
+
+func TestTeamInitCopiesBuiltinDefinition(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TT_CONFIG", filepath.Join(root, "global-config.json"))
+	t.Setenv("TT_PROJECT_CONFIG", filepath.Join(root, ".tt", "config.json"))
+
+	var output bytes.Buffer
+	command := &cobra.Command{}
+	command.SetOut(&output)
+	if err := runTeamInit(command, []string{"product-review"}); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(root, ".tt", "teams", "product-review.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := teamruntime.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.Team != "product-review" || len(definition.Agents) != 3 {
+		t.Fatalf("definition = %+v", definition)
+	}
+	if !strings.Contains(output.String(), `Copied builtin team "product-review"`) {
+		t.Fatalf("output = %q", output.String())
 	}
 }

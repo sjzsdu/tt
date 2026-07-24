@@ -46,6 +46,13 @@ type agentResponse struct {
 	Err     error
 }
 
+const (
+	promptMarkerInitial = "[TEAM_PHASE:INITIAL]"
+	promptMarkerReview  = "[TEAM_PHASE:REVIEW]"
+	promptMarkerFinal   = "[TEAM_PHASE:FINAL]"
+	promptMarkerMemory  = "[TEAM_PHASE:MEMORY]"
+)
+
 func (e *Engine) RunRound(ctx context.Context, question string) (RunResult, error) {
 	if err := e.validate(); err != nil {
 		return RunResult{}, err
@@ -438,7 +445,8 @@ func (e *Engine) sessionFor(memberID, purpose string) string {
 }
 
 func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
-	return fmt.Sprintf(`你正在参与一个持久化的专业团队协作。
+	return fmt.Sprintf(`[TEAM_PHASE:INITIAL]
+你正在参与一个持久化的专业团队协作。
 
 团队: %s
 团队成员:
@@ -465,7 +473,8 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 }
 
 func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int) string {
-	return fmt.Sprintf(`你正在参与第 %d 轮同行评审。
+	return fmt.Sprintf(`[TEAM_PHASE:REVIEW]
+你正在参与第 %d 轮同行评审。
 
 团队: %s
 {{MEMBER_CONTEXT}}
@@ -489,7 +498,8 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int) s
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
-	return fmt.Sprintf(`你是团队的最终总结者。
+	return fmt.Sprintf(`[TEAM_PHASE:FINAL]
+你是团队的最终总结者。
 
 团队: %s
 %s
@@ -513,7 +523,8 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
-	return fmt.Sprintf(`你负责维护团队的持久化记忆。
+	return fmt.Sprintf(`[TEAM_PHASE:MEMORY]
+你负责维护团队的持久化记忆。
 
 团队: %s
 %s

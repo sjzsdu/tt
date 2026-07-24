@@ -3,6 +3,7 @@ package team
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,12 +95,48 @@ func TestLoadAndListDefinitions(t *testing.T) {
 	if definition.Source != path {
 		t.Fatalf("source = %q, want %q", definition.Source, path)
 	}
+	flatPath := filepath.Join(root, "flat.toml")
+	flatTOML := strings.Replace(validTeamTOML, `team = "review"`, `team = "flat"`, 1)
+	if err := os.WriteFile(flatPath, []byte(flatTOML), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	records, err := List(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Name != "review" || records[0].Agents != 2 {
+	if len(records) != 2 ||
+		records[0].Name != "flat" ||
+		records[1].Name != "review" ||
+		records[1].Agents != 2 {
 		t.Fatalf("records = %+v", records)
+	}
+}
+
+func TestLoadFlatDefinitionBeforeBuiltin(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "product-review.toml")
+	content := strings.Replace(validTeamTOML, `team = "review"`, `team = "product-review"`, 1)
+	content = strings.Replace(content, `title = "Review Team"`, `title = "Custom Product Review"`, 1)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	definition, err := Load("product-review", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.Source != path || definition.Title != "Custom Product Review" {
+		t.Fatalf("definition = %+v", definition)
+	}
+}
+
+func TestLoadBuiltinDefinitionFallback(t *testing.T) {
+	definition, err := Load("product-review", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.Source != "builtin:product-review" || len(definition.Agents) != 3 {
+		t.Fatalf("definition = %+v", definition)
 	}
 }
 
