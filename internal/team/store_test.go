@@ -69,3 +69,36 @@ func TestStorePinsDefinition(t *testing.T) {
 		t.Fatalf("definition/thread = %+v %+v", definition, store.Thread)
 	}
 }
+
+func TestStoreSnapshotClonesCollaborationState(t *testing.T) {
+	store, err := NewStore(t.TempDir(), testDefinition(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartRound("Review this."); err != nil {
+		t.Fatal(err)
+	}
+	state := CollaborationState{
+		TurnCount: 2,
+		Pending:   []Activation{{MemberID: "expert", Reason: activationDirectMention}},
+		Objections: []Objection{{
+			EventID: 7,
+			From:    "expert",
+			Targets: []string{"lead"},
+		}},
+	}
+	if err := store.SetCollaboration(state); err != nil {
+		t.Fatal(err)
+	}
+
+	_, snapshot, _, err := store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Current.Collaboration.Pending[0].MemberID = "changed"
+	snapshot.Current.Collaboration.Objections[0].Targets[0] = "changed"
+	if store.State.Current.Collaboration.Pending[0].MemberID != "expert" ||
+		store.State.Current.Collaboration.Objections[0].Targets[0] != "lead" {
+		t.Fatalf("snapshot mutation leaked into store: %+v", store.State.Current.Collaboration)
+	}
+}

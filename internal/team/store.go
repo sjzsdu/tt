@@ -49,16 +49,44 @@ type Thread struct {
 }
 
 type RoundState struct {
-	Number        int    `json:"number"`
-	Status        string `json:"status"`
-	Phase         string `json:"phase"`
-	ReviewWave    int    `json:"review_wave,omitempty"`
-	Question      string `json:"question"`
-	StartedAt     string `json:"started_at"`
-	FinishedAt    string `json:"finished_at,omitempty"`
-	FinalAnswer   string `json:"final_answer,omitempty"`
-	MemoryVersion int    `json:"memory_version,omitempty"`
-	Error         string `json:"error,omitempty"`
+	Number        int                 `json:"number"`
+	Status        string              `json:"status"`
+	Phase         string              `json:"phase"`
+	ReviewWave    int                 `json:"review_wave,omitempty"`
+	Question      string              `json:"question"`
+	StartedAt     string              `json:"started_at"`
+	FinishedAt    string              `json:"finished_at,omitempty"`
+	FinalAnswer   string              `json:"final_answer,omitempty"`
+	MemoryVersion int                 `json:"memory_version,omitempty"`
+	Error         string              `json:"error,omitempty"`
+	Collaboration *CollaborationState `json:"collaboration,omitempty"`
+}
+
+type CollaborationState struct {
+	TurnCount            int          `json:"turn_count"`
+	Cycle                int          `json:"cycle"`
+	BroadReviewWaves     int          `json:"broad_review_waves"`
+	Pending              []Activation `json:"pending,omitempty"`
+	Objections           []Objection  `json:"objections,omitempty"`
+	ProposalBy           string       `json:"proposal_by,omitempty"`
+	Converged            bool         `json:"converged,omitempty"`
+	StopReason           string       `json:"stop_reason,omitempty"`
+	InitializedAtEventID int64        `json:"initialized_at_event_id,omitempty"`
+}
+
+type Activation struct {
+	MemberID      string `json:"member_id"`
+	Reason        string `json:"reason"`
+	SourceEventID int64  `json:"source_event_id,omitempty"`
+}
+
+type Objection struct {
+	EventID           int64    `json:"event_id"`
+	From              string   `json:"from"`
+	Targets           []string `json:"targets,omitempty"`
+	Content           string   `json:"content,omitempty"`
+	Resolved          bool     `json:"resolved,omitempty"`
+	ResolvedByEventID int64    `json:"resolved_by_event_id,omitempty"`
 }
 
 type State struct {
@@ -77,6 +105,8 @@ type Event struct {
 	From     string   `json:"from,omitempty"`
 	To       []string `json:"to,omitempty"`
 	Session  string   `json:"session,omitempty"`
+	Signal   string   `json:"signal,omitempty"`
+	Ref      int64    `json:"ref,omitempty"`
 	Content  string   `json:"content,omitempty"`
 	Error    string   `json:"error,omitempty"`
 }
@@ -297,6 +327,31 @@ func (s *Store) SetPhase(phase string, reviewWave int) error {
 	return s.saveLocked()
 }
 
+func (s *Store) SetCollaboration(state CollaborationState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.State.Current == nil {
+		return fmt.Errorf("team thread has no current round")
+	}
+	copy := cloneCollaborationState(state)
+	s.State.Current.Collaboration = &copy
+	s.Thread.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return s.saveLocked()
+}
+
+func (s *Store) Collaboration() (*CollaborationState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.State.Current == nil {
+		return nil, fmt.Errorf("team thread has no current round")
+	}
+	if s.State.Current.Collaboration == nil {
+		return nil, nil
+	}
+	copy := cloneCollaborationState(*s.State.Current.Collaboration)
+	return &copy, nil
+}
+
 func (s *Store) AppendEvent(event Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -383,6 +438,9 @@ func (s *Store) PrepareResume() error {
 	s.State.Current.Status = RoundStatusRunning
 	s.State.Current.FinishedAt = ""
 	s.State.Current.Error = ""
+	if s.State.Current.Collaboration != nil && s.State.Current.Collaboration.StopReason == stopReasonMaxWallTime {
+		s.State.Current.Collaboration.StopReason = ""
+	}
 	s.Thread.Status = ThreadStatusRunning
 	s.Thread.Error = ""
 	s.Thread.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -413,6 +471,10 @@ func (s *Store) Snapshot() (Thread, State, []Event, error) {
 	state := s.State
 	if s.State.Current != nil {
 		current := *s.State.Current
+		if s.State.Current.Collaboration != nil {
+			collaboration := cloneCollaborationState(*s.State.Current.Collaboration)
+			current.Collaboration = &collaboration
+		}
 		state.Current = &current
 	}
 	events, err := loadEvents(filepath.Join(s.Dir, "events.jsonl"))
@@ -420,6 +482,17 @@ func (s *Store) Snapshot() (Thread, State, []Event, error) {
 		return Thread{}, State{}, nil, err
 	}
 	return thread, state, events, nil
+}
+
+func cloneCollaborationState(state CollaborationState) CollaborationState {
+	copy := state
+	copy.Pending = append([]Activation(nil), state.Pending...)
+	copy.Objections = make([]Objection, len(state.Objections))
+	for i, objection := range state.Objections {
+		copy.Objections[i] = objection
+		copy.Objections[i].Targets = append([]string(nil), objection.Targets...)
+	}
+	return copy
 }
 
 func (s *Store) saveDefinition(definition *Definition) error {

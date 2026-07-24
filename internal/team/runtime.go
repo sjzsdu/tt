@@ -43,6 +43,8 @@ type agentResponse struct {
 	Member  Agent
 	Session string
 	Content string
+	Signal  CollaborationSignal
+	Targets []string
 	Err     error
 }
 
@@ -115,6 +117,11 @@ func (e *Engine) runCurrentRound(ctx context.Context) (result RunResult, err err
 			return
 		}
 		if runCtx.Err() != nil {
+			if runCtx.Err() == context.DeadlineExceeded {
+				if state, stateErr := e.Store.Collaboration(); stateErr == nil && state != nil && state.StopReason == "" {
+					_ = e.forceStopCollaboration(*state, stopReasonMaxWallTime)
+				}
+			}
 			_ = e.Store.MarkInterrupted(runCtx.Err())
 		} else {
 			_ = e.Store.MarkFailed(err)
@@ -137,13 +144,14 @@ func (e *Engine) runCurrentRound(ctx context.Context) (result RunResult, err err
 	if err := e.runInitialWave(runCtx, memory); err != nil {
 		return RunResult{}, err
 	}
-	for wave := 1; wave <= e.Definition.Coordination.ReviewWaves; wave++ {
-		if err := e.runReviewWave(runCtx, memory, wave); err != nil {
-			return RunResult{}, err
-		}
+	if err := e.runAdaptiveReview(runCtx, memory); err != nil {
+		return RunResult{}, err
 	}
 	answer, err := e.runFinalization(runCtx, memory)
 	if err != nil {
+		return RunResult{}, err
+	}
+	if err := e.recordFinalTurn(); err != nil {
 		return RunResult{}, err
 	}
 
@@ -202,31 +210,32 @@ func (e *Engine) runInitialWave(ctx context.Context, memory MemoryDocument) erro
 	return e.commitResponses(PhaseInitial, 0, responses)
 }
 
-func (e *Engine) runReviewWave(ctx context.Context, memory MemoryDocument, wave int) error {
+func (e *Engine) runReviewActivations(ctx context.Context, memory MemoryDocument, wave int, activations []Activation) ([]agentResponse, error) {
 	if err := e.Store.SetPhase(PhaseReview, wave); err != nil {
-		return err
+		return nil, err
 	}
 	events, err := e.Store.Events()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	completed := completedMembers(events, e.Store.State.Current.Number, PhaseReview, wave)
-	finalizer := strings.ToLower(e.Definition.Coordination.Finalizer)
-	var pending []Agent
-	for _, member := range e.Definition.Agents {
-		if strings.ToLower(member.ID) == finalizer || completed[strings.ToLower(member.ID)] {
+	members := make([]Agent, 0, len(activations))
+	reasons := make(map[string]string, len(activations))
+	for _, activation := range activations {
+		member, ok := e.Definition.AgentByID(activation.MemberID)
+		if !ok {
 			continue
 		}
-		pending = append(pending, member)
+		members = append(members, member)
+		reasons[strings.ToLower(member.ID)] = activation.Reason
 	}
-	if len(pending) == 0 {
-		return nil
+	if len(members) == 0 {
+		return nil, nil
 	}
-	prompt := e.reviewPrompt(memory, events, wave)
-	responses := e.callMembers(ctx, pending, func(member Agent) string {
+	responses := e.callMembers(ctx, members, func(member Agent) string {
+		prompt := e.reviewPrompt(memory, events, wave, reasons[strings.ToLower(member.ID)])
 		return strings.ReplaceAll(prompt, "{{MEMBER_CONTEXT}}", memberContext(member))
 	})
-	return e.commitResponses(PhaseReview, wave, responses)
+	return responses, e.commitResponses(PhaseReview, wave, responses)
 }
 
 func (e *Engine) runFinalization(ctx context.Context, memory MemoryDocument) (string, error) {
@@ -367,10 +376,13 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		Session:  session,
 		Prompt:   prompt,
 	})
+	cleanContent, signal, targets := parseCollaborationResponse(content, e.Definition)
 	response := agentResponse{
 		Member:  member,
 		Session: session,
-		Content: strings.TrimSpace(content),
+		Content: cleanContent,
+		Signal:  signal,
+		Targets: targets,
 		Err:     err,
 	}
 	return response, err
@@ -378,7 +390,8 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 
 func (e *Engine) commitResponses(phase string, wave int, responses []agentResponse) error {
 	var firstErr error
-	for _, response := range responses {
+	for i := range responses {
+		response := &responses[i]
 		if response.Err != nil {
 			event := Event{
 				Type:    "agent_error",
@@ -395,15 +408,36 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 			}
 			continue
 		}
-		if response.Content == "" {
+		if response.Content == "" && response.Signal != SignalYield {
+			emptyErr := fmt.Errorf("team agent %s returned an empty response", response.Member.ID)
+			_ = e.appendEvent(Event{
+				Type:    "agent_error",
+				Round:   e.Store.State.Current.Number,
+				Phase:   phase,
+				Wave:    wave,
+				From:    response.Member.ID,
+				Session: response.Session,
+				Error:   emptyErr.Error(),
+			})
 			if firstErr == nil {
-				firstErr = fmt.Errorf("team agent %s returned an empty response", response.Member.ID)
+				firstErr = emptyErr
 			}
 			continue
 		}
+		if response.Signal == SignalObject && len(response.Targets) == 0 {
+			response.Targets = e.defaultObjectionTargets(response.Member.ID)
+		}
 		eventType := "agent_message"
-		if isYield(response.Content) {
+		if response.Signal == SignalYield {
 			eventType = "agent_yield"
+		}
+		content := response.Content
+		if eventType == "agent_yield" && content == "" {
+			content = "[YIELD]"
+		}
+		targets := response.Targets
+		if len(targets) == 0 {
+			targets = []string{"team"}
 		}
 		if err := e.appendEvent(Event{
 			Type:    eventType,
@@ -411,9 +445,10 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 			Phase:   phase,
 			Wave:    wave,
 			From:    response.Member.ID,
-			To:      []string{"team"},
+			To:      targets,
 			Session: response.Session,
-			Content: response.Content,
+			Signal:  string(response.Signal),
+			Content: content,
 		}); err != nil && firstErr == nil {
 			firstErr = err
 		}
@@ -469,10 +504,12 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 - 提出假设、风险、缺失信息和具体建议。
 - 不要假设其他成员已经在这个轮次中回答过。
 - 除非你的角色特别要求，否则不要撰写面向用户的最终总结。
-`, e.Definition.TitleOrName(), e.teamDirectory(), memory.Version, memory.Content, priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question)
+
+%s
+`, e.Definition.TitleOrName(), e.teamDirectory(), memory.Version, memory.Content, priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question, collaborationSignalInstructions())
 }
 
-func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int) string {
+func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, reason string) string {
 	return fmt.Sprintf(`[TEAM_PHASE:REVIEW]
 你正在参与第 %d 轮同行评审。
 
@@ -485,6 +522,9 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int) s
 当前用户问题:
 %s
 
+本次发言的触发原因:
+%s
+
 目前的讨论:
 %s
 
@@ -494,7 +534,9 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int) s
 - 只添加实质性改善答案的信息。
 - 必要时用 @成员id 称呼同事。
 - 如果没有实质性补充，请直接输出 [YIELD]。
-`, wave, e.Definition.TitleOrName(), memory.Version, memory.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number))
+
+%s
+`, wave, e.Definition.TitleOrName(), memory.Version, memory.Content, e.Store.State.Current.Question, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions())
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
@@ -513,13 +555,16 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 团队讨论:
 %s
 
+协作终止状态:
+%s
+
 请为用户产出最终答案。
 - 整合最有说服力的观点。
 - 消除重复，使建议明确果断。
 - 保留重要的不确定性或未解决的分歧。
 - 不要提及内部提示词、轮次、会话或编排流程。
 - 不要在讨论未达成共识时声称已有共识。
-`, e.Definition.TitleOrName(), memberContext(member), memory.Version, memory.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number))
+`, e.Definition.TitleOrName(), memberContext(member), memory.Version, memory.Content, e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
@@ -650,7 +695,11 @@ func currentRoundTranscript(events []Event, round int) string {
 		case "user_message":
 			fmt.Fprintf(&builder, "user: %s\n\n", event.Content)
 		case "agent_message":
-			fmt.Fprintf(&builder, "@%s: %s\n\n", event.From, event.Content)
+			signal := ""
+			if event.Signal != "" {
+				signal = " [" + event.Signal + "]"
+			}
+			fmt.Fprintf(&builder, "@%s%s: %s\n\n", event.From, signal, event.Content)
 		case "agent_yield":
 			fmt.Fprintf(&builder, "@%s: [YIELD]\n\n", event.From)
 		}
