@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,17 +24,20 @@ type teamDashboardServer struct {
 	port       int
 	store      *teamruntime.Store
 	definition *teamruntime.Definition
+	actions    teamDashboardActions
+	subs       map[chan struct{}]struct{}
 	open       func(string)
 }
 
 type teamDashboardState struct {
-	Team   teamDashboardTeam                `json:"team"`
-	Thread teamruntime.Thread               `json:"thread"`
-	Round  *teamruntime.RoundState          `json:"round,omitempty"`
-	Agents []teamDashboardAgent             `json:"agents"`
-	Events []teamruntime.Event              `json:"events"`
-	Board  teamruntime.BlackboardProjection `json:"blackboard"`
-	Memory teamruntime.MemoryDocument       `json:"memory"`
+	Team     teamDashboardTeam                `json:"team"`
+	Thread   teamruntime.Thread               `json:"thread"`
+	Round    *teamruntime.RoundState          `json:"round,omitempty"`
+	Agents   []teamDashboardAgent             `json:"agents"`
+	Events   []teamruntime.Event              `json:"events"`
+	Board    teamruntime.BlackboardProjection `json:"blackboard"`
+	Memory   teamruntime.MemoryDocument       `json:"memory"`
+	Controls teamDashboardControls            `json:"controls"`
 }
 
 type teamDashboardTeam struct {
@@ -55,8 +60,15 @@ func newTeamDashboardServer(store *teamruntime.Store, definition *teamruntime.De
 	return &teamDashboardServer{
 		store:      store,
 		definition: definition,
+		subs:       map[chan struct{}]struct{}{},
 		open:       openBrowser,
 	}
+}
+
+func (s *teamDashboardServer) setActions(actions teamDashboardActions) {
+	s.mu.Lock()
+	s.actions = actions
+	s.mu.Unlock()
 }
 
 func (s *teamDashboardServer) start(port int, launchBrowser bool) error {
@@ -113,6 +125,7 @@ func (s *teamDashboardServer) close() {
 	server := s.server
 	s.server = nil
 	s.listener = nil
+	s.subs = map[chan struct{}]struct{}{}
 	s.mu.Unlock()
 	if server == nil {
 		return
@@ -142,6 +155,10 @@ func (s *teamDashboardServer) routes() http.Handler {
 	mux.Handle("/assets/", webui.TeamAssetsHandler())
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/state", s.handleState)
+	mux.HandleFunc("/api/events", s.handleEvents)
+	mux.HandleFunc("/api/follow-up", s.handleFollowUp)
+	mux.HandleFunc("/api/resume", s.handleResume)
+	mux.HandleFunc("/api/stop", s.handleStop)
 	return mux
 }
 
@@ -154,6 +171,196 @@ func (s *teamDashboardServer) handleIndex(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(webui.TeamIndex())
+}
+
+func (s *teamDashboardServer) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	subscriber := s.subscribe()
+	defer s.unsubscribe(subscriber)
+	if err := s.writeStateEvent(w); err != nil {
+		return
+	}
+	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case _, open := <-subscriber:
+			if !open {
+				return
+			}
+			if err := s.writeStateEvent(w); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, ": heartbeat\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *teamDashboardServer) handleFollowUp(w http.ResponseWriter, r *http.Request) {
+	actions, ok := s.prepareMutation(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Message string `json:"message"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32*1024)
+	decoder := json.NewDecoder(bufio.NewReader(r.Body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		http.Error(w, "invalid JSON request", http.StatusBadRequest)
+		return
+	}
+	if err := actions.FollowUp(input.Message); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.notifyState()
+	writeAccepted(w)
+}
+
+func (s *teamDashboardServer) handleResume(w http.ResponseWriter, r *http.Request) {
+	actions, ok := s.prepareMutation(w, r)
+	if !ok {
+		return
+	}
+	if err := actions.Resume(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.notifyState()
+	writeAccepted(w)
+}
+
+func (s *teamDashboardServer) handleStop(w http.ResponseWriter, r *http.Request) {
+	actions, ok := s.prepareMutation(w, r)
+	if !ok {
+		return
+	}
+	if err := actions.Stop(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	s.notifyState()
+	writeAccepted(w)
+}
+
+func (s *teamDashboardServer) prepareMutation(w http.ResponseWriter, r *http.Request) (teamDashboardActions, bool) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return nil, false
+	}
+	if !isLoopbackRequest(r) || !isSameOriginMutation(r) {
+		http.Error(w, "dashboard mutations require a same-origin loopback request", http.StatusForbidden)
+		return nil, false
+	}
+	s.mu.Lock()
+	actions := s.actions
+	s.mu.Unlock()
+	if actions == nil {
+		http.Error(w, "team dashboard controls are unavailable", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	return actions, true
+}
+
+func isLoopbackRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err != nil {
+		host = strings.TrimSpace(r.RemoteAddr)
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func isSameOriginMutation(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := parsed.Hostname()
+	requestHost := r.Host
+	if host, _, splitErr := net.SplitHostPort(requestHost); splitErr == nil {
+		requestHost = host
+	}
+	return strings.EqualFold(originHost, requestHost) && net.ParseIP(originHost).IsLoopback()
+}
+
+func writeAccepted(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte("{\"accepted\":true}\n"))
+}
+
+func (s *teamDashboardServer) subscribe() chan struct{} {
+	subscriber := make(chan struct{}, 1)
+	s.mu.Lock()
+	s.subs[subscriber] = struct{}{}
+	s.mu.Unlock()
+	return subscriber
+}
+
+func (s *teamDashboardServer) unsubscribe(subscriber chan struct{}) {
+	s.mu.Lock()
+	delete(s.subs, subscriber)
+	s.mu.Unlock()
+}
+
+func (s *teamDashboardServer) notifyState() {
+	s.mu.Lock()
+	subscribers := make([]chan struct{}, 0, len(s.subs))
+	for subscriber := range s.subs {
+		subscribers = append(subscribers, subscriber)
+	}
+	s.mu.Unlock()
+	for _, subscriber := range subscribers {
+		select {
+		case subscriber <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *teamDashboardServer) writeStateEvent(w http.ResponseWriter) error {
+	state, err := s.snapshot()
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	lastID := int64(0)
+	if len(state.Events) > 0 {
+		lastID = state.Events[len(state.Events)-1].ID
+	}
+	_, err = fmt.Fprintf(w, "id: %d\nevent: state\ndata: %s\n\n", lastID, data)
+	return err
 }
 
 func (s *teamDashboardServer) handleState(w http.ResponseWriter, r *http.Request) {
@@ -197,17 +404,25 @@ func (s *teamDashboardServer) snapshot() (teamDashboardState, error) {
 			MemoryMaintainer: strings.EqualFold(member.ID, s.definition.Memory.Maintainer),
 		})
 	}
+	controls := teamDashboardControls{}
+	s.mu.Lock()
+	actions := s.actions
+	s.mu.Unlock()
+	if actions != nil {
+		controls = actions.Controls()
+	}
 	return teamDashboardState{
 		Team: teamDashboardTeam{
 			Team:        s.definition.Team,
 			Title:       s.definition.Title,
 			Description: s.definition.Description,
 		},
-		Thread: thread,
-		Round:  state.Current,
-		Agents: agents,
-		Events: events,
-		Board:  teamruntime.ProjectBlackboard(events, thread.CurrentRound),
-		Memory: memory,
+		Thread:   thread,
+		Round:    state.Current,
+		Agents:   agents,
+		Events:   events,
+		Board:    teamruntime.ProjectBlackboard(events, thread.CurrentRound),
+		Memory:   memory,
+		Controls: controls,
 	}, nil
 }

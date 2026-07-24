@@ -160,6 +160,22 @@ textarea {
   scroll-behavior: smooth;
 }
 
+.team-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px 18px 18px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-solid) 76%, transparent);
+}
+
+.team-controls textarea.ant-input {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--panel-solid);
+  resize: none;
+}
+
 .question-card {
   margin-bottom: 22px;
   padding: 17px 19px;

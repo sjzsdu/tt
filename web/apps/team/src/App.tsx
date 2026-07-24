@@ -5,12 +5,15 @@ import {
   DatabaseOutlined,
   MoonOutlined,
   SafetyCertificateOutlined,
+  SendOutlined,
   SnippetsOutlined,
+  StopOutlined,
   SunOutlined,
+  SyncOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Alert, Avatar, Badge, Button, Card, Empty, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
-import { useEffect, useMemo, useRef } from 'react';
+import { Alert, Avatar, Badge, Button, Card, Empty, Input, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTeamState } from './api';
 import { renderSafeMarkdown } from './markdown';
 import type { AppTheme } from './main';
@@ -186,6 +189,77 @@ function Discussion({ state }: { state: TeamDashboardState }) {
   );
 }
 
+type TeamControlsProps = {
+  state: TeamDashboardState;
+  pendingAction: string;
+  onFollowUp: (message: string) => Promise<boolean>;
+  onResume: () => Promise<boolean>;
+  onStop: () => Promise<boolean>;
+};
+
+function TeamControls({ state, pendingAction, onFollowUp, onResume, onStop }: TeamControlsProps) {
+  const [message, setMessage] = useState('');
+  const controls = state.controls || {
+    busy: false,
+    can_follow_up: false,
+    can_resume: false,
+    can_stop: false,
+  };
+  const submit = async () => {
+    const value = message.trim();
+    if (!value || !controls.can_follow_up) return;
+    if (await onFollowUp(value)) setMessage('');
+  };
+  return (
+    <div className="team-controls">
+      <Input.TextArea
+        value={message}
+        onChange={event => setMessage(event.target.value)}
+        onPressEnter={event => {
+          if (!event.shiftKey) {
+            event.preventDefault();
+            void submit();
+          }
+        }}
+        placeholder={controls.can_follow_up ? '向团队提出后续问题…' : '当前轮次结束后可以继续追问'}
+        disabled={!controls.can_follow_up || Boolean(pendingAction)}
+        autoSize={{ minRows: 2, maxRows: 5 }}
+      />
+      <Space wrap>
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          disabled={!controls.can_follow_up || !message.trim()}
+          loading={pendingAction === 'follow-up'}
+          onClick={() => void submit()}
+        >
+          追问
+        </Button>
+        {controls.can_resume && (
+          <Button
+            icon={<SyncOutlined />}
+            loading={pendingAction === 'resume'}
+            onClick={() => void onResume()}
+          >
+            恢复本轮
+          </Button>
+        )}
+        {controls.can_stop && (
+          <Button
+            danger
+            icon={<StopOutlined />}
+            loading={pendingAction === 'stop'}
+            onClick={() => void onStop()}
+          >
+            停止
+          </Button>
+        )}
+        {controls.busy && <Text type="secondary">团队正在协作，进度会实时更新。</Text>}
+      </Space>
+    </div>
+  );
+}
+
 function MemoryPanel({ state }: { state: TeamDashboardState }) {
   return (
     <Card
@@ -249,7 +323,7 @@ function BlackboardPanel({ state }: { state: TeamDashboardState }) {
 }
 
 export function App({ theme, onThemeChange }: Props) {
-  const { state, error } = useTeamState();
+  const { state, error, actionError, pendingAction, followUp, resume, stop } = useTeamState();
   const runtimeError = state?.round?.error || state?.thread.error || '';
   const status = state?.thread.status || 'loading';
   const running = status === 'running';
@@ -301,6 +375,14 @@ export function App({ theme, onThemeChange }: Props) {
           message={error ? `仪表盘断开连接: ${error}` : runtimeError}
         />
       )}
+      {actionError && (
+        <Alert
+          className="connection-alert"
+          type="warning"
+          showIcon
+          message={`操作失败: ${actionError}`}
+        />
+      )}
 
       {!state ? (
         <Card className="loading-card"><Skeleton active paragraph={{ rows: 10 }} /></Card>
@@ -320,6 +402,13 @@ export function App({ theme, onThemeChange }: Props) {
             }
           >
             <Discussion state={state} />
+            <TeamControls
+              state={state}
+              pendingAction={pendingAction}
+              onFollowUp={followUp}
+              onResume={resume}
+              onStop={stop}
+            />
           </Card>
 
           <aside className="side-column">

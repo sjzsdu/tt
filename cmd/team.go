@@ -174,6 +174,88 @@ func runTeamResume(cmd *cobra.Command, args []string) error {
 }
 
 func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot string, definition *teamruntime.Definition, store *teamruntime.Store, question string, resume bool) error {
+	processor, model, debug, cleanup, err := prepareTeamExecution(cmd, loaded, projectRoot, definition)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if store == nil {
+		store, err = teamruntime.NewStore(projectRoot, definition)
+		if err != nil {
+			return err
+		}
+	}
+	runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+	engine := &teamruntime.Engine{
+		Definition:    definition,
+		Store:         store,
+		Processor:     processor,
+		SessionPrefix: teamSession,
+		Model:         model,
+		DisableMemory: teamNoMemory,
+	}
+	controller := newTeamRunController(engine, runCtx)
+	var dashboard *teamDashboardServer
+	if teamWeb {
+		dashboard = newTeamDashboardServer(store, definition)
+		dashboard.setActions(controller)
+		controller.SetOnChange(dashboard.notifyState)
+		if err := dashboard.start(teamWebPort, true); err != nil {
+			return err
+		}
+		defer dashboard.close()
+		fmt.Fprintf(cmd.ErrOrStderr(), "Team dashboard: %s\n", dashboard.url())
+	}
+	engine.OnEvent = func(event teamruntime.Event) {
+		if dashboard != nil {
+			dashboard.notifyState()
+		}
+		if !teamShowDiscussion {
+			return
+		}
+		switch event.Type {
+		case "agent_message":
+			signal := ""
+			if event.Signal != "" {
+				signal = " [" + event.Signal + "]"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "\n@%s%s:\n%s\n", event.From, signal, strings.TrimSpace(event.Content))
+		case "agent_yield":
+			fmt.Fprintf(cmd.OutOrStdout(), "\n@%s: [YIELD]\n", event.From)
+		case "convergence_reached":
+			fmt.Fprintln(cmd.OutOrStdout(), "\n[team converged]")
+		case "forced_stop":
+			fmt.Fprintf(cmd.OutOrStdout(), "\n[team forced stop: %s]\n", event.Content)
+		}
+	}
+	loading := startLLMLoading("正在等待 team 协作", debug)
+	defer loading.Stop()
+
+	result, runErr := controller.Run(runCtx, question, resume)
+	loading.Stop()
+	if runErr == nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "\nFinal answer:\n%s\n", strings.TrimSpace(result.Answer))
+		fmt.Fprintf(cmd.ErrOrStderr(), "Team thread: %s\n", result.ThreadID)
+		if result.MemoryWarning != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: team memory was not updated: %v\n", result.MemoryWarning)
+		} else if definition.MemoryEnabled() && !teamNoMemory {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Team memory: %s (version %d)\n", result.Memory.Path, result.Memory.Version)
+		}
+	} else if dashboard == nil {
+		return runErr
+	} else {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Team run stopped: %v\n", runErr)
+	}
+	if dashboard != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Use the dashboard to ask follow-ups, stop, or resume. Press Ctrl-C to close it.")
+		dashboard.wait(runCtx)
+		controller.Wait()
+	}
+	return nil
+}
+
+func prepareTeamExecution(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot string, definition *teamruntime.Definition) (*teamPicoclawProcessor, string, bool, func(), error) {
 	merged := loaded.Merged
 	cli := ttconfig.Config{}
 	if cmd.Flags().Changed("model") || teamCmd.PersistentFlags().Changed("model") {
@@ -192,13 +274,14 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 
 	_, resolvedHome, resolvedConfig, restoreStorage, err := useTTAgentStorage(merged.Picoclaw.Home, merged.Picoclaw.Config)
 	if err != nil {
-		return err
+		return nil, "", false, nil, err
 	}
-	defer restoreStorage()
+	cleanup := restoreStorage
 	merged.Picoclaw.Home = resolvedHome
 	merged.Picoclaw.Config = resolvedConfig
 	if err := ensurePicoclawConfigAvailable(merged.Picoclaw.Home, merged.Picoclaw.Config); err != nil {
-		return err
+		cleanup()
+		return nil, "", false, nil, err
 	}
 	rt, err := pcwrap.Load(pcwrap.Options{
 		Home:      merged.Picoclaw.Home,
@@ -207,11 +290,13 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 		TTSources: loaded.Sources,
 	})
 	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		cleanup()
+		return nil, "", false, nil, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
 	embedded, err := agents.All()
 	if err != nil {
-		return fmt.Errorf("load embedded agents for team: %w", err)
+		cleanup()
+		return nil, "", false, nil, fmt.Errorf("load embedded agents for team: %w", err)
 	}
 	model := strings.TrimSpace(teamModel)
 	if model == "" {
@@ -222,79 +307,15 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 		debug = *merged.Agent.Debug
 	}
 	processor := newTeamPicoclawProcessor(rt, embedded, projectRoot, merged.Agent.Agent, model, debug)
-	defer processor.Close()
 	if err := processor.ValidateDefinition(definition); err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
+		processor.Close()
+		cleanup()
+		return nil, "", false, nil, picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
 	}
-	if store == nil {
-		store, err = teamruntime.NewStore(projectRoot, definition)
-		if err != nil {
-			return err
-		}
-	}
-	var dashboard *teamDashboardServer
-	if teamWeb {
-		dashboard = newTeamDashboardServer(store, definition)
-		if err := dashboard.start(teamWebPort, true); err != nil {
-			return err
-		}
-		defer dashboard.close()
-		fmt.Fprintf(cmd.ErrOrStderr(), "Team dashboard: %s\n", dashboard.url())
-	}
-
-	engine := &teamruntime.Engine{
-		Definition:    definition,
-		Store:         store,
-		Processor:     processor,
-		SessionPrefix: teamSession,
-		Model:         model,
-		DisableMemory: teamNoMemory,
-	}
-	if teamShowDiscussion {
-		engine.OnEvent = func(event teamruntime.Event) {
-			switch event.Type {
-			case "agent_message":
-				signal := ""
-				if event.Signal != "" {
-					signal = " [" + event.Signal + "]"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "\n@%s%s:\n%s\n", event.From, signal, strings.TrimSpace(event.Content))
-			case "agent_yield":
-				fmt.Fprintf(cmd.OutOrStdout(), "\n@%s: [YIELD]\n", event.From)
-			case "convergence_reached":
-				fmt.Fprintln(cmd.OutOrStdout(), "\n[team converged]")
-			case "forced_stop":
-				fmt.Fprintf(cmd.OutOrStdout(), "\n[team forced stop: %s]\n", event.Content)
-			}
-		}
-	}
-	runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
-	defer stop()
-	loading := startLLMLoading("正在等待 team 协作", debug)
-	defer loading.Stop()
-
-	var result teamruntime.RunResult
-	if resume {
-		result, err = engine.Resume(runCtx)
-	} else {
-		result, err = engine.RunRound(runCtx, question)
-	}
-	loading.Stop()
-	if err != nil {
-		return picoclawUnavailableError(err, merged.Picoclaw.Home, merged.Picoclaw.Config)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "\nFinal answer:\n%s\n", strings.TrimSpace(result.Answer))
-	fmt.Fprintf(cmd.ErrOrStderr(), "Team thread: %s\n", result.ThreadID)
-	if result.MemoryWarning != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: team memory was not updated: %v\n", result.MemoryWarning)
-	} else if definition.MemoryEnabled() && !teamNoMemory {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Team memory: %s (version %d)\n", result.Memory.Path, result.Memory.Version)
-	}
-	if dashboard != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Press Ctrl-C to stop the team dashboard.")
-		dashboard.wait(runCtx)
-	}
-	return nil
+	return processor, model, debug, func() {
+		processor.Close()
+		cleanup()
+	}, nil
 }
 
 func runTeamOpen(cmd *cobra.Command, args []string) error {
@@ -314,7 +335,30 @@ func runTeamOpen(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
 	dashboard := newTeamDashboardServer(store, definition)
+	processor, model, _, cleanup, runtimeErr := prepareTeamExecution(cmd, loaded, projectRootFromConfig(loaded), definition)
+	var controller *teamRunController
+	if runtimeErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: interactive controls unavailable: %v\n", runtimeErr)
+	} else {
+		defer cleanup()
+		engine := &teamruntime.Engine{
+			Definition:    definition,
+			Store:         store,
+			Processor:     processor,
+			SessionPrefix: teamSession,
+			Model:         model,
+			DisableMemory: teamNoMemory,
+		}
+		controller = newTeamRunController(engine, runCtx)
+		controller.SetOnChange(dashboard.notifyState)
+		dashboard.setActions(controller)
+		engine.OnEvent = func(teamruntime.Event) {
+			dashboard.notifyState()
+		}
+	}
 	if err := dashboard.start(teamWebPort, true); err != nil {
 		return err
 	}
@@ -322,9 +366,10 @@ func runTeamOpen(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "Opened team thread: %s\n", store.Thread.ID)
 	fmt.Fprintf(cmd.OutOrStdout(), "Team dashboard: %s\n", dashboard.url())
 	fmt.Fprintln(cmd.OutOrStdout(), "Press Ctrl-C to stop the dashboard.")
-	waitCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
-	defer stop()
-	dashboard.wait(waitCtx)
+	dashboard.wait(runCtx)
+	if controller != nil {
+		controller.Wait()
+	}
 	return nil
 }
 
