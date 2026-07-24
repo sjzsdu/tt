@@ -8,12 +8,15 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { Alert, Avatar, Badge, Button, Card, Empty, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
+import { marked } from 'marked';
 import { useEffect, useMemo, useRef } from 'react';
 import { useTeamState } from './api';
 import type { AppTheme } from './main';
 import type { TeamAgent, TeamDashboardState, TeamEvent } from './types';
 
 const { Paragraph, Text, Title } = Typography;
+
+marked.setOptions({ breaks: true, gfm: true });
 
 const VISIBLE_EVENT_TYPES = new Set([
   'user_message',
@@ -53,10 +56,10 @@ function formatTime(value?: string) {
 }
 
 function agentLabel(agent: TeamAgent) {
-  if (agent.finalizer) return { label: 'finalizer', color: 'green', icon: <CrownOutlined /> };
-  if (agent.facilitator) return { label: 'facilitator', color: 'blue', icon: <SafetyCertificateOutlined /> };
-  if (agent.memory_maintainer) return { label: 'memory', color: 'purple', icon: <DatabaseOutlined /> };
-  return { label: 'member', color: 'default', icon: <TeamOutlined /> };
+  if (agent.finalizer) return { label: '总结者', color: 'green', icon: <CrownOutlined /> };
+  if (agent.facilitator) return { label: '主持人', color: 'blue', icon: <SafetyCertificateOutlined /> };
+  if (agent.memory_maintainer) return { label: '记忆管理', color: 'purple', icon: <DatabaseOutlined /> };
+  return { label: '成员', color: 'default', icon: <TeamOutlined /> };
 }
 
 function MemberCard({ agent }: { agent: TeamAgent }) {
@@ -66,7 +69,7 @@ function MemberCard({ agent }: { agent: TeamAgent }) {
       <Avatar className="member-avatar" shape="square">{initials(agent.id)}</Avatar>
       <div className="member-copy">
         <Text strong>@{agent.id}</Text>
-        <Text type="secondary" ellipsis>{agent.role || agent.agent || 'Team member'}</Text>
+        <Text type="secondary" ellipsis>{agent.role || agent.agent || '团队成员'}</Text>
         {agent.model && <Text className="member-model" type="secondary" ellipsis>{agent.model}</Text>}
       </div>
       <Tag icon={badge.icon} color={badge.color}>{badge.label}</Tag>
@@ -83,18 +86,23 @@ function eventKind(event: TeamEvent) {
 }
 
 function speakerLabel(event: TeamEvent, kind: string) {
-  const speaker = event.from || (kind === 'system' ? 'tt' : 'team');
-  if (speaker === 'user') return 'You';
-  if (speaker === 'tt') return 'Runtime';
+  const speaker = event.from || (kind === 'system' ? '系统' : '团队');
+  if (speaker === 'user') return '你';
+  if (speaker === 'tt') return '运行时';
   return `@${speaker}`;
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const html = useMemo(() => marked.parse(content) as string, [content]);
+  return <div className="event-message markdown-body" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function EventCard({ event }: { event: TeamEvent }) {
   const kind = eventKind(event);
-  const speaker = event.from || (kind === 'system' ? 'tt' : 'team');
+  const speaker = event.from || (kind === 'system' ? '系统' : '团队');
   const meta = [
     event.phase,
-    event.wave ? `wave ${event.wave}` : '',
+    event.wave ? `第${event.wave}轮` : '',
     formatTime(event.at),
   ].filter(Boolean);
   const content = event.content || event.error || event.type.replaceAll('_', ' ');
@@ -105,10 +113,12 @@ function EventCard({ event }: { event: TeamEvent }) {
       <div className="event-content">
         <Space size={8} wrap className="event-heading">
           <Text strong>{speakerLabel(event, kind)}</Text>
-          {event.type === 'final_answer' && <Tag color="green">final answer</Tag>}
+          {event.type === 'final_answer' && <Tag color="green">最终答案</Tag>}
           <Text className="event-meta" type="secondary">{meta.join(' · ')}</Text>
         </Space>
-        <div className="event-message">{content}</div>
+        {kind === 'agent' || kind === 'final'
+          ? <MarkdownContent content={content} />
+          : <div className="event-message">{content}</div>}
       </div>
     </article>
   );
@@ -134,13 +144,13 @@ function Discussion({ state }: { state: TeamDashboardState }) {
     <div ref={scrollRef} className="discussion">
       {state.round?.question && (
         <div className="question-card">
-          <Text className="question-label"><BulbOutlined /> Current question</Text>
+          <Text className="question-label"><BulbOutlined /> 当前问题</Text>
           <Paragraph className="question-text">{state.round.question}</Paragraph>
         </div>
       )}
       {events.length
         ? events.map(event => <EventCard key={event.id} event={event} />)
-        : <Empty description="Waiting for team activity…" />}
+        : <Empty description="等待团队活动…" />}
     </div>
   );
 }
@@ -149,20 +159,20 @@ function MemoryPanel({ state }: { state: TeamDashboardState }) {
   return (
     <Card
       className="side-card memory-card"
-      title={<Space><DatabaseOutlined />Team memory</Space>}
+      title={<Space><DatabaseOutlined />团队记忆</Space>}
       extra={<Tag>v{state.memory.version || 0}</Tag>}
     >
       <div className="memory-meta">
         <Text type="secondary">
           {state.memory.updated_at
-            ? `Updated ${new Date(state.memory.updated_at).toLocaleString()}`
-            : 'No durable update yet'}
+            ? `更新于 ${new Date(state.memory.updated_at).toLocaleString()}`
+            : '暂无持久化更新'}
         </Text>
         {state.memory.source_round
-          ? <Text type="secondary">Source: round {state.memory.source_round}</Text>
+          ? <Text type="secondary">来源: 第 {state.memory.source_round} 轮</Text>
           : null}
       </div>
-      <pre className="memory-content">{state.memory.content || 'No team memory yet.'}</pre>
+      <pre className="memory-content">{state.memory.content || '暂无团队记忆。'}</pre>
     </Card>
   );
 }
@@ -173,21 +183,30 @@ export function App({ theme, onThemeChange }: Props) {
   const status = state?.thread.status || 'loading';
   const running = status === 'running';
 
+  const statusLabel: Record<string, string> = {
+    loading: '连接中',
+    idle: '空闲',
+    running: '运行中',
+    failed: '失败',
+    completed: '已完成',
+    interrupted: '已中断',
+  };
+
   return (
     <main className="app-shell">
       <header className="app-header">
         <div>
-          <div className="eyebrow"><span className="brand-dot" />tt collaborative runtime</div>
-          <Title className="team-title" level={1}>{state?.team.title || state?.team.team || 'Team'}</Title>
+          <div className="eyebrow"><span className="brand-dot" />tt 团队协作运行时</div>
+          <Title className="team-title" level={1}>{state?.team.title || state?.team.team || '团队'}</Title>
           <Paragraph className="team-subtitle">
-            {state?.team.description || state?.thread.id || 'Connecting to the team thread…'}
+            {state?.team.description || state?.thread.id || '正在连接团队线程…'}
           </Paragraph>
           {state?.team.description && <Text className="thread-id" type="secondary">{state.thread.id}</Text>}
         </div>
         <Space align="start">
-          <Tooltip title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+          <Tooltip title={`切换到${theme === 'dark' ? '浅色' : '深色'}主题`}>
             <Button
-              aria-label="Toggle color theme"
+              aria-label="切换主题"
               shape="circle"
               icon={theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
               onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
@@ -195,7 +214,7 @@ export function App({ theme, onThemeChange }: Props) {
           </Tooltip>
           <div className={`runtime-status status-${status}`}>
             <Badge status={running ? 'processing' : status === 'failed' ? 'error' : 'default'} />
-            <Text strong>{status}</Text>
+            <Text strong>{statusLabel[status] || status}</Text>
             {state?.round?.phase && <Text type="secondary">· {state.round.phase}</Text>}
           </div>
         </Space>
@@ -206,7 +225,7 @@ export function App({ theme, onThemeChange }: Props) {
           className="connection-alert"
           type="error"
           showIcon
-          message={error ? `Dashboard disconnected: ${error}` : runtimeError}
+          message={error ? `仪表盘断开连接: ${error}` : runtimeError}
         />
       )}
 
@@ -216,10 +235,10 @@ export function App({ theme, onThemeChange }: Props) {
         <div className="dashboard-grid">
           <Card
             className="room-card"
-            title={<Space><TeamOutlined />Public room</Space>}
+            title={<Space><TeamOutlined />公共讨论区</Space>}
             extra={
               <Text type="secondary">
-                {state.round ? `round ${state.round.number} · ${state.round.phase || state.round.status}` : 'no active round'}
+                {state.round ? `第 ${state.round.number} 轮 · ${state.round.phase || state.round.status}` : '无活跃轮次'}
               </Text>
             }
           >
@@ -229,7 +248,7 @@ export function App({ theme, onThemeChange }: Props) {
           <aside className="side-column">
             <Card
               className="side-card"
-              title={<Space><TeamOutlined />Team members</Space>}
+              title={<Space><TeamOutlined />团队成员</Space>}
               extra={<Tag>{state.agents.length}</Tag>}
             >
               <div className="member-list">

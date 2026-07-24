@@ -16,6 +16,7 @@ coverage.out
 vendor/
 web/node_modules/
 web/apps/markdown/node_modules/
+web/apps/team/node_modules/
 # Frontend cache
 *.tsbuildinfo
 
