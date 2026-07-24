@@ -10,6 +10,7 @@ import (
 const validTeamTOML = `team = "review"
 title = "Review Team"
 version = 1
+language = " 简体中文 "
 default_model = " team-default "
 
 [coordination]
@@ -58,6 +59,9 @@ func TestParseDefinition(t *testing.T) {
 	}
 	if definition.DefaultModel != "team-default" || definition.Agents[0].Model != "lead-model" {
 		t.Fatalf("models were not normalized: default=%q lead=%q", definition.DefaultModel, definition.Agents[0].Model)
+	}
+	if definition.Language != "简体中文" {
+		t.Fatalf("language = %q", definition.Language)
 	}
 }
 

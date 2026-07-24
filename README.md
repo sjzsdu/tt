@@ -124,6 +124,7 @@ Team definitions can select a fallback model and override individual members:
 
 ```toml
 team = "software-development"
+language = "简体中文"
 default_model = "qwen3-coder-plus"
 
 [[agents]]
@@ -140,6 +141,17 @@ agent = "coder"
 Model precedence is `agents.model` → explicit `tt team --model` fallback →
 `default_model` → the global `agent.model` configuration. The finalizer and memory
 maintainer use the same rule.
+
+Set `language` to make every member response, review, final answer, and maintained
+Team memory use one language consistently:
+
+```toml
+team = "software-development"
+language = "简体中文"
+```
+
+When omitted, Team keeps the previous language behavior. Code, commands, paths, and
+technical identifiers may remain in their original form.
 
 A member can use the same external-agent adapters as Formula instead of an embedded
 agent. Supported drivers are `codex`, `jcode`, `opencode`, `forge`, and `bl`:

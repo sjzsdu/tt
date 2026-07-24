@@ -2,6 +2,7 @@ team = "software-development"
 title = "Software Development Team"
 description = "A repository-aware engineering team that turns broad requests into reviewed, tested, working code."
 version = 1
+language = "简体中文"
 # Optional Team fallback. Leave empty to inherit tt config or --model.
 default_model = ""
 
