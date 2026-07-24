@@ -21,13 +21,13 @@ func (f *fakeProcessor) Process(_ context.Context, call AgentCall) (string, erro
 	switch {
 	case strings.HasSuffix(call.Session, ":memory"):
 		return "# Team Memory\n\n- The team prefers incremental delivery.\n- Decisions should remain auditable.", nil
-	case strings.Contains(call.Prompt, "Produce the final answer for the user"):
+	case strings.Contains(call.Prompt, promptMarkerFinal):
 		if f.failFinalOnce {
 			f.failFinalOnce = false
 			return "", errors.New("temporary finalizer failure")
 		}
 		return "Start with a persistent event store, then add adaptive collaboration.", nil
-	case strings.Contains(call.Prompt, "review wave"):
+	case strings.Contains(call.Prompt, promptMarkerReview):
 		return "[YIELD]", nil
 	default:
 		return "Assessment from @" + call.MemberID, nil
@@ -145,7 +145,7 @@ func TestEngineFollowupReusesThreadAndUpgradesMemory(t *testing.T) {
 	defer processor.mu.Unlock()
 	foundPriorContext := false
 	for _, call := range processor.calls {
-		if strings.Contains(call.Prompt, "Relevant earlier rounds") &&
+		if strings.Contains(call.Prompt, promptMarkerInitial) &&
 			strings.Contains(call.Prompt, "Choose an architecture.") {
 			foundPriorContext = true
 			break

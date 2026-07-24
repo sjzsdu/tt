@@ -8,15 +8,13 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { Alert, Avatar, Badge, Button, Card, Empty, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
-import { marked } from 'marked';
 import { useEffect, useMemo, useRef } from 'react';
 import { useTeamState } from './api';
+import { renderSafeMarkdown } from './markdown';
 import type { AppTheme } from './main';
 import type { TeamAgent, TeamDashboardState, TeamEvent } from './types';
 
 const { Paragraph, Text, Title } = Typography;
-
-marked.setOptions({ breaks: true, gfm: true });
 
 const VISIBLE_EVENT_TYPES = new Set([
   'user_message',
@@ -93,7 +91,7 @@ function speakerLabel(event: TeamEvent, kind: string) {
 }
 
 function MarkdownContent({ content }: { content: string }) {
-  const html = useMemo(() => marked.parse(content) as string, [content]);
+  const html = useMemo(() => renderSafeMarkdown(content), [content]);
   return <div className="event-message markdown-body" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
