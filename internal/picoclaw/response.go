@@ -42,11 +42,11 @@ func IsEmptyDirectResponseError(err error) bool {
 	return isEmptyDirectResponseError(err)
 }
 
-func recoverEmptyDirectResponse(loop directResponseProcessor, sessionKey, agentID, defaultAgent string) (string, error) {
+func recoverEmptyDirectResponse(ctx context.Context, loop directResponseProcessor, sessionKey, agentID, defaultAgent string) (string, error) {
 	if loop == nil {
 		return "", fmt.Errorf("picoclaw direct processor not initialized")
 	}
-	resp, err := retryEmptyDirectResponse(loop, sessionKey, agentID, defaultAgent)
+	resp, err := retryEmptyDirectResponse(ctx, loop, sessionKey, agentID, defaultAgent)
 	if err == nil {
 		return resp, nil
 	}
@@ -54,18 +54,18 @@ func recoverEmptyDirectResponse(loop directResponseProcessor, sessionKey, agentI
 		return "", err
 	}
 	freshSession := fmt.Sprintf("%s:retry:%d", strings.TrimSpace(sessionKey), time.Now().UnixNano())
-	return retryEmptyDirectResponse(loop, freshSession, agentID, defaultAgent)
+	return retryEmptyDirectResponse(ctx, loop, freshSession, agentID, defaultAgent)
 }
 
-func retryEmptyDirectResponse(loop directResponseProcessor, sessionKey, agentID, defaultAgent string) (string, error) {
+func retryEmptyDirectResponse(ctx context.Context, loop directResponseProcessor, sessionKey, agentID, defaultAgent string) (string, error) {
 	var (
 		resp string
 		err  error
 	)
 	if strings.TrimSpace(agentID) != "" && !strings.EqualFold(agentID, defaultAgent) {
-		resp, err = loop.ProcessDirectForAgent(context.Background(), emptyResponseRetryPrompt, sessionKey, agentID)
+		resp, err = loop.ProcessDirectForAgent(ctx, emptyResponseRetryPrompt, sessionKey, agentID)
 	} else {
-		resp, err = loop.ProcessDirect(context.Background(), emptyResponseRetryPrompt, sessionKey)
+		resp, err = loop.ProcessDirect(ctx, emptyResponseRetryPrompt, sessionKey)
 	}
 	if err != nil {
 		return "", fmt.Errorf("process picoclaw retry failed: %w", err)

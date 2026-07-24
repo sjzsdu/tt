@@ -315,8 +315,8 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 			return err
 		}
 	}
-	runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
-	defer stop()
+	runCtx, cancelRun := context.WithCancel(cmd.Context())
+	defer cancelRun()
 	engine := &teamruntime.Engine{
 		Definition:    definition,
 		Store:         store,
@@ -361,6 +361,22 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 	}
 	loading := startLLMLoading("正在等待 team 协作", debug)
 	defer loading.Stop()
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	go func() {
+		select {
+		case <-interrupts:
+			loading.Stop()
+			fmt.Fprintln(cmd.ErrOrStderr(), "\n正在停止 team 协作；再次按 Ctrl-C 可强制退出。")
+			cancelRun()
+			// Stop intercepting SIGINT after the graceful cancellation request.
+			// If a provider ignores context cancellation, the next Ctrl-C uses
+			// the operating system's normal forced-termination behavior.
+			signal.Stop(interrupts)
+		case <-runCtx.Done():
+		}
+	}()
 
 	result, runErr := controller.Run(runCtx, question, resume)
 	loading.Stop()
