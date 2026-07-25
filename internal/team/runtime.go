@@ -518,7 +518,9 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		Workspace:        e.Store.Thread.Workspace,
 	})
 	cleanContent, blackboard := parseBlackboardOperations(content)
-	cleanContent, signal, targets := parseCollaborationResponse(cleanContent, e.Definition)
+	cleanContent, signal, _ := parseCollaborationResponse(cleanContent, e.Definition)
+	cleanContent = limitTeamResponse(cleanContent, e.Definition.Limits.MaxResponseChars)
+	targets := mentionedMembers(cleanContent, e.Definition)
 	response := agentResponse{
 		Member:     member,
 		Session:    session,
@@ -536,6 +538,18 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		Err: err,
 	}
 	return response, err
+}
+
+func limitTeamResponse(content string, maxChars int) string {
+	content = strings.TrimSpace(content)
+	if maxChars <= 0 {
+		return content
+	}
+	runes := []rune(content)
+	if len(runes) <= maxChars {
+		return content
+	}
+	return strings.TrimSpace(string(runes[:maxChars])) + "\n\n[内容因达到 Team 单次回复长度限制而截断]"
 }
 
 func (e *Engine) commitResponses(phase string, wave int, responses []agentResponse) error {
@@ -825,14 +839,24 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 }
 
 func (e *Engine) languageInstruction() string {
-	if e == nil || e.Definition == nil || strings.TrimSpace(e.Definition.Language) == "" {
+	if e == nil || e.Definition == nil {
 		return ""
 	}
-	return fmt.Sprintf(`输出语言要求（强制）:
+	var instructions []string
+	if language := strings.TrimSpace(e.Definition.Language); language != "" {
+		instructions = append(instructions, fmt.Sprintf(`输出语言要求（强制）:
 - 所有面向用户或团队成员的自然语言内容必须使用%s。
 - 分析、建议、评审、总结和记忆文档都必须遵守此要求。
 - 代码、命令、文件路径、API 名称和必要的技术标识符可以保留原文。
-- 即使用户或其他成员使用不同语言，也不要改变输出语言。`, e.Definition.Language)
+- 即使用户或其他成员使用不同语言，也不要改变输出语言。`, language))
+	}
+	if maxChars := e.Definition.Limits.MaxResponseChars; maxChars > 0 {
+		instructions = append(instructions, fmt.Sprintf(`回复长度要求（强制）:
+- 正文不得超过 %d 个字符。
+- 引用黑板和既有讨论时只提炼新增结论，不要复述已有长段落。
+- 优先输出可执行动作、产物和阻塞证据。`, maxChars))
+	}
+	return strings.Join(instructions, "\n\n")
 }
 
 func (d Definition) TitleOrName() string {
@@ -942,7 +966,7 @@ func currentRoundTranscript(events []Event, round int) string {
 	if builder.Len() == 0 {
 		return "(none)"
 	}
-	return compact(strings.TrimSpace(builder.String()), 30000)
+	return compactTail(strings.TrimSpace(builder.String()), 18000)
 }
 
 func isYield(content string) bool {
@@ -952,10 +976,20 @@ func isYield(content string) bool {
 
 func compact(value string, max int) string {
 	value = strings.TrimSpace(value)
-	if max <= 0 || len(value) <= max {
+	runes := []rune(value)
+	if max <= 0 || len(runes) <= max {
 		return value
 	}
-	return strings.TrimSpace(value[:max]) + "\n[truncated]"
+	return strings.TrimSpace(string(runes[:max])) + "\n[truncated]"
+}
+
+func compactTail(value string, max int) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if max <= 0 || len(runes) <= max {
+		return value
+	}
+	return "[earlier discussion truncated]\n" + strings.TrimSpace(string(runes[len(runes)-max:]))
 }
 
 func fallback(value, fallbackValue string) string {

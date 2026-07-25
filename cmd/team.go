@@ -341,7 +341,7 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 		if dashboard != nil {
 			dashboard.notifyState()
 		}
-		if !teamShowDiscussion {
+		if teamWeb || !teamShowDiscussion {
 			return
 		}
 		switch event.Type {
@@ -359,7 +359,7 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 			fmt.Fprintf(cmd.OutOrStdout(), "\n[team forced stop: %s]\n", event.Content)
 		}
 	}
-	loading := startLLMLoading("正在等待 team 协作", debug)
+	loading := startLLMLoading("正在等待 team 协作", debug || teamWeb)
 	defer loading.Stop()
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
@@ -380,7 +380,7 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 
 	result, runErr := controller.Run(runCtx, question, resume)
 	loading.Stop()
-	if runErr == nil {
+	if runErr == nil && !teamWeb {
 		fmt.Fprintf(cmd.OutOrStdout(), "\nFinal answer:\n%s\n", strings.TrimSpace(result.Answer))
 		fmt.Fprintf(cmd.ErrOrStderr(), "Team thread: %s\n", result.ThreadID)
 		if result.MemoryWarning != nil {
@@ -388,13 +388,10 @@ func executeTeamRound(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoot st
 		} else if definition.MemoryEnabled() && !teamNoMemory {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Team memory: %s (version %d)\n", result.Memory.Path, result.Memory.Version)
 		}
-	} else if dashboard == nil {
+	} else if runErr != nil && dashboard == nil {
 		return runErr
-	} else {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Team run stopped: %v\n", runErr)
 	}
 	if dashboard != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Use the dashboard to ask follow-ups, stop, or resume. Press Ctrl-C to close it.")
 		dashboard.wait(runCtx)
 		controller.Wait()
 	}

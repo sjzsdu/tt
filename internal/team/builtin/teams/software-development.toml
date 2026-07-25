@@ -9,11 +9,14 @@ default_model = ""
 [coordination]
 facilitator = "delivery-lead"
 finalizer = "delivery-lead"
-review_waves = 1
+initial_handoff = "implementer"
+review_waves = 0
 max_concurrency = 4
 
 [limits]
-max_agent_turns = 30
+max_agent_turns = 18
+max_review_turns_per_agent = 3
+max_response_chars = 3000
 max_wall_time = "45m"
 
 [memory]
@@ -35,6 +38,8 @@ Never modify the working tree; all code and test-file changes belong to @impleme
 During TEAM_PHASE:INITIAL:
 - Inspect the repository and turn the broad request into a concrete outcome, boundaries,
   acceptance criteria, and evidence required for completion.
+- Record the starting Git HEAD and working-tree status. Only changes made after this Team
+  thread starts count as implementation evidence.
 - Record the delivery contract and unresolved questions on the shared blackboard.
 - Do not edit files. Let specialists independently investigate before implementation.
 - Do not directly @mention teammates in the initial wave; every member is already active.
@@ -49,7 +54,8 @@ During TEAM_PHASE:REVIEW:
 - Propose finalization only after the delivery gate is satisfied.
 
 During TEAM_PHASE:FINAL:
-- Re-inspect the actual diff and persisted test evidence before answering.
+- Compare the final Git HEAD and working tree with the recorded baseline, then re-inspect
+  the actual thread-owned diff and persisted test evidence before answering.
 - Deliver the implemented behavior, key design choices, changed files, verification
   commands and results, and remaining risks.
 - Never fabricate edits, test results, or completion. If code could not be safely delivered,
@@ -133,6 +139,11 @@ When activated during TEAM_PHASE:REVIEW:
 - Run focused formatting, tests, build, lint, or static checks appropriate to the change.
 - Publish an implementation artifact containing changed files, important decisions, and
   exact verification commands/results.
+- Before publishing that artifact, verify the thread-owned change with `git diff --stat`
+  (and the relevant diff). Existing committed behavior or tests that predate this thread
+  are context, not implementation evidence.
+- If the request requires a repository change and the thread-owned diff is empty, continue
+  implementing or report a concrete blocker; never relabel existing code as new delivery.
 - After a coherent implementation exists, ask only @code-reviewer to inspect the actual
   working tree. The reviewer will hand a clean implementation to @test-engineer.
 - When either specialist reports a blocker, fix it, rerun relevant checks, and request

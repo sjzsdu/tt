@@ -35,13 +35,16 @@ type Definition struct {
 type CoordinationConfig struct {
 	Facilitator    string `json:"facilitator,omitempty" toml:"facilitator,omitempty"`
 	Finalizer      string `json:"finalizer,omitempty" toml:"finalizer,omitempty"`
+	InitialHandoff string `json:"initial_handoff,omitempty" toml:"initial_handoff,omitempty"`
 	ReviewWaves    int    `json:"review_waves" toml:"review_waves"`
 	MaxConcurrency int    `json:"max_concurrency" toml:"max_concurrency"`
 }
 
 type LimitsConfig struct {
-	MaxAgentTurns int    `json:"max_agent_turns" toml:"max_agent_turns"`
-	MaxWallTime   string `json:"max_wall_time,omitempty" toml:"max_wall_time,omitempty"`
+	MaxAgentTurns          int    `json:"max_agent_turns" toml:"max_agent_turns"`
+	MaxReviewTurnsPerAgent int    `json:"max_review_turns_per_agent,omitempty" toml:"max_review_turns_per_agent,omitempty"`
+	MaxResponseChars       int    `json:"max_response_chars,omitempty" toml:"max_response_chars,omitempty"`
+	MaxWallTime            string `json:"max_wall_time,omitempty" toml:"max_wall_time,omitempty"`
 }
 
 type MemoryConfig struct {
@@ -93,6 +96,12 @@ func (d *Definition) Normalize() {
 	}
 	if d.Limits.MaxAgentTurns <= 0 {
 		d.Limits.MaxAgentTurns = 24
+	}
+	if d.Limits.MaxResponseChars < 0 {
+		d.Limits.MaxResponseChars = 0
+	}
+	if d.Limits.MaxReviewTurnsPerAgent < 0 {
+		d.Limits.MaxReviewTurnsPerAgent = 0
 	}
 	if strings.TrimSpace(d.Limits.MaxWallTime) == "" {
 		d.Limits.MaxWallTime = "15m"
@@ -188,6 +197,11 @@ func (d *Definition) Validate() error {
 	} {
 		if _, ok := d.AgentByID(id); !ok {
 			return fmt.Errorf("%s references unknown agent %q", label, id)
+		}
+	}
+	if id := strings.TrimSpace(d.Coordination.InitialHandoff); id != "" {
+		if _, ok := d.AgentByID(id); !ok {
+			return fmt.Errorf("coordination.initial_handoff references unknown agent %q", id)
 		}
 	}
 	if d.Coordination.MaxConcurrency < 1 {

@@ -89,6 +89,16 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		events, err := e.Store.Events()
+		if err != nil {
+			return err
+		}
+		state.Pending = limitPendingReviewTurns(
+			state.Pending,
+			events,
+			e.Store.State.Current.Number,
+			e.Definition.Limits.MaxReviewTurnsPerAgent,
+		)
 		if len(state.Pending) == 0 {
 			switch {
 			case hasOpenObjections(state):
@@ -104,10 +114,6 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 			}
 		}
 
-		events, err := e.Store.Events()
-		if err != nil {
-			return err
-		}
 		turns := countAgentTurns(events, e.Store.State.Current.Number)
 		remaining := e.Definition.Limits.MaxAgentTurns - turns - 1
 		if remaining <= 0 {
@@ -176,6 +182,29 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 	}
 }
 
+func limitPendingReviewTurns(pending []Activation, events []Event, round, maxTurns int) []Activation {
+	if maxTurns <= 0 || len(pending) == 0 {
+		return pending
+	}
+	counts := map[string]int{}
+	for _, event := range events {
+		if event.Round != round || event.Phase != PhaseReview {
+			continue
+		}
+		switch event.Type {
+		case "agent_message", "agent_yield", "agent_error":
+			counts[strings.ToLower(event.From)]++
+		}
+	}
+	filtered := pending[:0]
+	for _, activation := range pending {
+		if counts[strings.ToLower(activation.MemberID)] < maxTurns {
+			filtered = append(filtered, activation)
+		}
+	}
+	return filtered
+}
+
 func (e *Engine) ensureCollaborationState() (CollaborationState, error) {
 	existing, err := e.Store.Collaboration()
 	if err != nil {
@@ -192,6 +221,7 @@ func (e *Engine) ensureCollaborationState() (CollaborationState, error) {
 		TurnCount:            countAgentTurns(events, e.Store.State.Current.Number),
 		InitializedAtEventID: lastEventID(events),
 	}
+	initialHandoff := strings.TrimSpace(e.Definition.Coordination.InitialHandoff)
 	var lifecycle []Event
 	for _, event := range events {
 		if event.Round != e.Store.State.Current.Number {
@@ -203,12 +233,17 @@ func (e *Engine) ensureCollaborationState() (CollaborationState, error) {
 		if event.Type != "agent_message" && event.Type != "agent_yield" {
 			continue
 		}
+		if initialHandoff != "" && event.Phase == PhaseInitial {
+			continue
+		}
 		lifecycle = append(lifecycle, e.applyResponseEvent(&state, Activation{}, event)...)
 	}
 	if state.BroadReviewWaves > e.Definition.Coordination.ReviewWaves {
 		state.BroadReviewWaves = e.Definition.Coordination.ReviewWaves
 	}
-	if len(state.Pending) == 0 && state.BroadReviewWaves < e.Definition.Coordination.ReviewWaves {
+	if len(state.Pending) == 0 && initialHandoff != "" {
+		addActivation(&state, Activation{MemberID: initialHandoff, Reason: "initial_handoff"})
+	} else if len(state.Pending) == 0 && state.BroadReviewWaves < e.Definition.Coordination.ReviewWaves {
 		e.scheduleBroadReview(&state)
 	}
 	if err := e.appendEvent(Event{
