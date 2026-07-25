@@ -33,11 +33,12 @@ type Definition struct {
 }
 
 type CoordinationConfig struct {
-	Facilitator    string `json:"facilitator,omitempty" toml:"facilitator,omitempty"`
-	Finalizer      string `json:"finalizer,omitempty" toml:"finalizer,omitempty"`
-	InitialHandoff string `json:"initial_handoff,omitempty" toml:"initial_handoff,omitempty"`
-	ReviewWaves    int    `json:"review_waves" toml:"review_waves"`
-	MaxConcurrency int    `json:"max_concurrency" toml:"max_concurrency"`
+	Facilitator       string `json:"facilitator,omitempty" toml:"facilitator,omitempty"`
+	Finalizer         string `json:"finalizer,omitempty" toml:"finalizer,omitempty"`
+	InitialHandoff    string `json:"initial_handoff,omitempty" toml:"initial_handoff,omitempty"`
+	MaxHandoffTargets int    `json:"max_handoff_targets,omitempty" toml:"max_handoff_targets,omitempty"`
+	ReviewWaves       int    `json:"review_waves" toml:"review_waves"`
+	MaxConcurrency    int    `json:"max_concurrency" toml:"max_concurrency"`
 }
 
 type LimitsConfig struct {
@@ -93,6 +94,9 @@ func (d *Definition) Normalize() {
 	}
 	if d.Coordination.MaxConcurrency <= 0 {
 		d.Coordination.MaxConcurrency = 4
+	}
+	if d.Coordination.MaxHandoffTargets < 0 {
+		d.Coordination.MaxHandoffTargets = 0
 	}
 	if d.Limits.MaxAgentTurns <= 0 {
 		d.Limits.MaxAgentTurns = 24

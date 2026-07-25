@@ -10,6 +10,7 @@ default_model = ""
 facilitator = "delivery-lead"
 finalizer = "delivery-lead"
 initial_handoff = "implementer"
+max_handoff_targets = 1
 review_waves = 0
 max_concurrency = 4
 
