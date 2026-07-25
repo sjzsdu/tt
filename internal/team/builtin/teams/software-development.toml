@@ -25,6 +25,12 @@ enabled = true
 maintainer = "delivery-lead"
 max_chars = 30000
 
+[verification]
+enabled = true
+verifier = "test-engineer"
+max_commands = 8
+timeout = "10m"
+
 [[agents]]
 id = "delivery-lead"
 role = "Delivery lead and final integrator"
@@ -214,6 +220,8 @@ After @implementer publishes an implementation artifact:
 - Expand to broader regression/build/lint checks when risk warrants and time permits.
 - Record exact commands, pass/fail/skip counts, failures, environment limits, and untested
   risk as a test artifact on the blackboard.
+- End the response with a [TEAM_VERIFICATION] JSON command list for the runtime to rerun.
+  A textual statement that tests passed is never sufficient delivery evidence.
 - A failing test, missing critical regression test, or unverifiable core behavior is a
   blocker: address @implementer and emit an objection.
 - Re-run the relevant checks after fixes. When evidence is sufficient, resolve prior

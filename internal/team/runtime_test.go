@@ -15,6 +15,26 @@ type fakeProcessor struct {
 	failMemoryOnce bool
 }
 
+type initialRetryProcessor struct {
+	mu       sync.Mutex
+	failures map[string]int
+	calls    map[string]int
+}
+
+func (p *initialRetryProcessor) Process(_ context.Context, call AgentCall) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.calls == nil {
+		p.calls = map[string]int{}
+	}
+	p.calls[call.MemberID]++
+	if p.failures[call.MemberID] > 0 {
+		p.failures[call.MemberID]--
+		return "", errors.New("temporary cooldown")
+	}
+	return "initial response from " + call.MemberID, nil
+}
+
 func (f *fakeProcessor) Process(_ context.Context, call AgentCall) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -89,6 +109,35 @@ func TestEngineRunsRoundAndUpgradesMemory(t *testing.T) {
 	processor.mu.Unlock()
 	if len(sessions) < 2 {
 		t.Fatalf("sessions = %+v", sessions)
+	}
+}
+
+func TestInitialWaveRetriesOnlyIncompleteMembers(t *testing.T) {
+	definition := testDefinition(t)
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartRound("question"); err != nil {
+		t.Fatal(err)
+	}
+	processor := &initialRetryProcessor{failures: map[string]int{definition.Agents[0].ID: 1}}
+	engine := &Engine{Definition: definition, Store: store, Processor: processor}
+	if err := engine.runInitialWave(context.Background(), MemoryDocument{}); err != nil {
+		t.Fatal(err)
+	}
+	if processor.calls[definition.Agents[0].ID] != 2 {
+		t.Fatalf("failed member calls=%d", processor.calls[definition.Agents[0].ID])
+	}
+	if processor.calls[definition.Agents[1].ID] != 1 {
+		t.Fatalf("successful member reran %d times", processor.calls[definition.Agents[1].ID])
+	}
+	events, err := store.Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countEventType(events, "initial_retry") != 1 {
+		t.Fatalf("events=%+v", events)
 	}
 }
 

@@ -85,8 +85,17 @@ export type TeamEvent = {
   blackboard?: TeamBlackboardOperation;
   memory_proposal?: string;
   metrics?: TeamEventMetrics;
+  verification?: TeamVerificationResult;
   content?: string;
   error?: string;
+};
+
+export type TeamVerificationResult = {
+  command: string[];
+  exit_code: number;
+  stdout?: string;
+  stderr?: string;
+  duration_ms?: number;
 };
 
 export type TeamEventMetrics = {

@@ -44,7 +44,9 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 			definition.Memory.Maintainer != "delivery-lead" ||
 			definition.Limits.MaxAgentTurns != 18 ||
 			definition.Limits.MaxReviewTurnsPerAgent != 3 ||
-			definition.Limits.MaxResponseChars != 3000 {
+			definition.Limits.MaxResponseChars != 3000 ||
+			!definition.Verification.Enabled ||
+			definition.Verification.Verifier != "test-engineer" {
 			t.Fatalf("definition = %+v", definition)
 		}
 		for _, id := range []string{

@@ -194,7 +194,7 @@ func TestSoftwareDevelopmentUsesDeliveryPipeline(t *testing.T) {
 			case "code-reviewer":
 				return "审查通过，请 @test‑engineer 验证。\n[TEAM_SIGNAL:AGREE]", nil
 			case "test-engineer":
-				return "测试通过，请 @delivery-lead 交付。\n[TEAM_SIGNAL:AGREE]", nil
+				return "测试通过，请 @delivery-lead 交付。\n[TEAM_VERIFICATION] {\"commands\":[[\"true\"]]}\n[TEAM_SIGNAL:AGREE]", nil
 			case "delivery-lead":
 				return "交付证据齐全。\n[TEAM_SIGNAL:AGREE]", nil
 			default:

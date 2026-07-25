@@ -32,6 +32,14 @@ func TestParseBlackboardOperations(t *testing.T) {
 	}
 }
 
+func TestParseBlackboardOperationsDeduplicatesIdenticalUpdates(t *testing.T) {
+	line := `[TEAM_BLACKBOARD] {"action":"upsert","kind":"artifact","key":"tests","content":"passed"}`
+	_, operations := parseBlackboardOperations(line + "\n" + line)
+	if len(operations) != 1 {
+		t.Fatalf("operations=%+v", operations)
+	}
+}
+
 func TestProjectBlackboardIsDeterministicAndRetainsProvenance(t *testing.T) {
 	events := []Event{
 		{

@@ -27,6 +27,7 @@ type Definition struct {
 	Coordination   CoordinationConfig `json:"coordination" toml:"coordination"`
 	Limits         LimitsConfig       `json:"limits" toml:"limits"`
 	Memory         MemoryConfig       `json:"memory" toml:"memory"`
+	Verification   VerificationConfig `json:"verification,omitempty" toml:"verification,omitempty"`
 	Agents         []Agent            `json:"agents" toml:"agents"`
 	Source         string             `json:"source,omitempty" toml:"-"`
 	DefinitionHash string             `json:"definition_hash,omitempty" toml:"-"`
@@ -53,6 +54,13 @@ type MemoryConfig struct {
 	Maintainer string `json:"maintainer,omitempty" toml:"maintainer,omitempty"`
 	Path       string `json:"path,omitempty" toml:"path,omitempty"`
 	MaxChars   int    `json:"max_chars" toml:"max_chars"`
+}
+
+type VerificationConfig struct {
+	Enabled     bool   `json:"enabled,omitempty" toml:"enabled,omitempty"`
+	Verifier    string `json:"verifier,omitempty" toml:"verifier,omitempty"`
+	MaxCommands int    `json:"max_commands,omitempty" toml:"max_commands,omitempty"`
+	Timeout     string `json:"timeout,omitempty" toml:"timeout,omitempty"`
 }
 
 type Agent struct {
@@ -112,6 +120,14 @@ func (d *Definition) Normalize() {
 	}
 	if d.Memory.MaxChars <= 0 {
 		d.Memory.MaxChars = 20000
+	}
+	if d.Verification.Enabled {
+		if d.Verification.MaxCommands <= 0 {
+			d.Verification.MaxCommands = 8
+		}
+		if strings.TrimSpace(d.Verification.Timeout) == "" {
+			d.Verification.Timeout = "10m"
+		}
 	}
 	for i := range d.Agents {
 		d.Agents[i].ID = strings.TrimSpace(d.Agents[i].ID)
@@ -201,6 +217,18 @@ func (d *Definition) Validate() error {
 	} {
 		if _, ok := d.AgentByID(id); !ok {
 			return fmt.Errorf("%s references unknown agent %q", label, id)
+		}
+	}
+	if d.Verification.Enabled {
+		if _, ok := d.AgentByID(d.Verification.Verifier); !ok {
+			return fmt.Errorf("verification.verifier references unknown agent %q", d.Verification.Verifier)
+		}
+		if d.Verification.MaxCommands < 1 {
+			return fmt.Errorf("verification.max_commands must be greater than zero")
+		}
+		timeout, err := time.ParseDuration(d.Verification.Timeout)
+		if err != nil || timeout <= 0 {
+			return fmt.Errorf("verification.timeout must be a positive duration")
 		}
 	}
 	if id := strings.TrimSpace(d.Coordination.InitialHandoff); id != "" {

@@ -140,6 +140,7 @@ type Event struct {
 	Blackboard     *BlackboardOperation `json:"blackboard,omitempty"`
 	MemoryProposal string               `json:"memory_proposal,omitempty"`
 	Metrics        *EventMetrics        `json:"metrics,omitempty"`
+	Verification   *VerificationResult  `json:"verification,omitempty"`
 	Content        string               `json:"content,omitempty"`
 	Error          string               `json:"error,omitempty"`
 }
