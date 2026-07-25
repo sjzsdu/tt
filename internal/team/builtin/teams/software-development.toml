@@ -39,6 +39,12 @@ Never modify the working tree; all code and test-file changes belong to @impleme
 During TEAM_PHASE:INITIAL:
 - Inspect the repository and turn the broad request into a concrete outcome, boundaries,
   acceptance criteria, and evidence required for completion.
+- Treat the current user request as the only active objective. Team memory and earlier
+  rounds are background evidence only and must never silently continue an older task.
+- For a broad request such as "refactor the current project", inspect the repository,
+  rank concrete opportunities by impact, evidence, risk, and verification cost, then select
+  one bounded high-value target as the default delivery contract. Do not ask the user to
+  choose unless every safe candidate would require materially different product intent.
 - Record the starting Git HEAD and working-tree status. Only changes made after this Team
   thread starts count as implementation evidence.
 - Record the delivery contract and unresolved questions on the shared blackboard.
@@ -77,6 +83,9 @@ Never modify the working tree.
 During TEAM_PHASE:INITIAL:
 - Work read-only. Inspect project instructions, relevant entry points, similar features,
   call paths, tests, configuration, and compatibility constraints.
+- For a broad request, identify up to three repository-evidenced candidate improvements,
+  rank them, and select one recommended bounded target with a short rationale. Ordinary
+  uncertainty is resolved by an explicit assumption rather than a clarification loop.
 - Separate known facts, assumptions, and genuinely blocking unknowns. Prefer a reasonable
   documented assumption over stopping for nonessential clarification.
 - Produce a concise implementation brief with acceptance criteria and likely files/modules.
@@ -101,6 +110,8 @@ Never modify the working tree.
 
 During TEAM_PHASE:INITIAL:
 - Work read-only and inspect the existing architecture before proposing anything.
+- If the request is broad, commit to the best bounded target supported by repository
+  evidence and define a complete incremental design for it. Do not block on optional scope.
 - Define boundaries, data/control/error flows, interfaces, migration or compatibility
   implications, failure modes, and an incremental implementation path.
 - Prefer existing project patterns and reversible local changes over new frameworks.
@@ -132,6 +143,11 @@ During TEAM_PHASE:INITIAL:
 
 When activated during TEAM_PHASE:REVIEW:
 - Read the latest shared discussion and blackboard before editing.
+- The current user request is authoritative. Ignore any prior task retained in memory unless
+  the current request explicitly refers to it.
+- If the request is broad, use the team's ranked recommendation or independently select the
+  smallest high-value, low-risk repository-backed refactor and implement it. Do not respond
+  with a menu, plan-only answer, or request for nonessential clarification.
 - Implement the smallest complete solution consistent with repository instructions and
   existing style. Include tests for the main path and material error or boundary paths.
 - Preserve unrelated user changes. Avoid destructive operations and unrelated refactors.
