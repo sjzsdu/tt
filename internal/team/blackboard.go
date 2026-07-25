@@ -71,6 +71,7 @@ func parseBlackboardOperations(content string) (string, []BlackboardOperation) {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	clean := make([]string, 0, len(lines))
 	var operations []BlackboardOperation
+	seen := map[string]bool{}
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, blackboardPrefix) {
@@ -88,7 +89,11 @@ func parseBlackboardOperations(content string) (string, []BlackboardOperation) {
 			clean = append(clean, line)
 			continue
 		}
-		operations = append(operations, normalized)
+		key := normalized.Action + "\x00" + string(normalized.Kind) + "\x00" + normalized.Key + "\x00" + normalized.Content
+		if !seen[key] {
+			seen[key] = true
+			operations = append(operations, normalized)
+		}
 	}
 	return strings.TrimSpace(strings.Join(clean, "\n")), operations
 }

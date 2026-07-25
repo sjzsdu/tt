@@ -48,14 +48,15 @@ type RunResult struct {
 }
 
 type agentResponse struct {
-	Member     Agent
-	Session    string
-	Content    string
-	Signal     CollaborationSignal
-	Targets    []string
-	Blackboard []BlackboardOperation
-	Metrics    EventMetrics
-	Err        error
+	Member       Agent
+	Session      string
+	Content      string
+	Signal       CollaborationSignal
+	Targets      []string
+	Blackboard   []BlackboardOperation
+	Verification []VerificationResult
+	Metrics      EventMetrics
+	Err          error
 }
 
 const (
@@ -167,6 +168,15 @@ func (e *Engine) runCurrentRound(ctx context.Context) (result RunResult, err err
 	if err := e.runAdaptiveReview(runCtx, memory); err != nil {
 		return RunResult{}, err
 	}
+	if e.Definition.Verification.Enabled {
+		events, loadErr := e.Store.Events()
+		if loadErr != nil {
+			return RunResult{}, loadErr
+		}
+		if !verificationSatisfied(events, round.Number) {
+			return RunResult{}, fmt.Errorf("team delivery verification has not passed after the latest implementation")
+		}
+	}
 	answer, err := e.runFinalization(runCtx, memory)
 	if err != nil {
 		return RunResult{}, err
@@ -209,25 +219,40 @@ func (e *Engine) runInitialWave(ctx context.Context, memory MemoryDocument) erro
 	if err := e.Store.SetPhase(PhaseInitial, 0); err != nil {
 		return err
 	}
-	events, err := e.Store.Events()
-	if err != nil {
-		return err
-	}
-	completed := completedMembers(events, e.Store.State.Current.Number, PhaseInitial, 0)
-	var pending []Agent
-	for _, member := range e.Definition.Agents {
-		if !completed[strings.ToLower(member.ID)] {
-			pending = append(pending, member)
+	for attempt := 1; attempt <= e.Definition.Limits.MaxReviewTurnsPerAgent; attempt++ {
+		events, err := e.Store.Events()
+		if err != nil {
+			return err
+		}
+		completed := completedMembers(events, e.Store.State.Current.Number, PhaseInitial, 0)
+		var pending []Agent
+		for _, member := range e.Definition.Agents {
+			if !completed[strings.ToLower(member.ID)] {
+				pending = append(pending, member)
+			}
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		prompt := e.initialPrompt(memory, events)
+		responses := e.callMembers(ctx, pending, func(member Agent) string {
+			return strings.ReplaceAll(prompt, "{{MEMBER_CONTEXT}}", memberContext(member))
+		})
+		commitErr := e.commitResponses(PhaseInitial, 0, responses)
+		if commitErr == nil {
+			continue
+		}
+		if attempt == e.Definition.Limits.MaxReviewTurnsPerAgent {
+			return fmt.Errorf("initial team wave still has failed members after %d attempts: %w", attempt, commitErr)
+		}
+		if err := e.appendEvent(Event{
+			Type: "initial_retry", Round: e.Store.State.Current.Number, Phase: PhaseInitial,
+			Content: fmt.Sprintf("retrying incomplete initial members (attempt %d)", attempt+1),
+		}); err != nil {
+			return err
 		}
 	}
-	if len(pending) == 0 {
-		return nil
-	}
-	prompt := e.initialPrompt(memory, events)
-	responses := e.callMembers(ctx, pending, func(member Agent) string {
-		return strings.ReplaceAll(prompt, "{{MEMBER_CONTEXT}}", memberContext(member))
-	})
-	return e.commitResponses(PhaseInitial, 0, responses)
+	return nil
 }
 
 func (e *Engine) runReviewActivations(ctx context.Context, memory MemoryDocument, wave int, activations []Activation) ([]agentResponse, error) {
@@ -506,6 +531,11 @@ func (e *Engine) callMembers(ctx context.Context, members []Agent, prompt func(A
 func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (agentResponse, error) {
 	session := e.sessionFor(member.ID, "")
 	model := e.modelFor(member)
+	if e.Definition.Verification.Enabled &&
+		strings.EqualFold(member.ID, e.Definition.Verification.Verifier) &&
+		strings.Contains(prompt, promptMarkerReview) {
+		prompt += "\n\n" + verificationInstructions()
+	}
 	started := time.Now()
 	content, err := e.Processor.Process(ctx, AgentCall{
 		MemberID:         member.ID,
@@ -517,17 +547,24 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		ExternalSessions: e.Store,
 		Workspace:        e.Store.Thread.Workspace,
 	})
-	cleanContent, blackboard := parseBlackboardOperations(content)
+	cleanContent, verificationRequest := parseVerificationRequest(content)
+	cleanContent, blackboard := parseBlackboardOperations(cleanContent)
 	cleanContent, signal, _ := parseCollaborationResponse(cleanContent, e.Definition)
+	verification, verificationErr := e.runVerification(ctx, member, verificationRequest)
+	if verificationErr != nil {
+		signal = SignalObject
+		cleanContent = strings.TrimSpace(cleanContent + "\n\n运行时独立验证失败：" + verificationErr.Error())
+	}
 	cleanContent = limitTeamResponse(cleanContent, e.Definition.Limits.MaxResponseChars)
 	targets := mentionedMembers(cleanContent, e.Definition)
 	response := agentResponse{
-		Member:     member,
-		Session:    session,
-		Content:    cleanContent,
-		Signal:     signal,
-		Targets:    targets,
-		Blackboard: blackboard,
+		Member:       member,
+		Session:      session,
+		Content:      cleanContent,
+		Signal:       signal,
+		Targets:      targets,
+		Blackboard:   blackboard,
+		Verification: verification,
 		Metrics: EventMetrics{
 			DurationMS:  time.Since(started).Milliseconds(),
 			Turn:        e.currentTurn(),
@@ -536,6 +573,9 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 			OutputChars: len([]rune(content)),
 		},
 		Err: err,
+	}
+	if verificationErr != nil {
+		response.Targets = []string{firstNonEmpty(e.Definition.Coordination.InitialHandoff, e.Definition.Coordination.Facilitator)}
 	}
 	return response, err
 }
@@ -637,6 +677,20 @@ func (e *Engine) commitResponses(phase string, wave int, responses []agentRespon
 				Ref:        sourceEventID,
 				Blackboard: &operation,
 				Content:    operation.Content,
+			}); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		for _, verification := range response.Verification {
+			verification := verification
+			eventType := "verification_passed"
+			if verification.ExitCode != 0 {
+				eventType = "verification_failed"
+			}
+			if err := e.appendEvent(Event{
+				Type: eventType, Round: e.Store.State.Current.Number, Phase: phase, Wave: wave,
+				From: response.Member.ID, To: []string{"team"}, Ref: sourceEventID,
+				Verification: &verification, Content: strings.Join(verification.Command, " "),
 			}); err != nil && firstErr == nil {
 				firstErr = err
 			}

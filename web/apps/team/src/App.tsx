@@ -26,6 +26,8 @@ const VISIBLE_EVENT_TYPES = new Set([
   'agent_message',
   'agent_yield',
   'agent_error',
+  'verification_passed',
+  'verification_failed',
   'final_answer',
   'memory_updated',
   'memory_proposed',
@@ -121,6 +123,11 @@ function signalTag(signal?: string) {
 }
 
 function eventText(event: TeamEvent) {
+  if (event.verification) {
+    const command = event.verification.command.join(' ');
+    const output = event.verification.stderr || event.verification.stdout || '';
+    return `${event.type === 'verification_passed' ? '独立验证通过' : '独立验证失败'}：${command}（exit ${event.verification.exit_code}）${output ? `\n\n${output}` : ''}`;
+  }
   if (event.type === 'convergence_reached') return '团队已达到收敛条件，准备生成最终答案。';
   if (event.type === 'forced_stop') {
     if (event.content === 'max_agent_turns') return '已达到 Agent turn 上限，运行时将保留未解决分歧并强制总结。';
