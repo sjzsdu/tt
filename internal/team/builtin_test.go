@@ -65,9 +65,11 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 		if implementer.Agent != "coder" ||
 			!strings.Contains(implementer.Prompt, "sole member authorized to modify") ||
 			!strings.Contains(implementer.Prompt, "ask only @code-reviewer") ||
+			!strings.Contains(implementer.Prompt, "menu, plan-only answer") ||
 			!strings.Contains(reviewer.Prompt, "@test-engineer") ||
 			!strings.Contains(tester.Prompt, "@delivery-lead") ||
-			!strings.Contains(lead.Prompt, "Never fabricate edits") {
+			!strings.Contains(lead.Prompt, "Never fabricate edits") ||
+			!strings.Contains(lead.Prompt, "rank concrete opportunities") {
 			t.Fatalf("software-development delivery protocol is incomplete")
 		}
 		for _, member := range definition.Agents {

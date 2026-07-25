@@ -285,6 +285,39 @@ func TestEngineInjectsConfiguredLanguageIntoEveryPhase(t *testing.T) {
 	}
 }
 
+func TestEngineMakesCurrentQuestionAuthoritativeOverMemory(t *testing.T) {
+	definition := testDefinition(t)
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const question = "重构一下当前项目"
+	if _, err := store.StartRound(question); err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Definition: definition, Store: store}
+	memory := MemoryDocument{Version: 3, Content: "继续删除没有免费模型的 provider"}
+	member := definition.Agents[0]
+	for phase, prompt := range map[string]string{
+		"initial": engine.initialPrompt(memory, nil),
+		"review":  engine.reviewPrompt(memory, nil, 1, "review"),
+		"final":   engine.finalPrompt(memory, nil, member),
+	} {
+		questionIndex := strings.Index(prompt, question)
+		memoryIndex := strings.Index(prompt, memory.Content)
+		if questionIndex < 0 || memoryIndex < 0 || questionIndex >= memoryIndex {
+			t.Fatalf("%s prompt does not place current question before stale memory:\n%s", phase, prompt)
+		}
+		if !strings.Contains(prompt, "唯一有效目标") || !strings.Contains(prompt, "旧任务") {
+			t.Fatalf("%s prompt lacks stale-memory guard:\n%s", phase, prompt)
+		}
+	}
+	memoryPrompt := engine.memoryPrompt(memory, nil, "answer", member)
+	if !strings.Contains(memoryPrompt, "不得作为下一轮的活动任务保存") {
+		t.Fatalf("memory prompt lacks active-task retention guard:\n%s", memoryPrompt)
+	}
+}
+
 func TestLimitTeamResponse(t *testing.T) {
 	if got := limitTeamResponse("一二三四五", 3); got != "一二三\n\n[内容因达到 Team 单次回复长度限制而截断]" {
 		t.Fatalf("limited response = %q", got)

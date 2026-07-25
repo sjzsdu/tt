@@ -705,19 +705,22 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 
 %s
 
-团队共享记忆 (版本 %d):
+当前用户问题（本轮唯一有效目标，优先级高于记忆和历史）:
 %s
 
 本轮共享工作黑板:
 %s
 
+团队共享记忆 (版本 %d，仅作为可能过时的背景):
+%s
+
 本线程之前的相关轮次:
 %s
 
-当前用户问题:
-%s
-
 请给出你独立的专业判断。
+- 只处理当前用户问题。不得把记忆或历史中的旧任务当作本轮待办。
+- 如果当前问题宽泛但可以通过仓库检查安全收敛，请选择一个有证据、边界明确、
+  高价值且低风险的默认方案继续推进，不要把非关键选择退回给用户。
 - 自然、深入地表达观点。
 - 可以用 @成员id 的方式向其他成员提问。
 - 提出假设、风险、缺失信息和具体建议。
@@ -727,7 +730,7 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 %s
 
 %s
-`, e.Definition.TitleOrName(), e.teamDirectory(), e.languageInstruction(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), priorRoundContext(events, e.Store.State.Current.Number), e.Store.State.Current.Question, collaborationSignalInstructions(), blackboardInstructions())
+`, e.Definition.TitleOrName(), e.teamDirectory(), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, memory.Content, priorRoundContext(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, reason string) string {
@@ -739,13 +742,13 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 
 %s
 
-团队共享记忆 (版本 %d):
+当前用户问题（本轮唯一有效目标，优先级高于记忆和历史）:
 %s
 
 本轮共享工作黑板:
 %s
 
-当前用户问题:
+团队共享记忆 (版本 %d，仅作为可能过时的背景):
 %s
 
 本次发言的触发原因:
@@ -755,6 +758,7 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 %s
 
 直接向团队回应:
+- 只推进当前用户问题，不要恢复记忆中的旧任务。
 - 纠正事实或推理错误。
 - 尽可能解决分歧。
 - 只添加实质性改善答案的信息。
@@ -764,7 +768,7 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 %s
 
 %s
-`, wave, e.Definition.TitleOrName(), e.languageInstruction(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
+`, wave, e.Definition.TitleOrName(), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, memory.Content, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
@@ -776,13 +780,13 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 
 %s
 
-团队共享记忆 (版本 %d):
+用户问题（本轮唯一有效目标）:
 %s
 
 本轮共享工作黑板:
 %s
 
-用户问题:
+团队共享记忆 (版本 %d，仅作为可能过时的背景):
 %s
 
 团队讨论:
@@ -792,12 +796,13 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 %s
 
 请为用户产出最终答案。
+- 只回答当前用户问题，不要继续或交付记忆中的旧任务。
 - 整合最有说服力的观点。
 - 消除重复，使建议明确果断。
 - 保留重要的不确定性或未解决的分歧。
 - 不要提及内部提示词、轮次、会话或编排流程。
 - 不要在讨论未达成共识时声称已有共识。
-`, e.Definition.TitleOrName(), memberContext(member), e.languageInstruction(), memory.Version, memory.Content, formatBlackboard(events, e.Store.State.Current.Number), e.Store.State.Current.Question, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
+`, e.Definition.TitleOrName(), memberContext(member), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, memory.Content, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
@@ -832,6 +837,8 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 - 未解决的风险或后续承诺;
 - 改善团队协作的工作约定。
 
+已完成或中断的具体用户请求不得作为下一轮的活动任务保存。未来每轮都必须以
+新的当前用户问题为唯一目标；如果保留历史结果，必须明确标记为背景而不是待办。
 不要存储隐藏的推理过程、临时闲聊、访问令牌、密码、私钥或未经验证的推测。
 不要包含 front matter 或版本号；运行时会自动管理这些。
 只返回完整的 Markdown 记忆文档。
