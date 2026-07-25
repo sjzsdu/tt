@@ -961,6 +961,8 @@ func currentRoundTranscript(events []Event, round int) string {
 			fmt.Fprintf(&builder, "@%s%s: %s\n\n", event.From, signal, event.Content)
 		case "agent_yield":
 			fmt.Fprintf(&builder, "@%s: [YIELD]\n\n", event.From)
+		case "agent_error":
+			fmt.Fprintf(&builder, "@%s: [ERROR] %s\n\n", event.From, event.Error)
 		}
 	}
 	if builder.Len() == 0 {

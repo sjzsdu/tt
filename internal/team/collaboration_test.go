@@ -336,7 +336,7 @@ func TestAdaptiveRoutingPersistsForcedStopAtTurnLimit(t *testing.T) {
 	}
 }
 
-func TestAdaptiveRoutingResumeRetriesOnlyPendingActivation(t *testing.T) {
+func TestAdaptiveRoutingRetriesPendingActivationWithoutFailingRound(t *testing.T) {
 	definition := adaptiveTestDefinition(t, 8)
 	processor := &adaptiveProcessor{}
 	processor.response = func(call AgentCall, ordinal int) (string, error) {
@@ -363,31 +363,58 @@ func TestAdaptiveRoutingResumeRetriesOnlyPendingActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := &Engine{Definition: definition, Store: store, Processor: processor}
-	if _, err := engine.RunRound(context.Background(), "请复核。"); err == nil {
-		t.Fatal("expected temporary expert failure")
+	if _, err := engine.RunRound(context.Background(), "请复核。"); err != nil {
+		t.Fatal(err)
 	}
-	before, err := store.Events()
+	events, err := store.Events()
 	if err != nil {
 		t.Fatal(err)
 	}
-	initialBefore := countPhaseMessages(before, PhaseInitial)
-	state := store.State.Current.Collaboration
-	if state == nil || len(state.Pending) != 1 || state.Pending[0].MemberID != "expert" {
-		t.Fatalf("pending after failure = %+v", state)
+	if countEventType(events, "agent_error") != 1 {
+		t.Fatalf("agent errors = %+v", events)
+	}
+	if countEventType(events, "convergence_reached") != 1 ||
+		countEventType(events, "round_failed") != 0 ||
+		countEventType(events, "final_answer") != 1 {
+		t.Fatalf("events = %+v", events)
+	}
+	if processor.counts["review|expert"] != 2 {
+		t.Fatalf("expert review attempts = %d", processor.counts["review|expert"])
+	}
+}
+
+func TestAdaptiveRoutingCapsPersistentFailureAndFinalizesWithEvidence(t *testing.T) {
+	definition := adaptiveTestDefinition(t, 8)
+	definition.Limits.MaxReviewTurnsPerAgent = 2
+	processor := &adaptiveProcessor{}
+	processor.response = func(call AgentCall, _ int) (string, error) {
+		switch promptPhase(call.Prompt) {
+		case "initial":
+			if call.MemberID == "lead" {
+				return "@expert 请进行复核。", nil
+			}
+			return "[TEAM_SIGNAL:YIELD]", nil
+		case "review":
+			return "", errors.New("provider unavailable")
+		case "final":
+			if !strings.Contains(call.Prompt, "@expert: [ERROR] provider unavailable") {
+				return "", errors.New("final prompt missing review failure evidence")
+			}
+			return "复核模型不可用；保留风险后交付。", nil
+		default:
+			return "", errors.New("unexpected prompt phase")
+		}
 	}
 
-	if _, err := engine.Resume(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	after, err := store.Events()
+	store := runAdaptiveRound(t, definition, processor)
+	events, err := store.Events()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if countPhaseMessages(after, PhaseInitial) != initialBefore {
-		t.Fatal("resume repeated initial responses")
-	}
-	if countEventType(after, "convergence_reached") != 1 {
-		t.Fatalf("events = %+v", after)
+	if countEventType(events, "agent_error") != 2 ||
+		countEventType(events, "round_failed") != 0 ||
+		countEventType(events, "final_answer") != 1 {
+		t.Fatalf("persistent failure lifecycle = %+v", events)
 	}
 }
 
