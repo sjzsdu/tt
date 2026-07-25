@@ -177,7 +177,7 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 			return err
 		}
 		if callErr != nil {
-			return callErr
+			continue
 		}
 	}
 }

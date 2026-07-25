@@ -209,7 +209,7 @@ func TestRuntimeSharesBlackboardProjectionWithReviewAndFinalizer(t *testing.T) {
 	}
 }
 
-func TestRuntimeResumeRebuildsBlackboardFromPersistedEvents(t *testing.T) {
+func TestRuntimeRetryRebuildsBlackboardFromPersistedEvents(t *testing.T) {
 	definition := adaptiveTestDefinition(t, 10)
 	processor := &adaptiveProcessor{}
 	processor.response = func(call AgentCall, ordinal int) (string, error) {
@@ -243,16 +243,12 @@ func TestRuntimeResumeRebuildsBlackboardFromPersistedEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := &Engine{Definition: definition, Store: store, Processor: processor}
-	if _, err := engine.RunRound(context.Background(), "选择传输协议。"); err == nil {
-		t.Fatal("expected temporary review failure")
+	if _, err := engine.RunRound(context.Background(), "选择传输协议。"); err != nil {
+		t.Fatal(err)
 	}
 
 	reopened, err := OpenStore(store.Dir)
 	if err != nil {
-		t.Fatal(err)
-	}
-	resumed := &Engine{Definition: definition, Store: reopened, Processor: processor}
-	if _, err := resumed.Resume(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	events, err := reopened.Events()
@@ -261,7 +257,7 @@ func TestRuntimeResumeRebuildsBlackboardFromPersistedEvents(t *testing.T) {
 	}
 	projection := ProjectBlackboard(events, 1)
 	if len(projection.Entries) != 1 || projection.Entries[0].Content != "HTTPS is required." {
-		t.Fatalf("projection after resume = %+v", projection)
+		t.Fatalf("projection after retry = %+v", projection)
 	}
 }
 

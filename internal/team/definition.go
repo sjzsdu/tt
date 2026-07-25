@@ -100,8 +100,8 @@ func (d *Definition) Normalize() {
 	if d.Limits.MaxResponseChars < 0 {
 		d.Limits.MaxResponseChars = 0
 	}
-	if d.Limits.MaxReviewTurnsPerAgent < 0 {
-		d.Limits.MaxReviewTurnsPerAgent = 0
+	if d.Limits.MaxReviewTurnsPerAgent <= 0 {
+		d.Limits.MaxReviewTurnsPerAgent = 4
 	}
 	if strings.TrimSpace(d.Limits.MaxWallTime) == "" {
 		d.Limits.MaxWallTime = "15m"
