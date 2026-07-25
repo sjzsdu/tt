@@ -39,6 +39,7 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 		}
 		if definition.Coordination.Finalizer != "delivery-lead" ||
 			definition.Coordination.InitialHandoff != "implementer" ||
+			definition.Coordination.MaxHandoffTargets != 1 ||
 			definition.Coordination.ReviewWaves != 0 ||
 			definition.Memory.Maintainer != "delivery-lead" ||
 			definition.Limits.MaxAgentTurns != 18 ||

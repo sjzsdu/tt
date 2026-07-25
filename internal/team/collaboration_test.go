@@ -26,6 +26,14 @@ func TestParseCollaborationResponse(t *testing.T) {
 	if content != "" || signal != SignalYield || len(targets) != 0 {
 		t.Fatalf("yield parse = %q, %q, %v", content, signal, targets)
 	}
+
+	_, _, targets = parseCollaborationResponse(
+		"请 @test‑engineer 验证。",
+		&Definition{Agents: []Agent{{ID: "test-engineer"}}},
+	)
+	if len(targets) != 1 || targets[0] != "test-engineer" {
+		t.Fatalf("unicode hyphen mention targets = %v", targets)
+	}
 }
 
 type adaptiveProcessor struct {
@@ -182,9 +190,9 @@ func TestSoftwareDevelopmentUsesDeliveryPipeline(t *testing.T) {
 		case "review":
 			switch call.MemberID {
 			case "implementer":
-				return "实现已完成，请 @code-reviewer 检查。\n[TEAM_SIGNAL:AGREE]", nil
+				return "实现已完成，请 @code-reviewer 检查；通过后由 @test-engineer 验证。\n[TEAM_SIGNAL:AGREE]", nil
 			case "code-reviewer":
-				return "审查通过，请 @test-engineer 验证。\n[TEAM_SIGNAL:AGREE]", nil
+				return "审查通过，请 @test‑engineer 验证。\n[TEAM_SIGNAL:AGREE]", nil
 			case "test-engineer":
 				return "测试通过，请 @delivery-lead 交付。\n[TEAM_SIGNAL:AGREE]", nil
 			case "delivery-lead":

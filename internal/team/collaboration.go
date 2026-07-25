@@ -61,7 +61,7 @@ func mentionedMembers(content string, definition *Definition) []string {
 	if definition == nil {
 		return nil
 	}
-	lower := strings.ToLower(content)
+	lower := normalizeMentionText(content)
 	var targets []string
 	for _, member := range definition.Agents {
 		id := strings.ToLower(strings.TrimSpace(member.ID))
@@ -74,6 +74,17 @@ func mentionedMembers(content string, definition *Definition) []string {
 		}
 	}
 	return targets
+}
+
+func normalizeMentionText(content string) string {
+	replacer := strings.NewReplacer(
+		"‐", "-",
+		"‑", "-",
+		"‒", "-",
+		"–", "-",
+		"−", "-",
+	)
+	return strings.ToLower(replacer.Replace(content))
 }
 
 func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) error {
@@ -324,7 +335,13 @@ func (e *Engine) applyResponseEvent(state *CollaborationState, activation Activa
 		}
 	}
 
-	for _, target := range validEventTargets(event.To, e.Definition) {
+	directTargets := validEventTargets(event.To, e.Definition)
+	if signal != SignalObject {
+		if maxTargets := e.Definition.Coordination.MaxHandoffTargets; maxTargets > 0 && len(directTargets) > maxTargets {
+			directTargets = directTargets[:maxTargets]
+		}
+	}
+	for _, target := range directTargets {
 		if !strings.EqualFold(target, event.From) {
 			addActivation(state, Activation{MemberID: target, Reason: activationDirectMention, SourceEventID: event.ID})
 		}
