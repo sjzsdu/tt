@@ -142,6 +142,25 @@ Model precedence is `agents.model` → explicit `tt team --model` fallback →
 `default_model` → the global `agent.model` configuration. The finalizer and memory
 maintainer use the same rule.
 
+For delivery-oriented teams, `coordination.initial_handoff` starts the adaptive phase
+with one designated member instead of turning every `@mention` from the parallel
+initial analysis into another activation. Response and loop budgets are configurable:
+
+```toml
+[coordination]
+initial_handoff = "implementer"
+review_waves = 0
+
+[limits]
+max_agent_turns = 18
+max_review_turns_per_agent = 3
+max_response_chars = 3000
+```
+
+`max_response_chars` is both included in the agent contract and enforced when a
+response is persisted. `max_review_turns_per_agent` prevents repeated mentions from
+reactivating one member indefinitely.
+
 Set `language` to make every member response, review, final answer, and maintained
 Team memory use one language consistently:
 

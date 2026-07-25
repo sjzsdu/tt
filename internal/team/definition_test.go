@@ -21,6 +21,8 @@ max_concurrency = 2
 
 [limits]
 max_agent_turns = 6
+max_review_turns_per_agent = 3
+max_response_chars = 2000
 max_wall_time = "5m"
 
 [memory]
@@ -56,6 +58,10 @@ func TestParseDefinition(t *testing.T) {
 	}
 	if definition.Coordination.ReviewWaves != 1 {
 		t.Fatalf("review waves = %d", definition.Coordination.ReviewWaves)
+	}
+	if definition.Limits.MaxReviewTurnsPerAgent != 3 ||
+		definition.Limits.MaxResponseChars != 2000 {
+		t.Fatalf("coordination/limits not parsed: %+v %+v", definition.Coordination, definition.Limits)
 	}
 	if definition.DefaultModel != "team-default" || definition.Agents[0].Model != "lead-model" {
 		t.Fatalf("models were not normalized: default=%q lead=%q", definition.DefaultModel, definition.Agents[0].Model)

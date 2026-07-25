@@ -285,6 +285,21 @@ func TestEngineInjectsConfiguredLanguageIntoEveryPhase(t *testing.T) {
 	}
 }
 
+func TestLimitTeamResponse(t *testing.T) {
+	if got := limitTeamResponse("一二三四五", 3); got != "一二三\n\n[内容因达到 Team 单次回复长度限制而截断]" {
+		t.Fatalf("limited response = %q", got)
+	}
+	if got := limitTeamResponse("short", 10); got != "short" {
+		t.Fatalf("short response changed: %q", got)
+	}
+	if got := compact("一二三四", 2); got != "一二\n[truncated]" {
+		t.Fatalf("compact = %q", got)
+	}
+	if got := compactTail("一二三四", 2); got != "[earlier discussion truncated]\n三四" {
+		t.Fatalf("compactTail = %q", got)
+	}
+}
+
 func countPhaseMessages(events []Event, phase string) int {
 	count := 0
 	for _, event := range events {

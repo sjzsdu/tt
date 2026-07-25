@@ -38,8 +38,12 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 			t.Fatal(err)
 		}
 		if definition.Coordination.Finalizer != "delivery-lead" ||
+			definition.Coordination.InitialHandoff != "implementer" ||
+			definition.Coordination.ReviewWaves != 0 ||
 			definition.Memory.Maintainer != "delivery-lead" ||
-			definition.Limits.MaxAgentTurns < 30 {
+			definition.Limits.MaxAgentTurns != 18 ||
+			definition.Limits.MaxReviewTurnsPerAgent != 3 ||
+			definition.Limits.MaxResponseChars != 3000 {
 			t.Fatalf("definition = %+v", definition)
 		}
 		for _, id := range []string{

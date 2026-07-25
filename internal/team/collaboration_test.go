@@ -118,6 +118,106 @@ func TestAdaptiveRoutingActivatesSimultaneousMentions(t *testing.T) {
 	}
 }
 
+func TestInitialHandoffIgnoresInitialMentionStorm(t *testing.T) {
+	definition := adaptiveTestDefinition(t, 8)
+	definition.Coordination.InitialHandoff = "observer"
+	processor := &adaptiveProcessor{}
+	processor.response = func(call AgentCall, _ int) (string, error) {
+		switch promptPhase(call.Prompt) {
+		case "initial":
+			if call.MemberID == "lead" {
+				return "@expert 和 @observer 请继续讨论。", nil
+			}
+			return "[TEAM_SIGNAL:YIELD]", nil
+		case "review":
+			return "交接任务完成。\n[TEAM_SIGNAL:AGREE]", nil
+		case "final":
+			return "最终方案", nil
+		default:
+			return "", errors.New("unexpected prompt phase")
+		}
+	}
+
+	store := runAdaptiveRound(t, definition, processor)
+	events, err := store.Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activated []string
+	for _, event := range events {
+		if event.Type == "agent_activated" && len(event.To) == 1 {
+			activated = append(activated, event.To[0])
+		}
+	}
+	if strings.Join(activated, ",") != "observer" {
+		t.Fatalf("activated = %v, want only initial handoff", activated)
+	}
+}
+
+func TestLimitPendingReviewTurns(t *testing.T) {
+	pending := []Activation{{MemberID: "expert"}, {MemberID: "observer"}}
+	events := []Event{
+		{Round: 1, Phase: PhaseReview, Type: "agent_message", From: "expert"},
+		{Round: 1, Phase: PhaseReview, Type: "agent_yield", From: "expert"},
+		{Round: 1, Phase: PhaseReview, Type: "agent_message", From: "observer"},
+	}
+	filtered := limitPendingReviewTurns(pending, events, 1, 2)
+	if len(filtered) != 1 || filtered[0].MemberID != "observer" {
+		t.Fatalf("filtered = %+v", filtered)
+	}
+}
+
+func TestSoftwareDevelopmentUsesDeliveryPipeline(t *testing.T) {
+	definition, err := Load("software-development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := false
+	definition.Memory.Enabled = &disabled
+	processor := &adaptiveProcessor{}
+	processor.response = func(call AgentCall, _ int) (string, error) {
+		switch promptPhase(call.Prompt) {
+		case "initial":
+			return "[TEAM_SIGNAL:YIELD]", nil
+		case "review":
+			switch call.MemberID {
+			case "implementer":
+				return "实现已完成，请 @code-reviewer 检查。\n[TEAM_SIGNAL:AGREE]", nil
+			case "code-reviewer":
+				return "审查通过，请 @test-engineer 验证。\n[TEAM_SIGNAL:AGREE]", nil
+			case "test-engineer":
+				return "测试通过，请 @delivery-lead 交付。\n[TEAM_SIGNAL:AGREE]", nil
+			case "delivery-lead":
+				return "交付证据齐全。\n[TEAM_SIGNAL:AGREE]", nil
+			default:
+				return "[TEAM_SIGNAL:YIELD]", nil
+			}
+		case "final":
+			return "已完成实现、审查和测试。", nil
+		default:
+			return "", errors.New("unexpected prompt phase")
+		}
+	}
+
+	store := runAdaptiveRound(t, definition, processor)
+	events, err := store.Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activated []string
+	for _, event := range events {
+		if event.Type == "agent_activated" && len(event.To) == 1 {
+			activated = append(activated, event.To[0])
+		}
+	}
+	if strings.Join(activated, ",") != "implementer,code-reviewer,test-engineer,delivery-lead" {
+		t.Fatalf("activation pipeline = %v", activated)
+	}
+	if countEventType(events, "forced_stop") != 0 || countEventType(events, "final_answer") != 1 {
+		t.Fatalf("pipeline did not finish cleanly: %+v", events)
+	}
+}
+
 func TestAdaptiveRoutingKeepsObjectionOpenUntilOwnerResolves(t *testing.T) {
 	definition := adaptiveTestDefinition(t, 9)
 	processor := &adaptiveProcessor{}
