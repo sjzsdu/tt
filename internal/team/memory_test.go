@@ -104,3 +104,31 @@ func TestMemoryProposalRejectsUnsafeContentWithoutPromotion(t *testing.T) {
 		t.Fatalf("unsafe proposal replaced current memory: %+v", current)
 	}
 }
+
+func TestStableMemoryContextExcludesPriorActiveTasks(t *testing.T) {
+	content := `# Team Memory
+
+## 用户偏好与沟通约束
+- 必须使用简体中文。
+- 用户当前关注点是清理 provider。
+
+## 仓库与架构稳定事实
+- provider 与 manifest 分离。
+
+## 未解决的关键问题
+- 下一轮继续实现过滤器。
+
+## 本次线程形成的稳定结论
+- 当前交付没有完成。`
+	filtered := stableMemoryContext(content)
+	for _, unwanted := range []string{"当前关注点", "下一轮继续", "当前交付"} {
+		if strings.Contains(filtered, unwanted) {
+			t.Fatalf("filtered memory retained %q:\n%s", unwanted, filtered)
+		}
+	}
+	for _, wanted := range []string{"必须使用简体中文", "provider 与 manifest 分离"} {
+		if !strings.Contains(filtered, wanted) {
+			t.Fatalf("filtered memory lost %q:\n%s", wanted, filtered)
+		}
+	}
+}

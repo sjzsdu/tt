@@ -3,10 +3,12 @@ package team
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,21 +37,29 @@ const (
 )
 
 type Thread struct {
-	SchemaVersion     int    `json:"schema_version"`
-	ID                string `json:"id"`
-	Team              string `json:"team"`
-	Title             string `json:"title,omitempty"`
-	Status            string `json:"status"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
-	Workspace         string `json:"workspace"`
-	DefinitionHash    string `json:"definition_hash"`
-	DefinitionVersion int    `json:"definition_version"`
-	DefinitionPath    string `json:"definition_path,omitempty"`
-	CurrentRound      int    `json:"current_round"`
-	MemoryPath        string `json:"memory_path"`
-	LastAnswer        string `json:"last_answer,omitempty"`
-	Error             string `json:"error,omitempty"`
+	SchemaVersion     int                `json:"schema_version"`
+	ID                string             `json:"id"`
+	Team              string             `json:"team"`
+	Title             string             `json:"title,omitempty"`
+	Status            string             `json:"status"`
+	CreatedAt         string             `json:"created_at"`
+	UpdatedAt         string             `json:"updated_at"`
+	Workspace         string             `json:"workspace"`
+	DefinitionHash    string             `json:"definition_hash"`
+	DefinitionVersion int                `json:"definition_version"`
+	DefinitionPath    string             `json:"definition_path,omitempty"`
+	CurrentRound      int                `json:"current_round"`
+	MemoryPath        string             `json:"memory_path"`
+	LastAnswer        string             `json:"last_answer,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	WorkspaceBaseline *WorkspaceSnapshot `json:"workspace_baseline,omitempty"`
+}
+
+type WorkspaceSnapshot struct {
+	GitHead      string `json:"git_head,omitempty"`
+	WorktreeHash string `json:"worktree_hash,omitempty"`
+	Status       string `json:"status,omitempty"`
+	CapturedAt   string `json:"captured_at,omitempty"`
 }
 
 type RoundState struct {
@@ -185,6 +195,7 @@ func NewStore(workspace string, definition *Definition) (*Store, error) {
 		return nil, fmt.Errorf("create team thread directory: %w", err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	baseline := CaptureWorkspaceSnapshot(workspace)
 	store := &Store{
 		Root: root,
 		Dir:  dir,
@@ -201,6 +212,7 @@ func NewStore(workspace string, definition *Definition) (*Store, error) {
 			DefinitionVersion: definition.Version,
 			DefinitionPath:    definition.Source,
 			MemoryPath:        ResolveMemoryPath(workspace, definition),
+			WorkspaceBaseline: baseline,
 		},
 		State: State{SchemaVersion: CurrentStoreSchemaVersion, NextEventID: 1},
 	}
@@ -211,6 +223,23 @@ func NewStore(workspace string, definition *Definition) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func CaptureWorkspaceSnapshot(workspace string) *WorkspaceSnapshot {
+	head, headErr := exec.Command("git", "-C", workspace, "rev-parse", "HEAD").Output()
+	if headErr != nil {
+		return nil
+	}
+	status, _ := exec.Command("git", "-C", workspace, "status", "--porcelain=v1", "--untracked-files=all").Output()
+	diff, _ := exec.Command("git", "-C", workspace, "diff", "--binary", "HEAD").Output()
+	payload := append(append([]byte(nil), status...), diff...)
+	sum := sha256.Sum256(payload)
+	return &WorkspaceSnapshot{
+		GitHead:      strings.TrimSpace(string(head)),
+		WorktreeHash: hex.EncodeToString(sum[:]),
+		Status:       strings.TrimSpace(string(status)),
+		CapturedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
 }
 
 func OpenStore(dir string) (*Store, error) {

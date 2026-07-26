@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 type CollaborationSignal string
@@ -93,9 +94,23 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 		return err
 	}
 	if state.Converged || state.StopReason != "" {
-		return nil
+		events, loadErr := e.Store.Events()
+		if loadErr != nil {
+			return loadErr
+		}
+		if memberID := e.requiredDeliveryActivation(events); memberID != "" {
+			state.Converged = false
+			state.StopReason = ""
+			addActivation(&state, Activation{MemberID: memberID, Reason: "delivery_gate_resume"})
+			if err := e.Store.SetCollaboration(state); err != nil {
+				return err
+			}
+		} else {
+			return nil
+		}
 	}
 
+	failureAttempts := map[string]int{}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -111,6 +126,13 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 			e.Definition.Limits.MaxReviewTurnsPerAgent,
 		)
 		if len(state.Pending) == 0 {
+			if memberID := e.requiredDeliveryActivation(events); memberID != "" {
+				addActivation(&state, Activation{MemberID: memberID, Reason: "delivery_gate"})
+				if err := e.Store.SetCollaboration(state); err != nil {
+					return err
+				}
+				continue
+			}
 			switch {
 			case hasOpenObjections(state):
 				return e.forceStopCollaboration(state, stopReasonUnresolvedNoReply)
@@ -181,6 +203,14 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 			for i, response := range responses {
 				if response.Err != nil || (response.Content == "" && response.Signal != SignalYield) {
 					addActivation(&state, batch[i])
+					key := strings.ToLower(batch[i].MemberID)
+					failureAttempts[key]++
+					if failureAttempts[key] >= e.Definition.Limits.MaxReviewTurnsPerAgent {
+						if err := e.Store.SetCollaboration(state); err != nil {
+							return err
+						}
+						return fmt.Errorf("team agent %s failed %d times in this run; pending activation was preserved for resume", batch[i].MemberID, failureAttempts[key])
+					}
 				}
 			}
 		}
@@ -188,6 +218,22 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 			return err
 		}
 		if callErr != nil {
+			if isTransientTeamError(callErr) {
+				delay := time.Duration(1<<min(failureAttemptsForBatch(failureAttempts, batch), 4)) * time.Second
+				if err := e.appendEvent(Event{
+					Type: "agent_retry_wait", Round: e.Store.State.Current.Number, Phase: PhaseReview,
+					Wave: state.Cycle, From: "runtime", Content: delay.String(),
+				}); err != nil {
+					return err
+				}
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+			}
 			continue
 		}
 	}
@@ -203,7 +249,7 @@ func limitPendingReviewTurns(pending []Activation, events []Event, round, maxTur
 			continue
 		}
 		switch event.Type {
-		case "agent_message", "agent_yield", "agent_error":
+		case "agent_message", "agent_yield":
 			counts[strings.ToLower(event.From)]++
 		}
 	}
@@ -214,6 +260,52 @@ func limitPendingReviewTurns(pending []Activation, events []Event, round, maxTur
 		}
 	}
 	return filtered
+}
+
+func (e *Engine) requiredDeliveryActivation(events []Event) string {
+	round := e.Store.State.Current.Number
+	implementer := strings.TrimSpace(e.Definition.Coordination.InitialHandoff)
+	if implementer != "" && !hasSuccessfulPhaseResponse(events, round, PhaseReview, implementer) {
+		return implementer
+	}
+	if e.Definition.Verification.Enabled && !verificationSatisfied(events, round) {
+		return e.Definition.Verification.Verifier
+	}
+	return ""
+}
+
+func hasSuccessfulPhaseResponse(events []Event, round int, phase, memberID string) bool {
+	for _, event := range events {
+		if event.Round == round && event.Phase == phase &&
+			event.Type == "agent_message" &&
+			strings.EqualFold(event.From, memberID) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTransientTeamError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	for _, marker := range []string{"cooldown", "rate limit", "429", "temporar", "timeout", "connection reset", "unavailable"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func failureAttemptsForBatch(attempts map[string]int, batch []Activation) int {
+	maxAttempt := 0
+	for _, activation := range batch {
+		if attempt := attempts[strings.ToLower(activation.MemberID)]; attempt > maxAttempt {
+			maxAttempt = attempt
+		}
+	}
+	return maxAttempt
 }
 
 func (e *Engine) ensureCollaborationState() (CollaborationState, error) {

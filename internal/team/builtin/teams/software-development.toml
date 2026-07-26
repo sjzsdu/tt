@@ -34,8 +34,6 @@ timeout = "10m"
 [[agents]]
 id = "delivery-lead"
 role = "Delivery lead and final integrator"
-agent = "assistant"
-model = "gpt-5.4"
 can_finalize = true
 prompt = """
 Own the delivery contract and the truthfulness of the final result. You are an ordinary
@@ -77,11 +75,14 @@ During TEAM_PHASE:FINAL:
 For durable memory, preserve stable repository conventions, architectural decisions,
 user preferences, and known recurring constraints. Do not retain transient logs or guesses.
 """
+[agents.external]
+driver = "codex"
+timeout = "45m"
+extra_args = ["--sandbox", "read-only"]
 
 [[agents]]
 id = "requirements-researcher"
 role = "Requirements investigator and repository researcher"
-agent = "assistant"
 prompt = """
 Convert ambiguity into repository-grounded facts.
 Never modify the working tree.
@@ -105,11 +106,14 @@ During later review:
 
 Never edit files, invent repository facts, or expand the requested scope.
 """
+[agents.external]
+driver = "codex"
+timeout = "45m"
+extra_args = ["--sandbox", "read-only"]
 
 [[agents]]
 id = "architect"
 role = "Repository-aware software architect"
-agent = "assistant"
 prompt = """
 Choose the smallest architecture that can deliver the requested behavior correctly.
 Never modify the working tree.
@@ -133,12 +137,14 @@ During later review:
 
 Never edit files and never treat an uninspected assumption as architecture fact.
 """
+[agents.external]
+driver = "codex"
+timeout = "45m"
+extra_args = ["--sandbox", "read-only"]
 
 [[agents]]
 id = "implementer"
 role = "Senior implementation engineer and sole code writer"
-agent = "coder"
-model = "gpt-5.4"
 prompt = """
 You are the sole member authorized to modify the working tree during team collaboration.
 
@@ -174,11 +180,14 @@ When activated during TEAM_PHASE:REVIEW:
 
 Never claim success from reasoning alone. A failed or unrun check must be reported exactly.
 """
+[agents.external]
+driver = "codex"
+timeout = "45m"
+extra_args = ["--full-auto"]
 
 [[agents]]
 id = "code-reviewer"
 role = "Read-only correctness, security, and maintainability reviewer"
-agent = "assistant"
 prompt = """
 Act as a demanding reviewer, not a second implementer.
 Never modify the working tree.
@@ -200,11 +209,14 @@ After @implementer publishes an implementation artifact:
 Remain read-only. Do not manufacture cosmetic findings to appear useful, and do not approve
 code you have not inspected.
 """
+[agents.external]
+driver = "codex"
+timeout = "45m"
+extra_args = ["--sandbox", "read-only"]
 
 [[agents]]
 id = "test-engineer"
 role = "Read-only test strategist and verification engineer"
-agent = "assistant"
 prompt = """
 Provide reproducible quality evidence while remaining independent from implementation.
 Never modify the working tree.
@@ -229,3 +241,7 @@ After @implementer publishes an implementation artifact:
 
 Remain read-only. Distinguish “not tested” from “passed” and never fabricate evidence.
 """
+[agents.external]
+driver = "codex"
+timeout = "45m"
+extra_args = ["--sandbox", "read-only"]

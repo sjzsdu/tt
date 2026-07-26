@@ -26,6 +26,9 @@ const VISIBLE_EVENT_TYPES = new Set([
   'agent_message',
   'agent_yield',
   'agent_error',
+  'agent_started',
+  'agent_completed',
+  'agent_retry_wait',
   'verification_passed',
   'verification_failed',
   'final_answer',
@@ -123,6 +126,9 @@ function signalTag(signal?: string) {
 }
 
 function eventText(event: TeamEvent) {
+  if (event.type === 'agent_started') return `已开始执行 @${event.to?.[0] || 'agent'}`;
+  if (event.type === 'agent_completed') return `@${event.to?.[0] || 'agent'} 执行${event.content === 'failed' ? '失败' : '完成'}`;
+  if (event.type === 'agent_retry_wait') return `模型暂时不可用，等待 ${event.content || '一段时间'} 后重试`;
   if (event.verification) {
     const command = event.verification.command.join(' ');
     const output = event.verification.stderr || event.verification.stdout || '';

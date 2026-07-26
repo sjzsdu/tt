@@ -35,6 +35,25 @@ func TestRuntimeVerificationUsesRealExitCode(t *testing.T) {
 	}
 }
 
+func TestInitialVerifierDoesNotRequireDeliveryCommands(t *testing.T) {
+	definition := testDefinition(t)
+	definition.Verification = VerificationConfig{
+		Enabled: true, Verifier: definition.Agents[1].ID, MaxCommands: 2, Timeout: "5s",
+	}
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartRound("question"); err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Definition: definition, Store: store, Processor: &fakeProcessor{}}
+	response, err := engine.callMember(context.Background(), definition.Agents[1], promptMarkerInitial)
+	if err != nil || strings.Contains(response.Content, "独立验证失败") {
+		t.Fatalf("initial verifier was treated as delivery verification: response=%+v err=%v", response, err)
+	}
+}
+
 func TestVerificationMustFollowLatestImplementation(t *testing.T) {
 	events := []Event{
 		{ID: 1, Round: 1, Type: "agent_message", From: "implementer"},

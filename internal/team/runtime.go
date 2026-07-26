@@ -537,6 +537,15 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		prompt += "\n\n" + verificationInstructions()
 	}
 	started := time.Now()
+	phase := phaseFromPrompt(prompt)
+	wave := 0
+	if e.Store.State.Current != nil {
+		wave = e.Store.State.Current.ReviewWave
+	}
+	_ = e.appendEvent(Event{
+		Type: "agent_started", Round: e.Store.State.Current.Number, Phase: phase, Wave: wave,
+		From: "runtime", To: []string{member.ID}, Session: session,
+	})
 	content, err := e.Processor.Process(ctx, AgentCall{
 		MemberID:         member.ID,
 		Agent:            member.Agent,
@@ -547,14 +556,24 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		ExternalSessions: e.Store,
 		Workspace:        e.Store.Thread.Workspace,
 	})
+	_ = e.appendEvent(Event{
+		Type: "agent_completed", Round: e.Store.State.Current.Number, Phase: phase, Wave: wave,
+		From: "runtime", To: []string{member.ID}, Session: session,
+		Content: fallbackErrorStatus(err), Metrics: &EventMetrics{DurationMS: time.Since(started).Milliseconds(), Model: model},
+	})
 	cleanContent, verificationRequest := parseVerificationRequest(content)
 	cleanContent, blackboard := parseBlackboardOperations(cleanContent)
 	cleanContent, signal, _ := parseCollaborationResponse(cleanContent, e.Definition)
-	verification, verificationErr := e.runVerification(ctx, member, verificationRequest)
+	var verification []VerificationResult
+	var verificationErr error
+	if strings.Contains(prompt, promptMarkerReview) {
+		verification, verificationErr = e.runVerification(ctx, member, verificationRequest)
+	}
 	if verificationErr != nil {
 		signal = SignalObject
 		cleanContent = strings.TrimSpace(cleanContent + "\n\n运行时独立验证失败：" + verificationErr.Error())
 	}
+	cleanContent = dedupeResponseParagraphs(cleanContent)
 	cleanContent = limitTeamResponse(cleanContent, e.Definition.Limits.MaxResponseChars)
 	targets := mentionedMembers(cleanContent, e.Definition)
 	response := agentResponse{
@@ -578,6 +597,45 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		response.Targets = []string{firstNonEmpty(e.Definition.Coordination.InitialHandoff, e.Definition.Coordination.Facilitator)}
 	}
 	return response, err
+}
+
+func phaseFromPrompt(prompt string) string {
+	switch {
+	case strings.Contains(prompt, promptMarkerReview):
+		return PhaseReview
+	case strings.Contains(prompt, promptMarkerFinal):
+		return PhaseFinal
+	case strings.Contains(prompt, promptMarkerMemory):
+		return PhaseMemory
+	default:
+		return PhaseInitial
+	}
+}
+
+func fallbackErrorStatus(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "completed"
+}
+
+func dedupeResponseParagraphs(content string) string {
+	paragraphs := strings.Split(strings.ReplaceAll(strings.TrimSpace(content), "\r\n", "\n"), "\n\n")
+	seen := map[string]bool{}
+	result := make([]string, 0, len(paragraphs))
+	for _, paragraph := range paragraphs {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+		key := strings.Join(strings.Fields(paragraph), " ")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, paragraph)
+	}
+	return strings.Join(result, "\n\n")
 }
 
 func limitTeamResponse(content string, maxChars int) string {
@@ -762,6 +820,9 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 当前用户问题（本轮唯一有效目标，优先级高于记忆和历史）:
 %s
 
+运行时自动记录的工作区基线:
+%s
+
 本轮共享工作黑板:
 %s
 
@@ -784,7 +845,7 @@ func (e *Engine) initialPrompt(memory MemoryDocument, events []Event) string {
 %s
 
 %s
-`, e.Definition.TitleOrName(), e.teamDirectory(), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, memory.Content, priorRoundContext(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
+`, e.Definition.TitleOrName(), e.teamDirectory(), e.languageInstruction(), e.Store.State.Current.Question, e.workspaceBaselineContext(), formatBlackboard(events, e.Store.State.Current.Number), memory.Version, stableMemoryContext(memory.Content), priorRoundContext(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, reason string) string {
@@ -822,7 +883,7 @@ func (e *Engine) reviewPrompt(memory MemoryDocument, events []Event, wave int, r
 %s
 
 %s
-`, wave, e.Definition.TitleOrName(), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, memory.Content, fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
+`, wave, e.Definition.TitleOrName(), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, stableMemoryContext(memory.Content), fallback(reason, "同行评审"), currentRoundTranscript(events, e.Store.State.Current.Number), collaborationSignalInstructions(), blackboardInstructions())
 }
 
 func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent) string {
@@ -835,6 +896,9 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 %s
 
 用户问题（本轮唯一有效目标）:
+%s
+
+工作区变更证据:
 %s
 
 本轮共享工作黑板:
@@ -856,7 +920,33 @@ func (e *Engine) finalPrompt(memory MemoryDocument, events []Event, member Agent
 - 保留重要的不确定性或未解决的分歧。
 - 不要提及内部提示词、轮次、会话或编排流程。
 - 不要在讨论未达成共识时声称已有共识。
-`, e.Definition.TitleOrName(), memberContext(member), e.languageInstruction(), e.Store.State.Current.Question, formatBlackboard(events, e.Store.State.Current.Number), memory.Version, memory.Content, currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
+`, e.Definition.TitleOrName(), memberContext(member), e.languageInstruction(), e.Store.State.Current.Question, e.workspaceChangeContext(), formatBlackboard(events, e.Store.State.Current.Number), memory.Version, stableMemoryContext(memory.Content), currentRoundTranscript(events, e.Store.State.Current.Number), e.collaborationSummary())
+}
+
+func (e *Engine) workspaceBaselineContext() string {
+	if e == nil || e.Store == nil || e.Store.Thread.WorkspaceBaseline == nil {
+		return "(非 Git 工作区或基线不可用)"
+	}
+	baseline := e.Store.Thread.WorkspaceBaseline
+	status := baseline.Status
+	if status == "" {
+		status = "(clean)"
+	}
+	return fmt.Sprintf("HEAD: %s\nworktree_hash: %s\n起始状态:\n%s", baseline.GitHead, baseline.WorktreeHash, status)
+}
+
+func (e *Engine) workspaceChangeContext() string {
+	if e == nil || e.Store == nil || e.Store.Thread.WorkspaceBaseline == nil {
+		return "(非 Git 工作区或基线不可用)"
+	}
+	baseline := e.Store.Thread.WorkspaceBaseline
+	current := CaptureWorkspaceSnapshot(e.Store.Thread.Workspace)
+	if current == nil {
+		return "(当前 Git 状态不可用)"
+	}
+	return fmt.Sprintf("起始 HEAD: %s\n当前 HEAD: %s\n工作区是否发生线程内变化: %t\n当前状态:\n%s",
+		baseline.GitHead, current.GitHead, baseline.WorktreeHash != current.WorktreeHash || baseline.GitHead != current.GitHead,
+		fallback(current.Status, "(clean)"))
 }
 
 func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer string, member Agent) string {
@@ -884,15 +974,14 @@ func (e *Engine) memoryPrompt(previous MemoryDocument, events []Event, answer st
 %s
 
 请将完整的团队记忆重写为 Markdown 格式。
-只保留对未来轮次有用的持久化信息，例如:
-- 稳定的用户偏好和约束;
-- 已验证的事实和经常出现的项目上下文;
-- 决策及其理由;
-- 未解决的风险或后续承诺;
-- 改善团队协作的工作约定。
+文档必须只包含以下长期稳定章节（没有内容的章节可以省略）:
+- ## Stable User Preferences
+- ## Stable Repository Facts
+- ## Durable Decisions
+- ## Team Working Agreements
 
-已完成或中断的具体用户请求不得作为下一轮的活动任务保存。未来每轮都必须以
-新的当前用户问题为唯一目标；如果保留历史结果，必须明确标记为背景而不是待办。
+不得保存活动任务、未完成任务、下一步、当前关注点或具体用户请求。已完成或中断的
+具体请求也不得作为下一轮待办；新的当前用户问题始终是唯一活动目标。
 不要存储隐藏的推理过程、临时闲聊、访问令牌、密码、私钥或未经验证的推测。
 不要包含 front matter 或版本号；运行时会自动管理这些。
 只返回完整的 Markdown 记忆文档。

@@ -362,7 +362,7 @@ func TestEngineMakesCurrentQuestionAuthoritativeOverMemory(t *testing.T) {
 		}
 	}
 	memoryPrompt := engine.memoryPrompt(memory, nil, "answer", member)
-	if !strings.Contains(memoryPrompt, "不得作为下一轮的活动任务保存") {
+	if !strings.Contains(memoryPrompt, "不得保存活动任务") {
 		t.Fatalf("memory prompt lacks active-task retention guard:\n%s", memoryPrompt)
 	}
 }
@@ -379,6 +379,13 @@ func TestLimitTeamResponse(t *testing.T) {
 	}
 	if got := compactTail("一二三四", 2); got != "[earlier discussion truncated]\n三四" {
 		t.Fatalf("compactTail = %q", got)
+	}
+}
+
+func TestDedupeResponseParagraphs(t *testing.T) {
+	got := dedupeResponseParagraphs("结论一\n\n结论二\n\n结论一")
+	if got != "结论一\n\n结论二" {
+		t.Fatalf("deduped response = %q", got)
 	}
 }
 
