@@ -77,15 +77,16 @@ type RoundState struct {
 }
 
 type CollaborationState struct {
-	TurnCount            int          `json:"turn_count"`
-	Cycle                int          `json:"cycle"`
-	BroadReviewWaves     int          `json:"broad_review_waves"`
-	Pending              []Activation `json:"pending,omitempty"`
-	Objections           []Objection  `json:"objections,omitempty"`
-	ProposalBy           string       `json:"proposal_by,omitempty"`
-	Converged            bool         `json:"converged,omitempty"`
-	StopReason           string       `json:"stop_reason,omitempty"`
-	InitializedAtEventID int64        `json:"initialized_at_event_id,omitempty"`
+	TurnCount            int                `json:"turn_count"`
+	Cycle                int                `json:"cycle"`
+	BroadReviewWaves     int                `json:"broad_review_waves"`
+	Pending              []Activation       `json:"pending,omitempty"`
+	Objections           []Objection        `json:"objections,omitempty"`
+	ProposalBy           string             `json:"proposal_by,omitempty"`
+	Converged            bool               `json:"converged,omitempty"`
+	StopReason           string             `json:"stop_reason,omitempty"`
+	InitializedAtEventID int64              `json:"initialized_at_event_id,omitempty"`
+	DeliveryBaseline     *WorkspaceSnapshot `json:"delivery_baseline,omitempty"`
 }
 
 type Activation struct {
@@ -620,6 +621,10 @@ func (s *Store) Snapshot() (Thread, State, []Event, error) {
 func cloneCollaborationState(state CollaborationState) CollaborationState {
 	copy := state
 	copy.Pending = append([]Activation(nil), state.Pending...)
+	if state.DeliveryBaseline != nil {
+		baseline := *state.DeliveryBaseline
+		copy.DeliveryBaseline = &baseline
+	}
 	copy.Objections = make([]Objection, len(state.Objections))
 	for i, objection := range state.Objections {
 		copy.Objections[i] = objection

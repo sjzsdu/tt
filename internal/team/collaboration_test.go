@@ -162,6 +162,63 @@ func TestInitialHandoffIgnoresInitialMentionStorm(t *testing.T) {
 	}
 }
 
+func TestRequiredDeliveryActivationUsesDeliveryOwner(t *testing.T) {
+	definition := adaptiveTestDefinition(t, 8)
+	definition.Coordination.InitialHandoff = "lead"
+	definition.Coordination.DeliveryOwner = "expert"
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartRound("交付一个优化"); err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Definition: definition, Store: store}
+	events := []Event{{
+		Type: "agent_message", Round: 1, Phase: PhaseReview, From: "lead",
+		Content: "已经完成选题收敛。",
+	}}
+	if got := engine.requiredDeliveryActivation(events); got != "expert" {
+		t.Fatalf("required activation = %q, want delivery owner expert", got)
+	}
+	events = append(events, Event{
+		Type: "agent_message", Round: 1, Phase: PhaseReview, From: "expert",
+		Content: "实现产物已完成。",
+	})
+	if got := engine.requiredDeliveryActivation(events); got != "" {
+		t.Fatalf("required activation after delivery = %q", got)
+	}
+}
+
+func TestWorkspaceSnapshotChanged(t *testing.T) {
+	baseline := &WorkspaceSnapshot{GitHead: "a", WorktreeHash: "one"}
+	if workspaceSnapshotChanged(baseline, &WorkspaceSnapshot{GitHead: "a", WorktreeHash: "one"}) {
+		t.Fatal("identical snapshots should not be changed")
+	}
+	if !workspaceSnapshotChanged(baseline, &WorkspaceSnapshot{GitHead: "a", WorktreeHash: "two"}) {
+		t.Fatal("worktree change was not detected")
+	}
+	if !workspaceSnapshotChanged(baseline, &WorkspaceSnapshot{GitHead: "b", WorktreeHash: "one"}) {
+		t.Fatal("HEAD change was not detected")
+	}
+	if workspaceSnapshotChanged(nil, baseline) {
+		t.Fatal("missing baseline should not claim a change")
+	}
+}
+
+func TestSuccessfulReviewTurnsCountsOnlyMemberReviewResponses(t *testing.T) {
+	events := []Event{
+		{Type: "agent_message", Round: 1, Phase: PhaseReview, From: "implementer"},
+		{Type: "agent_yield", Round: 1, Phase: PhaseReview, From: "implementer"},
+		{Type: "agent_error", Round: 1, Phase: PhaseReview, From: "implementer"},
+		{Type: "agent_message", Round: 1, Phase: PhaseInitial, From: "implementer"},
+		{Type: "agent_message", Round: 1, Phase: PhaseReview, From: "reviewer"},
+	}
+	if got := successfulReviewTurns(events, 1, "implementer"); got != 2 {
+		t.Fatalf("successful review turns = %d", got)
+	}
+}
+
 func TestLimitPendingReviewTurns(t *testing.T) {
 	pending := []Activation{{MemberID: "expert"}, {MemberID: "observer"}}
 	events := []Event{
@@ -209,6 +266,9 @@ func TestSoftwareDevelopmentUsesDeliveryPipeline(t *testing.T) {
 			case "test-engineer":
 				return "测试通过，请 @delivery-lead 交付。\n[TEAM_VERIFICATION] {\"commands\":[[\"true\"]]}\n[TEAM_SIGNAL:AGREE]", nil
 			case "delivery-lead":
+				if !strings.Contains(call.Prompt, "实现已完成") {
+					return "@implementer 请按收敛后的交付契约实施。\n[TEAM_SIGNAL:AGREE]", nil
+				}
 				return "交付证据齐全。\n[TEAM_SIGNAL:AGREE]", nil
 			default:
 				return "[TEAM_SIGNAL:YIELD]", nil
@@ -231,7 +291,7 @@ func TestSoftwareDevelopmentUsesDeliveryPipeline(t *testing.T) {
 			activated = append(activated, event.To[0])
 		}
 	}
-	if strings.Join(activated, ",") != "implementer,code-reviewer,test-engineer,delivery-lead" {
+	if strings.Join(activated, ",") != "delivery-lead,implementer,code-reviewer,test-engineer,delivery-lead" {
 		t.Fatalf("activation pipeline = %v", activated)
 	}
 	if countEventType(events, "forced_stop") != 0 || countEventType(events, "final_answer") != 1 {

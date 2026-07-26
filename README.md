@@ -144,11 +144,14 @@ maintainer use the same rule.
 
 For delivery-oriented teams, `coordination.initial_handoff` starts the adaptive phase
 with one designated member instead of turning every `@mention` from the parallel
-initial analysis into another activation. Response and loop budgets are configurable:
+initial analysis into another activation. `coordination.delivery_owner` independently
+identifies the member whose implementation artifact is required before convergence.
+This allows a lead to synthesize parallel findings before handing work to the writer:
 
 ```toml
 [coordination]
-initial_handoff = "implementer"
+initial_handoff = "delivery-lead"
+delivery_owner = "implementer"
 review_waves = 0
 
 [limits]

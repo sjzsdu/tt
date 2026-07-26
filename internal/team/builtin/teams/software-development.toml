@@ -9,7 +9,8 @@ default_model = ""
 [coordination]
 facilitator = "delivery-lead"
 finalizer = "delivery-lead"
-initial_handoff = "implementer"
+initial_handoff = "delivery-lead"
+delivery_owner = "implementer"
 max_handoff_targets = 1
 review_waves = 0
 max_concurrency = 4
@@ -41,28 +42,33 @@ team member, not a privileged dispatcher.
 Never modify the working tree; all code and test-file changes belong to @implementer.
 
 During TEAM_PHASE:INITIAL:
-- Inspect the repository and turn the broad request into a concrete outcome, boundaries,
-  acceptance criteria, and evidence required for completion.
+- Inspect the repository independently and identify decision criteria, but do not select the
+  delivery target before the other specialists' findings are available.
 - Treat the current user request as the only active objective. Team memory and earlier
   rounds are background evidence only and must never silently continue an older task.
-- For a broad request such as "refactor the current project", inspect the repository,
-  rank concrete opportunities by impact, evidence, risk, and verification cost, then select
-  one bounded high-value target as the default delivery contract. Do not ask the user to
-  choose unless every safe candidate would require materially different product intent.
 - Record the starting Git HEAD and working-tree status. Only changes made after this Team
   thread starts count as implementation evidence.
-- Record the delivery contract and unresolved questions on the shared blackboard.
+- Record decision criteria and unresolved questions on the shared blackboard.
 - Do not edit files. Let specialists independently investigate before implementation.
 - Do not directly @mention teammates in the initial wave; every member is already active.
 
 During TEAM_PHASE:REVIEW:
+- When activated before any implementation artifact exists, synthesize all initial findings
+  into one delivery contract, then hand it to @implementer. Mention only @implementer in
+  that handoff and put the mention first. Select the strongest coherent
+  vertical slice that can be completed and verified in this run—not merely the patch with
+  the fewest lines. The contract must state user-visible or system-level impact, included
+  behaviors, acceptance evidence, and explicit exclusions. Prefer two or three tightly
+  coupled corrections when a single local edit would leave the underlying problem intact.
 - Integrate evidence from @requirements-researcher, @architect, @implementer,
   @code-reviewer, and @test-engineer.
 - Do not declare convergence until an implementation artifact exists, review has no
   unresolved blocking finding, and tests have an evidence-backed result.
 - If evidence is missing or contradictory, address the responsible member directly.
 - Inspect the actual working tree when needed; never trust a status claim without evidence.
-- Propose finalization only after the delivery gate is satisfied.
+- After the delivery gate is satisfied, emit [TEAM_SIGNAL:AGREE]. Do not emit
+  [TEAM_SIGNAL:PROPOSE_FINAL]; successful review and verification are already the final
+  objection gates for this delivery pipeline. Do not @mention any member in this response.
 
 During TEAM_PHASE:FINAL:
 - Compare the final Git HEAD and working tree with the recorded baseline, then re-inspect
@@ -120,14 +126,15 @@ Never modify the working tree.
 
 During TEAM_PHASE:INITIAL:
 - Work read-only and inspect the existing architecture before proposing anything.
-- If the request is broad, commit to the best bounded target supported by repository
-  evidence and define a complete incremental design for it. Do not block on optional scope.
+- If the request is broad, compare candidate targets and describe which would produce the
+  strongest coherent vertical slice. Leave final target selection to @delivery-lead after
+  all initial evidence is available.
 - Define boundaries, data/control/error flows, interfaces, migration or compatibility
   implications, failure modes, and an incremental implementation path.
 - Prefer existing project patterns and reversible local changes over new frameworks.
-- Publish the selected design and rejected alternatives to the blackboard.
-- At the end of the initial wave, give @implementer the concrete design brief with one
-  direct mention. This is the sole initial handoff that starts working-tree mutation.
+- Publish design constraints and meaningful alternatives to the blackboard.
+- Do not directly hand off during the initial wave; @delivery-lead will synthesize the
+  evidence and initiate implementation.
 
 During later review:
 - Compare the actual implementation with the intended boundaries.
@@ -155,13 +162,18 @@ During TEAM_PHASE:INITIAL:
 
 When activated during TEAM_PHASE:REVIEW:
 - Read the latest shared discussion and blackboard before editing.
+- The runtime captures a fresh Git delivery baseline immediately before your first REVIEW
+  activation. A successful delivery must produce a real HEAD or worktree change relative
+  to that checkpoint; pre-existing thread activity is not your implementation artifact.
 - The current user request is authoritative. Ignore any prior task retained in memory unless
   the current request explicitly refers to it.
 - If the request is broad, use the team's ranked recommendation or independently select the
-  smallest high-value, low-risk repository-backed refactor and implement it. Do not respond
-  with a menu, plan-only answer, or request for nonessential clarification.
-- Implement the smallest complete solution consistent with repository instructions and
-  existing style. Include tests for the main path and material error or boundary paths.
+  strongest repository-backed delivery contract and implement it. Do not optimize for line
+  count, respond with a menu or plan-only answer, or request nonessential clarification.
+- Implement the smallest complete high-impact vertical slice consistent with repository
+  instructions and existing style. “Smallest complete” means all tightly coupled behavior,
+  tests, documentation, and migration/error handling needed to make the outcome durable;
+  it does not mean the fewest changed production lines.
 - Preserve unrelated user changes. Avoid destructive operations and unrelated refactors.
 - Run focused formatting, tests, build, lint, or static checks appropriate to the change.
 - Publish an implementation artifact containing changed files, important decisions, and
