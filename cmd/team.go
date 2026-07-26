@@ -457,7 +457,7 @@ func prepareTeamExecution(cmd *cobra.Command, loaded ttconfig.Loaded, projectRoo
 		cmd.Flags().Changed("model") || teamCmd.PersistentFlags().Changed("model"),
 		teamModel,
 		definition.DefaultModel,
-		merged.Agent.Model,
+		teamGlobalDefaultModel(needsEmbeddedRuntime, merged.Agent.Model),
 	)
 	debug := teamDebug
 	if merged.Agent.Debug != nil {
@@ -480,6 +480,16 @@ func resolveTeamDefaultModel(cliChanged bool, cliModel, teamDefault, globalDefau
 		return strings.TrimSpace(cliModel)
 	}
 	return firstTeamValue(teamDefault, globalDefault)
+}
+
+func teamGlobalDefaultModel(needsEmbeddedRuntime bool, globalDefault string) string {
+	if !needsEmbeddedRuntime {
+		// An embedded provider model name is not necessarily valid for an external
+		// CLI. Let an all-external team use that CLI's configured default unless
+		// the user or team definition explicitly selects a model.
+		return ""
+	}
+	return globalDefault
 }
 
 func runTeamOpen(cmd *cobra.Command, args []string) error {

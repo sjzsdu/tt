@@ -103,6 +103,46 @@ func LoadMemory(path, teamName string) (MemoryDocument, error) {
 	return document, nil
 }
 
+// stableMemoryContext removes task-local and unfinished-work sections before
+// durable memory is injected into a new round. The complete document remains
+// persisted and available to the memory maintainer.
+func stableMemoryContext(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	filtered := make([]string, 0, len(lines))
+	include := true
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			lower := strings.ToLower(trimmed)
+			include = true
+			for _, marker := range []string{
+				"本次线程", "当前交付", "未解决", "活动任务", "进行中的任务",
+				"current task", "active task", "open task", "unfinished", "historical delivery",
+			} {
+				if strings.Contains(lower, marker) {
+					include = false
+					break
+				}
+			}
+		}
+		if !include {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.Contains(lower, "用户当前关注点") ||
+			strings.Contains(lower, "current user focus") ||
+			strings.Contains(lower, "下一轮待办") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	result := strings.TrimSpace(strings.Join(filtered, "\n"))
+	if result == "" {
+		return emptyMemoryContent
+	}
+	return result
+}
+
 func SaveMemory(path string, document MemoryDocument) error {
 	path = filepath.Clean(path)
 	if strings.TrimSpace(document.Team) == "" {

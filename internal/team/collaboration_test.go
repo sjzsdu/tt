@@ -175,6 +175,19 @@ func TestLimitPendingReviewTurns(t *testing.T) {
 	}
 }
 
+func TestLimitPendingReviewTurnsDoesNotTreatAgentErrorsAsWork(t *testing.T) {
+	pending := []Activation{{MemberID: "implementer"}}
+	events := []Event{
+		{Round: 1, Phase: PhaseReview, Type: "agent_error", From: "implementer"},
+		{Round: 1, Phase: PhaseReview, Type: "agent_error", From: "implementer"},
+		{Round: 1, Phase: PhaseReview, Type: "agent_error", From: "implementer"},
+	}
+	filtered := limitPendingReviewTurns(pending, events, 1, 3)
+	if len(filtered) != 1 {
+		t.Fatalf("transient failures consumed review budget: %+v", filtered)
+	}
+}
+
 func TestSoftwareDevelopmentUsesDeliveryPipeline(t *testing.T) {
 	definition, err := Load("software-development")
 	if err != nil {
@@ -391,7 +404,7 @@ func TestAdaptiveRoutingRetriesPendingActivationWithoutFailingRound(t *testing.T
 	}
 }
 
-func TestAdaptiveRoutingCapsPersistentFailureAndFinalizesWithEvidence(t *testing.T) {
+func TestAdaptiveRoutingPreservesPersistentFailureForResume(t *testing.T) {
 	definition := adaptiveTestDefinition(t, 8)
 	definition.Limits.MaxReviewTurnsPerAgent = 2
 	processor := &adaptiveProcessor{}
@@ -405,24 +418,36 @@ func TestAdaptiveRoutingCapsPersistentFailureAndFinalizesWithEvidence(t *testing
 		case "review":
 			return "", errors.New("provider unavailable")
 		case "final":
-			if !strings.Contains(call.Prompt, "@expert: [ERROR] provider unavailable") {
-				return "", errors.New("final prompt missing review failure evidence")
-			}
-			return "复核模型不可用；保留风险后交付。", nil
+			return "", errors.New("final must not run after required agent failure")
 		default:
 			return "", errors.New("unexpected prompt phase")
 		}
 	}
 
-	store := runAdaptiveRound(t, definition, processor)
+	store, err := NewStore(t.TempDir(), definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{Definition: definition, Store: store, Processor: processor}
+	_, runErr := engine.RunRound(context.Background(), "请复核。")
+	if runErr == nil || !strings.Contains(runErr.Error(), "pending activation was preserved for resume") {
+		t.Fatalf("run error = %v", runErr)
+	}
 	events, err := store.Events()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if countEventType(events, "agent_error") != 2 ||
-		countEventType(events, "round_failed") != 0 ||
-		countEventType(events, "final_answer") != 1 {
+		countEventType(events, "round_failed") != 1 ||
+		countEventType(events, "final_answer") != 0 {
 		t.Fatalf("persistent failure lifecycle = %+v", events)
+	}
+	state, err := store.Collaboration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state == nil || len(state.Pending) != 1 || state.Pending[0].MemberID != "expert" {
+		t.Fatalf("pending collaboration state = %+v", state)
 	}
 }
 

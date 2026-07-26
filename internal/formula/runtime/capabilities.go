@@ -318,15 +318,15 @@ func buildExternalAgentArgv(driver, provider, model, mode, resume string, extra 
 		argv = append(argv, extra...)
 	case "codex":
 		argv = append(argv, "exec")
-		if resume != "" {
-			argv = append(argv, "resume")
-		}
 		if model != "" {
 			argv = append(argv, "--model", model)
 		}
 		argv = append(argv, extra...)
 		if resume != "" {
-			argv = append(argv, resume)
+			// Options such as --sandbox and --full-auto belong to `codex exec`,
+			// not `codex exec resume`. Keep them before the subcommand so a
+			// persisted Team member session can actually be resumed.
+			argv = append(argv, "resume", resume)
 		}
 	case "opencode":
 		argv = append(argv, "run")

@@ -64,8 +64,7 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 		reviewer, _ := definition.AgentByID("code-reviewer")
 		tester, _ := definition.AgentByID("test-engineer")
 		lead, _ := definition.AgentByID("delivery-lead")
-		if implementer.Agent != "coder" ||
-			!strings.Contains(implementer.Prompt, "sole member authorized to modify") ||
+		if !strings.Contains(implementer.Prompt, "sole member authorized to modify") ||
 			!strings.Contains(implementer.Prompt, "ask only @code-reviewer") ||
 			!strings.Contains(implementer.Prompt, "menu, plan-only answer") ||
 			!strings.Contains(reviewer.Prompt, "@test-engineer") ||
@@ -75,11 +74,20 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 			t.Fatalf("software-development delivery protocol is incomplete")
 		}
 		for _, member := range definition.Agents {
+			if member.External == nil || member.External.Driver != "codex" {
+				t.Fatalf("agent %q is not configured for external codex: %+v", member.ID, member.External)
+			}
 			if member.ID == "implementer" {
+				if !strings.Contains(strings.Join(member.External.ExtraArgs, " "), "--full-auto") {
+					t.Fatalf("implementer does not have codex write mode: %+v", member.External)
+				}
 				continue
 			}
 			if !strings.Contains(member.Prompt, "Never modify the working tree") {
 				t.Fatalf("agent %q does not enforce the single-writer protocol", member.ID)
+			}
+			if !strings.Contains(strings.Join(member.External.ExtraArgs, " "), "read-only") {
+				t.Fatalf("agent %q does not enforce codex read-only sandbox: %+v", member.ID, member.External)
 			}
 		}
 		return

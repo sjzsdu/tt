@@ -71,6 +71,15 @@ func TestResolveTeamDefaultModelPrecedence(t *testing.T) {
 	}
 }
 
+func TestAllExternalTeamDoesNotInheritEmbeddedProviderModel(t *testing.T) {
+	if got := teamGlobalDefaultModel(false, "free-provider-model"); got != "" {
+		t.Fatalf("all-external global model = %q", got)
+	}
+	if got := teamGlobalDefaultModel(true, "embedded-default"); got != "embedded-default" {
+		t.Fatalf("mixed-team global model = %q", got)
+	}
+}
+
 func TestTeamInitCopiesBuiltinDefinition(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("TT_CONFIG", filepath.Join(root, "global-config.json"))
