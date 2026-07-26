@@ -172,6 +172,29 @@ id = "two"
 	}
 }
 
+func TestDefinitionRejectsUnknownDeliveryOwner(t *testing.T) {
+	definition := testDefinition(t)
+	definition.Coordination.DeliveryOwner = "missing"
+	if err := definition.Validate(); err == nil ||
+		!strings.Contains(err.Error(), "coordination.delivery_owner") {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestDefinitionNormalizesDeliveryCoordination(t *testing.T) {
+	definition := testDefinition(t)
+	definition.Coordination.InitialHandoff = " lead "
+	definition.Coordination.DeliveryOwner = " expert "
+	definition.Normalize()
+	if definition.Coordination.InitialHandoff != "lead" ||
+		definition.Coordination.DeliveryOwner != "expert" {
+		t.Fatalf("delivery coordination was not normalized: %+v", definition.Coordination)
+	}
+	if err := definition.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParseExternalAgentDefinition(t *testing.T) {
 	definition, err := Parse([]byte(`
 team = "external-review"

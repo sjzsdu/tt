@@ -38,7 +38,8 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 			t.Fatal(err)
 		}
 		if definition.Coordination.Finalizer != "delivery-lead" ||
-			definition.Coordination.InitialHandoff != "implementer" ||
+			definition.Coordination.InitialHandoff != "delivery-lead" ||
+			definition.Coordination.DeliveryOwner != "implementer" ||
 			definition.Coordination.MaxHandoffTargets != 1 ||
 			definition.Coordination.ReviewWaves != 0 ||
 			definition.Memory.Maintainer != "delivery-lead" ||
@@ -66,11 +67,13 @@ func TestBuiltinTeamsIncludesSoftwareDevelopment(t *testing.T) {
 		lead, _ := definition.AgentByID("delivery-lead")
 		if !strings.Contains(implementer.Prompt, "sole member authorized to modify") ||
 			!strings.Contains(implementer.Prompt, "ask only @code-reviewer") ||
-			!strings.Contains(implementer.Prompt, "menu, plan-only answer") ||
+			!strings.Contains(implementer.Prompt, "plan-only answer") ||
 			!strings.Contains(reviewer.Prompt, "@test-engineer") ||
 			!strings.Contains(tester.Prompt, "@delivery-lead") ||
 			!strings.Contains(lead.Prompt, "Never fabricate edits") ||
-			!strings.Contains(lead.Prompt, "rank concrete opportunities") {
+			!strings.Contains(lead.Prompt, "strongest coherent") ||
+			!strings.Contains(lead.Prompt, "Do not emit") ||
+			!strings.Contains(implementer.Prompt, "does not mean the fewest") {
 			t.Fatalf("software-development delivery protocol is incomplete")
 		}
 		for _, member := range definition.Agents {

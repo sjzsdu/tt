@@ -131,6 +131,11 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 				if err := e.Store.SetCollaboration(state); err != nil {
 					return err
 				}
+				if successfulReviewTurns(events, e.Store.State.Current.Number, memberID) >=
+					e.Definition.Limits.MaxReviewTurnsPerAgent {
+					return fmt.Errorf("team delivery gate remains unsatisfied after %d responses from %s; pending activation was preserved for resume",
+						e.Definition.Limits.MaxReviewTurnsPerAgent, memberID)
+				}
 				continue
 			}
 			switch {
@@ -164,6 +169,9 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 		state.Pending = append([]Activation(nil), state.Pending[batchSize:]...)
 		state.Cycle++
 		state.TurnCount = turns
+		if state.DeliveryBaseline == nil && batchContainsMember(batch, e.Definition.Coordination.DeliveryOwner) {
+			state.DeliveryBaseline = CaptureWorkspaceSnapshot(e.Store.Thread.Workspace)
+		}
 		if err := e.Store.SetCollaboration(state); err != nil {
 			return err
 		}
@@ -239,6 +247,18 @@ func (e *Engine) runAdaptiveReview(ctx context.Context, memory MemoryDocument) e
 	}
 }
 
+func successfulReviewTurns(events []Event, round int, memberID string) int {
+	count := 0
+	for _, event := range events {
+		if event.Round == round && event.Phase == PhaseReview &&
+			(event.Type == "agent_message" || event.Type == "agent_yield") &&
+			strings.EqualFold(event.From, memberID) {
+			count++
+		}
+	}
+	return count
+}
+
 func limitPendingReviewTurns(pending []Activation, events []Event, round, maxTurns int) []Activation {
 	if maxTurns <= 0 || len(pending) == 0 {
 		return pending
@@ -264,14 +284,48 @@ func limitPendingReviewTurns(pending []Activation, events []Event, round, maxTur
 
 func (e *Engine) requiredDeliveryActivation(events []Event) string {
 	round := e.Store.State.Current.Number
-	implementer := strings.TrimSpace(e.Definition.Coordination.InitialHandoff)
-	if implementer != "" && !hasSuccessfulPhaseResponse(events, round, PhaseReview, implementer) {
-		return implementer
+	implementer := strings.TrimSpace(firstNonEmpty(
+		e.Definition.Coordination.DeliveryOwner,
+		e.Definition.Coordination.InitialHandoff,
+	))
+	if implementer != "" {
+		if !hasSuccessfulPhaseResponse(events, round, PhaseReview, implementer) {
+			return implementer
+		}
+		if strings.TrimSpace(e.Definition.Coordination.DeliveryOwner) != "" {
+			state, _ := e.Store.Collaboration()
+			if state != nil && state.DeliveryBaseline != nil {
+				current := CaptureWorkspaceSnapshot(e.Store.Thread.Workspace)
+				if !workspaceSnapshotChanged(state.DeliveryBaseline, current) {
+					return implementer
+				}
+			}
+		}
 	}
 	if e.Definition.Verification.Enabled && !verificationSatisfied(events, round) {
 		return e.Definition.Verification.Verifier
 	}
 	return ""
+}
+
+func batchContainsMember(batch []Activation, memberID string) bool {
+	memberID = strings.TrimSpace(memberID)
+	if memberID == "" {
+		return false
+	}
+	for _, activation := range batch {
+		if strings.EqualFold(activation.MemberID, memberID) {
+			return true
+		}
+	}
+	return false
+}
+
+func workspaceSnapshotChanged(before, after *WorkspaceSnapshot) bool {
+	if before == nil || after == nil {
+		return false
+	}
+	return before.GitHead != after.GitHead || before.WorktreeHash != after.WorktreeHash
 }
 
 func hasSuccessfulPhaseResponse(events []Event, round int, phase, memberID string) bool {

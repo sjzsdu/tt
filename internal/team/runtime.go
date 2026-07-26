@@ -594,7 +594,11 @@ func (e *Engine) callMember(ctx context.Context, member Agent, prompt string) (a
 		Err: err,
 	}
 	if verificationErr != nil {
-		response.Targets = []string{firstNonEmpty(e.Definition.Coordination.InitialHandoff, e.Definition.Coordination.Facilitator)}
+		response.Targets = []string{firstNonEmpty(
+			e.Definition.Coordination.DeliveryOwner,
+			e.Definition.Coordination.InitialHandoff,
+			e.Definition.Coordination.Facilitator,
+		)}
 	}
 	return response, err
 }
@@ -940,6 +944,10 @@ func (e *Engine) workspaceChangeContext() string {
 		return "(非 Git 工作区或基线不可用)"
 	}
 	baseline := e.Store.Thread.WorkspaceBaseline
+	if state, err := e.Store.Collaboration(); err == nil &&
+		state != nil && state.DeliveryBaseline != nil {
+		baseline = state.DeliveryBaseline
+	}
 	current := CaptureWorkspaceSnapshot(e.Store.Thread.Workspace)
 	if current == nil {
 		return "(当前 Git 状态不可用)"

@@ -37,6 +37,7 @@ type CoordinationConfig struct {
 	Facilitator       string `json:"facilitator,omitempty" toml:"facilitator,omitempty"`
 	Finalizer         string `json:"finalizer,omitempty" toml:"finalizer,omitempty"`
 	InitialHandoff    string `json:"initial_handoff,omitempty" toml:"initial_handoff,omitempty"`
+	DeliveryOwner     string `json:"delivery_owner,omitempty" toml:"delivery_owner,omitempty"`
 	MaxHandoffTargets int    `json:"max_handoff_targets,omitempty" toml:"max_handoff_targets,omitempty"`
 	ReviewWaves       int    `json:"review_waves" toml:"review_waves"`
 	MaxConcurrency    int    `json:"max_concurrency" toml:"max_concurrency"`
@@ -94,6 +95,10 @@ func (d *Definition) Normalize() {
 	d.Description = strings.TrimSpace(d.Description)
 	d.Language = strings.TrimSpace(d.Language)
 	d.DefaultModel = strings.TrimSpace(d.DefaultModel)
+	d.Coordination.Facilitator = strings.TrimSpace(d.Coordination.Facilitator)
+	d.Coordination.Finalizer = strings.TrimSpace(d.Coordination.Finalizer)
+	d.Coordination.InitialHandoff = strings.TrimSpace(d.Coordination.InitialHandoff)
+	d.Coordination.DeliveryOwner = strings.TrimSpace(d.Coordination.DeliveryOwner)
 	if d.Version == 0 {
 		d.Version = 1
 	}
@@ -234,6 +239,11 @@ func (d *Definition) Validate() error {
 	if id := strings.TrimSpace(d.Coordination.InitialHandoff); id != "" {
 		if _, ok := d.AgentByID(id); !ok {
 			return fmt.Errorf("coordination.initial_handoff references unknown agent %q", id)
+		}
+	}
+	if id := strings.TrimSpace(d.Coordination.DeliveryOwner); id != "" {
+		if _, ok := d.AgentByID(id); !ok {
+			return fmt.Errorf("coordination.delivery_owner references unknown agent %q", id)
 		}
 	}
 	if d.Coordination.MaxConcurrency < 1 {
