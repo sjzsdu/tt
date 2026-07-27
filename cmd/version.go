@@ -7,7 +7,7 @@ import (
 )
 
 // version is intentionally kept as a plain variable so release workflows can override it with ldflags.
-var version = "0.2.6"
+var version = "0.2.7"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
