@@ -204,6 +204,17 @@ func TestGitResolveConflictsPrepareConflictContextScript(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("unmarshal script stdout: %v; stdout=%s stderr=%v", err, stdout, wrapper["stderr"])
 	}
+	gotRepoRoot, err := filepath.EvalSymlinks(asString(payload["repo_root"]))
+	if err != nil {
+		t.Fatalf("resolve payload repo_root: %v; payload=%#v", err, payload)
+	}
+	wantRepoRoot, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatalf("resolve temporary repo root: %v", err)
+	}
+	if gotRepoRoot != wantRepoRoot {
+		t.Fatalf("repo_root = %q, want %q", gotRepoRoot, wantRepoRoot)
+	}
 	files := asSlice(payload["files"])
 	if len(files) != 1 || asString(files[0]) != "file.txt" {
 		t.Fatalf("files = %#v, want [file.txt]; payload=%#v", files, payload)
