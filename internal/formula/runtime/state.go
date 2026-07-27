@@ -16,6 +16,7 @@ type StepState struct {
 	Path        executionpath.Path
 	Status      steps.Status
 	Result      *steps.RunResult
+	QueuedAt    time.Time
 	StartedAt   time.Time
 	UpdatedAt   time.Time
 	CompletedAt time.Time

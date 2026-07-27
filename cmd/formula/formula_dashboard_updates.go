@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sjzsdu/tt/internal/formula/steps"
 	"github.com/sjzsdu/tt/internal/formula/ui"
 )
 
@@ -46,6 +47,69 @@ func (s *formulaDashboardServer) markWorkflowWorkspaceReady(workspace string) {
 	s.broadcast()
 }
 
+func (s *formulaDashboardServer) markWorkflowConcurrency(maxConcurrency, maxAgentConcurrency int) {
+	s.mu.Lock()
+	s.state.MaxConcurrency = maxConcurrency
+	s.state.MaxAgentConcurrency = maxAgentConcurrency
+	s.refreshConcurrencyLocked()
+	s.appendLogLocked(fmt.Sprintf("Concurrency limit: %d steps, %d agents", maxConcurrency, maxAgentConcurrency))
+	s.mu.Unlock()
+	s.broadcast()
+}
+
+func (s *formulaDashboardServer) refreshConcurrencyLocked() {
+	running := 0
+	runningAgents := 0
+	for _, step := range s.state.Steps {
+		if step.Status == ui.StatusRunning {
+			running++
+			switch step.Type {
+			case string(steps.KindAgent), string(steps.KindExternalAgent), string(steps.KindFormula):
+				runningAgents++
+			}
+		}
+	}
+	s.state.CurrentConcurrency = running
+	s.state.CurrentAgentConcurrency = runningAgents
+}
+
+func (s *formulaDashboardServer) markStepReady(stepID, reason string) {
+	s.markStepQueuedState(stepID, ui.StatusReady, reason, false)
+}
+
+func (s *formulaDashboardServer) markStepWaitingDependency(stepID, reason string) {
+	s.markStepQueuedState(stepID, ui.StatusWaitingDependency, reason, false)
+}
+
+func (s *formulaDashboardServer) markStepBlocked(stepID, reason string) {
+	s.markStepQueuedState(stepID, ui.StatusBlocked, reason, true)
+}
+
+func (s *formulaDashboardServer) markStepQueuedState(stepID, status, reason string, terminal bool) {
+	s.mu.Lock()
+	for i := range s.state.Steps {
+		if s.state.Steps[i].ID != stepID {
+			continue
+		}
+		now := time.Now()
+		s.state.Steps[i].Status = status
+		if status == ui.StatusReady {
+			s.state.Steps[i].QueuedAt = now.Format(time.RFC3339)
+		}
+		if terminal {
+			s.state.Steps[i].FinishedAt = now.Format(time.RFC3339)
+			s.state.Steps[i].Error = reason
+		}
+		ui.AppendStepActivity(&s.state.Steps[i], ui.StepActivity{At: now.Format("15:04:05"), StepID: stepID, Title: s.state.Steps[i].Title, Status: status, Detail: reason})
+		s.recordExecutionTransitionLocked(stepID, s.state.Steps[i].Title, status, s.state.Steps[i].Session, reason, "", s.state.Steps[i].Error, 0)
+		s.appendLogLocked(fmt.Sprintf("Step %s %s: %s", stepID, strings.ReplaceAll(status, "_", " "), reason))
+		break
+	}
+	s.refreshConcurrencyLocked()
+	s.mu.Unlock()
+	s.broadcast()
+}
+
 func (s *formulaDashboardServer) markWorkflowCompleted(finalOutput string) {
 	s.mu.Lock()
 	s.state.Status = "completed"
@@ -60,6 +124,15 @@ func (s *formulaDashboardServer) markWorkflowCompleted(finalOutput string) {
 		}
 	}
 	s.appendLogLocked("Workflow completed")
+	s.mu.Unlock()
+	s.broadcast()
+}
+
+func (s *formulaDashboardServer) markWorkflowFailed(reason string) {
+	s.mu.Lock()
+	s.state.Status = ui.StatusFailed
+	s.state.Error = reason
+	s.appendLogLocked(fmt.Sprintf("Workflow failed: %s", reason))
 	s.mu.Unlock()
 	s.broadcast()
 }

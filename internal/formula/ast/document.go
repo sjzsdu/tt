@@ -22,6 +22,7 @@ type Document struct {
 	Outputs     map[string]OutputDecl
 	Steps       []StepDecl
 	Workspace   *spec.WorkspaceSpec
+	Runtime     *spec.RuntimeSpec
 	Worktree    bool
 	Source      SourcePos
 }

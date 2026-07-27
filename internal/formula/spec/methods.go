@@ -91,6 +91,14 @@ func (f *Formula) Validate() error {
 			errs = append(errs, fmt.Sprintf("workspace.kind: invalid value %q (must be worktree)", f.Workspace.Kind))
 		}
 	}
+	if f.Runtime != nil {
+		if f.Runtime.MaxConcurrency < 0 {
+			errs = append(errs, "runtime.max_concurrency: must be >= 0")
+		}
+		if f.Runtime.MaxAgentConcurrency < 0 {
+			errs = append(errs, "runtime.max_agent_concurrency: must be >= 0")
+		}
+	}
 
 	if f.Preflight != nil {
 		for i, check := range f.Preflight.Checks {

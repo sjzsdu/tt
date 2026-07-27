@@ -277,6 +277,8 @@ Runtime control notes:
 	cmd.Flags().StringVar(&a.opts.RunRerunStep, "rerun-step", "", "force rerun the specified step and its downstream steps, starting from the latest run state")
 	cmd.Flags().StringArrayVar(&a.opts.RunInject, "inject", nil, "inject step output from a file (step-id=file-path), repeatable")
 	cmd.Flags().StringVar(&a.opts.RunID, "run-id", "", "specify the source run id to load prior state from; defaults to the most recent completed run")
+	cmd.Flags().IntVar(&a.opts.MaxConcurrency, "max-concurrency", 0, "maximum concurrent DAG steps (default 4; overrides [runtime])")
+	cmd.Flags().IntVar(&a.opts.MaxAgentConcurrency, "max-agent-concurrency", 0, "maximum concurrent agent/external_agent steps (default 4; overrides [runtime])")
 
 	cmd.AddCommand(a.newFormulaRunOpenCmd())
 	cmd.AddCommand(a.newFormulaRunShowCmd())
@@ -334,12 +336,15 @@ func (a *App) newFormulaRunRmCmd() *cobra.Command {
 }
 
 func (a *App) newFormulaRunResumeCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "resume [run-id|latest]",
 		Short: "Resume a saved formula run from unfinished steps",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runFormulaRunResume,
 	}
+	cmd.Flags().IntVar(&a.opts.MaxConcurrency, "max-concurrency", 0, "maximum concurrent DAG steps (default 4; overrides [runtime])")
+	cmd.Flags().IntVar(&a.opts.MaxAgentConcurrency, "max-agent-concurrency", 0, "maximum concurrent agent/external_agent steps (default 4; overrides [runtime])")
+	return cmd
 }
 
 func (a *App) newFormulaRunInputCmd() *cobra.Command {

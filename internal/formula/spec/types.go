@@ -23,8 +23,16 @@ type Formula struct {
 	Pour        bool                  `json:"pour,omitempty" toml:"pour,omitempty"`
 	Worktree    bool                  `json:"worktree,omitempty" toml:"worktree,omitempty"`
 	Workspace   *WorkspaceSpec        `json:"workspace,omitempty" toml:"workspace,omitempty"`
+	Runtime     *RuntimeSpec          `json:"runtime,omitempty" toml:"runtime,omitempty"`
 	Preflight   *PreflightSpec        `json:"preflight,omitempty" toml:"preflight,omitempty"`
 	Source      string                `json:"-" toml:"-"`
+}
+
+// RuntimeSpec controls top-level DAG scheduling for one Formula run.
+type RuntimeSpec struct {
+	MaxConcurrency      int  `json:"max_concurrency,omitempty" toml:"max_concurrency,omitempty"`
+	MaxAgentConcurrency int  `json:"max_agent_concurrency,omitempty" toml:"max_agent_concurrency,omitempty"`
+	FailFast            bool `json:"fail_fast,omitempty" toml:"fail_fast,omitempty"`
 }
 
 // OutputDef declares one public Formula output. From is a runtime context

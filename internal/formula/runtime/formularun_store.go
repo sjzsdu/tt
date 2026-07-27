@@ -176,6 +176,12 @@ func normalizeRuntimeEventType(value string) string {
 		return "step_failed"
 	case "step.waiting":
 		return "human_input_required"
+	case "step.ready":
+		return "step_ready"
+	case "step.blocked":
+		return "step_blocked"
+	case "step.waiting_dependency":
+		return "step_waiting_dependency"
 	default:
 		return strings.ReplaceAll(value, ".", "_")
 	}
@@ -191,6 +197,12 @@ func eventStatus(event Event) string {
 		return run.StatusFailed
 	case "step.waiting":
 		return run.StatusWaitingInput
+	case "step.ready":
+		return string(steps.StatusReady)
+	case "step.blocked":
+		return string(steps.StatusBlocked)
+	case "step.waiting_dependency":
+		return string(steps.StatusWaitingDependency)
 	default:
 		return fmt.Sprint(event.Type)
 	}

@@ -2,18 +2,24 @@ import { CheckCircleOutlined, ClockCircleOutlined, LoadingOutlined, WarningOutli
 
 export const statusOrder: Record<string, number> = {
   running: 0,
-  waiting_input: 1,
-  failed: 2,
-  interrupted: 3,
-  pending: 4,
-  skipped: 5,
-  completed: 6,
+  ready: 1,
+  waiting_input: 2,
+  waiting_dependency: 3,
+  blocked: 4,
+  failed: 5,
+  interrupted: 6,
+  pending: 7,
+  skipped: 8,
+  completed: 9,
 };
 
 export const statusTone: Record<string, string> = {
   pending: 'default',
   running: 'processing',
+  ready: 'cyan',
   waiting_input: 'warning',
+  waiting_dependency: 'default',
+  blocked: 'error',
   completed: 'success',
   failed: 'error',
   interrupted: 'error',
@@ -33,9 +39,12 @@ export function statusIcon(status: string) {
     case 'running':
       return <LoadingOutlined />;
     case 'waiting_input':
+    case 'waiting_dependency':
+    case 'ready':
       return <ClockCircleOutlined />;
     case 'failed':
     case 'interrupted':
+    case 'blocked':
       return <WarningOutlined />;
     default:
       return <ClockCircleOutlined />;

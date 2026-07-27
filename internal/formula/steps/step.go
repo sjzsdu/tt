@@ -82,10 +82,13 @@ type RunRequest struct {
 type Status string
 
 const (
-	StatusCompleted Status = "completed"
-	StatusFailed    Status = "failed"
-	StatusSkipped   Status = "skipped"
-	StatusWaiting   Status = "waiting"
+	StatusCompleted         Status = "completed"
+	StatusFailed            Status = "failed"
+	StatusSkipped           Status = "skipped"
+	StatusWaiting           Status = "waiting"
+	StatusReady             Status = "ready"
+	StatusBlocked           Status = "blocked"
+	StatusWaitingDependency Status = "waiting_dependency"
 )
 
 type RunResult struct {

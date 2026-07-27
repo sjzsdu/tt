@@ -55,6 +55,12 @@ func (r executorWorkflowRunner) RunWorkflow(ctx context.Context, req steps.Workf
 	capabilities := parent.Capabilities
 	capabilities.Workflows = nil
 	child := NewExecutor(workflow, capabilities)
+	if parent.MaxConcurrency > 0 {
+		child.MaxConcurrency = parent.MaxConcurrency
+	}
+	if parent.MaxAgentConcurrency > 0 {
+		child.MaxAgentConcurrency = parent.MaxAgentConcurrency
+	}
 	child.Mode = parent.Mode
 	child.ResolveWorkflow = parent.ResolveWorkflow
 	child.Store = parent.Store

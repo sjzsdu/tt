@@ -36,6 +36,12 @@ export function DashboardHeader({
           <Typography.Paragraph type="secondary" className="dashboard-description">
             {snapshot.description || 'Live execution control room for formula runs.'}
           </Typography.Paragraph>
+          {!!snapshot.max_concurrency && (
+            <Space size="small" wrap>
+              <Tag color="blue">Steps {snapshot.current_concurrency || 0}/{snapshot.max_concurrency}</Tag>
+              {!!snapshot.max_agent_concurrency && <Tag>Agents {snapshot.current_agent_concurrency || 0}/{snapshot.max_agent_concurrency}</Tag>}
+            </Space>
+          )}
           {snapshot.run_id && (
             <Tooltip title="Copy run id">
               <Button icon={<CopyOutlined />} onClick={onCopyRunID} className="run-id-button">

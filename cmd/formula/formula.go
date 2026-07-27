@@ -68,6 +68,8 @@ type formulaOptions struct {
 	RunRerunStep          string
 	RunInject             []string
 	RunID                 string
+	MaxConcurrency        int
+	MaxAgentConcurrency   int
 }
 
 var (
@@ -118,6 +120,8 @@ var (
 	formulaRunRerunStep          string
 	formulaRunInject             []string
 	formulaRunID                 string
+	formulaMaxConcurrency        int
+	formulaMaxAgentConcurrency   int
 )
 
 func (a *App) installOptions() {
@@ -167,6 +171,8 @@ func (a *App) installOptions() {
 	formulaRunRerunStep = a.opts.RunRerunStep
 	formulaRunInject = a.opts.RunInject
 	formulaRunID = a.opts.RunID
+	formulaMaxConcurrency = a.opts.MaxConcurrency
+	formulaMaxAgentConcurrency = a.opts.MaxAgentConcurrency
 }
 
 func getSearchPaths() []string {

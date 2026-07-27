@@ -52,6 +52,9 @@ export function StepCard({ step, onSelect }: { step: FormulaDashboardStep; onSel
           {step.agent && <Tag>agent · {step.agent}</Tag>}
           {step.session && <Tag color="geekblue">session · {step.session}</Tag>}
           {step.model && <Tag>model · {step.model}</Tag>}
+          {step.queued_at && <Tag>queued · {new Date(step.queued_at).toLocaleTimeString()}</Tag>}
+          {step.started_at && <Tag>started · {new Date(step.started_at).toLocaleTimeString()}</Tag>}
+          {step.finished_at && <Tag>finished · {new Date(step.finished_at).toLocaleTimeString()}</Tag>}
           {step.duration_ms ? <Tag>duration · {formatDuration(step.duration_ms)}</Tag> : null}
           {!!step.depends_on?.length && <Tag>deps · {step.depends_on.length}</Tag>}
           {step.loop && <Tag color="purple">loop · {step.loop.body?.length || 0} body</Tag>}
