@@ -61,6 +61,9 @@ def conflict_regions(path):
     return regions
 
 try:
+    requested_repo_root=os.environ.get("TT_REPO_ROOT", "").strip()
+    if requested_repo_root:
+        os.chdir(requested_repo_root)
     env_context_root=os.environ.get("TT_CONTEXT_ROOT", "").strip()
     repo_root=run(["git","rev-parse","--show-toplevel"]).strip()
     current_branch=run(["git","branch","--show-current"]).strip()
