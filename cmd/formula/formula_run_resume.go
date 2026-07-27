@@ -22,6 +22,9 @@ import (
 )
 
 func runFormulaRunResume(cmd *cobra.Command, args []string) error {
+	if formulaMaxConcurrency < 0 || formulaMaxAgentConcurrency < 0 {
+		return fmt.Errorf("--max-concurrency and --max-agent-concurrency must be >= 0")
+	}
 	id := "latest"
 	if len(args) > 0 {
 		id = args[0]

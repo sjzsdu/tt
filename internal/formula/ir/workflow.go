@@ -13,7 +13,14 @@ type Workflow struct {
 	Vars           map[string]VarSchema
 	Outputs        map[string]OutputSchema
 	Workspace      *WorkspacePolicy
+	Runtime        RuntimePolicy
 	Graph          Graph
+}
+
+type RuntimePolicy struct {
+	MaxConcurrency      int
+	MaxAgentConcurrency int
+	FailFast            bool
 }
 
 type OutputSchema struct {

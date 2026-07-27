@@ -28,7 +28,7 @@ function matchesStepQuery(step: FormulaDashboardStep, query: string) {
 
 function matchesStatusFilter(step: FormulaDashboardStep, filter: StepFilter) {
   if (filter === 'all') return true;
-  if (filter === 'attention') return step.status === 'failed' || step.status === 'waiting_input' || step.status === 'running';
+  if (filter === 'attention') return step.status === 'failed' || step.status === 'blocked' || step.status === 'waiting_input' || step.status === 'running';
   return step.status === filter;
 }
 

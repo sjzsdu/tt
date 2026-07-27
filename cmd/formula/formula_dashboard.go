@@ -176,10 +176,12 @@ func (s *formulaDashboardServer) waitForInterrupt() {
 func (s *formulaDashboardServer) snapshot() ui.Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.refreshConcurrencyLocked()
 	return ui.CloneSnapshot(s.state)
 }
 
 func (s *formulaDashboardServer) snapshotMessageLocked() []byte {
+	s.refreshConcurrencyLocked()
 	msg := ui.Message{Type: "state", State: ui.CloneSnapshot(s.state)}
 	b, _ := json.Marshal(msg)
 	return b

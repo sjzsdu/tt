@@ -14,21 +14,24 @@ import (
 )
 
 type Executor struct {
-	Workflow        *ir.Workflow
-	Mode            ExecutionMode
-	Context         *ContextStore
-	Capabilities    steps.Capabilities
-	Events          EventSink
-	Store           StateStore
-	ResolveWorkflow WorkflowResolver
-	AddressPrefix   executionpath.Path
-	StateWorkflowID ir.WorkflowID
-	CallStack       []string
-	Nested          bool
-	runID           string
-	formulaRunDir   string
-	StartFromStep   ir.NodeID
-	RerunSteps      map[ir.NodeID]bool
+	Workflow            *ir.Workflow
+	Mode                ExecutionMode
+	Context             *ContextStore
+	Capabilities        steps.Capabilities
+	Events              EventSink
+	Store               StateStore
+	ResolveWorkflow     WorkflowResolver
+	AddressPrefix       executionpath.Path
+	StateWorkflowID     ir.WorkflowID
+	CallStack           []string
+	Nested              bool
+	runID               string
+	formulaRunDir       string
+	StartFromStep       ir.NodeID
+	RerunSteps          map[ir.NodeID]bool
+	MaxConcurrency      int
+	MaxAgentConcurrency int
+	FailFast            bool
 }
 
 // ExecutionMode separates normal execution from a side-effect-free preview.
@@ -68,6 +71,11 @@ type RunResult struct {
 func NewExecutor(workflow *ir.Workflow, capabilities steps.Capabilities) *Executor {
 	store := NewMemoryStateStore()
 	exec := &Executor{Workflow: workflow, Context: NewContextStore(), Capabilities: capabilities, Store: store}
+	if workflow != nil {
+		exec.MaxConcurrency = workflow.Runtime.MaxConcurrency
+		exec.MaxAgentConcurrency = workflow.Runtime.MaxAgentConcurrency
+		exec.FailFast = workflow.Runtime.FailFast
+	}
 	if exec.Capabilities.Workflows == nil {
 		exec.Capabilities.Workflows = executorWorkflowRunner{executor: exec}
 	}
@@ -129,143 +137,15 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 		return out, err
 	}
 
-	for i := startIndex; i < len(order); i++ {
-		nodeID := order[i]
-		if err := ctx.Err(); err != nil {
-			out.Status = steps.StatusFailed
-			e.emit(nodeID, "step.interrupted", map[string]string{"error": err.Error()})
-			e.finishWorkflow(steps.StatusFailed)
-			return out, err
-		}
-		node := e.Workflow.Graph.Nodes[nodeID]
-		if node == nil || node.Step == nil {
-			continue
-		}
-		if state, ok, err := e.Store.GetStep(e.stateWorkflowID(), e.runtimeNodeID(nodeID)); err != nil {
-			return out, err
-		} else if ok && state.Status == steps.StatusCompleted && !rerunDownstream[nodeID] {
-			if state.Result != nil {
-				state.Result.NormalizeOutputs()
-			}
-			out.Nodes[nodeID] = state.Result
-			e.rememberStepOutput(node.Step, state.Result)
-			continue
-		}
-		shouldRun, err := shouldRunStep(node.Step.Meta().Condition, e.Context)
-		if err != nil {
-			out.Status = steps.StatusFailed
-			res := &steps.RunResult{Status: steps.StatusFailed, Error: &steps.StepError{Message: err.Error()}}
-			out.Nodes[nodeID] = res
-			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-			e.emit(nodeID, "step.failed", res)
-			e.finishWorkflow(steps.StatusFailed)
-			return out, err
-		}
-		if !shouldRun {
-			res := &steps.RunResult{Status: steps.StatusSkipped}
-			out.Nodes[nodeID] = res
-			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusSkipped, Result: res, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-			e.emit(nodeID, "step.skipped", res)
-			continue
-		}
-		exec, ok := node.Step.(steps.Executable)
-		if !ok {
-			continue
-		}
-		started := time.Now()
-		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: "running", StartedAt: started, UpdatedAt: started})
-		e.emit(nodeID, "step.started", nil)
-		stepToRun := node.Step
-		res, err := exec.Run(ctx, e.stepRunRequest(nodeID, stepToRun))
-		if res == nil {
-			res = &steps.RunResult{}
-		}
-		res.NormalizeOutputs()
-		out.Nodes[nodeID] = res
-		if err != nil || res.Status == steps.StatusFailed {
-			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, err, nil); ok {
-				res, err = repairedRes, repairedErr
-				out.Nodes[nodeID] = res
-				if err == nil && res != nil && res.Status != steps.StatusFailed {
-					goto handleStepResult
-				}
-			}
-			out.Status = steps.StatusFailed
-			if err != nil && ctx.Err() != nil {
-				if res.Error == nil {
-					res.Error = &steps.StepError{Message: ctx.Err().Error(), Cause: ctx.Err()}
-				}
-				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-				e.emit(nodeID, "step.interrupted", res)
-				e.finishWorkflow(steps.StatusFailed)
-				return out, ctx.Err()
-			}
-			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-			e.emit(nodeID, "step.failed", res)
-			e.finishWorkflow(steps.StatusFailed)
-			if err != nil {
-				return out, err
-			}
-			return out, res.Error
-		}
-	handleStepResult:
-		if res.Status == steps.StatusWaiting {
-			out.Status = steps.StatusWaiting
-			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
-			e.emit(nodeID, "step.waiting", res.Await)
-			e.finishWorkflow(steps.StatusWaiting)
-			return out, nil
-		}
-		normalizeStepOutputForContext(node.Step, res)
-		var validationErr error
-		if !e.isPreview() {
-			validationErr = validateStepOutput(node.Step, res.Output)
-		}
-		if validationErr != nil {
-			if repairedRes, repairedErr, ok := e.tryFixAndRerun(ctx, nodeID, node.Step, res, nil, validationErr); ok {
-				res, err = repairedRes, repairedErr
-				if res == nil {
-					res = &steps.RunResult{}
-				}
-				res.NormalizeOutputs()
-				out.Nodes[nodeID] = res
-				if err != nil || res.Status == steps.StatusFailed {
-					out.Status = steps.StatusFailed
-					e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-					e.emit(nodeID, "step.failed", res)
-					e.finishWorkflow(steps.StatusFailed)
-					if err != nil {
-						return out, err
-					}
-					return out, res.Error
-				}
-				if res.Status == steps.StatusWaiting {
-					out.Status = steps.StatusWaiting
-					e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusWaiting, Result: res, StartedAt: started, UpdatedAt: time.Now()})
-					e.emit(nodeID, "step.waiting", res.Await)
-					e.finishWorkflow(steps.StatusWaiting)
-					return out, nil
-				}
-				normalizeStepOutputForContext(node.Step, res)
-				validationErr = validateStepOutput(node.Step, res.Output)
-			}
-			if validationErr == nil {
-				e.rememberStepOutput(node.Step, res)
-				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-				e.emit(nodeID, "step.completed", res)
-				continue
-			}
-			out.Status = steps.StatusFailed
-			res.Status = steps.StatusFailed
-			res.Error = &steps.StepError{Message: "step output validation failed", Cause: validationErr}
-			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusFailed, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-			e.emit(nodeID, "step.failed", res)
-			e.finishWorkflow(steps.StatusFailed)
-			return out, res.Error
-		}
-		e.rememberStepOutput(node.Step, res)
-		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Status: steps.StatusCompleted, Result: res, StartedAt: started, UpdatedAt: time.Now(), CompletedAt: time.Now()})
-		e.emit(nodeID, "step.completed", res)
+	if runErr := e.runConcurrentDAG(ctx, order, startIndex, rerunDownstream, out); runErr != nil {
+		out.Status = steps.StatusFailed
+		e.finishWorkflow(steps.StatusFailed)
+		e.emit("", "workflow.failed", map[string]string{"error": runErr.Error()})
+		return out, runErr
+	}
+	if out.Status == steps.StatusWaiting {
+		e.finishWorkflow(steps.StatusWaiting)
+		return out, nil
 	}
 	if err := e.resolveWorkflowOutputs(out); err != nil {
 		out.Status = steps.StatusFailed
@@ -276,6 +156,419 @@ func (e *Executor) Run(ctx context.Context) (out *RunResult, err error) {
 	e.finishWorkflow(steps.StatusCompleted)
 	e.emit("", "workflow.completed", out)
 	return out, nil
+}
+
+const defaultDAGConcurrency = 4
+
+const (
+	schedulerPending steps.Status = "pending"
+	schedulerRunning steps.Status = "running"
+)
+
+type concurrentNodeResult struct {
+	id      ir.NodeID
+	result  *steps.RunResult
+	err     error
+	isAgent bool
+}
+
+func (e *Executor) effectiveMaxConcurrency() int {
+	if e.MaxConcurrency > 0 {
+		return e.MaxConcurrency
+	}
+	return defaultDAGConcurrency
+}
+
+func (e *Executor) effectiveMaxAgentConcurrency() int {
+	limit := e.MaxAgentConcurrency
+	if limit <= 0 {
+		limit = defaultDAGConcurrency
+	}
+	if overall := e.effectiveMaxConcurrency(); limit > overall {
+		return overall
+	}
+	return limit
+}
+
+func (e *Executor) runConcurrentDAG(ctx context.Context, order []ir.NodeID, startIndex int, rerunDownstream map[ir.NodeID]bool, out *RunResult) error {
+	active := make(map[ir.NodeID]bool, len(order)-startIndex)
+	phase := make(map[ir.NodeID]steps.Status, len(order))
+	queuedAt := make(map[ir.NodeID]time.Time, len(order))
+	dependencies := make(map[ir.NodeID][]ir.NodeID, len(order))
+	for _, edge := range e.Workflow.Graph.Edges {
+		dependencies[edge.To] = append(dependencies[edge.To], edge.From)
+	}
+	for _, deps := range dependencies {
+		sort.Slice(deps, func(i, j int) bool { return deps[i] < deps[j] })
+	}
+	for i, nodeID := range order {
+		if i >= startIndex {
+			active[nodeID] = true
+		}
+		state, ok, stateErr := e.Store.GetStep(e.stateWorkflowID(), e.runtimeNodeID(nodeID))
+		if stateErr != nil {
+			return stateErr
+		}
+		if ok && state.Status == steps.StatusCompleted && !rerunDownstream[nodeID] {
+			if state.Result != nil {
+				state.Result.NormalizeOutputs()
+			}
+			phase[nodeID] = steps.StatusCompleted
+			out.Nodes[nodeID] = state.Result
+			if node := e.Workflow.Graph.Nodes[nodeID]; node != nil {
+				e.rememberStepOutput(node.Step, state.Result)
+			}
+			continue
+		}
+		if !active[nodeID] {
+			phase[nodeID] = steps.StatusCompleted
+			continue
+		}
+		node := e.Workflow.Graph.Nodes[nodeID]
+		if node == nil || node.Step == nil {
+			phase[nodeID] = steps.StatusCompleted
+			continue
+		}
+		phase[nodeID] = schedulerPending
+	}
+	for _, nodeID := range order {
+		if !active[nodeID] || phase[nodeID] != schedulerPending {
+			continue
+		}
+		for _, dep := range dependencies[nodeID] {
+			if phase[dep] == steps.StatusCompleted || phase[dep] == steps.StatusSkipped {
+				continue
+			}
+			reason := fmt.Sprintf("waiting for dependency %s", dep)
+			now := time.Now()
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusWaitingDependency, UpdatedAt: now})
+			e.emit(nodeID, "step.waiting_dependency", map[string]string{"reason": reason})
+			break
+		}
+	}
+
+	maxConcurrency := e.effectiveMaxConcurrency()
+	maxAgentConcurrency := e.effectiveMaxAgentConcurrency()
+	e.emit("", "workflow.concurrency", map[string]int{
+		"max_concurrency":       maxConcurrency,
+		"max_agent_concurrency": maxAgentConcurrency,
+	})
+
+	results := make(chan concurrentNodeResult, maxConcurrency)
+	running := 0
+	runningAgents := 0
+	failed := false
+	waiting := false
+	var firstErr error
+
+	for {
+		progressed := false
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			failed = true
+			if firstErr == nil {
+				firstErr = ctxErr
+			}
+			for _, nodeID := range order {
+				if phase[nodeID] != schedulerPending && phase[nodeID] != steps.StatusReady {
+					continue
+				}
+				out.Nodes[nodeID] = e.blockNode(nodeID, "run canceled before this step started")
+				phase[nodeID] = steps.StatusBlocked
+				progressed = true
+			}
+		}
+		for _, nodeID := range order {
+			if !active[nodeID] || phase[nodeID] != schedulerPending {
+				continue
+			}
+			if failed && e.FailFast {
+				res := e.blockNode(nodeID, "fail_fast stopped the scheduler from starting this step")
+				phase[nodeID] = steps.StatusBlocked
+				out.Nodes[nodeID] = res
+				progressed = true
+				continue
+			}
+			depsReady := true
+			blockedBy := ""
+			for _, dep := range dependencies[nodeID] {
+				switch phase[dep] {
+				case steps.StatusFailed, steps.StatusBlocked:
+					blockedBy = string(dep)
+				case steps.StatusCompleted, steps.StatusSkipped:
+					// Terminal successful dependency.
+				default:
+					depsReady = false
+				}
+				if blockedBy != "" {
+					break
+				}
+			}
+			if blockedBy != "" {
+				res := e.blockNode(nodeID, fmt.Sprintf("dependency %s did not complete successfully", blockedBy))
+				phase[nodeID] = steps.StatusBlocked
+				out.Nodes[nodeID] = res
+				progressed = true
+				continue
+			}
+			if !depsReady {
+				continue
+			}
+			node := e.Workflow.Graph.Nodes[nodeID]
+			shouldRun, conditionErr := shouldRunStep(node.Step.Meta().Condition, e.Context)
+			if conditionErr != nil {
+				res := &steps.RunResult{Status: steps.StatusFailed, Error: &steps.StepError{Message: conditionErr.Error(), Cause: conditionErr}}
+				now := time.Now()
+				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusFailed, Result: res, UpdatedAt: now, CompletedAt: now})
+				e.emit(nodeID, "step.failed", res)
+				phase[nodeID] = steps.StatusFailed
+				out.Nodes[nodeID] = res
+				failed = true
+				if firstErr == nil {
+					firstErr = conditionErr
+				}
+				progressed = true
+				continue
+			}
+			if !shouldRun {
+				res := &steps.RunResult{Status: steps.StatusSkipped}
+				now := time.Now()
+				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusSkipped, Result: res, UpdatedAt: now, CompletedAt: now})
+				e.emit(nodeID, "step.skipped", res)
+				phase[nodeID] = steps.StatusSkipped
+				out.Nodes[nodeID] = res
+				progressed = true
+				continue
+			}
+			now := time.Now()
+			queuedAt[nodeID] = now
+			phase[nodeID] = steps.StatusReady
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusReady, QueuedAt: now, UpdatedAt: now})
+			e.emit(nodeID, "step.ready", map[string]string{"reason": "dependencies completed"})
+			progressed = true
+		}
+
+		for _, nodeID := range order {
+			if running >= maxConcurrency || !active[nodeID] || phase[nodeID] != steps.StatusReady {
+				continue
+			}
+			node := e.Workflow.Graph.Nodes[nodeID]
+			isAgent := isAgentLikeStep(node.Step)
+			if isAgent && runningAgents >= maxAgentConcurrency {
+				continue
+			}
+			phase[nodeID] = schedulerRunning
+			running++
+			if isAgent {
+				runningAgents++
+			}
+			progressed = true
+			go func(id ir.NodeID, agentLike bool, queued time.Time) {
+				res, runErr := e.runConcurrentNode(ctx, id, queued)
+				results <- concurrentNodeResult{id: id, result: res, err: runErr, isAgent: agentLike}
+			}(nodeID, isAgent, queuedAt[nodeID])
+		}
+
+		if running == 0 {
+			unsettled := false
+			for nodeID := range active {
+				switch phase[nodeID] {
+				case schedulerPending, steps.StatusReady, schedulerRunning:
+					unsettled = true
+				}
+			}
+			if !unsettled {
+				break
+			}
+			if waiting {
+				out.Status = steps.StatusWaiting
+				return nil
+			}
+			if !progressed {
+				deadlockErr := fmt.Errorf("formula scheduler made no progress; remaining nodes are waiting on unresolved dependencies")
+				for _, nodeID := range order {
+					if phase[nodeID] != schedulerPending && phase[nodeID] != steps.StatusReady {
+						continue
+					}
+					out.Nodes[nodeID] = e.blockNode(nodeID, deadlockErr.Error())
+					phase[nodeID] = steps.StatusBlocked
+				}
+				return deadlockErr
+			}
+			continue
+		}
+
+		completed := <-results
+		running--
+		if completed.isAgent {
+			runningAgents--
+		}
+		res := completed.result
+		if res == nil {
+			res = &steps.RunResult{Status: steps.StatusFailed, Error: &steps.StepError{Message: "step returned no result"}}
+		}
+		out.Nodes[completed.id] = res
+		switch res.Status {
+		case steps.StatusWaiting:
+			phase[completed.id] = steps.StatusWaiting
+			waiting = true
+		case steps.StatusFailed:
+			phase[completed.id] = steps.StatusFailed
+			failed = true
+		default:
+			phase[completed.id] = res.Status
+			if phase[completed.id] == "" {
+				phase[completed.id] = steps.StatusCompleted
+			}
+		}
+		if completed.err != nil {
+			failed = true
+			phase[completed.id] = steps.StatusFailed
+			if firstErr == nil {
+				firstErr = completed.err
+			}
+		} else if res.Status == steps.StatusFailed && firstErr == nil {
+			firstErr = res.Error
+		}
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if failed {
+		out.Status = steps.StatusFailed
+		if firstErr == nil {
+			firstErr = fmt.Errorf("one or more formula steps failed")
+		}
+		return firstErr
+	}
+	if waiting {
+		out.Status = steps.StatusWaiting
+	}
+	return nil
+}
+
+func isAgentLikeStep(step steps.Step) bool {
+	if step == nil {
+		return false
+	}
+	switch step.Meta().Kind {
+	case steps.KindAgent, steps.KindExternalAgent, steps.KindFormula:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Executor) blockNode(nodeID ir.NodeID, reason string) *steps.RunResult {
+	now := time.Now()
+	res := &steps.RunResult{Status: steps.StatusBlocked, Error: &steps.StepError{Message: reason}}
+	e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusBlocked, Result: res, UpdatedAt: now, CompletedAt: now})
+	e.emit(nodeID, "step.blocked", map[string]string{"reason": reason})
+	return res
+}
+
+func (e *Executor) runConcurrentNode(ctx context.Context, nodeID ir.NodeID, queuedAt time.Time) (*steps.RunResult, error) {
+	node := e.Workflow.Graph.Nodes[nodeID]
+	if node == nil || node.Step == nil {
+		return &steps.RunResult{Status: steps.StatusCompleted}, nil
+	}
+	exec, ok := node.Step.(steps.Executable)
+	if !ok {
+		res := &steps.RunResult{Status: steps.StatusCompleted}
+		now := time.Now()
+		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusCompleted, Result: res, QueuedAt: queuedAt, UpdatedAt: now, CompletedAt: now})
+		e.emit(nodeID, "step.completed", res)
+		return res, nil
+	}
+	started := time.Now()
+	e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: schedulerRunning, QueuedAt: queuedAt, StartedAt: started, UpdatedAt: started})
+	e.emit(nodeID, "step.started", nil)
+	res, runErr := exec.Run(ctx, e.stepRunRequest(nodeID, node.Step))
+	if res == nil {
+		res = &steps.RunResult{}
+	}
+	res.NormalizeOutputs()
+	if runErr != nil || res.Status == steps.StatusFailed {
+		if repairedRes, repairedErr, repaired := e.tryFixAndRerun(ctx, nodeID, node.Step, res, runErr, nil); repaired {
+			res, runErr = repairedRes, repairedErr
+			if runErr == nil && res != nil && res.Status != steps.StatusFailed {
+				goto handleResult
+			}
+		}
+		if res == nil {
+			res = &steps.RunResult{}
+		}
+		res.Status = steps.StatusFailed
+		if res.Error == nil {
+			message := "step failed"
+			if runErr != nil {
+				message = runErr.Error()
+			}
+			res.Error = &steps.StepError{Message: message, Cause: runErr}
+		}
+		now := time.Now()
+		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusFailed, Result: res, QueuedAt: queuedAt, StartedAt: started, UpdatedAt: now, CompletedAt: now})
+		if ctx.Err() != nil {
+			e.emit(nodeID, "step.interrupted", res)
+			return res, ctx.Err()
+		}
+		e.emit(nodeID, "step.failed", res)
+		if runErr != nil {
+			return res, runErr
+		}
+		return res, res.Error
+	}
+
+handleResult:
+	if res.Status == steps.StatusWaiting {
+		now := time.Now()
+		e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusWaiting, Result: res, QueuedAt: queuedAt, StartedAt: started, UpdatedAt: now})
+		e.emit(nodeID, "step.waiting", res.Await)
+		return res, nil
+	}
+	normalizeStepOutputForContext(node.Step, res)
+	var validationErr error
+	if !e.isPreview() {
+		validationErr = validateStepOutput(node.Step, res.Output)
+	}
+	if validationErr != nil {
+		if repairedRes, repairedErr, repaired := e.tryFixAndRerun(ctx, nodeID, node.Step, res, nil, validationErr); repaired {
+			res, runErr = repairedRes, repairedErr
+			if res == nil {
+				res = &steps.RunResult{}
+			}
+			res.NormalizeOutputs()
+			if res.Status == steps.StatusWaiting {
+				now := time.Now()
+				e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusWaiting, Result: res, QueuedAt: queuedAt, StartedAt: started, UpdatedAt: now})
+				e.emit(nodeID, "step.waiting", res.Await)
+				return res, nil
+			}
+			if runErr == nil && res.Status != steps.StatusFailed && res.Status != steps.StatusWaiting {
+				normalizeStepOutputForContext(node.Step, res)
+				validationErr = validateStepOutput(node.Step, res.Output)
+			}
+		}
+		if runErr != nil || res.Status == steps.StatusFailed || validationErr != nil {
+			res.Status = steps.StatusFailed
+			if res.Error == nil {
+				res.Error = &steps.StepError{Message: "step output validation failed", Cause: validationErr}
+			}
+			now := time.Now()
+			e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusFailed, Result: res, QueuedAt: queuedAt, StartedAt: started, UpdatedAt: now, CompletedAt: now})
+			e.emit(nodeID, "step.failed", res)
+			if runErr != nil {
+				return res, runErr
+			}
+			return res, res.Error
+		}
+	}
+	res.Status = steps.StatusCompleted
+	e.rememberStepOutput(node.Step, res)
+	now := time.Now()
+	e.saveStep(StepState{WorkflowID: e.Workflow.ID, NodeID: nodeID, Path: e.executionPath(nodeID), Status: steps.StatusCompleted, Result: res, QueuedAt: queuedAt, StartedAt: started, UpdatedAt: now, CompletedAt: now})
+	e.emit(nodeID, "step.completed", res)
+	return res, nil
 }
 
 func (e *Executor) resolveWorkflowOutputs(out *RunResult) error {

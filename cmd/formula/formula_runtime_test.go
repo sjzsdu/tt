@@ -197,6 +197,24 @@ func TestExecuteFormulaRecipeRuntimeDryRun(t *testing.T) {
 	}
 }
 
+func TestNewFormulaRuntimeExecutorAppliesConcurrencyOverrides(t *testing.T) {
+	workflow := testFormulaWorkflow("demo")
+	workflow.Runtime = ir.RuntimePolicy{MaxConcurrency: 6, MaxAgentConcurrency: 4}
+	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
+		Workflow:            workflow,
+		DryRun:              true,
+		AllowScripts:        true,
+		MaxConcurrency:      3,
+		MaxAgentConcurrency: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exec.MaxConcurrency != 3 || exec.MaxAgentConcurrency != 2 {
+		t.Fatalf("executor concurrency = %d/%d, want 3/2", exec.MaxConcurrency, exec.MaxAgentConcurrency)
+	}
+}
+
 func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
 	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
 	dashboard := newFormulaDashboardServer(workflow)
@@ -209,6 +227,31 @@ func TestFormulaRuntimeDashboardEventSinkUpdatesDashboard(t *testing.T) {
 	sink.Emit(formularuntime.Event{Type: "step.completed", NodeID: "demo.work", Payload: &steps.RunResult{Status: steps.StatusCompleted, Output: steps.Value{Type: "json", Raw: raw}}})
 	if dashboard.state.Steps[0].Status != "completed" || dashboard.state.Steps[0].Output != "done" {
 		t.Fatalf("step = %+v", dashboard.state.Steps[0])
+	}
+}
+
+func TestFormulaRuntimeDashboardEventSinkShowsSchedulerStateAndLimits(t *testing.T) {
+	workflow := testFormulaWorkflow("demo", steps.AgentStep{Base: steps.Base{Metadata: steps.Metadata{ID: "demo.work", Kind: steps.KindAgent, Title: "Work"}}})
+	dashboard := newFormulaDashboardServer(workflow)
+	sink := formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: workflow}
+
+	sink.Emit(formularuntime.Event{Type: "workflow.concurrency", Payload: map[string]int{"max_concurrency": 6, "max_agent_concurrency": 4}})
+	sink.Emit(formularuntime.Event{Type: "step.waiting_dependency", NodeID: "demo.work", Payload: map[string]string{"reason": "waiting for dependency plan"}})
+	if snapshot := dashboard.snapshot(); snapshot.Steps[0].Status != ui.StatusWaitingDependency {
+		t.Fatalf("waiting dependency snapshot = %+v", snapshot.Steps[0])
+	}
+	sink.Emit(formularuntime.Event{Type: "step.ready", NodeID: "demo.work", Payload: map[string]string{"reason": "dependencies completed"}})
+	snapshot := dashboard.snapshot()
+	if snapshot.Steps[0].Status != ui.StatusReady || snapshot.Steps[0].QueuedAt == "" {
+		t.Fatalf("ready snapshot = %+v", snapshot.Steps[0])
+	}
+	if snapshot.MaxConcurrency != 6 || snapshot.MaxAgentConcurrency != 4 {
+		t.Fatalf("concurrency limits = %d/%d", snapshot.MaxConcurrency, snapshot.MaxAgentConcurrency)
+	}
+	sink.Emit(formularuntime.Event{Type: "step.started", NodeID: "demo.work"})
+	snapshot = dashboard.snapshot()
+	if snapshot.CurrentConcurrency != 1 || snapshot.CurrentAgentConcurrency != 1 {
+		t.Fatalf("current concurrency = %d/%d", snapshot.CurrentConcurrency, snapshot.CurrentAgentConcurrency)
 	}
 }
 
@@ -384,13 +427,15 @@ func TestFinalReportChatMessageHandler(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if dashboard.state.FinalReportChat != nil && len(dashboard.state.FinalReportChat.Messages) == 2 {
+		snapshot := dashboard.snapshot()
+		if snapshot.FinalReportChat != nil && len(snapshot.FinalReportChat.Messages) == 2 {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if dashboard.state.FinalReportChat == nil || len(dashboard.state.FinalReportChat.Messages) != 2 {
-		t.Fatalf("chat = %+v", dashboard.state.FinalReportChat)
+	snapshot := dashboard.snapshot()
+	if snapshot.FinalReportChat == nil || len(snapshot.FinalReportChat.Messages) != 2 {
+		t.Fatalf("chat = %+v", snapshot.FinalReportChat)
 	}
 }
 

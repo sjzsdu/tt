@@ -22,6 +22,9 @@ import (
 )
 
 func runFormulaRun(cmd *cobra.Command, args []string) error {
+	if formulaMaxConcurrency < 0 || formulaMaxAgentConcurrency < 0 {
+		return fmt.Errorf("--max-concurrency and --max-agent-concurrency must be >= 0")
+	}
 	cliVars := parseVars()
 	fileName, fileVars, err := loadFormulaFile(formulaFile)
 	if err != nil {
@@ -76,6 +79,8 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 			Workspace:           projectRoot,
 			Vars:                vars,
 			Out:                 cmd.OutOrStdout(),
+			MaxConcurrency:      formulaMaxConcurrency,
+			MaxAgentConcurrency: formulaMaxAgentConcurrency,
 		})
 	}
 
@@ -218,6 +223,8 @@ func runFormulaRun(cmd *cobra.Command, args []string) error {
 		StartFromStep:       startFromStep,
 		RerunSteps:          rerunSteps,
 		InjectContext:       injectContext,
+		MaxConcurrency:      formulaMaxConcurrency,
+		MaxAgentConcurrency: formulaMaxAgentConcurrency,
 	})
 	if showWeb {
 		fmt.Fprintf(out, "\nWeb dashboard: http://localhost:%d\n", dashboard.port)
@@ -356,30 +363,36 @@ func executeFormulaResumeRuntime(cmd *cobra.Command, workflowName string, runSto
 	defer runner.Close()
 
 	agentRunner := formulaRuntimeAgentRunner{
-		processor:    runner,
-		defaultAgent: defaultAgent,
-		defaultModel: runStore.Meta.Model,
-		session:      runStore.Meta.Session,
-		workspace:    agentWorkspace,
-		debug:        formulaDebug,
-		quiet:        true,
-		stepAdvice:   stepAdvice,
+		processor:           runner,
+		defaultAgent:        defaultAgent,
+		defaultModel:        runStore.Meta.Model,
+		session:             runStore.Meta.Session,
+		workspace:           agentWorkspace,
+		debug:               formulaDebug,
+		quiet:               true,
+		stepAdvice:          stepAdvice,
+		isolateStepSessions: effectiveFormulaAgentConcurrency(workflow, formulaMaxConcurrency, formulaMaxAgentConcurrency) > 1,
 	}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
-		Workflow:     workflow,
-		RunStore:     runStore,
-		AgentRunner:  agentRunner,
-		Workspace:    projectRoot,
-		Vars:         runStore.Meta.Vars,
-		AllowScripts: !formulaNoScript,
-		RunID:        runStore.Meta.RunID,
+		Workflow:            workflow,
+		RunStore:            runStore,
+		AgentRunner:         agentRunner,
+		Workspace:           projectRoot,
+		Vars:                runStore.Meta.Vars,
+		AllowScripts:        !formulaNoScript,
+		RunID:               runStore.Meta.RunID,
+		MaxConcurrency:      formulaMaxConcurrency,
+		MaxAgentConcurrency: formulaMaxAgentConcurrency,
 	})
 	if err != nil {
 		return err
 	}
 	seedFormulaRuntimeResumeState(exec, initialResults, initialContext)
 	if dashboard != nil {
-		exec.Events = formulaRuntimeDashboardEventSink{dashboard: dashboard, workflow: exec.Workflow, session: runStore.Meta.Session, workspace: agentWorkspace}
+		exec.Events = formulaRuntimeDashboardEventSink{
+			dashboard: dashboard, workflow: exec.Workflow, session: runStore.Meta.Session, workspace: agentWorkspace,
+			isolateStepSessions: effectiveFormulaAgentConcurrency(workflow, formulaMaxConcurrency, formulaMaxAgentConcurrency) > 1,
+		}
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Resuming formula run with typed runtime: %s\n", runStore.Meta.RunID)

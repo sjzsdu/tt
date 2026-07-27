@@ -56,3 +56,16 @@ func TestFormulaRunCommandRequiresNameOrFile(t *testing.T) {
 		t.Fatalf("run Args error = %v, want name/file requirement", err)
 	}
 }
+
+func TestFormulaRunCommandRegistersConcurrencyOverrides(t *testing.T) {
+	cmd := New(Dependencies{})
+	runCmd, _, err := cmd.Find([]string{"run"})
+	if err != nil {
+		t.Fatalf("Find(run) error = %v", err)
+	}
+	for _, name := range []string{"max-concurrency", "max-agent-concurrency"} {
+		if flag := runCmd.Flags().Lookup(name); flag == nil {
+			t.Fatalf("missing --%s", name)
+		}
+	}
+}

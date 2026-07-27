@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sjzsdu/tt/internal/formula/ir"
 	"github.com/sjzsdu/tt/internal/formula/steps"
@@ -74,6 +76,253 @@ func (a *repairAgent) RunAgent(_ context.Context, req steps.AgentRequest) (steps
 
 type repairScript struct {
 	commands [][]string
+}
+
+type timedScriptInterval struct {
+	start time.Time
+	end   time.Time
+}
+
+type timedScript struct {
+	mu        sync.Mutex
+	delay     time.Duration
+	fail      map[string]bool
+	intervals map[string]timedScriptInterval
+}
+
+type concurrencyExternalAgent struct {
+	mu        sync.Mutex
+	delay     time.Duration
+	active    int
+	maxActive int
+}
+
+type cancelAwareExternalAgent struct {
+	started  chan string
+	canceled chan string
+}
+
+func (a cancelAwareExternalAgent) RunExternalAgent(ctx context.Context, req steps.ExternalAgentRequest) (steps.Value, error) {
+	a.started <- req.NodeID
+	<-ctx.Done()
+	a.canceled <- req.NodeID
+	return steps.Value{}, ctx.Err()
+}
+
+func (a *concurrencyExternalAgent) RunExternalAgent(ctx context.Context, req steps.ExternalAgentRequest) (steps.Value, error) {
+	a.mu.Lock()
+	a.active++
+	if a.active > a.maxActive {
+		a.maxActive = a.active
+	}
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.active--
+		a.mu.Unlock()
+	}()
+	select {
+	case <-ctx.Done():
+		return steps.Value{}, ctx.Err()
+	case <-time.After(a.delay):
+	}
+	raw, _ := json.Marshal(map[string]any{"node": req.NodeID})
+	return steps.Value{Type: "json", Raw: raw}, nil
+}
+
+func (s *timedScript) RunScript(ctx context.Context, req steps.ScriptRequest) (steps.Value, error) {
+	id := req.Command[0]
+	started := time.Now()
+	s.mu.Lock()
+	if s.intervals == nil {
+		s.intervals = map[string]timedScriptInterval{}
+	}
+	s.intervals[id] = timedScriptInterval{start: started}
+	s.mu.Unlock()
+	if id == "a" || id == "b" || id == "c" {
+		select {
+		case <-ctx.Done():
+			return steps.Value{}, ctx.Err()
+		case <-time.After(s.delay):
+		}
+	}
+	finished := time.Now()
+	s.mu.Lock()
+	s.intervals[id] = timedScriptInterval{start: started, end: finished}
+	shouldFail := s.fail[id]
+	s.mu.Unlock()
+	raw, _ := json.Marshal(map[string]any{"id": id})
+	if shouldFail {
+		return steps.Value{Type: "json", Raw: raw}, fmt.Errorf("%s failed", id)
+	}
+	return steps.Value{Type: "json", Raw: raw}, nil
+}
+
+func dagConcurrencyWorkflow() *ir.Workflow {
+	graph := ir.NewGraph()
+	for _, id := range []ir.NodeID{"start", "a", "b", "c", "join"} {
+		graph.AddNode(&ir.Node{ID: id, Step: steps.ScriptStep{
+			Base:    steps.Base{Metadata: steps.Metadata{ID: steps.ID(id), Kind: steps.KindScript}},
+			Command: []string{string(id)},
+		}})
+	}
+	for _, id := range []ir.NodeID{"a", "b", "c"} {
+		graph.AddEdge("start", id, "blocks")
+		graph.AddEdge(id, "join", "blocks")
+	}
+	return &ir.Workflow{ID: "dag-concurrency", Graph: graph}
+}
+
+func TestExecutorDAGSchedulerHonorsConcurrencyAndJoin(t *testing.T) {
+	const delay = 80 * time.Millisecond
+
+	sequentialScripts := &timedScript{delay: delay}
+	sequential := NewExecutor(dagConcurrencyWorkflow(), steps.Capabilities{Scripts: sequentialScripts})
+	sequential.MaxConcurrency = 1
+	started := time.Now()
+	if result, err := sequential.Run(context.Background()); err != nil || result.Status != steps.StatusCompleted {
+		t.Fatalf("sequential run result=%+v err=%v", result, err)
+	}
+	sequentialElapsed := time.Since(started)
+
+	parallelScripts := &timedScript{delay: delay}
+	parallel := NewExecutor(dagConcurrencyWorkflow(), steps.Capabilities{Scripts: parallelScripts})
+	parallel.MaxConcurrency = 3
+	started = time.Now()
+	if result, err := parallel.Run(context.Background()); err != nil || result.Status != steps.StatusCompleted {
+		t.Fatalf("parallel run result=%+v err=%v", result, err)
+	}
+	parallelElapsed := time.Since(started)
+
+	if sequentialElapsed < 3*delay {
+		t.Fatalf("max_concurrency=1 elapsed=%s, want at least %s", sequentialElapsed, 3*delay)
+	}
+	if parallelElapsed >= 2*delay {
+		t.Fatalf("max_concurrency=3 elapsed=%s, want less than %s", parallelElapsed, 2*delay)
+	}
+	a := parallelScripts.intervals["a"]
+	b := parallelScripts.intervals["b"]
+	c := parallelScripts.intervals["c"]
+	if !a.start.Before(b.end) || !b.start.Before(a.end) || !c.start.Before(a.end) {
+		t.Fatalf("parallel intervals do not overlap: a=%+v b=%+v c=%+v", a, b, c)
+	}
+	join := parallelScripts.intervals["join"]
+	for id, interval := range map[string]timedScriptInterval{"a": a, "b": b, "c": c} {
+		if join.start.Before(interval.end) {
+			t.Fatalf("join started before %s completed: join=%s %s.end=%s", id, join.start, id, interval.end)
+		}
+	}
+}
+
+func TestExecutorDAGSchedulerLetsIndependentRunningBranchFinishAfterFailure(t *testing.T) {
+	workflow := dagConcurrencyWorkflow()
+	scripts := &timedScript{delay: 60 * time.Millisecond, fail: map[string]bool{"a": true}}
+	exec := NewExecutor(workflow, steps.Capabilities{Scripts: scripts})
+	exec.MaxConcurrency = 3
+
+	result, err := exec.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected failed workflow")
+	}
+	if result.Nodes["b"] == nil || result.Nodes["b"].Status != steps.StatusCompleted {
+		t.Fatalf("independent branch b = %+v, want completed", result.Nodes["b"])
+	}
+	if result.Nodes["c"] == nil || result.Nodes["c"].Status != steps.StatusCompleted {
+		t.Fatalf("independent branch c = %+v, want completed", result.Nodes["c"])
+	}
+	if result.Nodes["join"] == nil || result.Nodes["join"].Status != steps.StatusBlocked {
+		t.Fatalf("join = %+v, want blocked", result.Nodes["join"])
+	}
+}
+
+func TestExecutorDAGSchedulerHonorsAgentConcurrency(t *testing.T) {
+	graph := ir.NewGraph()
+	for _, id := range []ir.NodeID{"a", "b", "c"} {
+		graph.AddNode(&ir.Node{ID: id, Step: steps.ExternalAgentStep{
+			Base:   steps.Base{Metadata: steps.Metadata{ID: steps.ID(id), Kind: steps.KindExternalAgent}},
+			Prompt: "test",
+		}})
+	}
+	agent := &concurrencyExternalAgent{delay: 50 * time.Millisecond}
+	exec := NewExecutor(&ir.Workflow{ID: "agent-limit", Graph: graph}, steps.Capabilities{ExternalAgents: agent})
+	exec.MaxConcurrency = 3
+	exec.MaxAgentConcurrency = 2
+
+	started := time.Now()
+	result, err := exec.Run(context.Background())
+	elapsed := time.Since(started)
+	if err != nil || result.Status != steps.StatusCompleted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if agent.maxActive != 2 {
+		t.Fatalf("max active agents = %d, want 2", agent.maxActive)
+	}
+	if elapsed < 2*agent.delay {
+		t.Fatalf("elapsed=%s, want two agent batches", elapsed)
+	}
+}
+
+func TestExecutorDAGSchedulerCancelsAllRunningAgents(t *testing.T) {
+	graph := ir.NewGraph()
+	for _, id := range []ir.NodeID{"a", "b"} {
+		graph.AddNode(&ir.Node{ID: id, Step: steps.ExternalAgentStep{
+			Base:   steps.Base{Metadata: steps.Metadata{ID: steps.ID(id), Kind: steps.KindExternalAgent}},
+			Prompt: "wait",
+		}})
+	}
+	agent := cancelAwareExternalAgent{started: make(chan string, 2), canceled: make(chan string, 2)}
+	exec := NewExecutor(&ir.Workflow{ID: "cancel-agents", Graph: graph}, steps.Capabilities{ExternalAgents: agent})
+	exec.MaxConcurrency = 2
+	exec.MaxAgentConcurrency = 2
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := exec.Run(ctx)
+		done <- err
+	}()
+	for range 2 {
+		select {
+		case <-agent.started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for agents to start")
+		}
+	}
+	cancel()
+	for range 2 {
+		select {
+		case <-agent.canceled:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for agent cancellation")
+		}
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "context canceled") {
+			t.Fatalf("run error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for canceled run")
+	}
+}
+
+func TestExecutorDAGSchedulerSkipsFalseConditionWithoutUsingSlot(t *testing.T) {
+	graph := ir.NewGraph()
+	graph.AddNode(&ir.Node{ID: "skip", Step: steps.ScriptStep{
+		Base:    steps.Base{Metadata: steps.Metadata{ID: "skip", Kind: steps.KindScript, Condition: "missing == true"}},
+		Command: []string{"skip"},
+	}})
+	scripts := &timedScript{}
+	exec := NewExecutor(&ir.Workflow{ID: "condition-skip", Graph: graph}, steps.Capabilities{Scripts: scripts})
+	result, err := exec.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Nodes["skip"] == nil || result.Nodes["skip"].Status != steps.StatusSkipped {
+		t.Fatalf("skip result = %+v", result.Nodes["skip"])
+	}
+	if _, called := scripts.intervals["skip"]; called {
+		t.Fatal("condition=false step used a worker slot")
+	}
 }
 
 func (s *repairScript) RunScript(_ context.Context, req steps.ScriptRequest) (steps.Value, error) {

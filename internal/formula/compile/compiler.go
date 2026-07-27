@@ -24,6 +24,16 @@ func (c *Compiler) Compile(doc *ast.Document) (*ir.Workflow, error) {
 		return nil, fmt.Errorf("formula document is required")
 	}
 	wf := &ir.Workflow{ID: ir.WorkflowID(doc.Name), Name: doc.Name, Description: doc.Description, Vars: map[string]ir.VarSchema{}, Outputs: map[string]ir.OutputSchema{}, Workspace: workspacePolicyFromDocument(doc), Graph: ir.NewGraph()}
+	if doc.Runtime != nil {
+		if doc.Runtime.MaxConcurrency < 0 || doc.Runtime.MaxAgentConcurrency < 0 {
+			return nil, fmt.Errorf("runtime concurrency limits must be >= 0")
+		}
+		wf.Runtime = ir.RuntimePolicy{
+			MaxConcurrency:      doc.Runtime.MaxConcurrency,
+			MaxAgentConcurrency: doc.Runtime.MaxAgentConcurrency,
+			FailFast:            doc.Runtime.FailFast,
+		}
+	}
 	for name, v := range doc.Vars {
 		wf.Vars[name] = ir.VarSchema{Type: v.Type, Required: v.Required, Default: v.Default}
 	}

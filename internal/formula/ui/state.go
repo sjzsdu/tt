@@ -8,32 +8,39 @@ import (
 )
 
 const (
-	StatusPending      = "pending"
-	StatusRunning      = "running"
-	StatusCompleted    = "completed"
-	StatusFailed       = "failed"
-	StatusSkipped      = "skipped"
-	StatusWaitingInput = "waiting_input"
+	StatusPending           = "pending"
+	StatusRunning           = "running"
+	StatusCompleted         = "completed"
+	StatusFailed            = "failed"
+	StatusSkipped           = "skipped"
+	StatusWaitingInput      = "waiting_input"
+	StatusReady             = "ready"
+	StatusBlocked           = "blocked"
+	StatusWaitingDependency = "waiting_dependency"
 )
 
 type Snapshot struct {
-	RecipeName         string              `json:"recipe_name"`
-	Description        string              `json:"description,omitempty"`
-	Phase              string              `json:"phase,omitempty"`
-	Status             string              `json:"status"`
-	FinalOutput        string              `json:"final_output,omitempty"`
-	FinalReportChat    *FinalReportChat    `json:"final_report_chat,omitempty"`
-	Repairs            []RepairRecord      `json:"repairs,omitempty"`
-	Error              string              `json:"error,omitempty"`
-	Vars               map[string]any      `json:"vars,omitempty"`
-	Steps              []Step              `json:"steps"`
-	Edges              []Edge              `json:"edges,omitempty"`
-	Logs               []LogEntry          `json:"logs,omitempty"`
-	ExecutionInstances []ExecutionInstance `json:"execution_instances,omitempty"`
-	ExecutionEvents    []ExecutionEvent    `json:"execution_events,omitempty"`
-	WorkspaceDir       string              `json:"workspace_dir,omitempty"`
-	RunID              string              `json:"run_id,omitempty"`
-	StopRequested      bool                `json:"stop_requested,omitempty"`
+	RecipeName              string              `json:"recipe_name"`
+	Description             string              `json:"description,omitempty"`
+	Phase                   string              `json:"phase,omitempty"`
+	Status                  string              `json:"status"`
+	FinalOutput             string              `json:"final_output,omitempty"`
+	FinalReportChat         *FinalReportChat    `json:"final_report_chat,omitempty"`
+	Repairs                 []RepairRecord      `json:"repairs,omitempty"`
+	Error                   string              `json:"error,omitempty"`
+	Vars                    map[string]any      `json:"vars,omitempty"`
+	Steps                   []Step              `json:"steps"`
+	Edges                   []Edge              `json:"edges,omitempty"`
+	Logs                    []LogEntry          `json:"logs,omitempty"`
+	ExecutionInstances      []ExecutionInstance `json:"execution_instances,omitempty"`
+	ExecutionEvents         []ExecutionEvent    `json:"execution_events,omitempty"`
+	WorkspaceDir            string              `json:"workspace_dir,omitempty"`
+	RunID                   string              `json:"run_id,omitempty"`
+	StopRequested           bool                `json:"stop_requested,omitempty"`
+	MaxConcurrency          int                 `json:"max_concurrency,omitempty"`
+	MaxAgentConcurrency     int                 `json:"max_agent_concurrency,omitempty"`
+	CurrentConcurrency      int                 `json:"current_concurrency,omitempty"`
+	CurrentAgentConcurrency int                 `json:"current_agent_concurrency,omitempty"`
 }
 
 type FinalReportChat struct {
@@ -80,6 +87,7 @@ type Step struct {
 	Status            string             `json:"status"`
 	Output            string             `json:"output,omitempty"`
 	Error             string             `json:"error,omitempty"`
+	QueuedAt          string             `json:"queued_at,omitempty"`
 	StartedAt         string             `json:"started_at,omitempty"`
 	FinishedAt        string             `json:"finished_at,omitempty"`
 	DurationMS        int64              `json:"duration_ms,omitempty"`

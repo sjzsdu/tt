@@ -96,6 +96,13 @@ func WorkflowFromFormula(f *spec.Formula) *ir.Workflow {
 		return nil
 	}
 	wf := &ir.Workflow{ID: ir.WorkflowID(f.Formula), Name: f.Formula, Description: f.Description, Vars: make(map[string]ir.VarSchema, len(f.Vars)), Outputs: make(map[string]ir.OutputSchema, len(f.Outputs)), Workspace: formulaWorkspacePolicy(f), Graph: ir.NewGraph()}
+	if f.Runtime != nil {
+		wf.Runtime = ir.RuntimePolicy{
+			MaxConcurrency:      f.Runtime.MaxConcurrency,
+			MaxAgentConcurrency: f.Runtime.MaxAgentConcurrency,
+			FailFast:            f.Runtime.FailFast,
+		}
+	}
 	for name, def := range f.Vars {
 		if def == nil {
 			continue

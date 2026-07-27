@@ -125,6 +125,7 @@ export type FormulaDashboardStep = {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | string;
   output?: string;
   error?: string;
+  queued_at?: string;
   started_at?: string;
   finished_at?: string;
   duration_ms?: number;
@@ -210,6 +211,10 @@ export type FormulaDashboardSnapshot = {
   workspace_dir?: string;
   run_id?: string;
   stop_requested?: boolean;
+  max_concurrency?: number;
+  max_agent_concurrency?: number;
+  current_concurrency?: number;
+  current_agent_concurrency?: number;
 };
 
 export type FormulaDashboardMessage = {

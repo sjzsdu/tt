@@ -22,6 +22,7 @@ type documentFile struct {
 	Outputs     map[string]outputFile `json:"outputs" toml:"outputs"`
 	Steps       []map[string]any      `json:"steps" toml:"steps"`
 	Workspace   *workspaceFile        `json:"workspace" toml:"workspace"`
+	Runtime     *spec.RuntimeSpec     `json:"runtime" toml:"runtime"`
 	Worktree    bool                  `json:"worktree" toml:"worktree"`
 }
 
@@ -88,7 +89,7 @@ func normalize(raw documentFile) (*ast.Document, error) {
 	if strings.TrimSpace(raw.Formula) == "" {
 		return nil, fmt.Errorf("formula is required")
 	}
-	doc := &ast.Document{Name: raw.Formula, Title: raw.Title, Description: raw.Description, Version: raw.Version, Contract: raw.Contract, Vars: map[string]ast.VarDecl{}, Outputs: map[string]ast.OutputDecl{}}
+	doc := &ast.Document{Name: raw.Formula, Title: raw.Title, Description: raw.Description, Version: raw.Version, Contract: raw.Contract, Vars: map[string]ast.VarDecl{}, Outputs: map[string]ast.OutputDecl{}, Runtime: raw.Runtime}
 	for name, v := range raw.Vars {
 		doc.Vars[name] = ast.VarDecl{Description: v.Description, Default: v.Default, Required: v.Required, Enum: v.Enum, Pattern: v.Pattern, Type: v.Type}
 	}

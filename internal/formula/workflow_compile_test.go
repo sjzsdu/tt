@@ -90,6 +90,28 @@ kind = "human_input"
 	}
 }
 
+func TestCompileWorkflowPropagatesRuntimeConcurrencyPolicy(t *testing.T) {
+	wf, err := CompileWorkflow("demo.toml", []byte(`formula = "demo"
+version = 1
+
+[runtime]
+max_concurrency = 6
+max_agent_concurrency = 4
+fail_fast = true
+
+[[steps]]
+id = "ask"
+title = "Ask"
+execution = "noop"
+`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wf.Runtime.MaxConcurrency != 6 || wf.Runtime.MaxAgentConcurrency != 4 || !wf.Runtime.FailFast {
+		t.Fatalf("runtime policy = %+v", wf.Runtime)
+	}
+}
+
 func TestCompileWorkflowExternalAgentStep(t *testing.T) {
 	wf, err := CompileWorkflow("demo.toml", []byte(`formula = "demo"
 [[steps]]

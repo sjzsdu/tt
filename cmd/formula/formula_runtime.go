@@ -117,6 +117,12 @@ func runtimeExecutionEventStatus(eventType string) string {
 		return ui.StatusSkipped
 	case "step.waiting":
 		return ui.StatusWaitingInput
+	case "step.ready":
+		return ui.StatusReady
+	case "step.blocked":
+		return ui.StatusBlocked
+	case "step.waiting_dependency":
+		return ui.StatusWaitingDependency
 	default:
 		return ""
 	}
@@ -127,6 +133,9 @@ func applyRuntimeStepStateToDashboardStep(step *ui.Step, state formularuntime.St
 		return
 	}
 	step.Status = runtimeStatusToDashboardStatus(state.Status)
+	if !state.QueuedAt.IsZero() {
+		step.QueuedAt = state.QueuedAt.Format(time.RFC3339)
+	}
 	if !state.StartedAt.IsZero() {
 		step.StartedAt = state.StartedAt.Format(time.RFC3339)
 	}
@@ -150,14 +159,15 @@ func runtimeStatusToDashboardStatus(status steps.Status) string {
 }
 
 type formulaRuntimeAgentRunner struct {
-	processor    formulaDirectProcessor
-	defaultAgent string
-	defaultModel string
-	session      string
-	workspace    string
-	debug        bool
-	quiet        bool
-	stepAdvice   map[string]string
+	processor           formulaDirectProcessor
+	defaultAgent        string
+	defaultModel        string
+	session             string
+	workspace           string
+	debug               bool
+	quiet               bool
+	stepAdvice          map[string]string
+	isolateStepSessions bool
 }
 
 func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.AgentRequest) (steps.Value, error) {
@@ -184,6 +194,9 @@ func (r formulaRuntimeAgentRunner) RunAgent(ctx context.Context, req steps.Agent
 		workspace = r.workspace
 	}
 	session := agentSessionForNode(r.session, req.NodeID)
+	if r.isolateStepSessions && !strings.Contains(req.NodeID, ".iter") {
+		session = strings.TrimRight(r.session, ".-") + "." + sanitizeAgentSessionSuffix(req.NodeID)
+	}
 	if workspace != "" {
 		prompt = prependFormulaWorkspaceGuard(prompt, workspace)
 		session = agentSessionForWorkspace(session, workspace, r.workspace)
@@ -291,6 +304,8 @@ type formulaRuntimeRunOptions struct {
 	StartFromStep       ir.NodeID
 	RerunSteps          map[ir.NodeID]bool
 	InjectContext       map[string]steps.Value
+	MaxConcurrency      int
+	MaxAgentConcurrency int
 }
 
 func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Executor, error) {
@@ -311,6 +326,12 @@ func newFormulaRuntimeExecutor(opt formulaRuntimeRunOptions) (*formularuntime.Ex
 		capabilities.ExternalAgents = formularuntime.ExternalAgentCapability{Driver: opt.ExternalAgentDriver}
 	}
 	exec := formularuntime.NewExecutor(workflow, capabilities)
+	if opt.MaxConcurrency > 0 {
+		exec.MaxConcurrency = opt.MaxConcurrency
+	}
+	if opt.MaxAgentConcurrency > 0 {
+		exec.MaxAgentConcurrency = opt.MaxAgentConcurrency
+	}
 	if opt.DryRun {
 		exec.Mode = formularuntime.ExecutionModePreview
 	}
@@ -381,17 +402,39 @@ type executeFormulaRuntimeOptions struct {
 	StartFromStep       ir.NodeID
 	RerunSteps          map[ir.NodeID]bool
 	InjectContext       map[string]steps.Value
+	MaxConcurrency      int
+	MaxAgentConcurrency int
+}
+
+func effectiveFormulaAgentConcurrency(workflow *ir.Workflow, maxConcurrency, maxAgentConcurrency int) int {
+	if maxConcurrency <= 0 && workflow != nil {
+		maxConcurrency = workflow.Runtime.MaxConcurrency
+	}
+	if maxConcurrency <= 0 {
+		maxConcurrency = 4
+	}
+	if maxAgentConcurrency <= 0 && workflow != nil {
+		maxAgentConcurrency = workflow.Runtime.MaxAgentConcurrency
+	}
+	if maxAgentConcurrency <= 0 {
+		maxAgentConcurrency = 4
+	}
+	if maxAgentConcurrency > maxConcurrency {
+		return maxConcurrency
+	}
+	return maxAgentConcurrency
 }
 
 func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeOptions) error {
 	agentRunner := formulaRuntimeAgentRunner{
-		processor:    opt.Processor,
-		defaultAgent: opt.DefaultAgent,
-		defaultModel: opt.DefaultModel,
-		session:      opt.Session,
-		workspace:    opt.Workspace,
-		debug:        opt.Debug,
-		quiet:        true,
+		processor:           opt.Processor,
+		defaultAgent:        opt.DefaultAgent,
+		defaultModel:        opt.DefaultModel,
+		session:             opt.Session,
+		workspace:           opt.Workspace,
+		debug:               opt.Debug,
+		quiet:               true,
+		isolateStepSessions: effectiveFormulaAgentConcurrency(opt.Workflow, opt.MaxConcurrency, opt.MaxAgentConcurrency) > 1,
 	}
 	exec, err := newFormulaRuntimeExecutor(formulaRuntimeRunOptions{
 		Workflow:            opt.Workflow,
@@ -408,16 +451,24 @@ func executeFormulaRecipeRuntime(ctx context.Context, opt executeFormulaRuntimeO
 			}
 			return ""
 		}(),
-		ResumeFromRun: opt.ResumeFromRun,
-		StartFromStep: opt.StartFromStep,
-		RerunSteps:    opt.RerunSteps,
-		InjectContext: opt.InjectContext,
+		ResumeFromRun:       opt.ResumeFromRun,
+		StartFromStep:       opt.StartFromStep,
+		RerunSteps:          opt.RerunSteps,
+		InjectContext:       opt.InjectContext,
+		MaxConcurrency:      opt.MaxConcurrency,
+		MaxAgentConcurrency: opt.MaxAgentConcurrency,
 	})
 	if err != nil {
 		return err
 	}
 	if opt.Dashboard != nil {
-		exec.Events = formulaRuntimeDashboardEventSink{dashboard: opt.Dashboard, workflow: exec.Workflow}
+		exec.Events = formulaRuntimeDashboardEventSink{
+			dashboard:           opt.Dashboard,
+			workflow:            exec.Workflow,
+			session:             opt.Session,
+			workspace:           opt.Workspace,
+			isolateStepSessions: effectiveFormulaAgentConcurrency(opt.Workflow, opt.MaxConcurrency, opt.MaxAgentConcurrency) > 1,
+		}
 	}
 	if opt.Out != nil {
 		fmt.Fprintf(opt.Out, "Executing formula with typed runtime: %s\n", exec.Workflow.Name)
@@ -501,7 +552,7 @@ func renderFormulaRuntimeResult(cmd *cobra.Command, workflow *ir.Workflow, resul
 		fmt.Fprintf(out, "\nRuntime Result: %s\n", name)
 		return
 	}
-	completed, failed, waiting, skipped := 0, 0, 0, 0
+	completed, failed, waiting, skipped, blocked := 0, 0, 0, 0, 0
 	for _, nodeResult := range result.Nodes {
 		if nodeResult == nil {
 			continue
@@ -515,18 +566,21 @@ func renderFormulaRuntimeResult(cmd *cobra.Command, workflow *ir.Workflow, resul
 			waiting++
 		case steps.StatusSkipped:
 			skipped++
+		case steps.StatusBlocked:
+			blocked++
 		}
 	}
 	fmt.Fprintf(out, "\nRuntime Result: %s\n", name)
-	fmt.Fprintf(out, "Status: %s | Total: %d | Completed: %d | Failed: %d | Skipped: %d | Waiting input: %d\n\n", result.Status, len(result.Nodes), completed, failed, skipped, waiting)
+	fmt.Fprintf(out, "Status: %s | Total: %d | Completed: %d | Failed: %d | Blocked: %d | Skipped: %d | Waiting input: %d\n\n", result.Status, len(result.Nodes), completed, failed, blocked, skipped, waiting)
 	_ = hasError
 }
 
 type formulaRuntimeDashboardEventSink struct {
-	dashboard *formulaDashboardServer
-	workflow  *ir.Workflow
-	session   string
-	workspace string
+	dashboard           *formulaDashboardServer
+	workflow            *ir.Workflow
+	session             string
+	workspace           string
+	isolateStepSessions bool
 }
 
 func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
@@ -569,6 +623,12 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 		s.dashboard.markStepInterrupted(string(event.NodeID), runtimeEventError(event.Payload), runtimeEventOutput(event.Payload))
 	case "step.waiting":
 		s.dashboard.markStepWaitingInput(string(event.NodeID), title, runtimeEventHumanInputRequest(event.Payload))
+	case "step.ready":
+		s.dashboard.markStepReady(string(event.NodeID), runtimeEventSkipReason(event.Payload))
+	case "step.blocked":
+		s.dashboard.markStepBlocked(string(event.NodeID), runtimeEventSkipReason(event.Payload))
+	case "step.waiting_dependency":
+		s.dashboard.markStepWaitingDependency(string(event.NodeID), runtimeEventSkipReason(event.Payload))
 	case "step.repair.recorded":
 		s.dashboard.recordRepair(runtimeRepairPayload(event.Payload))
 	}
@@ -576,6 +636,9 @@ func (s formulaRuntimeDashboardEventSink) Emit(event formularuntime.Event) {
 
 func (s formulaRuntimeDashboardEventSink) agentSessionForNode(nodeID, cwd string) string {
 	session := agentSessionForNode(s.session, nodeID)
+	if s.isolateStepSessions && !strings.Contains(nodeID, ".iter") {
+		session = strings.TrimRight(s.session, ".-") + "." + sanitizeAgentSessionSuffix(nodeID)
+	}
 	workspace := strings.TrimSpace(cwd)
 	if workspace == "" {
 		workspace = s.workspace
@@ -589,9 +652,15 @@ func (s formulaRuntimeDashboardEventSink) emitWorkflowEvent(event formularuntime
 		s.dashboard.markWorkflowRunning()
 	case "workflow.workspace.ready":
 		s.dashboard.markWorkflowWorkspaceReady(runtimeWorkspacePath(event.Payload))
+	case "workflow.concurrency":
+		if limits, ok := event.Payload.(map[string]int); ok {
+			s.dashboard.markWorkflowConcurrency(limits["max_concurrency"], limits["max_agent_concurrency"])
+		}
 	case "workflow.completed":
 		result, _ := event.Payload.(*formularuntime.RunResult)
 		s.dashboard.markWorkflowCompleted(finalOutputFromRunResult(s.workflow, result))
+	case "workflow.failed":
+		s.dashboard.markWorkflowFailed(runtimeEventError(event.Payload))
 	}
 }
 
@@ -716,11 +785,13 @@ func runtimeEventError(payload any) string {
 }
 
 func runtimeEventSkipReason(payload any) string {
-	result, ok := payload.(*steps.RunResult)
-	if !ok || result == nil || result.Error == nil {
-		return ""
+	if values, ok := payload.(map[string]string); ok {
+		return strings.TrimSpace(values["reason"])
 	}
-	return result.Error.Error()
+	if result, ok := payload.(*steps.RunResult); ok && result != nil && result.Error != nil {
+		return result.Error.Error()
+	}
+	return ""
 }
 
 func runtimeEventHumanInputRequest(payload any) *ui.HumanInputRequest {

@@ -179,6 +179,29 @@ FormulaCall 的目标在编译期静态链接。链接器以 Formula 内声明�
 3. CLI `--var key=value` 覆盖。
 4. positional required var 覆盖，例如 `tt formula run web-feature-test <url>` 会按 formula 的 required vars 顺序补值。
 
+### DAG 并发调度
+
+typed runtime 将 `depends_on` / `needs` 解释为偏序关系：依赖全部进入成功终态后，step 进入 ready queue；调度器立即启动所有有空闲槽位的 ready nodes，而不是按 TOML 或拓扑排序逐项串行执行。任一节点完成后会立即释放槽位并重新计算下游，join 节点仍等待全部必要上游。
+
+默认每个 run 最多同时运行 4 个 step、其中最多 4 个 `agent` / `external_agent` / FormulaCall step。Formula 可声明：
+
+```toml
+[runtime]
+max_concurrency = 6
+max_agent_concurrency = 4
+fail_fast = false
+```
+
+CLI 非零参数优先：
+
+```bash
+tt formula run discover-free-models \
+  --max-concurrency 6 \
+  --max-agent-concurrency 4
+```
+
+独立分支失败时，已运行的无关分支会完成，失败节点的下游标记为 `blocked`。`fail_fast = true` 会停止启动新 step，但不会强行丢弃已经运行的 step。Ctrl-C 通过共享 context 取消所有运行中的 capability/subprocess；resume 继续复用已成功 step。Dashboard 展示 `waiting_dependency`、`ready`、`running`、`blocked`、`waiting_input`，并显示并发用量和排队/起止时间。
+
 默认 vars 文件用于减少高频 formula 的长参数输入。运行：
 
 ```bash
