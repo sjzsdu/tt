@@ -234,7 +234,7 @@ func expandEmbeddedStep(step *spec.Step, parser *Parser, parentVars map[string]s
 		}
 	}
 	if len(namespaced) > 0 {
-		entryIDs, exitIDs := embeddedBoundaryIDs(namespaced)
+		entryIDs, _ := embeddedBoundaryIDs(namespaced)
 		for _, childStep := range namespaced {
 			for _, dep := range step.DependsOn {
 				if containsString(entryIDs, childStep.ID) {
@@ -246,22 +246,10 @@ func expandEmbeddedStep(step *spec.Step, parser *Parser, parentVars map[string]s
 					childStep.Needs = appendUnique(childStep.Needs, need)
 				}
 			}
-			for _, dep := range childStep.DependsOn {
-				if containsString(exitIDs, dep) {
-					dep = dep
-				}
-			}
 		}
 		for _, childStep := range namespaced {
 			if containsString(entryIDs, childStep.ID) {
 				childStep.DependsOn = appendUnique(childStep.DependsOn, step.ID)
-			}
-		}
-		for _, childStep := range namespaced {
-			for i, dep := range childStep.DependsOn {
-				if dep == step.ID {
-					childStep.DependsOn[i] = step.ID
-				}
 			}
 		}
 	}
