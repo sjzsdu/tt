@@ -2,9 +2,9 @@ package beads
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // Adapter provides typed read and mutation operations over the bd CLI.
@@ -69,21 +69,22 @@ func WithLimit(n int) ListOption {
 }
 
 // List returns all issues matching the given filters.
+// By default it passes --all --limit 0 so that closed issues are included
+// and no artificial cap is applied. Callers can override with WithLimit.
 func (a *Adapter) List(ctx context.Context, opts ...ListOption) ([]Issue, error) {
-	cfg := listConfig{}
+	cfg := listConfig{limit: 0} // 0 means unlimited
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	args := []string{"--json"}
+	args := []string{"--json", "--all"}
 	if cfg.status != "" {
 		args = append(args, "--status", cfg.status)
 	}
 	for _, l := range cfg.labels {
 		args = append(args, "--label", l)
 	}
-	if cfg.limit > 0 {
-		args = append(args, "--limit", strconv.Itoa(cfg.limit))
-	}
+	// Always pass --limit so we are explicit about wanting all results.
+	args = append(args, "--limit", strconv.Itoa(cfg.limit))
 	var issues []Issue
 	if err := a.runner.runJSON(ctx, &issues, "list", args...); err != nil {
 		return nil, err
@@ -105,6 +106,9 @@ func (a *Adapter) Search(ctx context.Context, query string) ([]Issue, error) {
 }
 
 // Show returns the full detail for a single issue by ID.
+// bd show returns dependencies as full issue objects with a dependency_type
+// field. We normalise them into the Dependency DTO so the rest of the
+// adapter has a consistent shape.
 func (a *Adapter) Show(ctx context.Context, issueID string) (*Issue, error) {
 	if issueID == "" {
 		return nil, fmt.Errorf("beads: issue ID is required")
@@ -112,14 +116,61 @@ func (a *Adapter) Show(ctx context.Context, issueID string) (*Issue, error) {
 	if !isValidIssueID(issueID) {
 		return nil, fmt.Errorf("beads: invalid issue ID %q", issueID)
 	}
-	var issues []Issue
-	if err := a.runner.runJSON(ctx, &issues, "show", issueID, "--json"); err != nil {
+	// Two-pass decode: first get raw JSON, then normalise dependencies.
+	result, err := a.runner.run(ctx, "show", issueID, "--json")
+	if err != nil {
 		return nil, err
 	}
-	if len(issues) == 0 {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(result.Stdout, &raw); err != nil {
+		return nil, fmt.Errorf("beads: decode show: %w", err)
+	}
+	if len(raw) == 0 {
 		return nil, fmt.Errorf("beads: issue %q not found", issueID)
 	}
-	return &issues[0], nil
+	// Decode the issue without dependencies first.
+	var issue Issue
+	if err := json.Unmarshal(raw[0], &issue); err != nil {
+		return nil, fmt.Errorf("beads: decode issue: %w", err)
+	}
+	// Now extract the dependencies array with the dependency_type field.
+	var rawIssue map[string]json.RawMessage
+	if err := json.Unmarshal(raw[0], &rawIssue); err != nil {
+		return &issue, nil
+	}
+	if depsRaw, ok := rawIssue["dependencies"]; ok {
+		issue.Dependencies = normalizeShowDependencies(issue.ID, depsRaw)
+	}
+	return &issue, nil
+}
+
+// showDep is the raw shape of a dependency as returned by bd show:
+// a full issue object with an extra dependency_type field.
+type showDep struct {
+	ID             string `json:"id"`
+	DependencyType string `json:"dependency_type"`
+}
+
+// normalizeShowDependencies converts the bd show dependency array
+// (full issue objects with dependency_type) into flat Dependency DTOs.
+func normalizeShowDependencies(ownerID string, raw json.RawMessage) []Dependency {
+	var deps []showDep
+	if err := json.Unmarshal(raw, &deps); err != nil {
+		return nil
+	}
+	result := make([]Dependency, 0, len(deps))
+	for _, d := range deps {
+		depType := d.DependencyType
+		if depType == "" {
+			depType = "blocks"
+		}
+		result = append(result, Dependency{
+			IssueID:     ownerID,
+			DependsOnID: d.ID,
+			Type:        depType,
+		})
+	}
+	return result
 }
 
 // Graph returns the dependency graph for the given root issue.
@@ -171,7 +222,7 @@ func (a *Adapter) CreateIssue(ctx context.Context, input CreateIssueInput) (*Iss
 	if input.AcceptanceCriteria != "" {
 		args = append(args, "--acceptance", input.AcceptanceCriteria)
 	}
-	if input.Priority > 0 {
+	if input.Priority >= 0 {
 		args = append(args, "--priority", strconv.Itoa(input.Priority))
 	}
 	if input.IssueType != "" {
@@ -201,7 +252,7 @@ func (a *Adapter) CreateIssue(ctx context.Context, input CreateIssueInput) (*Iss
 }
 
 // UpdateIssueInput specifies fields to update on an existing issue.
-// Only non-zero fields are applied.
+// Pointer fields distinguish "not provided" (nil) from "set to zero value".
 type UpdateIssueInput struct {
 	Title              *string
 	Description        *string
@@ -210,7 +261,8 @@ type UpdateIssueInput struct {
 	Priority           *int
 	Status             *IssueStatus
 	Assignee           *string
-	Labels             []string
+	IssueType          *string
+	Labels             *[]string // nil = no change; non-nil (even empty) = --set-labels
 	EstimatedMinutes   *int
 }
 
@@ -247,8 +299,14 @@ func (a *Adapter) UpdateIssue(ctx context.Context, issueID string, input UpdateI
 	if input.Assignee != nil {
 		args = append(args, "--assignee", *input.Assignee)
 	}
-	if len(input.Labels) > 0 {
-		args = append(args, "--labels", strings.Join(input.Labels, ","))
+	if input.IssueType != nil {
+		args = append(args, "--type", *input.IssueType)
+	}
+	if input.Labels != nil {
+		// --set-labels replaces all existing labels. Repeatable flag.
+		for _, l := range *input.Labels {
+			args = append(args, "--set-labels", l)
+		}
 	}
 	if input.EstimatedMinutes != nil {
 		args = append(args, "--estimate", strconv.Itoa(*input.EstimatedMinutes))
@@ -270,6 +328,7 @@ func (a *Adapter) UpdateIssue(ctx context.Context, issueID string, input UpdateI
 // ---------------------------------------------------------------------------
 
 // AddDependency adds a dependency edge from issueID to dependsOnID of the given type.
+// Uses "bd dep add" which is the correct CLI command.
 func (a *Adapter) AddDependency(ctx context.Context, issueID, dependsOnID string, depType DependencyType) error {
 	if issueID == "" || dependsOnID == "" {
 		return fmt.Errorf("beads: both issue ID and dependency target are required")
@@ -283,16 +342,37 @@ func (a *Adapter) AddDependency(ctx context.Context, issueID, dependsOnID string
 	if !IsValidDependencyType(depType) {
 		return fmt.Errorf("beads: invalid dependency type %q", depType)
 	}
-	dep := string(depType) + ":" + dependsOnID
-	_, err := a.runner.run(ctx, "update", issueID, "--deps", dep, "--json")
+	_, err := a.runner.run(ctx, "dep", "add", issueID, dependsOnID, "--type", string(depType), "--json")
 	return err
 }
 
-// RemoveDependency is not directly supported by bd update; callers should
-// use bd update to replace the full dependency set. This is a placeholder
-// that returns ErrUnsupported until the bd CLI supports direct removal.
+// RemoveDependency removes a dependency by listing current deps and
+// re-creating the set without the target. bd does not have a direct
+// "dep remove" command, so we use the list-and-replace approach.
 func (a *Adapter) RemoveDependency(ctx context.Context, issueID, dependsOnID string) error {
-	return fmt.Errorf("%w: direct dependency removal; use UpdateIssue to replace dependencies", ErrUnsupported)
+	if issueID == "" || dependsOnID == "" {
+		return fmt.Errorf("beads: both issue ID and dependency target are required")
+	}
+	if !isValidIssueID(issueID) || !isValidIssueID(dependsOnID) {
+		return fmt.Errorf("beads: invalid issue ID")
+	}
+	// List current dependencies.
+	var deps []Dependency
+	if err := a.runner.runJSON(ctx, &deps, "dep", "list", issueID, "--json"); err != nil {
+		return fmt.Errorf("beads: list dependencies: %w", err)
+	}
+	// Filter out the target.
+	for _, d := range deps {
+		if d.DependsOnID == dependsOnID {
+			continue // skip
+		}
+		// Re-add remaining deps.
+		dep := string(d.Type) + ":" + d.DependsOnID
+		if _, err := a.runner.run(ctx, "update", issueID, "--deps", dep, "--json"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
