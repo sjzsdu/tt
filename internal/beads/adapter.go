@@ -302,6 +302,12 @@ func (a *Adapter) RemoveDependency(ctx context.Context, issueID, dependsOnID str
 // isValidIssueID performs a basic sanity check on issue IDs.
 // Beads IDs look like "tt-abc", "tt-mgxy.1", etc.
 func isValidIssueID(id string) bool {
+	return IsValidIssueIDPublic(id)
+}
+
+// IsValidIssueIDPublic reports whether id is safe to pass to the bd CLI.
+// It rejects empty strings and shell-dangerous characters.
+func IsValidIssueIDPublic(id string) bool {
 	if id == "" {
 		return false
 	}
