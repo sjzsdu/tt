@@ -469,7 +469,7 @@ func TestAdapter_CreateIssue_Success(t *testing.T) {
 	got, err := a.CreateIssue(context.Background(), CreateIssueInput{
 		Title:       "New issue",
 		Description: "A new issue",
-		Priority:    1,
+		Priority:    intPtr(1),
 		Labels:      []string{"test"},
 	})
 	if err != nil {
@@ -607,3 +607,6 @@ func TestFindWorkspace_NotFound(t *testing.T) {
 		t.Errorf("expected ErrWorkspaceNotFound, got: %v", err)
 	}
 }
+
+// intPtr returns a pointer to the given int value.
+func intPtr(v int) *int { return &v }

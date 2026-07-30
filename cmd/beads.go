@@ -351,12 +351,12 @@ func (s *beadsDashboardServer) handleGraph(w http.ResponseWriter, r *http.Reques
 
 // prepareBeadsMutation checks that the request is a safe mutation:
 // - must be a loopback request
-// - must pass same-origin check
+// - must pass same-origin check (including loopback hostname verification)
 // - server must not be in read-only mode
 // Returns true if the caller should proceed.
 func (s *beadsDashboardServer) prepareBeadsMutation(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodPost && r.Method != http.MethodPatch {
-		w.Header().Set("Allow", "POST, PATCH")
+	if r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "POST, PATCH, DELETE")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return false
 	}
@@ -399,7 +399,7 @@ func (s *beadsDashboardServer) handleCreateIssue(w http.ResponseWriter, r *http.
 		Description        string   `json:"description"`
 		Design             string   `json:"design"`
 		AcceptanceCriteria string   `json:"acceptance_criteria"`
-		Priority           int      `json:"priority"`
+		Priority           *int     `json:"priority"` // nil = use bd default
 		IssueType          string   `json:"issue_type"`
 		Assignee           string   `json:"assignee"`
 		Labels             []string `json:"labels"`
@@ -492,11 +492,18 @@ func (s *beadsDashboardServer) handleUpdateIssue(w http.ResponseWriter, r *http.
 }
 
 func (s *beadsDashboardServer) handleIssueDependencies(w http.ResponseWriter, r *http.Request, id string) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
+	switch r.Method {
+	case http.MethodPost:
+		s.handleAddDependency(w, r, id)
+	case http.MethodDelete:
+		s.handleRemoveDependency(w, r, id)
+	default:
+		w.Header().Set("Allow", "POST, DELETE")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
+}
+
+func (s *beadsDashboardServer) handleAddDependency(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.prepareBeadsMutation(w, r) {
 		return
 	}
@@ -530,6 +537,39 @@ func (s *beadsDashboardServer) handleIssueDependencies(w http.ResponseWriter, r 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if err := s.adapter.AddDependency(r.Context(), id, input.DependsOnID, depType); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	// Return refreshed issue.
+	issue, err := s.adapter.Show(r.Context(), id)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	beadsWriteJSON(w, issue)
+}
+
+func (s *beadsDashboardServer) handleRemoveDependency(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.prepareBeadsMutation(w, r) {
+		return
+	}
+	if !beads.IsValidIssueIDPublic(id) {
+		beadsWriteAPIError(w, http.StatusBadRequest, "invalid issue ID")
+		return
+	}
+	// Parse depends_on_id from query string for DELETE.
+	dependsOnID := strings.TrimSpace(r.URL.Query().Get("depends_on_id"))
+	if dependsOnID == "" {
+		beadsWriteAPIError(w, http.StatusBadRequest, "depends_on_id query parameter is required")
+		return
+	}
+	if !beads.IsValidIssueIDPublic(dependsOnID) {
+		beadsWriteAPIError(w, http.StatusBadRequest, "invalid depends_on_id")
+		return
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.adapter.RemoveDependency(r.Context(), id, dependsOnID); err != nil {
 		writeAPIError(w, err)
 		return
 	}
@@ -580,7 +620,11 @@ func writeAPIError(w http.ResponseWriter, err error) {
 }
 
 // isBeadsSameOrigin checks that the Origin header (if present) matches the
-// loopback host the dashboard is serving on, comparing scheme, hostname, and port.
+// loopback host the dashboard is serving on. It verifies:
+// 1. Scheme matches (http vs https)
+// 2. Hostname is a loopback address (127.0.0.1, ::1, localhost)
+// 3. Port matches the request's port
+// This prevents DNS rebinding attacks where a malicious domain resolves to 127.0.0.1.
 func isBeadsSameOrigin(r *http.Request) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
@@ -590,16 +634,31 @@ func isBeadsSameOrigin(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	// Strict comparison: scheme, hostname, and port must all match.
-	originScheme := strings.ToLower(parsed.Scheme)
-	originHost := strings.ToLower(parsed.Host) // includes port
-
-	// Determine the request's scheme and host.
+	// Verify the origin hostname is a loopback address.
+	originHost := parsed.Hostname()
+	if !isLoopbackHostname(originHost) {
+		return false
+	}
+	// Determine the request's scheme and port.
 	reqScheme := "http"
 	if r.TLS != nil {
 		reqScheme = "https"
 	}
-	reqHost := strings.ToLower(r.Host)
+	if !strings.EqualFold(parsed.Scheme, reqScheme) {
+		return false
+	}
+	// Compare ports.
+	originPort := parsed.Port()
+	_, reqPort, _ := net.SplitHostPort(r.Host)
+	return originPort == reqPort
+}
 
-	return originScheme == reqScheme && originHost == reqHost
+// isLoopbackHostname reports whether hostname is a loopback address.
+func isLoopbackHostname(hostname string) bool {
+	h := strings.ToLower(strings.TrimSpace(hostname))
+	if h == "" || h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }

@@ -47,6 +47,19 @@ export function DependencyEditor({ issue, issues, readOnly, onRefresh }: Props) 
     }
   }, [depTarget, depType, issue.id, onRefresh]);
 
+  const handleRemove = useCallback(async (dependsOnId: string) => {
+    setLoading(true);
+    try {
+      await api.removeDependency(issue.id, dependsOnId);
+      message.success(`Removed dependency: ${issue.id} → ${dependsOnId}`);
+      onRefresh();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : 'Failed to remove dependency');
+    } finally {
+      setLoading(false);
+    }
+  }, [issue.id, onRefresh]);
+
   // Available issues to depend on (exclude self)
   const availableTargets = issues.filter((i) => i.id !== issue.id);
 
@@ -134,6 +147,23 @@ export function DependencyEditor({ issue, issues, readOnly, onRefresh }: Props) 
                   <span style={{ fontSize: 12 }}>{direction}</span>
                   <code style={{ fontSize: 12 }}>{targetId}</code>
                 </Space>
+                {!readOnly && (
+                  <Popconfirm
+                    title="Remove this dependency?"
+                    onConfirm={() => handleRemove(targetId)}
+                    okText="Remove"
+                    cancelText="Cancel"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={loading}
+                    />
+                  </Popconfirm>
+                )}
               </div>
             );
           })}

@@ -89,4 +89,13 @@ export const api = {
   addDependency(issueId: string, req: AddDependencyRequest): Promise<unknown> {
     return mutateJSON(`/api/issues/${encodeURIComponent(issueId)}/dependencies`, req);
   },
+
+  removeDependency(issueId: string, dependsOnId: string): Promise<unknown> {
+    const qs = new URLSearchParams({ depends_on_id: dependsOnId });
+    const url = `/api/issues/${encodeURIComponent(issueId)}/dependencies?${qs}`;
+    return fetch(url, { method: 'DELETE' }).then((r) => {
+      if (!r.ok) return r.text().then((t) => Promise.reject(new Error(`API ${r.status}: ${t}`)));
+      return r.json();
+    });
+  },
 };
