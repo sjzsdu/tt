@@ -93,11 +93,12 @@ func (a *Adapter) List(ctx context.Context, opts ...ListOption) ([]Issue, error)
 }
 
 // Search returns issues matching the given query string.
+// Always includes closed issues for consistency with the list API.
 func (a *Adapter) Search(ctx context.Context, query string) ([]Issue, error) {
 	if query == "" {
 		return nil, nil
 	}
-	args := []string{"--json", query}
+	args := []string{"--json", "--all", query}
 	var issues []Issue
 	if err := a.runner.runJSON(ctx, &issues, "search", args...); err != nil {
 		return nil, err
@@ -198,7 +199,7 @@ type CreateIssueInput struct {
 	Description        string
 	Design             string
 	AcceptanceCriteria string
-	Priority           int
+	Priority           *int     // nil = use bd default; non-nil = explicit priority
 	IssueType          string
 	Assignee           string
 	Labels             []string
@@ -222,8 +223,8 @@ func (a *Adapter) CreateIssue(ctx context.Context, input CreateIssueInput) (*Iss
 	if input.AcceptanceCriteria != "" {
 		args = append(args, "--acceptance", input.AcceptanceCriteria)
 	}
-	if input.Priority >= 0 {
-		args = append(args, "--priority", strconv.Itoa(input.Priority))
+	if input.Priority != nil {
+		args = append(args, "--priority", strconv.Itoa(*input.Priority))
 	}
 	if input.IssueType != "" {
 		args = append(args, "--type", input.IssueType)
@@ -303,9 +304,14 @@ func (a *Adapter) UpdateIssue(ctx context.Context, issueID string, input UpdateI
 		args = append(args, "--type", *input.IssueType)
 	}
 	if input.Labels != nil {
-		// --set-labels replaces all existing labels. Repeatable flag.
-		for _, l := range *input.Labels {
-			args = append(args, "--set-labels", l)
+		// Empty slice clears all labels; non-empty sets them.
+		if len(*input.Labels) == 0 {
+			// Pass empty string to clear all labels.
+			args = append(args, "--set-labels", "")
+		} else {
+			for _, l := range *input.Labels {
+				args = append(args, "--set-labels", l)
+			}
 		}
 	}
 	if input.EstimatedMinutes != nil {
@@ -346,9 +352,7 @@ func (a *Adapter) AddDependency(ctx context.Context, issueID, dependsOnID string
 	return err
 }
 
-// RemoveDependency removes a dependency by listing current deps and
-// re-creating the set without the target. bd does not have a direct
-// "dep remove" command, so we use the list-and-replace approach.
+// RemoveDependency removes a dependency edge using "bd dep remove".
 func (a *Adapter) RemoveDependency(ctx context.Context, issueID, dependsOnID string) error {
 	if issueID == "" || dependsOnID == "" {
 		return fmt.Errorf("beads: both issue ID and dependency target are required")
@@ -356,23 +360,8 @@ func (a *Adapter) RemoveDependency(ctx context.Context, issueID, dependsOnID str
 	if !isValidIssueID(issueID) || !isValidIssueID(dependsOnID) {
 		return fmt.Errorf("beads: invalid issue ID")
 	}
-	// List current dependencies.
-	var deps []Dependency
-	if err := a.runner.runJSON(ctx, &deps, "dep", "list", issueID, "--json"); err != nil {
-		return fmt.Errorf("beads: list dependencies: %w", err)
-	}
-	// Filter out the target.
-	for _, d := range deps {
-		if d.DependsOnID == dependsOnID {
-			continue // skip
-		}
-		// Re-add remaining deps.
-		dep := string(d.Type) + ":" + d.DependsOnID
-		if _, err := a.runner.run(ctx, "update", issueID, "--deps", dep, "--json"); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := a.runner.run(ctx, "dep", "remove", issueID, dependsOnID, "--json")
+	return err
 }
 
 // ---------------------------------------------------------------------------
