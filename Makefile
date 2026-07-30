@@ -2,7 +2,7 @@ APP := tt
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team install install-force install-system clean run fmt tidy help
+.PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team web-build-beads install install-force install-system clean run fmt tidy help
 
 build: web-build
 	go build -o $(APP) .
@@ -10,7 +10,7 @@ build: web-build
 web-install:
 	bash scripts/web-install-if-needed.sh
 
-web-build: web-install web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team
+web-build: web-install web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team web-build-beads
 
 web-build-markdown:
 	bash scripts/web-build-if-needed.sh markdown build:markdown
@@ -27,19 +27,24 @@ web-build-slide:
 web-build-team:
 	bash scripts/web-build-if-needed.sh team build:team
 
+web-build-beads:
+	bash scripts/web-build-if-needed.sh beads build:beads
+
 web-build-force: web-install
 	cd web && npm run build:markdown
 	cd web && npm run build:formula
 	cd web && npm run build:agent
 	cd web && npm run build:slide
 	cd web && npm run build:team
-	rm -rf internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist internal/webui/slide/dist internal/webui/team/dist
-	mkdir -p internal/webui/markdown internal/webui/formula internal/webui/agent internal/webui/slide internal/webui/team
+	cd web && npm run build:beads
+	rm -rf internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist internal/webui/slide/dist internal/webui/team/dist internal/webui/beads/dist
+	mkdir -p internal/webui/markdown internal/webui/formula internal/webui/agent internal/webui/slide internal/webui/team internal/webui/beads
 	cp -R web/apps/markdown/dist internal/webui/markdown/dist
 	cp -R web/apps/formula/dist internal/webui/formula/dist
 	cp -R web/apps/agent/dist internal/webui/agent/dist
 	cp -R web/apps/slide/dist internal/webui/slide/dist
 	cp -R web/apps/team/dist internal/webui/team/dist
+	cp -R web/apps/beads/dist internal/webui/beads/dist
 
 install: build
 	mkdir -p $(BINDIR)
