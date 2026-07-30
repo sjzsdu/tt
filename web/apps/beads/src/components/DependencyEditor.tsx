@@ -7,7 +7,7 @@ import { api } from '../api';
 const DEP_TYPES = [
   { label: 'Blocks', value: 'blocks' },
   { label: 'Related', value: 'related' },
-  { label: 'Parent', value: 'parent' },
+  { label: 'Parent-Child', value: 'parent-child' },
 ];
 
 type Props = {

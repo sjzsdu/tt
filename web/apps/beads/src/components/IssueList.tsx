@@ -2,19 +2,19 @@ import { Empty, Table, Tag, Tooltip } from 'antd';
 import type { Issue } from '../types';
 
 const PRIORITY_COLORS: Record<number, string> = {
-  0: 'default',
-  1: 'red',
+  0: 'red',
+  1: 'volcano',
   2: 'orange',
   3: 'blue',
   4: 'default',
 };
 
 const PRIORITY_LABELS: Record<number, string> = {
-  0: 'None',
-  1: 'Critical',
-  2: 'High',
-  3: 'Medium',
-  4: 'Low',
+  0: 'P0 Critical',
+  1: 'P1 High',
+  2: 'P2 Medium',
+  3: 'P3 Low',
+  4: 'P4 None',
 };
 
 const STATUS_COLORS: Record<string, string> = {

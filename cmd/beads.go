@@ -453,7 +453,8 @@ func (s *beadsDashboardServer) handleUpdateIssue(w http.ResponseWriter, r *http.
 		Priority           *int     `json:"priority"`
 		Status             *string  `json:"status"`
 		Assignee           *string  `json:"assignee"`
-		Labels             []string `json:"labels"`
+		IssueType          *string  `json:"issue_type"`
+		Labels             *[]string `json:"labels"`
 		EstimatedMinutes   *int     `json:"estimated_minutes"`
 	}
 	if !beadsDecodeJSONBody(w, r, &input, 64*1024) {
@@ -479,6 +480,7 @@ func (s *beadsDashboardServer) handleUpdateIssue(w http.ResponseWriter, r *http.
 		Priority:           input.Priority,
 		Status:             statusPtr,
 		Assignee:           input.Assignee,
+		IssueType:          input.IssueType,
 		Labels:             input.Labels,
 		EstimatedMinutes:   input.EstimatedMinutes,
 	})
@@ -578,7 +580,7 @@ func writeAPIError(w http.ResponseWriter, err error) {
 }
 
 // isBeadsSameOrigin checks that the Origin header (if present) matches the
-// loopback host the dashboard is serving on.
+// loopback host the dashboard is serving on, comparing scheme, hostname, and port.
 func isBeadsSameOrigin(r *http.Request) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
@@ -588,10 +590,16 @@ func isBeadsSameOrigin(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	originHost := parsed.Hostname()
-	requestHost := r.Host
-	if host, _, splitErr := net.SplitHostPort(requestHost); splitErr == nil {
-		requestHost = host
+	// Strict comparison: scheme, hostname, and port must all match.
+	originScheme := strings.ToLower(parsed.Scheme)
+	originHost := strings.ToLower(parsed.Host) // includes port
+
+	// Determine the request's scheme and host.
+	reqScheme := "http"
+	if r.TLS != nil {
+		reqScheme = "https"
 	}
-	return strings.EqualFold(originHost, requestHost) && net.ParseIP(originHost) != nil && net.ParseIP(originHost).IsLoopback()
+	reqHost := strings.ToLower(r.Host)
+
+	return originScheme == reqScheme && originHost == reqHost
 }
