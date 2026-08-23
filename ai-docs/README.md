@@ -21,6 +21,7 @@
    - 想看仓库自带的 formula 模板：看 [内置 Formula 与 Atomic 清单](./builtin-formulas.md)
    - 想写 `.slide` 演示：看 [tt slide 与 .slide 语义规范](./slide.md)，先保证文档模板无关，再用 template 美化
    - 想理解 agent runtime 复用：看 [Picoclaw 集成与嵌入式 Agent](./picoclaw-integration.md)
+   - 想理解 `coder` 产品开发系统规划：看 [coder 产品开发系统规划书](./coder-product-development.md)
 
 ### 如果你准备修改命令实现
 1. [命令与模块地图](./module-map.md)
@@ -77,7 +78,8 @@ ai-docs/
 ├── step-kinds-reference.md        # step kind 速查与示例
 ├── builtin-formulas.md            # 内置 formulas / atomics 清单与用途
 ├── slide.md                       # tt slide、.slide 语义规范、模板美化职责
-└── picoclaw-integration.md        # Picoclaw 运行时复用、嵌入式 agent、相关命令
+├── picoclaw-integration.md        # Picoclaw 运行时复用、嵌入式 agent、相关命令
+└── coder-product-development.md   # coder 产品开发系统规划、人审 gate、动态表单和持久追溯
 ```
 
 ---
