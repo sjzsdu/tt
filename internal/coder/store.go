@@ -8,11 +8,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 )
+
+type ProjectRecord struct {
+	ID        string
+	Dir       string
+	Project   Project
+	UpdatedAt string
+}
 
 type Store struct {
 	Root    string
@@ -77,6 +85,35 @@ func OpenStore(root, projectID string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{Root: root, Dir: dir, Project: project}, nil
+}
+
+func ListProjects(root string) ([]ProjectRecord, error) {
+	if strings.TrimSpace(root) == "" {
+		root = DefaultRoot("")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]ProjectRecord, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		var project Project
+		if err := readJSON(filepath.Join(dir, "project.json"), &project); err != nil {
+			continue
+		}
+		records = append(records, ProjectRecord{ID: project.ID, Dir: dir, Project: project, UpdatedAt: project.UpdatedAt})
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].UpdatedAt == records[j].UpdatedAt {
+			return records[i].ID < records[j].ID
+		}
+		return records[i].UpdatedAt > records[j].UpdatedAt
+	})
+	return records, nil
 }
 
 func (s *Store) SaveProject(project Project) error {

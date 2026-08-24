@@ -194,6 +194,36 @@ func TestMissingFilesReturnNotExist(t *testing.T) {
 	}
 }
 
+func TestListProjectsReturnsNewestFirst(t *testing.T) {
+	root := t.TempDir()
+	first, err := CreateStore(root, NewProject("first", "First", "First project"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CreateStore(root, NewProject("second", "Second", "Second project"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := second.Project
+	project.UpdatedAt = "2999-01-01T00:00:00Z"
+	if err := second.SaveProject(project); err != nil {
+		t.Fatal(err)
+	}
+	project = first.Project
+	project.UpdatedAt = "2000-01-01T00:00:00Z"
+	if err := first.SaveProject(project); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := ListProjects(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].ID != "second" || records[1].ID != "first" {
+		t.Fatalf("records = %+v", records)
+	}
+}
+
 func TestDefaultRootUsesWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	want := filepath.Join(workspace, ".tt", "coder", "projects")
