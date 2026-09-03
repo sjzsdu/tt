@@ -223,6 +223,21 @@ Flags:
 - `-f, --pattern strings`: filter Markdown files by glob patterns.
 
 
+### `tt web`
+
+Start a local web service that lists and displays HTML files in a target directory. The current working directory is used when no directory is provided. CSS, JavaScript, images, and other files in the directory remain available as static assets for the HTML pages.
+
+```bash
+tt web
+tt web ./dist
+tt web ./public --port 9597
+```
+
+Flags:
+
+- `-p, --port int`: service port, default `9597`.
+
+
 ### `tt slide`
 
 Start a local web service for presenting `.slide` decks. Slide files use Markdown-like content separated by `---`, but the command intentionally only scans and opens `.slide` files.
