@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,5 +66,49 @@ func TestEscapeViewPath(t *testing.T) {
 	want := "docs/My%20File.md"
 	if got != want {
 		t.Fatalf("escapeViewPath()=%q, want %q", got, want)
+	}
+}
+
+func TestHandleHTMLFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "architecture.html"), []byte("<h1>Architecture</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "diagram.css"), []byte("body { color: red; }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	previousRoot := mdRoot
+	mdRoot = root
+	t.Cleanup(func() { mdRoot = previousRoot })
+
+	page := httptest.NewRecorder()
+	handleHTMLFile(page, httptest.NewRequest("GET", "http://example.test/html/architecture.html", nil))
+	if page.Code != 200 || page.Body.String() != "<h1>Architecture</h1>" {
+		t.Fatalf("HTML response status=%d body=%q", page.Code, page.Body.String())
+	}
+	if got := page.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("HTML content type=%q, want text/html; charset=utf-8", got)
+	}
+
+	asset := httptest.NewRecorder()
+	handleHTMLFile(asset, httptest.NewRequest("GET", "http://example.test/html/assets/diagram.css", nil))
+	if asset.Code != 200 || asset.Body.String() != "body { color: red; }" {
+		t.Fatalf("asset response status=%d body=%q", asset.Code, asset.Body.String())
+	}
+
+	escape := httptest.NewRecorder()
+	handleHTMLFile(escape, httptest.NewRequest("GET", "http://example.test/html/../outside.html", nil))
+	if escape.Code != 400 {
+		t.Fatalf("path escape status=%d, want 400", escape.Code)
+	}
+
+	directory := httptest.NewRecorder()
+	handleHTMLFile(directory, httptest.NewRequest("GET", "http://example.test/html/assets/", nil))
+	if directory.Code != 404 {
+		t.Fatalf("directory status=%d, want 404 without index.html", directory.Code)
 	}
 }

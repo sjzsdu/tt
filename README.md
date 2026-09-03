@@ -209,6 +209,8 @@ tt markdown --content "# Hello" --content-only
 
 For development, run `make web-build` to rebuild embedded web assets or `cd web && npm run dev:markdown` for the Vite dev server.
 
+Relative links to local `.html` or `.htm` files are opened as rendered HTML pages, so architecture diagrams and other generated HTML documents can be linked directly from Markdown.
+
 Theme support:
 
 - Use the light/dark theme toggle in the left file pane to switch the UI theme.

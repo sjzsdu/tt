@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MouseEvent } from 'react';
 import type { DocumentResponse, TocItem } from '../types';
 import { useMarkdownParts } from '../hooks/useMarkdown';
 import { MarkdownContent } from './MarkdownContent';
@@ -17,6 +17,33 @@ function slugify(text: string): string {
     .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
+}
+
+function isLocalHTMLPath(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return lower.endsWith('.html') || lower.endsWith('.htm');
+}
+
+function handleArticleLinkClick(event: MouseEvent<HTMLElement>, currentFilePath: string) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const anchor = target.closest('a');
+  if (!anchor) return;
+
+  const href = anchor.getAttribute('href')?.trim();
+  if (!href || href.startsWith('#')) return;
+
+  let url: URL;
+  try {
+    url = new URL(href, `${window.location.origin}${currentFilePath}`);
+  } catch {
+    return;
+  }
+  if (url.origin !== window.location.origin || !isLocalHTMLPath(url.pathname)) return;
+
+  event.preventDefault();
+  window.location.assign(`/html${url.pathname}${url.search}${url.hash}`);
 }
 
 export function Article({ doc, setToc, contentPaneRef, theme }: ArticleProps) {
@@ -72,7 +99,11 @@ export function Article({ doc, setToc, contentPaneRef, theme }: ArticleProps) {
   return (
     <div className="doc-wrap">
       {fmPanel}
-      <article ref={articleRef} className="markdown-body">
+      <article
+        ref={articleRef}
+        className="markdown-body"
+        onClick={event => handleArticleLinkClick(event, doc.filePath)}
+      >
         <MarkdownContent parts={parts} theme={theme} />
       </article>
     </div>

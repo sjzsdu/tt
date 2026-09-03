@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -284,6 +285,7 @@ func runMarkdownServer() error {
 	mux.HandleFunc("/raw/", handleRaw)
 	mux.HandleFunc("/raw-content", handleRawContent)
 	mux.HandleFunc("/images/", handleImages)
+	mux.HandleFunc("/html/", handleHTMLFile)
 	mux.HandleFunc("/ws", handleWS)
 
 	maxPort := mdPort + 20
@@ -555,6 +557,50 @@ func handleImages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", mimeType(absPath))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 	_, _ = w.Write(content)
+}
+
+func handleHTMLFile(w http.ResponseWriter, r *http.Request) {
+	relPath := strings.TrimPrefix(r.URL.Path, "/html")
+	if relPath == "" || relPath == "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	absPath, err := safeJoin(mdRoot, relPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if info.IsDir() {
+		indexPath := filepath.Join(absPath, "index.html")
+		indexInfo, indexErr := os.Stat(indexPath)
+		if indexErr != nil || indexInfo.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		absPath = indexPath
+		info = indexInfo
+	}
+	if !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
+
+	file, err := os.Open(absPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	if contentType := mime.TypeByExtension(filepath.Ext(absPath)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	http.ServeContent(w, r, filepath.Base(absPath), info.ModTime(), file)
 }
 
 func handleContent(w http.ResponseWriter, r *http.Request) {
