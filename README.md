@@ -227,11 +227,16 @@ Flags:
 
 ### `tt web`
 
-Start a local web service that lists and displays HTML files in a target directory. The current working directory is used when no directory is provided. CSS, JavaScript, images, and other files in the directory remain available as static assets for the HTML pages.
+Start a local web service that lists and displays HTML files in a target directory. The current working directory is used when no target is provided. CSS, JavaScript, images, and other files in the directory remain available as static assets for the HTML pages.
+
+When the target is an HTML file, its parent directory is served as the web root so relative assets keep working, and the browser opens that file directly instead of the file listing.
+
+The listing page shows the built-in tt web logo, which is also served as `/favicon.svg` (and as the fallback `/favicon.ico`). A `favicon.svg` or `favicon.ico` in the target directory takes precedence over the built-in one.
 
 ```bash
 tt web
 tt web ./dist
+tt web ./dist/index.html
 tt web ./public --port 9597
 ```
 
