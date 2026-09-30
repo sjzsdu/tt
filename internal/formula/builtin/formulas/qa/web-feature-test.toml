@@ -23,13 +23,9 @@ vision_verify = { description = "是否对截图启用百炼视觉模型验收�
 vision_verify_mode = { description = "视觉验收模式：auto/all/failures/none。auto 只验证截图、canvas/视觉相关或 DOM 受阻用例", default = "auto" }
 vision_model = { description = "百炼视觉模型名称，用于 bl vision describe", default = "qwen3-vl-plus" }
 max_concurrency = { description = "兼容旧配置的保留变量；当前执行阶段使用单次 agent 调用顺序跑全部用例，以避免多次 LLM agent 调用触发 provider cooldown", default = "1", pattern = "^[1-9][0-9]*$" }
-browser_engine = { description = "agent-browser 浏览器引擎，Three.js/WebGL 测试必须使用 chrome，避免 lightpanda/headless", default = "chrome" }
-browser_headed = { description = "是否显示 Chrome 窗口；默认 false 静默测试，调试时可设 true", default = "false" }
-browser_executable_path = { description = "agent-browser 使用的 Chrome 可执行文件路径；为空则使用默认浏览器", default = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
-browser_session_name = { description = "agent-browser 自动保存/恢复登录态的 session-name；为空时按 suite 自动生成", default = "" }
-close_browser_after_run = { description = "运行结束后是否关闭本次 agent-browser session，默认 true 防止 Chrome/agent-browser 残留；调试时可设 false", default = "true" }
+browser_session_name = { description = "ego-browser 共享 taskSpace 名称，用于跨步骤复用同一批页面标签和登录态；为空时按 suite 自动生成", default = "" }
+close_browser_after_run = { description = "运行结束后是否关闭本次 ego-browser task space，默认 true 防止标签页残留；调试时可设 false", default = "true" }
 ignore_https_errors = { description = "是否忽略本地/自签名 HTTPS 证书错误", default = "true" }
-webgl_browser_args = { description = "agent-browser WebGL/GPU 启动参数，逗号分隔", default = "--ignore-gpu-blocklist,--ignore-certificate-errors,--allow-insecure-localhost,--enable-gpu-rasterization,--enable-webgl,--enable-webgl2,--use-angle=metal" }
 
 [[steps]]
 id = "load-project-context"
@@ -161,11 +157,10 @@ session_seed = browser_session_name_input or f'web-feature-test-{suite}'
 session_digest = hashlib.sha1(session_seed.encode('utf-8')).hexdigest()[:10]
 session_prefix = sanitize_browser_session_name(browser_session_name_input or 'webft')[:20]
 browser_session_name = f'{session_prefix}-{session_digest}'
-browser_socket_dir = f'/tmp/tt-ab-{session_digest}'
-state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'vision_verify': os.environ.get('VISION_VERIFY','true').lower() == 'true', 'vision_verify_mode': os.environ.get('VISION_VERIFY_MODE','auto'), 'vision_model': os.environ.get('VISION_MODEL','qwen3-vl-plus'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors}
+state['run_options'] = {'only_failed': only_failed, 'max_cases': max_cases, 'screenshot_mode': os.environ.get('SCREENSHOT_MODE','failures'), 'vision_verify': os.environ.get('VISION_VERIFY','true').lower() == 'true', 'vision_verify_mode': os.environ.get('VISION_VERIFY_MODE','auto'), 'vision_model': os.environ.get('VISION_MODEL','qwen3-vl-plus'), 'max_concurrency': int(os.environ.get('MAX_CONCURRENCY') or '1'), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors}
 state['paths'] = {'suite_dir': str(suite_dir), 'state': str(state_path), 'cases': str(cases_path), 'runs': str(runs_path), 'artifacts': str(artifacts_dir), 'screenshots': str(screenshots_dir)}
 state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
-print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'browser_socket_dir': browser_socket_dir, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
+print(json.dumps({'suite': suite, 'suite_dir': str(suite_dir), 'state_path': str(state_path), 'cases_path': str(cases_path), 'runs_path': str(runs_path), 'artifacts_dir': str(artifacts_dir), 'screenshots_dir': str(screenshots_dir), 'browser_session_name': browser_session_name, 'ignore_https_errors': ignore_https_errors, 'resumed': bool(resume and not reset and state_path.exists()), 'only_failed': only_failed, 'existing_cases': len(state.get('cases', [])), 'current_run_id': state['current_run_id']}, ensure_ascii=False))
 """]
 format = "json"
 timeout = "30s"
@@ -357,25 +352,87 @@ init_state = load_json(os.environ.get('INIT_TEST_STATE', ''), {})
 scope = load_json(os.environ.get('NORMALIZE_SCOPE', ''), {})
 target_url = scope.get('target_url') or init_state.get('root_url') or os.environ.get('URL') or ''
 session_name = init_state.get('browser_session_name') or os.environ.get('BROWSER_SESSION_NAME') or 'web-feature-test'
-socket_dir = init_state.get('browser_socket_dir') or ''
 screenshots_dir = pathlib.Path(init_state.get('screenshots_dir') or '.tt/web-feature-test/screenshots')
 screenshots_dir.mkdir(parents=True, exist_ok=True)
 preflight_png = screenshots_dir / ('preflight-' + str(int(time.time())) + '.png')
 
-env = os.environ.copy()
-env['AGENT_BROWSER_ENGINE'] = os.environ.get('BROWSER_ENGINE') or 'chrome'
-env['AGENT_BROWSER_HEADED'] = os.environ.get('BROWSER_HEADED') or 'false'
-if os.environ.get('BROWSER_EXECUTABLE_PATH'):
-    env['AGENT_BROWSER_EXECUTABLE_PATH'] = os.environ['BROWSER_EXECUTABLE_PATH']
-if os.environ.get('WEBGL_BROWSER_ARGS'):
-    env['AGENT_BROWSER_ARGS'] = os.environ['WEBGL_BROWSER_ARGS']
-env['AGENT_BROWSER_SESSION_NAME'] = session_name
-if socket_dir:
-    env['AGENT_BROWSER_SOCKET_DIR'] = socket_dir
-env['AGENT_BROWSER_SCREENSHOT_DIR'] = str(screenshots_dir)
+EGO_BIN = 'ego-browser'
+EGO_JS_HEAD = '''const name = __EGO_NAME__;
+const op = __EGO_OP__;
+const arg = __EGO_ARG__;
+const value = __EGO_VALUE__;
+'''
+EGO_JS_BODY = '''try {
+  const t = await taskSpace(name);
+  const p = t.page('p1');
+  if (op === 'open') {
+    await p.goto(arg, { timeout: 60000, waitUntil: 'load' });
+    await p.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    console.log(JSON.stringify({ url: await p.url() }));
+  } else if (op === 'url') {
+    console.log(JSON.stringify({ url: await p.url() }));
+  } else if (op === 'title') {
+    console.log(JSON.stringify({ title: await p.title() }));
+  } else if (op === 'snapshot') {
+    console.log(await p.snapshot());
+  } else if (op === 'eval') {
+    const r = await p.evaluate(arg);
+    console.log(typeof r === 'string' ? r : JSON.stringify(r));
+  } else if (op === 'screenshot') {
+    await p.screenshot({ path: arg });
+    console.log(JSON.stringify({ path: arg }));
+  } else if (op === 'click') {
+    await p.click(arg, { timeout: 8000 });
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'fill') {
+    await p.fill(arg, value, { timeout: 8000 });
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'select') {
+    await p.selectOption(arg, value);
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'visible') {
+    await p.waitForSelector(arg, { state: 'visible', timeout: 5000 });
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'wait') {
+    await p.waitForTimeout(Number(arg) || 0);
+    console.log(JSON.stringify({ ok: true }));
+  } else {
+    throw new Error('unsupported op: ' + op);
+  }
+} catch (e) {
+  console.error(String((e && e.message) || e));
+  process.exitCode = 1;
+}
+'''
 
-base = ['agent-browser']
-common = ['--session', session_name]
+
+def run_ab(args, timeout=45):
+    ops = [str(a) for a in args]
+    if ops and ops[-1] == '--json':
+        ops = ops[:-1]
+    op = ops[0] if ops else ''
+    arg = ''
+    value = ''
+    if op == 'get' and len(ops) > 1:
+        op = ops[1]
+    elif op == 'is' and len(ops) > 2:
+        op = ops[1]
+        arg = ops[2]
+    elif op in ('open', 'snapshot', 'eval', 'screenshot', 'click', 'wait') and len(ops) > 1:
+        arg = ops[1]
+    elif op in ('fill', 'select') and len(ops) > 2:
+        arg = ops[1]
+        value = ops[2]
+    if op == 'screenshot' and arg:
+        arg = os.path.abspath(arg)
+    js = EGO_JS_HEAD.replace('__EGO_NAME__', json.dumps(session_name or 'web-feature-test')).replace('__EGO_OP__', json.dumps(op)).replace('__EGO_ARG__', json.dumps(arg)).replace('__EGO_VALUE__', json.dumps(value)) + EGO_JS_BODY
+    cmd_display = EGO_BIN + ' nodejs ' + op + (' ' + arg if arg else '')
+    proc = subprocess.run([EGO_BIN, 'nodejs', '-e', js], cwd=os.getcwd(), env=os.environ.copy(), text=True, capture_output=True, timeout=timeout)
+    out_text = proc.stdout.strip()
+    err_text = proc.stderr.strip()
+    effective = out_text if out_text else err_text
+    return {'ok': proc.returncode == 0, 'code': proc.returncode, 'stdout': effective, 'stderr': err_text, 'cmd': cmd_display}
+
 evidence = []
 artifacts = []
 status = 'unknown'
@@ -385,10 +442,6 @@ webgl_state = 'unknown'
 notes = ''
 
 
-def run_ab(args, timeout=45):
-    proc = subprocess.run(base + args + common, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=timeout)
-    return {'ok': proc.returncode == 0, 'code': proc.returncode, 'stdout': proc.stdout.strip(), 'stderr': proc.stderr.strip(), 'cmd': ' '.join(base + args + common)}
-
 try:
     if not target_url:
         raise RuntimeError('target_url is empty')
@@ -396,10 +449,10 @@ try:
     opened = run_ab(['open', target_url, '--json'], timeout=90)
     if not opened['ok']:
         status = 'blocked'
-        notes = 'agent-browser open failed during deterministic preflight.'
+        notes = 'ego-browser open failed during deterministic preflight.'
         evidence.append('open failed: ' + compact(opened.get('stderr') or opened.get('stdout')))
     else:
-        evidence.append('agent-browser open succeeded for shared session ' + session_name)
+        evidence.append('ego-browser open succeeded for shared task space ' + session_name)
         url_result = run_ab(['get', 'url', '--json'], timeout=20)
         final_url = compact(url_result.get('stdout')) if url_result['ok'] else ''
         if final_url.startswith('{'):
@@ -432,10 +485,10 @@ try:
                 artifacts.append({'type': 'screenshot', 'path': str(preflight_png), 'description': 'Deterministic preflight screenshot'})
                 evidence.append('preflight screenshot saved: ' + str(preflight_png))
             status = 'ready'
-            notes = 'Deterministic agent-browser preflight opened the target URL in the shared session.'
+            notes = 'Deterministic ego-browser preflight opened the target URL in the shared task space.'
 except subprocess.TimeoutExpired as exc:
     status = 'blocked'
-    notes = 'agent-browser command timed out during deterministic preflight.'
+    notes = 'ego-browser command timed out during deterministic preflight.'
     evidence.append('timeout: ' + compact(exc))
 except Exception as exc:
     status = 'blocked'
@@ -465,10 +518,6 @@ timeout = "150s"
 INIT_TEST_STATE = "{{init-test-state.stdout}}"
 NORMALIZE_SCOPE = "{{normalize-scope}}"
 URL = "{{url}}"
-BROWSER_ENGINE = "{{browser_engine}}"
-BROWSER_HEADED = "{{browser_headed}}"
-BROWSER_EXECUTABLE_PATH = "{{browser_executable_path}}"
-WEBGL_BROWSER_ARGS = "{{webgl_browser_args}}"
 BROWSER_SESSION_NAME = "{{init-test-state.stdout.browser_session_name}}"
 
 [steps.validate]
@@ -607,9 +656,82 @@ def status_from_block(case, reason, evidence, artifacts=None, final_url=''):
     }
 
 
+EGO_BIN = 'ego-browser'
+EGO_JS_HEAD = '''const name = __EGO_NAME__;
+const op = __EGO_OP__;
+const arg = __EGO_ARG__;
+const value = __EGO_VALUE__;
+'''
+EGO_JS_BODY = '''try {
+  const t = await taskSpace(name);
+  const p = t.page('p1');
+  if (op === 'open') {
+    await p.goto(arg, { timeout: 60000, waitUntil: 'load' });
+    await p.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    console.log(JSON.stringify({ url: await p.url() }));
+  } else if (op === 'url') {
+    console.log(JSON.stringify({ url: await p.url() }));
+  } else if (op === 'title') {
+    console.log(JSON.stringify({ title: await p.title() }));
+  } else if (op === 'snapshot') {
+    console.log(await p.snapshot());
+  } else if (op === 'eval') {
+    const r = await p.evaluate(arg);
+    console.log(typeof r === 'string' ? r : JSON.stringify(r));
+  } else if (op === 'screenshot') {
+    await p.screenshot({ path: arg });
+    console.log(JSON.stringify({ path: arg }));
+  } else if (op === 'click') {
+    await p.click(arg, { timeout: 8000 });
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'fill') {
+    await p.fill(arg, value, { timeout: 8000 });
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'select') {
+    await p.selectOption(arg, value);
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'visible') {
+    await p.waitForSelector(arg, { state: 'visible', timeout: 5000 });
+    console.log(JSON.stringify({ ok: true }));
+  } else if (op === 'wait') {
+    await p.waitForTimeout(Number(arg) || 0);
+    console.log(JSON.stringify({ ok: true }));
+  } else {
+    throw new Error('unsupported op: ' + op);
+  }
+} catch (e) {
+  console.error(String((e && e.message) || e));
+  process.exitCode = 1;
+}
+'''
+
+
 def run_ab(args, timeout=45):
-    proc = subprocess.run(['agent-browser'] + args + common, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=timeout)
-    return {'ok': proc.returncode == 0, 'code': proc.returncode, 'stdout': proc.stdout.strip(), 'stderr': proc.stderr.strip(), 'cmd': ' '.join(['agent-browser'] + args + common)}
+    ops = [str(a) for a in args]
+    if ops and ops[-1] == '--json':
+        ops = ops[:-1]
+    op = ops[0] if ops else ''
+    arg = ''
+    value = ''
+    if op == 'get' and len(ops) > 1:
+        op = ops[1]
+    elif op == 'is' and len(ops) > 2:
+        op = ops[1]
+        arg = ops[2]
+    elif op in ('open', 'snapshot', 'eval', 'screenshot', 'click', 'wait') and len(ops) > 1:
+        arg = ops[1]
+    elif op in ('fill', 'select') and len(ops) > 2:
+        arg = ops[1]
+        value = ops[2]
+    if op == 'screenshot' and arg:
+        arg = os.path.abspath(arg)
+    js = EGO_JS_HEAD.replace('__EGO_NAME__', json.dumps(session_name or 'web-feature-test')).replace('__EGO_OP__', json.dumps(op)).replace('__EGO_ARG__', json.dumps(arg)).replace('__EGO_VALUE__', json.dumps(value)) + EGO_JS_BODY
+    cmd_display = EGO_BIN + ' nodejs ' + op + (' ' + arg if arg else '')
+    proc = subprocess.run([EGO_BIN, 'nodejs', '-e', js], cwd=os.getcwd(), env=os.environ.copy(), text=True, capture_output=True, timeout=timeout)
+    out_text = proc.stdout.strip()
+    err_text = proc.stderr.strip()
+    effective = out_text if out_text else err_text
+    return {'ok': proc.returncode == 0, 'code': proc.returncode, 'stdout': effective, 'stderr': err_text, 'cmd': cmd_display}
 
 
 def get_current_url():
@@ -904,25 +1026,11 @@ context_doc = load_json(os.environ.get('LOAD_PROJECT_CONTEXT', ''), {}).get('con
 cases = gate.get('cases') or []
 target_url = prepared.get('target_url') or init_state.get('root_url') or os.environ.get('URL') or ''
 session_name = prepared.get('browser_session_name') or init_state.get('browser_session_name') or 'web-feature-test'
-socket_dir = init_state.get('browser_socket_dir') or ''
 screenshots_dir = pathlib.Path(init_state.get('screenshots_dir') or '.tt/web-feature-test/screenshots')
 screenshots_dir.mkdir(parents=True, exist_ok=True)
 vision_verify = os.environ.get('VISION_VERIFY', 'true').lower() == 'true'
 vision_verify_mode = (os.environ.get('VISION_VERIFY_MODE') or init_state.get('vision_verify_mode') or 'auto').lower().strip()
 vision_model = os.environ.get('VISION_MODEL') or init_state.get('vision_model') or 'qwen3-vl-plus'
-
-env = os.environ.copy()
-env['AGENT_BROWSER_ENGINE'] = os.environ.get('BROWSER_ENGINE') or 'chrome'
-env['AGENT_BROWSER_HEADED'] = os.environ.get('BROWSER_HEADED') or 'false'
-if os.environ.get('BROWSER_EXECUTABLE_PATH'):
-    env['AGENT_BROWSER_EXECUTABLE_PATH'] = os.environ['BROWSER_EXECUTABLE_PATH']
-if os.environ.get('WEBGL_BROWSER_ARGS'):
-    env['AGENT_BROWSER_ARGS'] = os.environ['WEBGL_BROWSER_ARGS']
-env['AGENT_BROWSER_SESSION_NAME'] = session_name
-if socket_dir:
-    env['AGENT_BROWSER_SOCKET_DIR'] = socket_dir
-env['AGENT_BROWSER_SCREENSHOT_DIR'] = str(screenshots_dir)
-common = ['--session', session_name]
 
 results = []
 for case in cases:
@@ -983,10 +1091,6 @@ PREPARE_BROWSER_SESSION = "{{prepare-browser-session.stdout}}"
 INIT_TEST_STATE = "{{init-test-state.stdout}}"
 LOAD_PROJECT_CONTEXT = "{{load-project-context.stdout}}"
 URL = "{{url}}"
-BROWSER_ENGINE = "{{browser_engine}}"
-BROWSER_HEADED = "{{browser_headed}}"
-BROWSER_EXECUTABLE_PATH = "{{browser_executable_path}}"
-WEBGL_BROWSER_ARGS = "{{webgl_browser_args}}"
 VISION_VERIFY = "{{vision_verify}}"
 VISION_VERIFY_MODE = "{{vision_verify_mode}}"
 VISION_MODEL = "{{vision_model}}"
@@ -1042,7 +1146,7 @@ no_operations = bool(results) and all(not (r.get('operation_path') or []) for r 
 corpus = json.dumps(results, ensure_ascii=False).lower()
 command_misuse_markers = [
     'missing arguments for:',
-    'usage: agent-browser get text <selector>',
+    'usage: ego-browser nodejs get text <selector>',
     'did not complete the full ui interaction sequence',
     '未完成提示中要求的细粒度 ui 交互',
     'no actual ui validation',
@@ -1050,7 +1154,7 @@ command_misuse_markers = [
 if all_unknown and no_operations:
     errors.append('test-loop returned all unknown results with empty operation_path, which indicates a no-op execution')
 if any(marker in corpus for marker in command_misuse_markers):
-    errors.append('test-loop evidence contains agent-browser command misuse or explicit no-op language')
+    errors.append('test-loop evidence contains ego-browser command misuse or explicit no-op language')
 
 if errors:
     print(json.dumps({
@@ -1058,7 +1162,7 @@ if errors:
         'errors': errors,
         'result_count': len(results),
         'case_count': len(cases),
-        'advice': 'Retry test-loop with real agent-browser selector/snapshot/click/screenshot commands, or convert the deterministic selector operations into script steps.'
+        'advice': 'Retry test-loop with real ego-browser selector/snapshot/click/screenshot commands, or convert the deterministic selector operations into script steps.'
     }, ensure_ascii=False))
     sys.exit(1)
 
@@ -1113,49 +1217,11 @@ runs_path.parent.mkdir(parents=True, exist_ok=True)
 artifacts_dir = pathlib.Path(state.get('paths', {}).get('artifacts') or state_path.parent / 'artifacts')
 screenshots_dir = pathlib.Path(state.get('paths', {}).get('screenshots') or artifacts_dir / 'screenshots')
 screenshots_dir.mkdir(parents=True, exist_ok=True)
-shot_re = re.compile(r'''(/[^\\s\"']*\\.agent-browser/tmp/screenshots/[^\\s\"']+\\.(?:png|jpg|jpeg|webp))''')
-
 def relpath(path):
     try:
         return str(pathlib.Path(path).relative_to(pathlib.Path.cwd()))
     except Exception:
         return str(path)
-
-def archive_temp_screenshots(result):
-    case_id = result.get('case_id') or 'case'
-    corpus = json.dumps(result, ensure_ascii=False)
-    for artifact in result.get('artifacts') or []:
-        if not isinstance(artifact, dict):
-            continue
-        path_text = artifact.get('path') or ''
-        p = pathlib.Path(path_text)
-        if not p.is_absolute():
-            p = pathlib.Path.cwd() / p
-        if p.exists() and p.is_file() and p.suffix.lower() in ('.txt', '.log', '.md'):
-            try:
-                corpus += chr(10) + p.read_text(encoding='utf-8', errors='replace')
-            except Exception:
-                pass
-    added = []
-    for raw_path in sorted(set(shot_re.findall(corpus))):
-        src = pathlib.Path(raw_path)
-        if not src.exists() or not src.is_file():
-            continue
-        safe_name = re.sub(r'[^A-Za-z0-9_.-]+', '-', f"{case_id}-{src.name}")
-        dest = screenshots_dir / safe_name
-        try:
-            if src.resolve() != dest.resolve():
-                shutil.copy2(src, dest)
-            added.append({'type': 'screenshot', 'path': relpath(dest), 'description': 'Archived agent-browser screenshot from temporary directory'})
-        except Exception as exc:
-            added.append({'type': 'note', 'path': str(src), 'description': f'Failed to archive temporary screenshot: {exc}'})
-    if added:
-        existing = result.setdefault('artifacts', [])
-        existing_paths = {a.get('path') for a in existing if isinstance(a, dict)}
-        for item in added:
-            if item.get('path') not in existing_paths:
-                existing.append(item)
-    return added
 
 by_id = {c.get('id'): c for c in state.get('cases', [])}
 archived_screenshots = []
@@ -1163,7 +1229,6 @@ for result in results:
     if not isinstance(result, dict):
         continue
     case_id = result.get('case_id')
-    archived_screenshots.extend(archive_temp_screenshots(result))
     record = {'run_id': run_id, 'ran_at': now, **result}
     case = by_id.get(case_id)
     if case is not None:
@@ -1263,7 +1328,7 @@ required = ["stdout"]
 
 [[steps]]
 id = "cleanup-browser-session"
-title = "关闭本次 agent-browser 会话"
+title = "关闭本次 ego-browser task space"
 depends_on = ["load-final-state"]
 execution = "script"
 idempotent = true
@@ -1291,17 +1356,10 @@ should_close = os.environ.get('CLOSE_BROWSER_AFTER_RUN', 'true').lower() not in 
 init_state = load_json(os.environ.get('INIT_TEST_STATE', ''), {})
 prepared = load_json(os.environ.get('PREPARE_BROWSER_SESSION', ''), {})
 session_name = prepared.get('browser_session_name') or init_state.get('browser_session_name') or os.environ.get('BROWSER_SESSION_NAME') or ''
-socket_dir = init_state.get('browser_socket_dir') or ''
-env = os.environ.copy()
-if socket_dir:
-    env['AGENT_BROWSER_SOCKET_DIR'] = socket_dir
-if session_name:
-    env['AGENT_BROWSER_SESSION_NAME'] = session_name
 
 result = {
     'enabled': should_close,
     'session': session_name,
-    'socket_dir': socket_dir,
     'status': 'skipped',
     'command': '',
     'stdout': '',
@@ -1310,12 +1368,21 @@ result = {
 }
 
 if should_close and session_name:
-    cmd = ['agent-browser', 'close', '--session', session_name]
-    result['command'] = ' '.join(cmd)
+    js = ('const name = ' + json.dumps(session_name) + ';' + chr(10) + '''try {
+  const t = await taskSpace(name);
+  const receipt = await t.finish({ keep: [] });
+  console.log(JSON.stringify({ status: 'closed', closedSpace: !!receipt.closedSpace, closedManagedLabels: receipt.closedManagedLabels || [] }));
+} catch (e) {
+  console.error(String((e && e.message) || e));
+  process.exitCode = 1;
+}
+''')
+    cmd = ['ego-browser', 'nodejs', '-e', js]
+    result['command'] = 'ego-browser nodejs -e <finish task space>'
     try:
-        proc = subprocess.run(cmd, cwd=os.getcwd(), env=env, text=True, capture_output=True, timeout=30)
+        proc = subprocess.run(cmd, cwd=os.getcwd(), env=os.environ.copy(), text=True, capture_output=True, timeout=30)
         result['exit_code'] = proc.returncode
-        result['stdout'] = compact(proc.stdout)
+        result['stdout'] = compact(proc.stdout.strip() or proc.stderr.strip())
         result['stderr'] = compact(proc.stderr)
         result['status'] = 'closed' if proc.returncode == 0 else 'failed'
     except subprocess.TimeoutExpired as exc:
@@ -1323,7 +1390,7 @@ if should_close and session_name:
         result['stderr'] = compact(exc)
     except FileNotFoundError:
         result['status'] = 'unavailable'
-        result['stderr'] = 'agent-browser executable not found'
+        result['stderr'] = 'ego-browser executable not found'
     except Exception as exc:
         result['status'] = 'failed'
         result['stderr'] = type(exc).__name__ + ': ' + compact(exc)
@@ -1363,7 +1430,7 @@ description = """
 
 ## 状态与产物位置
 必须列出：state_path、suite_dir、artifacts_dir、screenshots_dir、runs_path。说明再次运行同一 suite 且 only_failed=true 会只重跑失败/阻塞/未知/待执行用例。
-同时说明 cleanup-browser-session.stdout.status：closed 表示本次 agent-browser session 已关闭；如果 close_browser_after_run=false 或 cleanup 失败，要提醒用户可能需要手动执行 `agent-browser close --session <session>`。
+同时说明 cleanup-browser-session.stdout.status：closed 表示本次 ego-browser task space 已关闭；如果 close_browser_after_run=false 或 cleanup 失败，要提醒用户可能需要在 ego lite 应用中手动关闭对应 task space 的标签页。
 
 ## 测试范围与安全边界
 列 URL、测试提示摘要、是否加载 context_doc、登录策略摘要、禁止动作。不要泄露密码。

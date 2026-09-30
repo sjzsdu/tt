@@ -1178,8 +1178,8 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 			if !ok {
 				t.Fatalf("explore-target step = %T, want AgentStep", child)
 			}
-			if agentStep.Agent != "agent-browser" {
-				t.Fatalf("explore-target agent = %q, want agent-browser", agentStep.Agent)
+			if agentStep.Agent != "ego-browser" {
+				t.Fatalf("explore-target agent = %q, want ego-browser", agentStep.Agent)
 			}
 			sawExploreAgent = true
 		case "persist-hunt-step":
@@ -1252,8 +1252,8 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 		if !ok {
 			t.Fatalf("verify-bug step = %T, want AgentStep", child)
 		}
-		if agentStep.Agent != "agent-browser" {
-			t.Fatalf("verify-bug agent = %q, want agent-browser", agentStep.Agent)
+		if agentStep.Agent != "ego-browser" {
+			t.Fatalf("verify-bug agent = %q, want ego-browser", agentStep.Agent)
 		}
 		sawVerifyAgent = true
 	}
@@ -1262,7 +1262,7 @@ func TestWebBugHuntUsesAgentBrowserAndOptionalBeads(t *testing.T) {
 	}
 }
 
-func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
+func TestWebFeatureTestUsesProjectDocStateAndEgoBrowser(t *testing.T) {
 	workflow, err := CompileWorkflowByName(context.Background(), "web-feature-test", nil, map[string]string{
 		"url":    "https://example.com",
 		"prompt": "测试登录后创建项目和编辑项目名称",
@@ -1308,7 +1308,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		t.Fatalf("prepare-browser-session idempotent = false, want true")
 	}
 	prepareBrowserSource := prepareBrowser.Command[2] + prepareBrowser.Env["BROWSER_SESSION_NAME"] + prepareBrowser.Env["INIT_TEST_STATE"]
-	for _, want := range []string{"agent-browser", "open", "get", "url", "eval", "WebGL", "screenshot", "safe_to_run_cases", "AGENT_BROWSER_SESSION_NAME", "AGENT_BROWSER_SOCKET_DIR", "{{init-test-state.stdout.browser_session_name}}"} {
+	for _, want := range []string{"ego-browser", "open", "get", "url", "eval", "WebGL", "screenshot", "safe_to_run_cases", "__EGO_NAME__", "taskSpace", "{{init-test-state.stdout.browser_session_name}}"} {
 		if !strings.Contains(prepareBrowserSource, want) {
 			t.Fatalf("prepare-browser-session script missing %q", want)
 		}
@@ -1338,7 +1338,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		t.Fatalf("test-loop dependencies = %v, want gate-runnable-cases", testLoop.Meta().DependsOn)
 	}
 	testLoopSource := testLoop.Command[2] + testLoop.Env["GATE_RUNNABLE_CASES"] + testLoop.Env["PREPARE_BROWSER_SESSION"] + testLoop.Env["VISION_VERIFY"] + testLoop.Env["VISION_MODEL"]
-	for _, want := range []string{"agent-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "bl", "vision", "describe", "visual_verification", "vision_verify", "vision_verify_mode", "should_verify_with_vision", "auto skipped pure DOM passed case", "VISION_VERIFY", "VISION_VERIFY_MODE", "VISION_MODEL", "AGENT_BROWSER_ENGINE", "AGENT_BROWSER_SESSION_NAME", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
+	for _, want := range []string{"ego-browser", "operation_path", "coverage_results", "extract_selectors", "data-testid", "aria-label", "ensure_target_ready", "try_login", "context_doc", "click", "fill", "select", "screenshot", "bl", "vision", "describe", "visual_verification", "vision_verify", "vision_verify_mode", "should_verify_with_vision", "auto skipped pure DOM passed case", "VISION_VERIFY", "VISION_VERIFY_MODE", "VISION_MODEL", "__EGO_OP__", "__EGO_NAME__", "taskSpace", "{{gate-runnable-cases.stdout}}", "{{prepare-browser-session.stdout}}"} {
 		if !strings.Contains(testLoopSource, want) {
 			t.Fatalf("test-loop script missing %q", want)
 		}
@@ -1373,7 +1373,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !mergeStep.Meta().Idempotent {
 		t.Fatalf("merge-case-results idempotent = false, want true")
 	}
-	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)", ".agent-browser/tmp/screenshots", "shutil.copy2", "archived_screenshots", "SKIPPED_RESULTS_JSON", "skipped_results"} {
+	for _, want := range []string{"coverage_results", "coverage_points", "history", "chr(10)", "archived_screenshots", "SKIPPED_RESULTS_JSON", "skipped_results"} {
 		if !strings.Contains(mergeStep.Command[2], want) {
 			t.Fatalf("merge-case-results script missing %q", want)
 		}
@@ -1387,7 +1387,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 		t.Fatalf("cleanup-browser-session dependencies = %v, want load-final-state", cleanupStep.Meta().DependsOn)
 	}
 	cleanupSource := cleanupStep.Command[2] + cleanupStep.Env["CLOSE_BROWSER_AFTER_RUN"] + cleanupStep.Env["BROWSER_SESSION_NAME"]
-	for _, want := range []string{"agent-browser", "close", "--session", "CLOSE_BROWSER_AFTER_RUN", "close_browser_after_run", "browser_session_name"} {
+	for _, want := range []string{"ego-browser", "taskSpace", "finish", "CLOSE_BROWSER_AFTER_RUN", "close_browser_after_run", "browser_session_name"} {
 		if !strings.Contains(cleanupSource, want) {
 			t.Fatalf("cleanup-browser-session script missing %q", want)
 		}
@@ -1400,7 +1400,7 @@ func TestWebFeatureTestUsesProjectDocStateAndAgentBrowser(t *testing.T) {
 	if !slices.Contains(final.Step.Meta().DependsOn, steps.ID("cleanup-browser-session")) {
 		t.Fatalf("final-report dependencies = %v, want cleanup-browser-session", final.Step.Meta().DependsOn)
 	}
-	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵", "visual_verification", "视觉模型", "cleanup-browser-session", "agent-browser close --session"} {
+	for _, want := range []string{"state_path", "artifacts_dir", "screenshots_dir", "only_failed=true", "覆盖矩阵", "visual_verification", "视觉模型", "cleanup-browser-session", "ego-browser task space"} {
 		if !strings.Contains(finalAgent.Prompt, want) {
 			t.Fatalf("final-report prompt missing %q", want)
 		}

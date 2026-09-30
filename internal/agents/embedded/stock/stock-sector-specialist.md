@@ -3,7 +3,7 @@ id: stock-sector-specialist
 name: 股票行业研究员
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

@@ -3,7 +3,7 @@ id: stock-discussion-host
 name: 股票投研主持人
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

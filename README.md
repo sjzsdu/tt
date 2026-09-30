@@ -554,7 +554,7 @@ tt debate "比亚迪现在是机会还是风险" --out debates/byd.json
 
 The embedded agent definitions live in `internal/agents/embedded/<category>/*.md` as Markdown files with YAML frontmatter. The `internal/agents` package loads them into Picoclaw `EmbeddedAgent` values so future embedded agents can be added without hardcoding large prompts in command files.
 
-The embedded stock agents are configured with `tongstock-cli` and `agent-browser` skills, and research tools such as web/search/fetch/exec are enabled in the cloned Picoclaw runtime config. This command depends on Picoclaw config and models, defaulting to `~/.picoclaw/config.json` unless overridden.
+The embedded stock agents are configured with `tongstock-cli` and `ego-browser` skills, and research tools such as web/search/fetch/exec are enabled in the cloned Picoclaw runtime config. This command depends on Picoclaw config and models, defaulting to `~/.picoclaw/config.json` unless overridden.
 
 Flags:
 
@@ -579,7 +579,7 @@ tt nvwa 前端开发工程师
 tt nvwa 产品经理 --context "偏增长型 SaaS"
 tt nvwa "Go 后端工程师" --output .agents/go-backend
 tt nvwa 数据分析师 --write=false --format agent --model gpt-5.4
-tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill agent-browser
+tt nvwa 前端开发工程师 --style embedded --id frontend-engineer --skill ego-browser
 ```
 
 Flags:

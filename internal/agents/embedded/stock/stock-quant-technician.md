@@ -3,7 +3,7 @@ id: stock-quant-technician
 name: 股票量化技术分析师
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

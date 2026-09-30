@@ -33,7 +33,7 @@ const (
 	Repo2SkillID            = "repo2skill"
 	CodeResearchID          = "code-research"
 	CodeContextManagerID    = "code-context"
-	AgentBrowserID          = "agent-browser"
+	EgoBrowserID            = "ego-browser"
 	FormulaWriterID         = "formula-writer"
 	SlideWriterID           = "slide-writer"
 	DocsAnalystID           = "docs-analyst"

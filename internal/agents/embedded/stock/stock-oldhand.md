@@ -3,7 +3,7 @@ id: stock-risk-investor
 name: 股票风险控制官
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

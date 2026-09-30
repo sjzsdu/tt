@@ -3,7 +3,7 @@ id: stock-news-event-analyst
 name: 股票新闻事件分析师
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

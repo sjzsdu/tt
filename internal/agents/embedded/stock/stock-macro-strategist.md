@@ -3,7 +3,7 @@ id: stock-macro-strategist
 name: 股票宏观策略师
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

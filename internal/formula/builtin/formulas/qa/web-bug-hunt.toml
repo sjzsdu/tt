@@ -1,7 +1,7 @@
 formula = "web-bug-hunt"
 aliases = ["web-bug-hunt"]
 title = "Web Bug 探测器"
-description = "输入 URL 和可选 metadata，使用 agent-browser 持续探索网站、持久化进度和 bug 复现路径，支持断点恢复与 fixed 复验。"
+description = "输入 URL 和可选 metadata，使用 ego-browser 持续探索网站、持久化进度和 bug 复现路径，支持断点恢复与 fixed 复验。"
 version = 2
 type = "workflow"
 category = "qa"
@@ -213,7 +213,7 @@ depends_on = ["select-next-target"]
 condition = "select-next-target.stdout.selected == true"
 input_context = ["normalize-scope", "init-scan-state.stdout", "select-next-target.stdout"]
 description = """
-你是 agent-browser agent。请探索 select-next-target.stdout.target 指定的页面/操作路径。
+你是 ego-browser agent。请使用 ego-browser skill 探索 select-next-target.stdout.target 指定的页面/操作路径。
 
 目标：处理一个页面或 flow，并输出可持久化的页面记录、后续待探索 URL、候选 bug 和确认 bug。
 
@@ -243,7 +243,7 @@ description = """
 - discovered_pages 只加入同站点或明确属于本任务范围的 URL；
 - 不确定的问题不要放 confirmed_bugs。
 """
-agent.name = "agent-browser"
+agent.name = "ego-browser"
 agent.cwd = "{{workspace_path}}"
 
 [steps.loop.body.validate]
@@ -399,7 +399,7 @@ depends_on = ["select-next-bug"]
 condition = "select-next-bug.stdout.selected == true"
 input_context = ["normalize-scope", "init-scan-state.stdout", "select-next-bug.stdout"]
 description = """
-你是 agent-browser agent。请读取 select-next-bug.stdout.bug 的 repro_steps，重新执行复现路径，判断历史 bug 是否已修复。
+你是 ego-browser agent。请使用 ego-browser skill 读取 select-next-bug.stdout.bug 的 repro_steps，重新执行复现路径，判断历史 bug 是否已修复。
 
 要求：
 - 不探索新页面，只复验这个 bug；
@@ -421,7 +421,7 @@ description = """
   "notes":"..."
 }
 """
-agent.name = "agent-browser"
+agent.name = "ego-browser"
 agent.cwd = "{{workspace_path}}"
 
 [steps.loop.body.validate]

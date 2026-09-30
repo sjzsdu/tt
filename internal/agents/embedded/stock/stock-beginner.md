@@ -3,7 +3,7 @@ id: stock-growth-investor
 name: 股票基本面分析师
 skills:
   - tongstock-cli
-  - agent-browser
+  - ego-browser
 no_history: false
 tools:
   - skills

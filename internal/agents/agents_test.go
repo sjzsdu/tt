@@ -125,27 +125,27 @@ func TestEmbeddedAgentsLoadFromMarkdown(t *testing.T) {
 		t.Fatalf("CodeContextManager prompt and soul should be loaded")
 	}
 
-	agentBrowser, err := Get(AgentBrowserID)
+	egoBrowser, err := Get(EgoBrowserID)
 	if err != nil {
-		t.Fatalf("Get(AgentBrowserID) error = %v", err)
+		t.Fatalf("Get(EgoBrowserID) error = %v", err)
 	}
-	if agentBrowser.Name != "Agent Browser 管理员" {
-		t.Fatalf("AgentBrowser name = %q", agentBrowser.Name)
+	if egoBrowser.Name != "Ego Browser 管理员" {
+		t.Fatalf("EgoBrowser name = %q", egoBrowser.Name)
 	}
-	if !containsString(agentBrowser.Tools, "skills") {
-		t.Fatalf("AgentBrowser tools = %v, want skills", agentBrowser.Tools)
+	if !containsString(egoBrowser.Tools, "skills") {
+		t.Fatalf("EgoBrowser tools = %v, want skills", egoBrowser.Tools)
 	}
-	if !containsString(agentBrowser.Tools, "exec") {
-		t.Fatalf("AgentBrowser tools = %v, want exec", agentBrowser.Tools)
+	if !containsString(egoBrowser.Tools, "exec") {
+		t.Fatalf("EgoBrowser tools = %v, want exec", egoBrowser.Tools)
 	}
-	if !containsString(agentBrowser.Skills, "agent-browser") {
-		t.Fatalf("AgentBrowser skills = %v, want agent-browser", agentBrowser.Skills)
+	if !containsString(egoBrowser.Skills, "ego-browser") {
+		t.Fatalf("EgoBrowser skills = %v, want ego-browser", egoBrowser.Skills)
 	}
-	if !containsString(agentBrowser.Aliases, "ab") {
-		t.Fatalf("AgentBrowser aliases = %v, want ab", agentBrowser.Aliases)
+	if !containsString(egoBrowser.Aliases, "ab") {
+		t.Fatalf("EgoBrowser aliases = %v, want ab", egoBrowser.Aliases)
 	}
-	if agentBrowser.Prompt == "" || agentBrowser.Soul == "" {
-		t.Fatalf("AgentBrowser prompt and soul should be loaded")
+	if egoBrowser.Prompt == "" || egoBrowser.Soul == "" {
+		t.Fatalf("EgoBrowser prompt and soul should be loaded")
 	}
 
 	stock, err := StockDiscussion()
