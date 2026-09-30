@@ -112,10 +112,11 @@ func registerEmbeddedAgentShortcutCommands() {
 			}
 			flags := agentRunFlags{Agent: agent.ID}
 			shortcut := &cobra.Command{
-				Use:   alias + " [message]",
-				Short: fmt.Sprintf("Run the %s embedded agent", agent.ID),
-				Long:  fmt.Sprintf("Run the %s embedded agent. This is a shortcut for `tt agent --agent %s`.", agent.ID, agent.ID),
-				Args:  cobra.ArbitraryArgs,
+				Use:     alias + " [message]",
+				Short:   fmt.Sprintf("Run the %s embedded agent", agent.ID),
+				Long:    fmt.Sprintf("Run the %s embedded agent. This is a shortcut for `tt agent --agent %s`.", agent.ID, agent.ID),
+				GroupID: groupAgentsID,
+				Args:    cobra.ArbitraryArgs,
 				RunE: func(cmd *cobra.Command, args []string) error {
 					return runAgentWithFlags(cmd, args, flags)
 				},

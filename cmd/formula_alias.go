@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	formulacmd "github.com/sjzsdu/tt/cmd/formula"
@@ -39,23 +38,38 @@ func registerFormulaShortcutCommands() {
 }
 
 func buildFormulaShortcutHelp(entries []formula.BuiltinEntry) string {
-	rows := []string{}
+	type shortcutEntry struct {
+		formula string
+		aliases []string
+	}
+	ordered := []*shortcutEntry{}
+	byFormula := map[string]*shortcutEntry{}
 	for _, entry := range entries {
+		e, ok := byFormula[entry.Name]
+		if !ok {
+			e = &shortcutEntry{formula: entry.Name}
+			byFormula[entry.Name] = e
+			ordered = append(ordered, e)
+		}
 		for _, alias := range entry.Aliases {
 			alias = strings.TrimSpace(alias)
-			if alias == "" {
-				continue
+			if alias != "" {
+				e.aliases = append(e.aliases, alias)
 			}
-			rows = append(rows, fmt.Sprintf("  tt %-22s run/show/help/compile/copy/runs  # formula: %s", alias, entry.Name))
 		}
+	}
+	rows := []string{}
+	for _, e := range ordered {
+		if len(e.aliases) == 0 {
+			continue
+		}
+		rows = append(rows, fmt.Sprintf("  tt %-22s # formula: %s", strings.Join(e.aliases, ", "), e.formula))
 	}
 	if len(rows) == 0 {
 		return ""
 	}
-	sort.Strings(rows)
 	var b strings.Builder
-	b.WriteString("\n\nFormula shortcut aliases:\n")
-	b.WriteString("Use these top-level aliases instead of `tt formula <subcommand> <formula>`:\n")
+	b.WriteString("\n\nFormula 快捷方式（每个别名支持 run/show/help/compile/copy/runs 子命令，`tt <别名> --help` 查看详情）:\n")
 	for _, row := range rows {
 		b.WriteString(row)
 		b.WriteByte('\n')
@@ -80,9 +94,10 @@ func newFormulaShortcutCommand(alias, formulaName, description string) *cobra.Co
 		short = description
 	}
 	cmd := &cobra.Command{
-		Use:   alias,
-		Short: short,
-		Long:  fmt.Sprintf("Formula shortcut for %s. Examples: `tt %s run`, `tt %s show`, `tt %s runs`.", formulaName, alias, alias, alias),
+		Use:     alias,
+		Short:   short,
+		Long:    fmt.Sprintf("Formula shortcut for %s. Examples: `tt %s run`, `tt %s show`, `tt %s runs`.", formulaName, alias, alias, alias),
+		GroupID: formulaGroupID(formulaName),
 	}
 	for _, sub := range []string{"run", "show", "help", "compile", "copy", "runs"} {
 		subcmd := sub

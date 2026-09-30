@@ -43,9 +43,9 @@ func TestNewFormulaShortcutCommandIncludesExpectedSubcommands(t *testing.T) {
 func TestBuildFormulaShortcutHelpListsAliasSubcommands(t *testing.T) {
 	help := buildFormulaShortcutHelp([]formula.BuiltinEntry{{Name: "keep-coding", Aliases: []string{"keep-coding"}}})
 	for _, want := range []string{
-		"Formula shortcut aliases:",
-		"tt keep-coding",
+		"Formula 快捷方式",
 		"run/show/help/compile/copy/runs",
+		"tt keep-coding",
 		"formula: keep-coding",
 	} {
 		if !strings.Contains(help, want) {

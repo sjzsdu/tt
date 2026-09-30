@@ -18,5 +18,6 @@ var rootCmd = &cobra.Command{
 func Execute() error {
 	registerEmbeddedAgentShortcutCommands()
 	registerFormulaShortcutCommands()
+	applyCommandGroups()
 	return rootCmd.Execute()
 }
