@@ -664,6 +664,38 @@ skills/<repo-name>/
     evidence.md  # only with --include-evidence
 ```
 
+### `tt docs visual`
+
+Generate diagram-centric Chinese documentation for a codebase using the embedded [diagram-design](https://github.com/cathrynlavery/diagram-design) skill. Charts are self-contained inline SVG in editorial style - no Mermaid, no generic rounded boxes - and every diagram answers one explicit comprehension question.
+
+All artifacts for one project stay in a single directory: `<target>/ai-docs/visual/` by default (remote repos write to `./ai-docs/<repo-name>/visual/`), side by side with `tt docs analyze` Markdown in `ai-docs/`, with cross-links between the two.
+
+```bash
+tt docs visual
+tt docs visual ./internal
+tt docs visual github.com/owner/repo
+tt docs visual ./cmd --format md --detail simplified
+tt docs visual github.com/owner/repo --dry-run
+tt docs visual ./internal --diagram-types architecture,sequence --max-diagrams 6
+tt docs visual ./internal --brand https://example.com
+```
+
+Flags:
+
+- `--format string`: output shape, `site` (single self-contained HTML doc site with side navigation, default), `md` (Markdown plus one standalone chart file per diagram), or `both`.
+- `--detail string`: chart detail level, `faithful` (<=24 nodes), `balanced` (<=12, default), or `simplified` (<=7).
+- `--audience string`: chart wording audience, `engineer`, `mixed` (default), or `executive`.
+- `--size string`: diagram-design size preset such as `doc-inline`, `doc-wide` (default), `slide-16x9`, `print-a4-landscape`.
+- `--max-diagrams int`: hard cap on diagram count; 0 lets the agent decide by repo complexity.
+- `--diagram-types string`: comma-separated preferred types (e.g. `architecture,sequence`); empty lets the agent choose.
+- `--brand string`: website URL to sample brand colors and fonts from.
+- `--output-dir string`: override the default output directory.
+- `--dry-run`: print the proposed diagram plan (comprehension questions, chart types, file list) without writing files.
+- `--model`, `--session`, `-d/--debug`, `--picoclaw-home`, `--picoclaw-config`, `--timeout`, `--keep-temp`: shared analysis options, same as `tt docs analyze`.
+
+The diagram-design skill itself is not committed to this repository: `make build` fetches it at build time, pinned to an upstream commit and verified by sha256 (`scripts/fetch-diagram-design.sh`, or `make skill-fetch` to fetch manually), and embeds it into the binary via `go:embed`.
+
+
 ### `tt mirror`
 
 Mirror keeps a project-local directory in sync with a fuller source directory. It is useful for sharing and selectively importing tool configs such as opencode agents and commands.

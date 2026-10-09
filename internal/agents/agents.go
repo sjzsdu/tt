@@ -37,6 +37,7 @@ const (
 	FormulaWriterID         = "formula-writer"
 	SlideWriterID           = "slide-writer"
 	DocsAnalystID           = "docs-analyst"
+	DocsVisualWriterID      = "docs-visual-writer"
 	BeadManagerID           = "bead-manager"
 	YiJingID                = "yi-jing"
 )
@@ -89,6 +90,10 @@ func FormulaWriter() (pcwrap.EmbeddedAgent, error) {
 
 func DocsAnalyst() (pcwrap.EmbeddedAgent, error) {
 	return Get(DocsAnalystID)
+}
+
+func DocsVisualWriter() (pcwrap.EmbeddedAgent, error) {
+	return Get(DocsVisualWriterID)
 }
 
 func AgentOptimizer() (pcwrap.EmbeddedAgent, error) {

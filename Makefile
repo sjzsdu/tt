@@ -4,11 +4,19 @@ BINDIR ?= $(PREFIX)/bin
 
 .PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team web-build-beads install install-force install-system clean run fmt tidy help
 
-build: web-build
+build: web-build skill-check
 	go build -o $(APP) .
 
 web-install:
 	bash scripts/web-install-if-needed.sh
+
+# The diagram-design skill is fetched at build time (commit + sha256 pinned)
+# and embedded into the binary via go:embed. It is gitignored.
+skill-fetch:
+	bash scripts/fetch-diagram-design.sh
+
+skill-check:
+	@test -f internal/docsvisual/skilldata/diagram-design/SKILL.md || { echo "diagram-design skill data missing; run: make skill-fetch" >&2; exit 1; }
 
 web-build: web-install web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team web-build-beads
 
@@ -63,7 +71,7 @@ install-system: build
 
 clean:
 	rm -f $(APP)
-	rm -rf web/node_modules web/apps/markdown/dist web/apps/formula/dist web/apps/agent/dist web/apps/slide/dist web/apps/team/dist internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist internal/webui/slide/dist internal/webui/team/dist
+	rm -rf web/node_modules web/apps/markdown/dist web/apps/formula/dist web/apps/agent/dist web/apps/slide/dist web/apps/team/dist internal/webui/markdown/dist internal/webui/formula/dist internal/webui/agent/dist internal/webui/slide/dist internal/webui/team/dist internal/docsvisual/skilldata
 
 run:
 	go run .
@@ -84,6 +92,7 @@ help:
 	@printf "  make install-force   Force rebuild + install to $(BINDIR)/$(APP)\n"
 	@printf "  make install-system  Install to /usr/local/bin/$(APP)\n"
 	@printf "  make clean           Remove local binary\n"
+	@printf "  make skill-fetch     Fetch pinned diagram-design skill for go:embed\n"
 	@printf "  make run             Run with go run\n"
 	@printf "  make fmt             Format Go files\n"
 	@printf "  make tidy            Tidy Go modules\n"
