@@ -57,6 +57,7 @@ var commandGroupByName = map[string]string{
 
 	// local browsing UIs
 	"web":          groupUIID,
+	"share":        groupUIID,
 	"json":         groupUIID,
 	"markdown":     groupUIID,
 	"conversation": groupUIID,

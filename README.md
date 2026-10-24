@@ -5,6 +5,7 @@
 ## Features
 
 - Local web UI for Markdown files with live reload.
+- Read-only LAN directory sharing with token auth, in-browser preview, and download.
 - Local presentation UI for `.slide` decks with the MagiCloud template and closing slide support.
 - Local web UI for JSON files with formatted preview and editing.
 - Local web UI for conversation-style JSON transcripts.
@@ -77,6 +78,7 @@ Available commands:
 | `debate` | Run a professional stock research discussion between embedded investor agents, then save the full JSON transcript. |
 | `json` | Browse and edit JSON files in a local web UI. |
 | `markdown` | Browse Markdown files in a local web UI. |
+| `share` | Share a directory over the LAN with preview and download. |
 | `slide` | Present `.slide` decks in a local Reveal.js web UI. |
 | `video` | Generate slide videos from centralized script files, using `ttconfig.video` defaults. |
 | `mirror` | Mirror selected files from a source directory. |
@@ -243,6 +245,52 @@ tt web ./public --port 9597
 Flags:
 
 - `-p, --port int`: service port, default `9597`.
+
+
+### `tt share`
+
+Share a directory with other devices on the same network. The service is
+read-only: visitors can browse the file tree, preview files in the browser, and
+download single files or the whole directory as a zip. Nothing is ever modified.
+
+```bash
+tt share
+tt share ./dist
+tt share ~/photos --port 9700
+tt share . --token mysecret
+tt share . --no-auth
+```
+
+On start the command prints the local address plus one LAN address per network
+interface, for example:
+
+```text
+Share service started: http://localhost:9600/?t=1f2e3d4c5b6a7988
+LAN: http://192.168.1.5:9600/?t=1f2e3d4c5b6a7988
+Share directory: /home/me/photos
+Press Ctrl-C to stop.
+```
+
+Send the printed link to anyone on the network: the `t` query parameter is the
+access token, stored as a cookie for later requests. A missing or wrong token
+answers `403`. Hidden files and `.git`, `node_modules`, `vendor` directories are
+never shared, and paths that escape the shared directory — including via
+symlinks — are rejected. Only `GET`/`HEAD` are allowed, so the service cannot be
+used to change anything.
+
+Preview support: Markdown, HTML, PDF, images, video, and audio render inline;
+plain text and source files show as text; other files offer a download button.
+Markdown renders server-side with raw HTML stripped, and HTML/SVG responses are
+sent with `Content-Security-Policy: sandbox` so previewed pages never execute
+scripts. Use `tt web` when you need to run an HTML build.
+
+Flags:
+
+- `-p, --port int`: service port, default `9600`.
+- `--token string`: access token, default is a random token per run.
+- `--no-auth`: disable the access token.
+- `--open`: open the share in the default browser, default `true`.
+- `-f, --pattern strings`: filter shared files by glob patterns.
 
 
 ### `tt slide`

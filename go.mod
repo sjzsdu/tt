@@ -7,6 +7,7 @@ require (
 	github.com/adhocore/gronx v1.20.0
 	github.com/chromedp/chromedp v0.15.1
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/gomarkdown/markdown v0.0.0-20260411013819-759bbc3e3207
 	github.com/sipeed/picoclaw v0.0.0
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -50,7 +51,6 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/gomarkdown/markdown v0.0.0-20260411013819-759bbc3e3207 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/h2non/filetype v1.1.3 // indirect
