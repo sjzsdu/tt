@@ -265,18 +265,19 @@ On start the command prints the local address plus one LAN address per network
 interface, for example:
 
 ```text
-Share service started: http://localhost:9600/?t=1f2e3d4c5b6a7988
-LAN: http://192.168.1.5:9600/?t=1f2e3d4c5b6a7988
+Share service started: http://localhost:9600/?t=ttshare
+LAN: http://192.168.1.5:9600/?t=ttshare
 Share directory: /home/me/photos
 Press Ctrl-C to stop.
 ```
 
 Send the printed link to anyone on the network: the `t` query parameter is the
-access token, stored as a cookie for later requests. A missing or wrong token
-answers `403`. Hidden files and `.git`, `node_modules`, `vendor` directories are
-never shared, and paths that escape the shared directory — including via
-symlinks — are rejected. Only `GET`/`HEAD` are allowed, so the service cannot be
-used to change anything.
+access token, stored as a cookie for later requests. The default token is
+`ttshare`, so the URL stays the same across runs; pass `--token` to change it
+or `--no-auth` to disable it. A missing or wrong token answers `403`. Hidden
+files and `.git`, `node_modules`, `vendor` directories are never shared, and
+paths that escape the shared directory — including via symlinks — are rejected.
+Only `GET`/`HEAD` are allowed, so the service cannot be used to change anything.
 
 Preview support: Markdown, HTML, PDF, images, video, and audio render inline;
 plain text and source files show as text; other files offer a download button.
@@ -287,7 +288,7 @@ scripts. Use `tt web` when you need to run an HTML build.
 Flags:
 
 - `-p, --port int`: service port, default `9600`.
-- `--token string`: access token, default is a random token per run.
+- `--token string`: access token, default `ttshare` (stable across runs).
 - `--no-auth`: disable the access token.
 - `--open`: open the share in the default browser, default `true`.
 - `-f, --pattern strings`: filter shared files by glob patterns.

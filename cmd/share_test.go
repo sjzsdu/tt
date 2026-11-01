@@ -523,19 +523,27 @@ func TestShareFavicon(t *testing.T) {
 	}
 }
 
-func TestNewShareToken(t *testing.T) {
-	first, err := newShareToken()
-	if err != nil {
-		t.Fatalf("newShareToken() error = %v", err)
+func TestResolveShareToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		flagValue string
+		noAuth    bool
+		want      string
+	}{
+		{name: "default is stable", want: defaultShareToken},
+		{name: "explicit token wins", flagValue: "mysecret", want: "mysecret"},
+		{name: "explicit token trimmed", flagValue: "  mysecret  ", want: "mysecret"},
+		{name: "no-auth disables token", flagValue: "mysecret", noAuth: true, want: ""},
+		{name: "no-auth without token", noAuth: true, want: ""},
 	}
-	second, err := newShareToken()
-	if err != nil {
-		t.Fatalf("newShareToken() error = %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveShareToken(tt.flagValue, tt.noAuth); got != tt.want {
+				t.Fatalf("resolveShareToken(%q, %v) = %q, want %q", tt.flagValue, tt.noAuth, got, tt.want)
+			}
+		})
 	}
-	if len(first) != 16 {
-		t.Fatalf("token length = %d, want 16 hex chars", len(first))
-	}
-	if first == second {
-		t.Fatalf("tokens must be unique: both %q", first)
+	if defaultShareToken == "" {
+		t.Fatal("defaultShareToken must not be empty")
 	}
 }

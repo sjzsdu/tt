@@ -3,9 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io"
@@ -40,7 +38,12 @@ var (
 	shareMu     sync.Mutex
 )
 
-const shareCookieName = "tt_share_token"
+const (
+	shareCookieName = "tt_share_token"
+	// defaultShareToken keeps the share link stable across runs so the same URL
+	// works on every device without passing --token. Override with --token.
+	defaultShareToken = "ttshare"
+)
 
 var shareCmd = &cobra.Command{
 	Use:   "share [directory]",
@@ -63,10 +66,22 @@ tt share . --no-auth`,
 func init() {
 	rootCmd.AddCommand(shareCmd)
 	shareCmd.Flags().IntVarP(&sharePort, "port", "p", 9600, "service port")
-	shareCmd.Flags().StringVar(&shareToken, "token", "", "access token (default: random per run)")
+	shareCmd.Flags().StringVar(&shareToken, "token", "", "access token (default: "+defaultShareToken+")")
 	shareCmd.Flags().BoolVar(&shareNoAuth, "no-auth", false, "disable the access token")
 	shareCmd.Flags().BoolVar(&shareOpen, "open", true, "open the share in the default browser")
 	shareCmd.Flags().StringSliceVarP(&sharePatterns, "pattern", "f", []string{}, "filter shared files by glob patterns, supports multiple values")
+}
+
+// resolveShareToken picks the effective token: --no-auth disables auth, an
+// explicit --token wins, and otherwise the stable default keeps URLs fixed.
+func resolveShareToken(flagValue string, noAuth bool) string {
+	if noAuth {
+		return ""
+	}
+	if token := strings.TrimSpace(flagValue); token != "" {
+		return token
+	}
+	return defaultShareToken
 }
 
 func runShare(cmd *cobra.Command, args []string) error {
@@ -75,15 +90,7 @@ func runShare(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	token := strings.TrimSpace(shareToken)
-	if shareNoAuth {
-		token = ""
-	} else if token == "" {
-		token, err = newShareToken()
-		if err != nil {
-			return err
-		}
-	}
+	token := resolveShareToken(shareToken, shareNoAuth)
 
 	handler, err := newShareHandler(root, sharePatterns, token)
 	if err != nil {
@@ -171,14 +178,6 @@ func resolveShareRoot(args []string) (string, error) {
 		return "", fmt.Errorf("share target must be a directory: %s", absPath)
 	}
 	return absPath, nil
-}
-
-func newShareToken() (string, error) {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate share token failed: %w", err)
-	}
-	return hex.EncodeToString(buf), nil
 }
 
 // shareLANIPs returns every non-loopback, non-link-local IPv4 address bound to
