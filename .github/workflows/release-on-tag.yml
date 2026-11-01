@@ -72,6 +72,12 @@ jobs:
         with:
           path: tt
 
+      - name: Fetch embedded skill data
+        working-directory: tt
+        # internal/docsvisual/skilldata is gitignored and fetched at build time;
+        # go:embed fails without it, which breaks tests and the binary build.
+        run: make skill-fetch
+
       - name: Checkout picoclaw sibling module
         uses: actions/checkout@v4
         with:
