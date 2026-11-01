@@ -6,8 +6,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is intentionally kept as a plain variable so release workflows can override it with ldflags.
-var version = "0.2.7"
+// version is injected from the git tag at build time (see Makefile and the
+// release workflow) so the version lives in exactly one place. The fallback
+// keeps `go build`/`go run` usable outside a tagged checkout.
+var version = "dev"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",

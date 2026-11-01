@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -88,7 +87,7 @@ func (r *Runner) run(ctx context.Context, subcmd string, args ...string) (runRes
 	cmd.Dir = r.Workspace
 	cmd.Env = append(os.Environ(), "BD_JSON_ENVELOPE=0")
 	// Run in a new process group so we can kill the whole tree on timeout.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -106,9 +105,9 @@ func (r *Runner) run(ctx context.Context, subcmd string, args ...string) (runRes
 	go func() {
 		select {
 		case <-runCtx.Done():
-			// Kill the entire process group (negative pid).
+			// Kill the entire process tree.
 			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				killProcessTree(cmd.Process.Pid)
 			}
 		case <-done:
 		}

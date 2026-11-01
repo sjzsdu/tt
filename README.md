@@ -859,7 +859,7 @@ tt config --init-project
 
 ## Releases
 
-When `cmd/version.go` changes on `main`, GitHub Actions builds Linux, macOS, and Windows binaries for `amd64` and `arm64`, then publishes them to a GitHub Release tagged with the version, for example `v0.1.0`.
+The git tag is the single source of truth for the version. Pushing a `v*` tag makes GitHub Actions build Linux, macOS, and Windows binaries for `amd64` and `arm64`, inject the tag as the binary version, and publish a GitHub Release for that tag (for example `v0.1.0`). There is no separate version constant to bump: `make build` derives the version from `git describe`, and release CI uses the pushed tag. A single platform failure no longer blocks publishing the artifacts that did build.
 
 ## Development
 

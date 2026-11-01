@@ -2,13 +2,11 @@ package team
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -80,14 +78,6 @@ func (l *ThreadLease) Release() error {
 	}
 	l.path = ""
 	return nil
-}
-
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, syscall.Signal(0))
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func liveThreadLease(dir string) bool {

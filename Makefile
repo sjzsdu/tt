@@ -2,10 +2,16 @@ APP := tt
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
+# The version comes from the git tag so there is a single source of truth.
+# Builds from a tagged commit report the tag; local builds append the distance
+# from the last tag. Release CI overrides VERSION with the pushed tag.
+VERSION ?= $(or $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//'),dev)
+GO_LDFLAGS ?= -X github.com/sjzsdu/tt/cmd.version=$(VERSION)
+
 .PHONY: build web-install web-build web-build-force web-build-markdown web-build-formula web-build-agent web-build-slide web-build-team web-build-beads install install-force install-system clean run fmt tidy help
 
 build: web-build skill-check
-	go build -o $(APP) .
+	go build -ldflags "$(GO_LDFLAGS)" -o $(APP) .
 
 web-install:
 	bash scripts/web-install-if-needed.sh
@@ -60,7 +66,7 @@ install: build
 	@printf "Installed to $(BINDIR)/$(APP)\n"
 
 install-force: web-build-force
-	go build -o $(APP) .
+	go build -ldflags "$(GO_LDFLAGS)" -o $(APP) .
 	mkdir -p $(BINDIR)
 	install -m 755 $(APP) $(BINDIR)/$(APP)
 	@printf "Installed to $(BINDIR)/$(APP)\n"
